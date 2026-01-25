@@ -3,8 +3,8 @@ layout: home
 permalink: index.html
 
 # Please update this with your repository name and project title
-repository-name: eYY-3yp-project-template
-title: Project Template
+repository-name: eYY-3yp-manikin-auscultation
+title: Manikin Auscultation
 ---
 
 [comment]: # "This is the standard layout for the project, but you can clean this and use your own template"
@@ -14,9 +14,10 @@ title: Project Template
 ---
 
 ## Team
--  eNumber, Name, [email](mailto:name@email.com)
--  eNumber, Name, [email](mailto:name@email.com)
--  eNumber, Name, [email](mailto:name@email.com)
+-  e21148, S. Ganathipan, [email](mailto:e21148@eng.pdn.ac.lk)
+-  e21152, V. Amirsha, [email](mailto:e21152@eng.pdn.ac.lk)
+-  e21214, K. Kartheepan, [email](mailto:e21214@eng.pdn.ac.lk)
+-  e21220, S. Kavishanthan, [email](mailto:e21220@eng.pdn.ac.lk)
 
 <!-- Image (photo/drawing of the final hardware) should be here -->
 
@@ -52,11 +53,7 @@ Testing done on hardware and software, detailed + summarized results
 
 ## Detailed budget
 
-All items and costs
-
-| Item          | Quantity  | Unit Cost  | Total  |
-| ------------- |:---------:|:----------:|-------:|
-| Sample item   | 5         | 10 LKR     | 50 LKR |
+---
 
 ## Conclusion
 

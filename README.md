@@ -1,57 +1,41 @@
-___
-# DELETE THIS INSTRUCTIONS AND ADD AN INTRODUCTION ABOUT YOUR PROJECT
-___
+Manikin Auscultation Overlay System
 
-# eYY-3yp-project-template
+This repository contains our Embedded Systems 3YP project: a smart auscultation training module that helps medical students practice accurate cardiac and respiratory auscultation on existing manikins.
 
-This is a sample repository you can use for your Embedded Systems project. Once you followed these instructions, remove the text and add a brief introduction to here.
+Project Overview
 
-### Enable GitHub Pages
+Current training manikins often play heart and lung sounds without giving strong feedback about whether the student is listening at the correct anatomical landmark. Our system provides real-time placement guidance and performance tracking to improve landmarking skills and support structured assessment.
 
-You can put the things to be shown in GitHub pages into the _docs/_ folder. Both html and md file formats are supported. You need to go to settings and enable GitHub pages and select _main_ branch and _docs_ folder from the dropdowns, as shown in the below image.
+What We Are Building
 
-![image](https://user-images.githubusercontent.com/11540782/98789936-028d3600-2429-11eb-84be-aaba665fdc75.png)
+Our solution is a retrofit system designed to work with existing manikins, consisting of:
 
-### Special Configurations
+Chest overlay sensing layer: a thin wearable overlay placed on the manikin chest, used to detect stethoscope placement using force/pressure sensing at standard auscultation zones (heart valve areas and lung fields).
 
-These projects will be automatically added into [https://projects.ce.pdn.ac.lk](). If you like to show more details about your project on this site, you can fill the parameters in the file, _/docs/index.json_
+Stethoscope audio adapter (cap): a lightweight cap that fits over the stethoscope chestpiece and injects the selected training sound through a compact speaker, reducing the need for multiple under-skin transducers.
 
-```
-{
-  "title": "This is the title of the project",
-  "team": [
-    {
-      "name": "Team Member Name 1",
-      "email": "email@eng.pdn.ac.lk",
-      "eNumber": "E/yy/xxx"
-    },
-    {
-      "name": "Team Member Name 2",
-      "email": "email@eng.pdn.ac.lk",
-      "eNumber": "E/yy/xxx"
-    },
-    {
-      "name": "Team Member Name 3",
-      "email": "email@eng.pdn.ac.lk",
-      "eNumber": "E/yy/xxx"
-    }
-  ],
-  "supervisors": [
-    {
-      "name": "Dr. Supervisor 1",
-      "email": "email@eng.pdn.ac.lk"
-    },
-    {
-      "name": "Supervisor 2",
-      "email": "email@eng.pdn.ac.lk"
-    }
-  ],
-  "tags": ["Web", "Embedded Systems"]
-}
-```
+Control box + embedded controller: processes placement accuracy in real-time, selects appropriate sound profiles (normal/pathological), and manages communication and updates.
 
-Once you filled this _index.json_ file, please verify the syntax is correct. (You can use [this](https://jsonlint.com/) tool).
+Tablet Web App (PWA): provides a clear accuracy indicator and guided practice interface for students.
 
-### Page Theme
+Cloud + Instructor dashboard: supports live monitoring, session logging, analytics (accuracy, time-to-find, attempts), and instructor-controlled sound library updates.
 
-A custom theme integrated with this GitHub Page, which is based on [github.com/cepdnaclk/eYY-project-theme](https://github.com/cepdnaclk/eYY-project-theme). If you like to remove this default theme, you can remove the file, _docs/\_config.yml_ and use HTML based website.
+Key Features
+
+Placement accuracy feedback (Perfect / Near / Far) with near-miss fading based on stethoscope position
+
+Guided practice mode and assessment mode with automatic scoring
+
+Live instructor monitoring and session reports
+
+Cloud-managed sound library with local device caching for reliable playback
+
+Expected Impact
+
+This system aims to improve:
+
+Students’ ability to identify correct auscultation landmarks
+
+Training quality through repeatable scenarios (normal + abnormal sounds)
+
+Objective assessment using measurable performance metrics
