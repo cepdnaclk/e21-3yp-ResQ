@@ -1,41 +1,69 @@
-Manikin Auscultation Overlay System
 
-This repository contains our Embedded Systems 3YP project: a smart auscultation training module that helps medical students practice accurate cardiac and respiratory auscultation on existing manikins.
+---
 
-Project Overview
+## Getting Started (Prototype Workflow)
 
-Current training manikins often play heart and lung sounds without giving strong feedback about whether the student is listening at the correct anatomical landmark. Our system provides real-time placement guidance and performance tracking to improve landmarking skills and support structured assessment.
+### 1) Hardware Prototype
+- Build 2×2 TPU bladder array
+- Mount under a sternum plate + chest-like cover
+- Add pressure sensor(s) + ADC
+- Add depth sensor (Hall + magnet) aligned with sternum movement
 
-What We Are Building
+### 2) Firmware
+- Read sensors
+- Compute:
+  - compression count (events)
+  - rate (cpm)
+  - depth estimate (mm)
+  - pause time
+  - placement drift (left/right/up/down)
 
-Our solution is a retrofit system designed to work with existing manikins, consisting of:
+### 3) Dashboard
+- Live graphs and indicators
+- Session save + score summary
+- Instructor comments box
 
-Chest overlay sensing layer: a thin wearable overlay placed on the manikin chest, used to detect stethoscope placement using force/pressure sensing at standard auscultation zones (heart valve areas and lung fields).
+---
 
-Stethoscope audio adapter (cap): a lightweight cap that fits over the stethoscope chestpiece and injects the selected training sound through a compact speaker, reducing the need for multiple under-skin transducers.
+## Calibration (Important)
 
-Control box + embedded controller: processes placement accuracy in real-time, selects appropriate sound profiles (normal/pathological), and manages communication and updates.
+To make readings meaningful:
+- **Zero calibration** at rest (no load)
+- Depth calibration using known displacement steps
+- Pressure calibration per bladder (or relative ratio-based normalization)
+- Threshold tuning for adult/child profiles
 
-Tablet Web App (PWA): provides a clear accuracy indicator and guided practice interface for students.
+Calibration notes will be documented under `/docs/calibration`.
 
-Cloud + Instructor dashboard: supports live monitoring, session logging, analytics (accuracy, time-to-find, attempts), and instructor-controlled sound library updates.
+---
 
-Key Features
+## Roadmap (Next Steps)
 
-Placement accuracy feedback (Perfect / Near / Far) with near-miss fading based on stethoscope position
+- [ ] Finalize mechanical stack (stable compressibility + durability)
+- [ ] Lock sensor strategy (pressure + depth vs depth-only MVP)
+- [ ] Implement robust compression event detection (hysteresis + debounce)
+- [ ] Build instructor dashboard mock → working prototype UI
+- [ ] Session logging + export (CSV/PDF)
+- [ ] Validation with repeated trials + basic scoring rubric
 
-Guided practice mode and assessment mode with automatic scoring
+---
 
-Live instructor monitoring and session reports
+## Safety & Ethics
 
-Cloud-managed sound library with local device caching for reliable playback
+- Training use only; not certified for clinical use.
+- No storage of sensitive personal data in public repositories.
+- Feedback thresholds should reference CPR training guidelines (with citations added later).
 
-Expected Impact
+---
 
-This system aims to improve:
+## License
 
-Students’ ability to identify correct auscultation landmarks
+To be decided (MIT / Apache-2.0 / etc.). For now, assume **all rights reserved** until we finalize.
 
-Training quality through repeatable scenarios (normal + abnormal sounds)
+---
 
-Objective assessment using measurable performance metrics
+## Contact
+
+Open an issue in this repo for questions, design suggestions, or collaboration requests.
+
+---
