@@ -6,12 +6,28 @@
     <meta name="description" content="ResQ: Smart CPR Training Platform - Real-time analytics for objective CPR training">
     <title>ResQ — CPR Training & Assessment Platform</title>
     <link rel="stylesheet" href="./assets/style.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap">
+        <link rel="icon" href="./assets/img/logo/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="./assets/img/logo/favicon-32.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/logo/apple-touch-icon.png" />
+        <meta name="theme-color" content="#12264C" />
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
             <div class="navbar-brand">
-                <a href="./" class="logo">ResQ</a>
+                <a class="brand" href="./" aria-label="ResQ">
+                  <span class="brand-mark">
+                    <img
+                      class="brand-logo"
+                      data-logo
+                      data-logo-light="./assets/img/logo/resq-logo-256.png"
+                      data-logo-dark="./assets/img/logo/resq-logo-dark-256.png"
+                      src="./assets/img/logo/resq-logo-256.png"
+                      alt="ResQ logo"
+                    />
+                  </span>
+                </a>
             </div>
             <ul class="nav-menu">
                 <li><a href="./">Home</a></li>
@@ -20,10 +36,13 @@
                 <li><a href="./specs/">Specifications</a></li>
                 <li><a href="./how-to-use/">How to Use</a></li>
             </ul>
-            <div class="hamburger">
-                <span></span>
-                <span></span>
-                <span></span>
+            <div class="nav-actions">
+                <button class="theme-toggle" type="button" aria-pressed="false">Dark Mode</button>
+                <div class="hamburger">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
             </div>
         </div>
     </nav>
@@ -31,13 +50,20 @@
     <!-- Hero Section -->
     <section class="hero">
         <div class="container">
-            <h1>ResQ</h1>
+                        <h1 class="hero-title">
+                            <a class="hero-logo-link" href="./" aria-label="ResQ">
+                                <picture>
+                                    <source srcset="./assets/img/logo/resq-logo-512.webp" type="image/webp" />
+                                    <img class="hero-logo" src="./assets/img/logo/resq-logo-256.png" alt="ResQ logo" />
+                                </picture>
+                            </a>
+                        </h1>
             <h2>CPR Training & Assessment Platform</h2>
             <p class="tagline">Real-time compression analytics • Objective performance metrics • Evidence-based feedback</p>
             <p class="hero-description">
-                ResQ transforms CPR training through instrumented manikins and live analytics. Our 2×2 TPU bladder sensor array 
-                measures compression depth, rate, recoil, and hand placement—giving students and instructors immediate, objective feedback 
-                for faster skill improvement.
+                High-quality CPR is a skill that needs feedback, not guesses. ResQ brings sensor-driven accuracy to CPR training 
+                by giving students instant guidance and giving instructors a clear view of everyone’s performance—making practice 
+                more effective, consistent, and confidence-building.
             </p>
             <div class="hero-buttons">
                 <a href="./about/" class="btn btn-primary">Read the Project Overview</a>
@@ -174,23 +200,23 @@
                 <div class="footer-section">
                     <h3>Quick Links</h3>
                     <ul>
-                        <li><a href="./about/">About</a></li>
-                        <li><a href="./blog/">Blog</a></li>
-                        <li><a href="./specs/">Specifications</a></li>
-                        <li><a href="./how-to-use/">How to Use</a></li>
+                        <li><a href="../">Home</a></li>
+                        <li><a href="../about/">About</a></li>
+                        <li><a href="../specs/">Specifications</a></li>
+                        <li><a href="../how-to-use/">How to Use</a></li>
                     </ul>
                 </div>
                 <div class="footer-section">
                     <h3>Resources</h3>
                     <ul>
-                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ" title="GitHub repository">GitHub Repository</a></li>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ">GitHub Repository</a></li>
                         <li><a href="#" title="Project documentation">Documentation</a></li>
                         <li><a href="#" title="Download latest build">Latest Release</a></li>
                     </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2026 ResQ Project. University of Plymouth.</p>
+                <p>&copy; University of Peradeniya, Faculty of Engineering, Computer Engineering Department</p>
                 <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
             </div>
         </div>

@@ -6,12 +6,28 @@
     <meta name="description" content="ResQ Development Blog - Project progress and technical updates">
     <title>Development Blog — ResQ CPR Training Platform</title>
     <link rel="stylesheet" href="../assets/style.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap">
+        <link rel="icon" href="../assets/img/logo/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/logo/favicon-32.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="../assets/img/logo/apple-touch-icon.png" />
+        <meta name="theme-color" content="#12264C" />
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
             <div class="navbar-brand">
-                <a href="../" class="logo">ResQ</a>
+                <a class="brand" href="../" aria-label="ResQ">
+                  <span class="brand-mark">
+                    <img
+                      class="brand-logo"
+                      data-logo
+                      data-logo-light="../assets/img/logo/resq-logo-256.png"
+                      data-logo-dark="../assets/img/logo/resq-logo-dark-256.png"
+                      src="../assets/img/logo/resq-logo-256.png"
+                      alt="ResQ logo"
+                    />
+                  </span>
+                </a>
             </div>
             <ul class="nav-menu">
                 <li><a href="../">Home</a></li>
@@ -20,10 +36,13 @@
                 <li><a href="../specs/">Specifications</a></li>
                 <li><a href="../how-to-use/">How to Use</a></li>
             </ul>
-            <div class="hamburger">
-                <span></span>
-                <span></span>
-                <span></span>
+            <div class="nav-actions">
+                <button class="theme-toggle" type="button" aria-pressed="false">Dark Mode</button>
+                <div class="hamburger">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
             </div>
         </div>
     </nav>
@@ -35,206 +54,108 @@
         </div>
     </section>
 
-    <section class="blog-section">
+    <section class="section" id="posts">
         <div class="container">
-            <div class="blog-filters">
-                <button class="filter-btn active" data-filter="all">All Posts</button>
-                <button class="filter-btn" data-filter="hardware">Hardware</button>
-                <button class="filter-btn" data-filter="firmware">Firmware</button>
-                <button class="filter-btn" data-filter="software">Software</button>
-                <button class="filter-btn" data-filter="testing">Testing</button>
-            </div>
+            <h1>Development Blog</h1>
+            <p class="muted">
+                Key milestones and progress updates for the ResQ project.
+            </p>
 
-            <div class="blog-posts">
-                <!-- Post 1 -->
-                <article class="blog-post" data-category="hardware">
-                    <div class="post-header">
-                        <h2>TPU Bladder Array Fabrication & Sensor Integration</h2>
-                        <div class="post-meta">
-                            <span class="date">📅 February 10, 2026</span>
-                            <span class="category-badge hardware">Hardware</span>
-                        </div>
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Milestone</span>
+                        <span class="badge badge-soft">Milestone 1</span>
+                        <span class="post-date">10.02.2026</span>
                     </div>
-                    <div class="post-content">
-                        <h3>What We Did</h3>
-                        <ul>
-                            <li>Designed and began fabrication of 2×2 TPU bladder array (4 independent bladder cells)</li>
-                            <li>Selected pressure sensor(s) and ADC for accurate force measurement per bladder</li>
-                            <li>Designed mechanical mounting bracket to secure sensor array under sternum plate</li>
-                            <li>Integrated Hall-effect sensor + magnet setup to track compression depth via sternum displacement</li>
-                        </ul>
-                        <h3>Challenges</h3>
-                        <ul>
-                            <li><strong>TPU Sealing:</strong> Initial bladder design leaked under repeated compression. Redesigned with reinforced edges.</li>
-                            <li><strong>Sensor Sensitivity:</strong> Pressure sensor range needed tuning to detect both light and heavy compressions accurately.</li>
-                            <li><strong>Mechanical Alignment:</strong> Hall sensor placement needed ±2mm precision to detect magnet travel correctly.</li>
-                        </ul>
-                        <h3>Next Steps</h3>
-                        <ul>
-                            <li>Complete bladder array assembly and pressure calibration</li>
-                            <li>Bench test sensor output with mock compressions</li>
-                            <li>Begin firmware integration for sensor reading</li>
-                        </ul>
-                    </div>
-                </article>
 
-                <!-- Post 2 -->
-                <article class="blog-post" data-category="firmware">
-                    <div class="post-header">
-                        <h2>Firmware Architecture: Real-Time Compression Detection</h2>
-                        <div class="post-meta">
-                            <span class="date">📅 February 3, 2026</span>
-                            <span class="category-badge firmware">Firmware</span>
-                        </div>
-                    </div>
-                    <div class="post-content">
-                        <h3>What We Did</h3>
-                        <ul>
-                            <li>Designed firmware architecture for real-time ADC reading and sensor data processing</li>
-                            <li>Implemented compression event detection using pressure threshold + hysteresis</li>
-                            <li>Developed algorithms for: compression count (events), rate calculation (cpm), depth estimation (mm from Hall sensor)</li>
-                            <li>Added pause detection (time without compressions) and placement drift tracking (left/right/up/down)</li>
-                        </ul>
-                        <h3>Challenges</h3>
-                        <ul>
-                            <li><strong>Event Debouncing:</strong> Initial compression detection triggered multiple false events. Added debounce window (50ms).</li>
-                            <li><strong>Rate Calculation:</strong> Smoothing required to avoid jitter in live cpm display; implemented rolling average.</li>
-                            <li><strong>Placement Drift:</strong> Detecting hand drift required comparing pressure distribution across bladder array.</li>
-                        </ul>
-                        <h3>Next Steps</h3>
-                        <ul>
-                            <li>Integrate with actual hardware ADC</li>
-                            <li>Calibration routine for pressure-to-force conversion</li>
-                            <li>Send computed metrics to dashboard (serial/USB for now)</li>
-                        </ul>
-                    </div>
-                </article>
+                    <h2 class="post-title">Proposal Presentation Session — Milestone 1 Evaluation</h2>
+                    <p class="post-subtitle">
+                        We presented ResQ to Ms. Yasodha Vimukthi and Mr. Thilina Gunarathne to validate feasibility, clarity,
+                        and overall direction.
+                    </p>
+                </header>
 
-                <!-- Post 3 -->
-                <article class="blog-post" data-category="software">
-                    <div class="post-header">
-                        <h2>Dashboard UI: Live Graphs and Session Management</h2>
-                        <div class="post-meta">
-                            <span class="date">📅 January 27, 2026</span>
-                            <span class="category-badge software">Software</span>
-                        </div>
-                    </div>
-                    <div class="post-content">
-                        <h3>What We Did</h3>
-                        <ul>
-                            <li>Built responsive web dashboard with live metric display and graphs</li>
-                            <li>Implemented real-time graph rendering for compression depth and rate trends</li>
-                            <li>Created session management UI (start, pause, stop, save)</li>
-                            <li>Added instructor comments box and CPR quality score display</li>
-                            <li>Designed export functionality (CSV/PDF) for session reports</li>
-                        </ul>
-                        <h3>Challenges</h3>
-                        <ul>
-                            <li><strong>Graph Performance:</strong> Real-time graph updates at 10 Hz caused lag. Optimized with Canvas rendering and data decimation.</li>
-                            <li><strong>Responsive Design:</strong> Dashboard needed to work on tablets and desktop. Implemented CSS Grid with mobile breakpoints.</li>
-                        </ul>
-                        <h3>Next Steps</h3>
-                        <ul>
-                            <li>Connect dashboard to live firmware data stream (serial/USB initially)</li>
-                            <li>User authentication and session persistence</li>
-                            <li>PDF report generation with styling</li>
-                        </ul>
-                    </div>
-                </article>
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text">
+                            <p>
+                                As part of the project's early-stage evaluation, the Proposal Presentation Session for Milestone 1 was conducted
+                                to present ResQ to Ms. Yasodha Vimukthi and Mr. Thilina Gunarathne. The session focused on validating the
+                                feasibility, clarity, and overall direction of the proposed solution. We discussed the motivation behind ResQ,
+                                its intended functionality, and its potential impact on CPR training.
+                            </p>
 
-                <!-- Post 4 -->
-                <article class="blog-post" data-category="testing">
-                    <div class="post-header">
-                        <h2>Bench Testing: Compression Event Detection Accuracy</h2>
-                        <div class="post-meta">
-                            <span class="date">📅 January 20, 2026</span>
-                            <span class="category-badge testing">Testing</span>
-                        </div>
-                    </div>
-                    <div class="post-content">
-                        <h3>What We Did</h3>
-                        <ul>
-                            <li>Set up test rig with manual mock compressions to validate firmware</li>
-                            <li>Tested compression count accuracy: detected all compressions within ±0 events (very accurate)</li>
-                            <li>Validated rate calculation: measured 100 cpm mock compressions correctly</li>
-                            <li>Tested depth sensing with known displacement steps</li>
-                        </ul>
-                        <h3>Challenges</h3>
-                        <ul>
-                            <li><strong>Manual Testing Variability:</strong> Hand-performed compressions lack perfect consistency. Added statistical averaging in tests.</li>
-                            <li><strong>Sensor Noise:</strong> Electrical noise in pressure readings required filtering. Applied low-pass IIR filter.</li>
-                        </ul>
-                        <h3>Next Steps</h3>
-                        <ul>
-                            <li>Manikin-based testing with realistic CPR motion</li>
-                            <li>Calibration validation with reference measurements</li>
-                            <li>Performance under repeated compressions over 10+ minutes</li>
-                        </ul>
-                    </div>
-                </article>
+                            <p>
+                                The evaluators confirmed the relevance of the proposed idea and provided constructive feedback, particularly
+                                emphasizing the importance of budget feasibility and alignment with recognized CPR training standards. They also
+                                recommended engaging with resource persons from the Faculty of Allied Health Sciences to verify clinical
+                                requirements and clarify any additional needs.
+                            </p>
 
-                <!-- Post 5 -->
-                <article class="blog-post" data-category="hardware">
-                    <div class="post-header">
-                        <h2>Mechanical Integration: Sternum Plate & Mounting Strategy</h2>
-                        <div class="post-meta">
-                            <span class="date">📅 January 13, 2026</span>
-                            <span class="category-badge hardware">Hardware</span>
+                            <p>
+                                Overall, the session was a valuable learning experience that strengthened our understanding of real-world
+                                constraints and expectations. The feedback received will guide further research, planning, and refinement of the
+                                ResQ system to ensure it is practical, standards-compliant, and technically robust.
+                            </p>
                         </div>
-                    </div>
-                    <div class="post-content">
-                        <h3>What We Did</h3>
-                        <ul>
-                            <li>Designed custom sternum plate to mount TPU bladder array underneath</li>
-                            <li>Integrated Hall-effect magnet into sternum plate for depth measurement</li>
-                            <li>Created bracket system to secure entire sensor assembly to manikin chest</li>
-                            <li>Tested mounting durability under repeated compressions</li>
-                        </ul>
-                        <h3>Challenges</h3>
-                        <ul>
-                            <li><strong>Recoil Resistance:</strong> Mounting bracket added stiffness. Tuned elasticity to match expected recoil feel.</li>
-                            <li><strong>Cable Management:</strong> Sensor wires needed routing to avoid tangling during compressions.</li>
-                        </ul>
-                        <h3>Next Steps</h3>
-                        <ul>
-                            <li>Fabricate second/third prototype units for parallel testing</li>
-                            <li>Test on actual CPR manikin</li>
-                            <li>Collect baseline measurements for calibration</li>
-                        </ul>
-                    </div>
-                </article>
 
-                <!-- Post 6 -->
-                <article class="blog-post" data-category="software">
-                    <div class="post-header">
-                        <h2>Session Persistence & Report Export</h2>
-                        <div class="post-meta">
-                            <span class="date">📅 January 6, 2026</span>
-                            <span class="category-badge software">Software</span>
-                        </div>
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/photo_2026-02-10_21-25-39.png" alt="Proposal Presentation Session — Milestone 1" />
+                            <figcaption class="muted">Proposal Presentation Session (Milestone 1) — 10.02.2026</figcaption>
+                        </figure>
                     </div>
-                    <div class="post-content">
-                        <h3>What We Did</h3>
-                        <ul>
-                            <li>Implemented local session storage (browser localStorage) to persist metrics during a session</li>
-                            <li>Built session summary UI showing: total compressions, average rate, average depth, pause time</li>
-                            <li>Developed CSV export function for data analysis</li>
-                            <li>Designed PDF report template with graphs and instructor comments</li>
-                        </ul>
-                        <h3>Challenges</h3>
-                        <ul>
-                            <li><strong>PDF Generation:</strong> HTML-to-PDF libraries added significant file size. Optimized with lightweight library.</li>
-                            <li><strong>Data Format:</strong> Ensuring CSV columns matched instructor needs required user feedback cycles.</li>
-                        </ul>
-                        <h3>Next Steps</h3>
-                        <ul>
-                            <li>User authentication for session access control</li>
-                            <li>Server-side session storage (future enhancement)</li>
-                            <li>Multi-session student progress tracking dashboard</li>
-                        </ul>
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Milestone</span>
+                        <span class="badge badge-soft">Research & Planning</span>
+                        <span class="post-date">08.02.2026</span>
                     </div>
-                </article>
-            </div>
+
+                    <h2 class="post-title">Mock Proposal Session — Early-Stage Validation</h2>
+                    <p class="post-subtitle">
+                        We presented ResQ to temporary instructors of the Department of Computer Engineering,
+                        University of Peradeniya, to validate feasibility and gather early technical feedback.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <p>
+                        As part of the early-stage validation of our project, a mock proposal session was conducted to present ResQ
+                        to the temporary instructors of the Department of Computer Engineering, University of Peradeniya.
+                    </p>
+
+                    <p>
+                        The session aimed to evaluate the feasibility, technical soundness, and practical relevance of the proposed
+                        solution at an early stage. We discussed the limitations of conventional CPR training manikins and explained
+                        how ResQ uses embedded sensing to provide real-time, objective feedback on compression quality.
+                    </p>
+
+                    <p>
+                        The instructors offered valuable feedback on system architecture, sensor accuracy, scalability, and alignment
+                        with CPR training standards. These insights helped us critically assess our initial assumptions and identify
+                        areas requiring further investigation.
+                    </p>
+
+                    <p>
+                        Overall, the mock proposal session served as an important milestone in refining the direction of the ResQ
+                        project. The feedback received will directly inform further research, system optimization, and design decisions,
+                        ensuring that the proposed solution is technically sound, pedagogically effective, and aligned with real-world
+                        CPR training requirements.
+                    </p>
+
+                    <div class="post-actions">
+                        <a class="btn accent" target="_blank" rel="noopener"
+                           href="https://www.canva.com/design/DAHAommGV3A/GQq2O87iZ34C3irOfoyFSw/view?utm_content=DAHAommGV3A&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hf9a33a37b6">
+                            View Proposal Presentation
+                        </a>
+                    </div>
+                </div>
+            </article>
         </div>
     </section>
 
@@ -243,7 +164,7 @@
             <div class="footer-content">
                 <div class="footer-section">
                     <h3>ResQ Project</h3>
-                    <p>University of Plymouth BSc (Hons) Engineering 3rd Year Project (e21-3yp)</p>
+                    <p>University of Peradeniya,<br>Faculty of Engineering,<br>Computer Engineering Department<br>3rd Year Project (e21-3yp)</p>
                 </div>
                 <div class="footer-section">
                     <h3>Quick Links</h3>
@@ -264,7 +185,7 @@
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2026 ResQ Project. University of Plymouth.</p>
+                <p>&copy; University of Peradeniya, Faculty of Engineering, Computer Engineering Department</p>
                 <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
             </div>
         </div>

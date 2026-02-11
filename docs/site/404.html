@@ -5,12 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>404 — Page Not Found</title>
     <link rel="stylesheet" href="./site/assets/style.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap">
+        <link rel="icon" href="./assets/img/logo/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="./assets/img/logo/favicon-32.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/logo/apple-touch-icon.png" />
+        <meta name="theme-color" content="#12264C" />
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
             <div class="navbar-brand">
-                <a href="./site/" class="logo">ResQ</a>
+                <a class="brand" href="./site/" aria-label="ResQ">
+                  <span class="brand-mark">
+                    <img
+                      class="brand-logo"
+                      data-logo
+                      data-logo-light="./assets/img/logo/resq-logo-256.png"
+                      data-logo-dark="./assets/img/logo/resq-logo-dark-256.png"
+                      src="./assets/img/logo/resq-logo-256.png"
+                      alt="ResQ logo"
+                    />
+                  </span>
+                </a>
             </div>
             <ul class="nav-menu">
                 <li><a href="./site/">Home</a></li>
@@ -19,10 +35,13 @@
                 <li><a href="./site/specs/">Specifications</a></li>
                 <li><a href="./site/how-to-use/">How to Use</a></li>
             </ul>
-            <div class="hamburger">
-                <span></span>
-                <span></span>
-                <span></span>
+            <div class="nav-actions">
+                <button class="theme-toggle" type="button" aria-pressed="false">Dark Mode</button>
+                <div class="hamburger">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
             </div>
         </div>
     </nav>
@@ -46,15 +65,15 @@
             <div class="footer-content">
                 <div class="footer-section">
                     <h3>ResQ Project</h3>
-                    <p>University of Plymouth BSc (Hons) Engineering 3rd Year Project (e21-3yp)</p>
+                    <p>University of Peradeniya,<br>Faculty of Engineering,<br>Computer Engineering Department<br>3rd Year Project (e21-3yp)</p>
                 </div>
                 <div class="footer-section">
                     <h3>Quick Links</h3>
                     <ul>
-                        <li><a href="./site/">Home</a></li>
-                        <li><a href="./site/about/">About</a></li>
-                        <li><a href="./site/blog/">Blog</a></li>
-                        <li><a href="./site/specs/">Specifications</a></li>
+                        <li><a href="../">Home</a></li>
+                        <li><a href="../about/">About</a></li>
+                        <li><a href="../specs/">Specifications</a></li>
+                        <li><a href="../how-to-use/">How to Use</a></li>
                     </ul>
                 </div>
                 <div class="footer-section">
@@ -67,7 +86,8 @@
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2026 ResQ Project. University of Plymouth.</p>
+                <p>&copy; University of Peradeniya, Faculty of Engineering, Computer Engineering Department</p>
+                <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
             </div>
         </div>
     </footer>

@@ -3,11 +3,37 @@
    Interactivity for Navigation, Filtering, and UI Enhancements
    ================================================================ */
 
-// Mobile Menu Toggle
+// ================================================================
+//   THEME MANAGEMENT WITH LOGO SWAPPING
+// ================================================================
+
+function applyTheme(theme) {
+    const root = document.documentElement;
+    root.classList.toggle("theme-dark", theme === "dark");
+
+    // Swap logo image based on theme
+    const logo = document.querySelector("[data-logo]");
+    if (logo) {
+        logo.src = theme === "dark" ? logo.dataset.logoDark : logo.dataset.logoLight;
+    }
+
+    localStorage.setItem("resq-theme", theme);
+}
+
+// Initialize theme on page load
 document.addEventListener('DOMContentLoaded', function() {
+    const root = document.documentElement;
     const hamburger = document.querySelector('.hamburger');
     const navMenu = document.querySelector('.nav-menu');
+    const themeToggle = document.querySelector('.theme-toggle');
+    
+    const savedTheme = localStorage.getItem("resq-theme");
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
 
+    applyTheme(initialTheme);
+    
+    // Mobile Menu Toggle
     if (hamburger) {
         hamburger.addEventListener('click', function() {
             navMenu.classList.toggle('active');
@@ -19,6 +45,23 @@ document.addEventListener('DOMContentLoaded', function() {
             link.addEventListener('click', function() {
                 navMenu.classList.remove('active');
             });
+        });
+    }
+    
+    // Theme Toggle with Label Update
+    if (themeToggle) {
+        const updateLabel = () => {
+            const isDark = root.classList.contains("theme-dark");
+            themeToggle.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+            themeToggle.setAttribute('aria-pressed', String(isDark));
+        };
+        
+        updateLabel();
+        
+        themeToggle.addEventListener('click', function() {
+            const isDark = root.classList.contains("theme-dark");
+            applyTheme(isDark ? 'light' : 'dark');
+            updateLabel();
         });
     }
 
