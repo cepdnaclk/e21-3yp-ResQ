@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ResQ: Smart CPR Training Platform - Real-time analytics for objective CPR training">
+    <title>ResQ — CPR Training & Assessment Platform</title>
+    <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="navbar-brand">
+                <a href="./" class="logo">ResQ</a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="./">Home</a></li>
+                <li><a href="./about/">About</a></li>
+                <li><a href="./blog/">Development Blog</a></li>
+                <li><a href="./specs/">Specifications</a></li>
+                <li><a href="./how-to-use/">How to Use</a></li>
+            </ul>
+            <div class="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <h1>ResQ</h1>
+            <h2>CPR Training & Assessment Platform</h2>
+            <p class="tagline">Real-time compression analytics • Objective performance metrics • Evidence-based feedback</p>
+            <p class="hero-description">
+                ResQ transforms CPR training through instrumented manikins and live analytics. Our 2×2 TPU bladder sensor array 
+                measures compression depth, rate, recoil, and hand placement—giving students and instructors immediate, objective feedback 
+                for faster skill improvement.
+            </p>
+            <div class="hero-buttons">
+                <a href="./about/" class="btn btn-primary">Read the Project Overview</a>
+                <a href="./specs/" class="btn btn-secondary">View Specifications</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Highlights Section -->
+    <section class="highlights">
+        <div class="container">
+            <h2>Key Features</h2>
+            <div class="highlights-grid">
+                <div class="highlight-card">
+                    <div class="icon-placeholder">📊</div>
+                    <h3>Instrumented Manikin</h3>
+                    <p>2×2 TPU bladder array + pressure sensors + Hall-effect depth sensor for precise compression measurement.</p>
+                </div>
+                <div class="highlight-card">
+                    <div class="icon-placeholder">📈</div>
+                    <h3>Real-Time Metrics</h3>
+                    <p>Live compression rate (cpm), depth (mm), recoil quality, pause detection, and hand placement drift analysis.</p>
+                </div>
+                <div class="highlight-card">
+                    <div class="icon-placeholder">⭐</div>
+                    <h3>Live Dashboard</h3>
+                    <p>Instructor dashboard with real-time graphs, student performance indicators, and session scoring.</p>
+                </div>
+                <div class="highlight-card">
+                    <div class="icon-placeholder">💾</div>
+                    <h3>Session Logging</h3>
+                    <p>Automatic session save with performance summaries, exportable reports (CSV/PDF), and progress tracking.</p>
+                </div>
+                <div class="highlight-card">
+                    <div class="icon-placeholder">💬</div>
+                    <h3>Instructor Feedback</h3>
+                    <p>Built-in comments box for instructor notes, actionable coaching points, and improvement recommendations.</p>
+                </div>
+                <div class="highlight-card">
+                    <div class="icon-placeholder">📏</div>
+                    <h3>Calibration System</h3>
+                    <p>Zero-load calibration, depth calibration steps, and pressure normalization for consistent measurements.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- System Snapshot -->
+    <section class="system-snapshot">
+        <div class="container">
+            <h2>System Architecture</h2>
+            <p class="snapshot-intro">ResQ's hardware-to-dashboard pipeline:</p>
+            
+            <div class="data-flow">
+                <div class="flow-stage">
+                    <div class="flow-box">Instrumented Manikin</div>
+                    <div class="flow-arrow">→</div>
+                </div>
+                <div class="flow-stage">
+                    <div class="flow-box">ADC / Firmware</div>
+                    <div class="flow-arrow">→</div>
+                </div>
+                <div class="flow-stage">
+                    <div class="flow-box">Local Processing</div>
+                    <div class="flow-arrow">→</div>
+                </div>
+                <div class="flow-stage">
+                    <div class="flow-box">Live Dashboard</div>
+                </div>
+            </div>
+
+            <div class="architecture-details">
+                <div class="arch-card">
+                    <h3>Hardware Layer</h3>
+                    <p>2×2 TPU bladder array under sternum plate + pressure sensor(s) + ADC. Hall-effect sensor and magnet 
+                    align with sternum movement for depth tracking. Sensors measure compression force, depth, and placement.</p>
+                </div>
+                <div class="arch-card">
+                    <h3>Firmware Layer</h3>
+                    <p>Real-time sensor reading and event detection. Computes: compression count, rate (cpm), depth estimate (mm), 
+                    pause time, and placement drift (left/right/up/down). Data processed locally and sent to dashboard.</p>
+                </div>
+                <div class="arch-card">
+                    <h3>Dashboard Layer</h3>
+                    <p>Live graphs and performance indicators. Session management with automatic save. Score summary and 
+                    instructor comments box. Exportable reports (CSV/PDF) for documentation and student feedback.</p>
+                </div>
+                <div class="arch-card">
+                    <h3>Calibration System</h3>
+                    <p>Zero calibration at rest, depth calibration with known displacement steps, pressure calibration per bladder, 
+                    and threshold tuning for adult/child profiles.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demo Preview Section -->
+    <section class="demo-preview">
+        <div class="container">
+            <h2>What You'll Experience in Demo</h2>
+            <p>When ResQ is demonstrated, you will see:</p>
+            
+            <div class="demo-grid">
+                <div class="demo-card">
+                    <div class="demo-placeholder-large">Live Compression Metrics</div>
+                    <h3>Real-Time Feedback</h3>
+                    <p>As a student performs CPR, watch the dashboard update in real-time with instant feedback on compression 
+                    depth (mm), rate (compressions/min), recoil quality (%), and pause detection—allowing immediate self-correction.</p>
+                </div>
+                <div class="demo-card">
+                    <div class="demo-placeholder-large">Performance Graphs</div>
+                    <h3>Session Analytics</h3>
+                    <p>View live time-series graphs showing compression depth and rate trends over the practice session. 
+                    Instructors can identify patterns and common errors (e.g., consistent shallow compressions) and provide targeted coaching.</p>
+                </div>
+                <div class="demo-card">
+                    <div class="demo-placeholder-large">Session Summary & Export</div>
+                    <h3>Reports & Records</h3>
+                    <p>After practice, the dashboard generates a session summary with performance statistics, instructor comments, 
+                    and improvement recommendations. Export to CSV or PDF for certification records and student portfolio.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>ResQ Project</h3>
+                    <p>University of Plymouth BSc (Hons) Engineering 3rd Year Project (e21-3yp)</p>
+                </div>
+                <div class="footer-section">
+                    <h3>Quick Links</h3>
+                    <ul>
+                        <li><a href="./about/">About</a></li>
+                        <li><a href="./blog/">Blog</a></li>
+                        <li><a href="./specs/">Specifications</a></li>
+                        <li><a href="./how-to-use/">How to Use</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h3>Resources</h3>
+                    <ul>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ" title="GitHub repository">GitHub Repository</a></li>
+                        <li><a href="#" title="Project documentation">Documentation</a></li>
+                        <li><a href="#" title="Download latest build">Latest Release</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 ResQ Project. University of Plymouth.</p>
+                <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="./assets/script.js"></script>
+</body>
+</html>

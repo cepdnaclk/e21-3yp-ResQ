@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ResQ How to Use - Setup and user guide">
+    <title>How to Use — ResQ CPR Training Platform</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="navbar-brand">
+                <a href="../" class="logo">ResQ</a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="../">Home</a></li>
+                <li><a href="../about/">About</a></li>
+                <li><a href="../blog/">Development Blog</a></li>
+                <li><a href="../specs/">Specifications</a></li>
+                <li><a href="./">How to Use</a></li>
+            </ul>
+            <div class="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </nav>
+
+    <section class="page-header">
+        <div class="container">
+            <h1>How to Use ResQ</h1>
+            <p>Setup guide, user workflows, and best practices</p>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Before You Start</h2>
+            
+            <div class="requirements-box">
+                <h3>Equipment Required (MVP Phase)</h3>
+                <ul>
+                    <li>ResQ-instrumented CPR manikin (2×2 TPU bladder array + sensors)</li>
+                    <li>USB/Serial connection cable (for data transmission to dashboard PC)</li>
+                    <li>PC or laptop with web browser (Chrome, Firefox, Safari, Edge)</li>
+                    <li>Modern operating system (Windows 10+, macOS, or Linux)</li>
+                    <li>Calibration reference (known displacement steps, reference weights)</li>
+                </ul>
+
+                <h3>User Roles & Permissions</h3>
+                <ul>
+                    <li><strong>Instructor/Trainer:</strong> Can start/stop sessions, monitor compression metrics, add comments, export reports</li>
+                    <li><strong>Student/Trainee:</strong> Performs CPR; receives real-time feedback from dashboard indicators</li>
+                    <li><strong>Admin (Future):</strong> System configuration, calibration management</li>
+                </ul>
+
+                <h3>Before First Use</h3>
+                <ul>
+                    <li>Mount sensor array securely on manikin chest under sternum plate</li>
+                    <li>Verify all pressure sensor connections to ADC</li>
+                    <li>Verify Hall-effect sensor and magnet alignment</li>
+                    <li>Perform zero calibration (rest state baseline)</li>
+                    <li>Run mock compression test to verify data flow</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Setup Steps</h2>
+            
+            <div class="setup-steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Calibrate Zero Baseline</h3>
+                    <p>
+                        <strong>What to do:</strong> With manikin flat and at rest (no compression), record pressure readings 
+                        from all sensor inputs. This establishes the zero baseline (P₀).
+                    </p>
+                    <p>
+                        <strong>Expected:</strong> Pressure readings stabilize within ±2 kPa. Threshold for compression detection 
+                        will be set to P₀ + offset (e.g., 5 kPa).
+                    </p>
+                    <p>
+                        <strong>Perform:</strong> Once per training session or if manikin has been moved/adjusted.
+                    </p>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Depth Calibration (First Time)</h3>
+                    <p>
+                        <strong>What to do:</strong> Apply known displacement steps to manikin (10 mm, 20 mm, 30 mm, etc.) 
+                        and record corresponding Hall sensor output values.
+                    </p>
+                    <p>
+                        <strong>Expected:</strong> Hall voltage increases linearly with displacement. Plot data points and 
+                        fit linear regression to obtain conversion curve.
+                    </p>
+                    <p>
+                        <strong>Store:</strong> Calibration coefficients saved to firmware for reuse.
+                    </p>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Connect Device to PC</h3>
+                    <p>
+                        <strong>What to do:</strong> Attach USB/Serial cable from sensor device to PC. 
+                        Driver should auto-install on Windows; Mac/Linux may require manual driver.
+                    </p>
+                    <p>
+                        <strong>Expected:</strong> Device appears as COM port (Windows) or /dev/ttyUSB0 (Linux). 
+                        Verify in Device Manager or <code>dmesg</code>.
+                    </p>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h3>Open Dashboard Web App</h3>
+                    <p>
+                        <strong>What to do:</strong> Open a web browser and navigate to the dashboard URL 
+                        (e.g., <code>http://localhost:8080</code> or deployed server address).
+                    </p>
+                    <p>
+                        <strong>Expected:</strong> Dashboard loads with empty session state, ready to start a new session.
+                    </p>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">5</div>
+                    <h3>Verify Data Connection</h3>
+                    <p>
+                        <strong>What to do:</strong> Perform a gentle compression on the manikin. 
+                        Watch the dashboard for metric updates (pressure graph should show activity).
+                    </p>
+                    <p>
+                        <strong>Expected:</strong> Pressure readings appear in real-time; rate and depth graphs update smoothly.
+                    </p>
+                    <p>
+                        <strong>Troubleshoot:</strong> If no data appears, check USB connection, verify COM port/device path, and reopen dashboard.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Instructor Workflow</h2>
+            
+            <div class="workflow-box">
+                <h3>Starting a Training Session</h3>
+                <ol>
+                    <li>Open dashboard and verify device connection (green indicator)</li>
+                    <li>Click "New Session" button</li>
+                    <li>Fill in session details:
+                        <ul style="margin: 0.5rem 0 0.5rem 1.5rem;">
+                            <li>Session name (e.g., "CPR Training – Day 1")</li>
+                            <li>Student name or ID</li>
+                            <li>Date/time (auto-filled)</li>
+                            <li>Target: adult/child/unknown (affects calibration thresholds)</li>
+                        </ul>
+                    </li>
+                    <li>Click "Start Session". Dashboard switches to live monitoring mode.</li>
+                </ol>
+
+                <h3>Monitoring During Session (Live Dashboard)</h3>
+                <p>Once a session is active, the dashboard displays:</p>
+                <ul>
+                    <li><strong>Compression Graph:</strong> Time-series of depth and rate, updated every 100 ms</li>
+                    <li><strong>Live Metrics (text display):</strong>
+                        <ul style="margin: 0.5rem 0 0.5rem 1rem;">
+                            <li>Current depth (mm) and target range indicator</li>
+                            <li>Current rate (cpm) and target range indicator</li>
+                            <li>Total compressions (count)</li>
+                            <li>Total pause time (seconds)</li>
+                        </ul>
+                    </li>
+                    <li><strong>CPR Quality Score:</strong> Real-time composite score (0–100, if configured)</li>
+                    <li><strong>Feedback Alerts:</strong> Visual/text cues (e.g., "Depth too shallow", "Excellent rate")</li>
+                </ul>
+                <p style="margin-top: 1rem;">
+                    <strong>Coaching:</strong> Use live metrics to coach students in real-time. 
+                    For example, if depth is shallow, provide verbal cue: "Go deeper—aim for 50–60 mm".
+                </p>
+
+                <h3>Pausing and Resuming</h3>
+                <p>
+                    Click "Pause" to temporarily stop data collection (e.g., for feedback conversation). 
+                    Click "Resume" to continue logging. Pause time is tracked separately for analysis.
+                </p>
+
+                <h3>Ending Session & Generating Report</h3>
+                <ol>
+                    <li>When CPR practice is complete, click "End Session"</li>
+                    <li>Dashboard displays session summary:
+                        <ul style="margin: 0.5rem 0 0.5rem 1.5rem;">
+                            <li>Total compressions</li>
+                            <li>Average depth and rate</li>
+                            <li>Total pause time</li>
+                            <li>Overall CPR quality score</li>
+                        </ul>
+                    </li>
+                    <li>In the "Instructor Comments" box, add notes on performance and coaching points</li>
+                    <li>Click "Export Session":
+                        <ul style="margin: 0.5rem 0 0.5rem 1.5rem;">
+                            <li>CSV: Raw metrics data (timestamp, depth, rate, pressure per compression)</li>
+                            <li>PDF: Formatted report with graphs, summary stats, and comments</li>
+                        </ul>
+                    </li>
+                    <li>Save files to your computer for archiving or student distribution</li>
+                </ol>
+
+                <h3>Reviewing Past Sessions</h3>
+                <p>
+                    In the main dashboard, click "Session History" to view previously saved sessions. 
+                    You can re-open any session to review metrics, add additional comments, or re-export reports. 
+                    This is useful for tracking student progress across multiple sessions.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Student Workflow</h2>
+            
+            <div class="workflow-box">
+                <h3>During CPR Practice</h3>
+                <ol>
+                    <li><strong>Instructor starts session</strong> and assigns your manikin</li>
+                    <li><strong>You position yourself:</strong> Kneel at manikin's side, place heel of hand on sternum (lower half), other hand on top</li>
+                    <li><strong>Begin CPR compressions:</strong> Push hard and fast, aiming for 100–120 compressions per minute</li>
+                    <li><strong>Watch for feedback (if available):</strong>
+                        <ul style="margin: 0.5rem 0 0.5rem 1.5rem;">
+                            <li>Dashboard display (nearby tablet/screen) may show live depth and rate indicators</li>
+                            <li>LED on device may flash green (good), yellow (needs adjustment), red (issue)</li>
+                            <li>Instructor may provide verbal cues based on real-time metrics</li>
+                        </ul>
+                    </li>
+                    <li><strong>Maintain rhythm:</strong> Keep compressions consistent in depth and rate; minimize pauses</li>
+                    <li><strong>Follow instructor's guidance</strong> and adjust technique as directed</li>
+                    <li><strong>Continue until instructor says stop</strong></li>
+                </ol>
+
+                <p style="margin-top: 1.5rem;">
+                    <strong>Tip:</strong> Focus on proper hand placement and steady rhythm. 
+                    Let the objective metrics (displayed in real-time or during debrief) guide your improvement.
+                </p>
+
+                <h3>Post-Practice Review</h3>
+                <p>
+                    After the session ends, the instructor may give you a report showing:
+                </p>
+                <ul>
+                    <li>Your compression metrics (average depth, rate, total count)</li>
+                    <li>Graphs of depth and rate over time (showing any trends or inconsistencies)</li>
+                    <li>Comparison to AHA CPR guidelines (50–60 mm depth, 100–120 cpm rate)</li>
+                    <li>Instructor's verbal feedback and written comments on areas of strength and improvement</li>
+                </ul>
+                <p style="margin-top: 1rem;">
+                    <strong>Use this feedback to practice more effectively</strong> in future sessions. 
+                    Repeat sessions help track improvement and build confidence.
+                </p>
+
+                <h3>Best Practices for Students</h3>
+                <ul>
+                    <li>Focus on proper technique: hand placement, body position, consistent rhythm</li>
+                    <li>Aim for 50–60 mm compression depth with 100–120 compressions per minute</li>
+                    <li>Allow full recoil after each compression (don't rest on patient's chest)</li>
+                    <li>Minimize hands-off time (time without compressions)</li>
+                    <li>Attend multiple sessions to track improvement and build muscle memory</li>
+                    <li>Ask instructor questions if feedback seems unclear</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Troubleshooting</h2>
+            
+            <div class="troubleshoot-section">
+                <div class="troubleshoot-item">
+                    <h3>❌ Device Not Sending Data to Dashboard</h3>
+                    <p><strong>Check:</strong></p>
+                    <ul>
+                        <li>USB cable is properly connected to device and PC</li>
+                        <li>Device appears in Device Manager (Windows) or <code>lsusb</code> (Linux)</li>
+                        <li>Dashboard is listening on correct COM port / device path</li>
+                        <li>Serial driver is installed (Windows may require manual driver for some devices)</li>
+                    </ul>
+                    <p><strong>Fix:</strong></p>
+                    <ul>
+                        <li>Try a different USB cable or USB port</li>
+                        <li>Restart device and reconnect</li>
+                        <li>Refresh dashboard or restart web app</li>
+                        <li>Check device firmware is running (LED indicators)</li>
+                    </ul>
+                </div>
+
+                <div class="troubleshoot-item">
+                    <h3>❌ Depth Readings Seem Inaccurate</h3>
+                    <p><strong>Possible Causes:</strong></p>
+                    <ul>
+                        <li>Hall sensor not properly aligned with magnet</li>
+                        <li>Depth calibration curve not valid (old calibration)</li>
+                        <li>Mechanical drift (sternum plate shifted)</li>
+                    </ul>
+                    <p><strong>Fix:</strong></p>
+                    <ul>
+                        <li>Re-check Hall sensor and magnet alignment (should be ~5mm apart)</li>
+                        <li>Redo depth calibration with known displacement steps</li>
+                        <li>Inspect mechanical mounting for looseness; tighten if needed</li>
+                        <li>Contact technical support if problem persists</li>
+                    </ul>
+                </div>
+
+                <div class="troubleshoot-item">
+                    <h3>❌ Compression Count Seems Wrong (False Events)</h3>
+                    <p><strong>Symptom:</strong> Every small motion registers as a compression, or compressions are over-counted.</p>
+                    <p><strong>Cause:</strong> Pressure threshold too sensitive or debounce window too short.</p>
+                    <p><strong>Fix:</strong></p>
+                    <ul>
+                        <li>Verify zero calibration baseline P₀ is accurate</li>
+                        <li>Check threshold setting: should be P₀ + ~5 kPa (adjust if needed)</li>
+                        <li>Verify debounce window (~50 ms) is appropriate</li>
+                        <li>Reduce noise (check cables for interference, ensure good connections)</li>
+                    </ul>
+                </div>
+
+                <div class="troubleshoot-item">
+                    <h3>❌ Dashboard Not Loading in Browser</h3>
+                    <p><strong>Check:</strong></p>
+                    <ul>
+                        <li>Web server is running on dashboard PC</li>
+                        <li>Correct URL and port are used (e.g., <code>http://localhost:8080</code>)</li>
+                        <li>Firewall is not blocking the port</li>
+                        <li>Browser is not caching old version</li>
+                    </ul>
+                    <p><strong>Fix:</strong></p>
+                    <ul>
+                        <li>Hard refresh browser: <code>Ctrl+Shift+R</code> (Windows) or <code>Cmd+Shift+R</code> (macOS)</li>
+                        <li>Clear browser cache and cookies</li>
+                        <li>Try a different browser</li>
+                        <li>Restart web server</li>
+                    </ul>
+                </div>
+
+                <div class="troubleshoot-item">
+                    <h3>❌ Cannot Export Report (CSV/PDF)</h3>
+                    <p><strong>Check:</strong></p>
+                    <ul>
+                        <li>Session has been ended (cannot export live session)</li>
+                        <li>Browser pop-up blocker is not blocking download</li>
+                        <li>Sufficient disk space on PC</li>
+                    </ul>
+                    <p><strong>Fix:</strong></p>
+                    <ul>
+                        <li>Disable browser pop-up blocker for dashboard domain</li>
+                        <li>Try a different browser (Chrome recommended for best compatibility)</li>
+                        <li>Check downloads folder for file</li>
+                    </ul>
+                </div>
+
+                <div class="troubleshoot-item">
+                    <h3>❌ Rate Calculation Seems Jittery</h3>
+                    <p><strong>Cause:</strong> Real-time rate (cpm) updates rapidly; may show high variance if calculated over short window.</p>
+                    <p><strong>Expected:</strong> Minor fluctuations are normal. Look at the overall trend, not single-second updates.</p>
+                    <p><strong>Mitigation:</strong> Dashboard uses 10-second rolling window for smoother display.</p>
+                </div>
+
+                <div class="troubleshoot-item">
+                    <h3>❌ Sensor Readings Drift Over Time</h3>
+                    <p><strong>Cause:</strong> Pressure or Hall sensor sensitivity may drift with temperature or aging.</p>
+                    <p><strong>Fix:</strong></p>
+                    <ul>
+                        <li>Perform zero calibration at the start of each training day</li>
+                        <li>Re-do full depth calibration monthly or if readings seem off</li>
+                        <li>Store calibration coefficients and track changes over time</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Safety & Compliance Notes</h2>
+            
+            <div class="safety-privacy">
+                <h3>Equipment Safety</h3>
+                <ul>
+                    <li><strong>Non-Invasive:</strong> ResQ sensors are non-invasive and do not pose electrical hazard to student performers</li>
+                    <li><strong>Durable Hardware:</strong> Sensor array is designed for repeated use. Inspect for damage before each session</li>
+                    <li><strong>Cable Management:</strong> Secure cables to avoid tripping hazards during training</li>
+                    <li><strong>Proper Storage:</strong> Store device in dry, climate-controlled environment</li>
+                </ul>
+
+                <h3>Data Privacy & Compliance</h3>
+                <ul>
+                    <li><strong>Training Data Only:</strong> ResQ records CPR technique metrics only; no personal health information (PHI) by default</li>
+                    <li><strong>Privacy Protection:</strong> Session files should be stored securely and deleted per institutional data retention policy</li>
+                    <li><strong>GDPR/Compliance:</strong> If collecting student names, ensure compliance with local data protection regulations</li>
+                    <li><strong>User Consent:</strong> Inform students that training sessions are being recorded and metrics captured</li>
+                </ul>
+
+                <h3>Medical Disclaimers</h3>
+                <ul>
+                    <li><strong>Training Use Only:</strong> ResQ is a training support tool and not a replacement for professional instruction</li>
+                    <li><strong>Follow CPR Guidelines:</strong> Always follow your organization's CPR procedures and AHA/ERC guidelines</li>
+                    <li><strong>Estimation Only:</strong> Metrics are estimates based on sensor data and may differ from clinical instruments</li>
+                    <li><strong>Emergency Response:</strong> In a real emergency, prioritize patient care; do not worry about perfect metrics</li>
+                    <li><strong>Device Limitations:</strong> ResQ is not for clinical use or diagnosis; it is strictly for training and feedback</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>ResQ Project</h3>
+                    <p>University of Plymouth BSc (Hons) Engineering 3rd Year Project (e21-3yp)</p>
+                </div>
+                <div class="footer-section">
+                    <h3>Quick Links</h3>
+                    <ul>
+                        <li><a href="../">Home</a></li>
+                        <li><a href="../about/">About</a></li>
+                        <li><a href="../blog/">Blog</a></li>
+                        <li><a href="../specs/">Specifications</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h3>Resources</h3>
+                    <ul>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ">GitHub Repository</a></li>
+                        <li><a href="#" title="Project documentation">Documentation</a></li>
+                        <li><a href="#" title="Download latest build">Latest Release</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 ResQ Project. University of Plymouth.</p>
+                <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../assets/script.js"></script>
+</body>
+</html>

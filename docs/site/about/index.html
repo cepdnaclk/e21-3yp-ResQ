@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="About ResQ: Project purpose and design approach for smart CPR training">
+    <title>About — ResQ CPR Training Platform</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="navbar-brand">
+                <a href="../" class="logo">ResQ</a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="../">Home</a></li>
+                <li><a href="./">About</a></li>
+                <li><a href="../blog/">Development Blog</a></li>
+                <li><a href="../specs/">Specifications</a></li>
+                <li><a href="../how-to-use/">How to Use</a></li>
+            </ul>
+            <div class="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </nav>
+
+    <section class="page-header">
+        <div class="container">
+            <h1>About ResQ</h1>
+            <p>Understanding the project, its scope, and our engineering approach</p>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>The Problem: CPR Training Needs Better Feedback</h2>
+            <p>
+                CPR (Cardiopulmonary Resuscitation) is a critical life-saving skill, but traditional training on manikins 
+                has significant limitations:
+            </p>
+            <ul class="problem-list">
+                <li>
+                    <strong>Limited Feedback:</strong> Students train on passive manikins with minimal or no real-time feedback on 
+                    compression quality (depth, rate, recoil, hand placement).
+                </li>
+                <li>
+                    <strong>Subjective Assessment:</strong> Instructor evaluation depends on observation and varies between trainers, 
+                    leading to inconsistent standards.
+                </li>
+                <li>
+                    <strong>No Measurable Progress:</strong> Students don't have objective records of improvement across multiple 
+                    training sessions.
+                </li>
+                <li>
+                    <strong>Scaling Challenge:</strong> Instructors struggle to monitor multiple students simultaneously, limiting 
+                    class size and training throughput.
+                </li>
+                <li>
+                    <strong>Evidence Gap:</strong> Training outcomes are not documented in a standardized, measurable way for 
+                    certification or compliance.
+                </li>
+            </ul>
+
+            <p>
+                <strong>Core challenge:</strong> CPR training lacks real-time, objective, scalable measurement and feedback to 
+                ensure consistent learning and competency validation.
+            </p>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Our Solution: ResQ Instrumented Manikin System</h2>
+            <p>
+                ResQ adds intelligent sensing and live analytics to CPR manikins, transforming training into a data-driven, 
+                measurable learning experience.
+            </p>
+
+            <div class="proposal-grid">
+                <div class="proposal-card">
+                    <h3>1. Sensor Array Hardware</h3>
+                    <p>
+                        A 2×2 TPU bladder array mounted under the sternum plate detects compression force and distribution. 
+                        Pressure sensors quantify chest compression, while a Hall-effect sensor + magnet arrangement measures 
+                        compression depth. All data flows through an ADC for precise analog-to-digital conversion.
+                    </p>
+                </div>
+                <div class="proposal-card">
+                    <h3>2. Smart Firmware Processing</h3>
+                    <p>
+                        Embedded firmware reads sensors in real-time and computes: compression count (event detection), 
+                        rate in compressions per minute (cpm), depth estimate (mm), pause time, and placement drift 
+                        (left/right/up/down). Data is processed locally and sent to the dashboard.
+                    </p>
+                </div>
+                <div class="proposal-card">
+                    <h3>3. Live Instructor Dashboard</h3>
+                    <p>
+                        A web-based dashboard displays live graphs and performance indicators. Instructors see real-time feedback 
+                        on student performance, can monitor multiple students simultaneously, and provide evidence-based coaching.
+                    </p>
+                </div>
+                <div class="proposal-card">
+                    <h3>4. Session Logging & Reporting</h3>
+                    <p>
+                        Sessions are automatically saved with performance summaries and scores. Instructors can add comments and 
+                        coaching notes. Reports export to CSV/PDF for documentation, student feedback, and certification records.
+                    </p>
+                </div>
+            </div>
+
+            <p style="margin-top: 2rem;">
+                <strong>Result:</strong> CPR training becomes objective, data-driven, scalable, and measurable. Students get 
+                immediate feedback for faster learning. Instructors gain insight into performance patterns and can make targeted 
+                improvements to their training programs.
+            </p>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Project Scope</h2>
+            
+            <div class="scope-grid">
+                <div class="scope-card included">
+                    <h3>In Scope (MVP)</h3>
+                    <ul>
+                        <li>2×2 TPU bladder sensor array + pressure sensor(s)</li>
+                        <li>Hall-effect depth sensor with magnet alignment</li>
+                        <li>Firmware: compression count, rate, depth, pauses, placement drift</li>
+                        <li>Live dashboard with graphs and indicators</li>
+                        <li>Session save + score summary</li>
+                        <li>Instructor comments box</li>
+                        <li>Calibration system (zero, depth, pressure tuning)</li>
+                        <li>CSV/PDF export for reports</li>
+                    </ul>
+                </div>
+                <div class="scope-card excluded">
+                    <h3>Out of Scope (Future)</h3>
+                    <ul>
+                        <li>Mobile app (web-only for now)</li>
+                        <li>Cloud integration (local deployment in MVP)</li>
+                        <li>AI/ML pattern analysis</li>
+                        <li>Hospital EHR integration</li>
+                        <li>Wearable integration</li>
+                        <li>Multi-language support</li>
+                        <li>Wireless manikin connectivity (tethered USB/serial in MVP)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Target Users</h2>
+            
+            <div class="users-grid">
+                <div class="user-card">
+                    <h3>Instructors & Trainers</h3>
+                    <p>
+                        Medical educators and CPR training coordinators who need to assess multiple students objectively, 
+                        track performance over time, and provide evidence-based coaching.
+                    </p>
+                </div>
+                <div class="user-card">
+                    <h3>Students & Trainees</h3>
+                    <p>
+                        Healthcare professionals, first responders, and anyone pursuing CPR certification. They benefit from 
+                        immediate feedback and measurable progress tracking.
+                    </p>
+                </div>
+                <div class="user-card">
+                    <h3>Training Centers</h3>
+                    <p>
+                        Hospitals, medical schools, fire departments, and certification programs seeking to improve training 
+                        consistency and maintain compliance documentation.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Expected Outcomes</h2>
+            
+            <div class="outcomes-list">
+                <div class="outcome-item">
+                    <h3>📈 Faster Skill Acquisition</h3>
+                    <p>Real-time feedback allows students to self-correct immediately, accelerating the learning curve compared to subjective feedback alone.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>📊 Objective Assessment</h3>
+                    <p>CPR quality measured by quantitative metrics (depth in mm, rate in cpm) eliminates bias and ensures consistent evaluation standards.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>📋 Compliance & Documentation</h3>
+                    <p>Automatic session logging and exportable reports provide auditable evidence of training and competency for certification.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>⚡ Instructor Efficiency</h3>
+                    <p>Instructors can monitor multiple students simultaneously, increasing class capacity and reducing one-on-one coaching time per student.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>📚 Data-Driven Program Improvement</h3>
+                    <p>Historical performance data reveals common error patterns and supports targeted program improvements.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>🎯 Student Confidence</h3>
+                    <p>Objective measurement against evidence-based standards (AHA CPR guidelines) builds confidence in learned skills.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Development Status</h2>
+            
+            <div class="status-timeline">
+                <div class="status-item completed">
+                    <h3>✓ Design & Requirements</h3>
+                    <p>Completed: Hardware design, firmware architecture, dashboard mockups, calibration strategy defined.</p>
+                </div>
+                <div class="status-item in-progress">
+                    <h3>⟳ Hardware Prototyping</h3>
+                    <p>In Progress: TPU bladder array fabrication, pressure sensor integration, Hall-effect depth sensor setup, mechanical mounting.</p>
+                </div>
+                <div class="status-item in-progress">
+                    <h3>⟳ Firmware Development</h3>
+                    <p>In Progress: Sensor reading, event detection, compression calculations, and payload formatting.</p>
+                </div>
+                <div class="status-item planned">
+                    <h3>→ Dashboard UI</h3>
+                    <p>Planned: Web dashboard development, real-time graph rendering, session management UI.</p>
+                </div>
+                <div class="status-item planned">
+                    <h3>→ Validation & Testing</h3>
+                    <p>Planned: Calibration validation, bench testing, real manikin trials, instructor feedback incorporation.</p>
+                </div>
+                <div class="status-item planned">
+                    <h3>→ Demonstration & Handover</h3>
+                    <p>Planned: Final demo preparation, documentation, and project handover.</p>
+                </div>
+            </div>
+
+            <p style="margin-top: 2rem;">
+                <strong>Next Steps:</strong> Complete hardware mechanical integration, finalize sensor calibration strategy, 
+                and begin dashboard UI prototyping in parallel.
+            </p>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>ResQ Project</h3>
+                    <p>University of Plymouth BSc (Hons) Engineering 3rd Year Project (e21-3yp)</p>
+                </div>
+                <div class="footer-section">
+                    <h3>Quick Links</h3>
+                    <ul>
+                        <li><a href="../">Home</a></li>
+                        <li><a href="../blog/">Blog</a></li>
+                        <li><a href="../specs/">Specifications</a></li>
+                        <li><a href="../how-to-use/">How to Use</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h3>Resources</h3>
+                    <ul>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ">GitHub Repository</a></li>
+                        <li><a href="#" title="Project documentation">Documentation</a></li>
+                        <li><a href="#" title="Download latest build">Latest Release</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 ResQ Project. University of Plymouth.</p>
+                <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../assets/script.js"></script>
+</body>
+</html>

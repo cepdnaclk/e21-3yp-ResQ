@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ResQ Technical Specifications - Hardware, firmware, and dashboard specs">
+    <title>Specifications — ResQ CPR Training Platform</title>
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="navbar-brand">
+                <a href="../" class="logo">ResQ</a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="../">Home</a></li>
+                <li><a href="../about/">About</a></li>
+                <li><a href="../blog/">Development Blog</a></li>
+                <li><a href="./">Specifications</a></li>
+                <li><a href="../how-to-use/">How to Use</a></li>
+            </ul>
+            <div class="hamburger">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    </nav>
+
+    <section class="page-header">
+        <div class="container">
+            <h1>Technical Specifications</h1>
+            <p>Detailed hardware, firmware, and software specifications for ResQ</p>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>System Overview</h2>
+            
+            <div class="spec-overview">
+                <div class="overview-block">
+                    <h3>Sensor Hardware Layer</h3>
+                    <p>2×2 TPU bladder array, pressure sensor(s), ADC, Hall-effect sensor + magnet</p>
+                </div>
+                <div class="overview-block">
+                    <h3>Processing Layer</h3>
+                    <p>Embedded firmware for real-time compression detection and metric calculation</p>
+                </div>
+                <div class="overview-block">
+                    <h3>User Interface Layer</h3>
+                    <p>Web-based dashboard with live graphs, session management, and reporting</p>
+                </div>
+                <div class="overview-block">
+                    <h3>Data Storage Layer</h3>
+                    <p>Local session storage (browser) with CSV/PDF export capability</p>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 2rem;">Data Flow</h3>
+            <p style="text-align: center; margin: 2rem 0; padding: 1.5rem; background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; border-radius: 8px;">
+                Manikin Sensors (TPU/Pressure/Hall) → ADC → Firmware Processing → Metric Calculation → Dashboard/Serial → UI Display
+            </p>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Hardware Specifications</h2>
+            
+            <table class="spec-table">
+                <thead>
+                    <tr>
+                        <th>Component</th>
+                        <th>Specification</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Sensor Array</strong></td>
+                        <td>2×2 TPU bladder array with independent chambers</td>
+                        <td>Detect compression force distribution and hand placement</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pressure Sensor(s)</strong></td>
+                        <td>0–100 kPa range (design-dependent), analog output</td>
+                        <td>Quantify chest compression force; one per bladder or shared</td>
+                    </tr>
+                    <tr>
+                        <td><strong>ADC</strong></td>
+                        <td>12–16 bit resolution, 1000+ Hz sampling capability</td>
+                        <td>Convert analog pressure readings to digital values</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Hall-Effect Sensor</strong></td>
+                        <td>Analog ratiometric output, ~5 mV/G sensitivity</td>
+                        <td>Detect magnet displacement during compression to measure depth</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Depth Reference Magnet</strong></td>
+                        <td>Neodymium magnet (N52), embedded in sternum plate</td>
+                        <td>Move with sternum; Hall sensor tracks displacement for depth calculation</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Mechanical Integration</strong></td>
+                        <td>Custom sternum plate + mounting bracket + elastomer damping</td>
+                        <td>Secure sensor array to manikin chest with realistic recoil feel</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Power (MVP)</strong></td>
+                        <td>USB/Serial tethered connection (wall power or battery TBD)</td>
+                        <td>Data transmission and device power for MVP; battery in future</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Firmware Specifications</h2>
+            
+            <table class="spec-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Specification</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>ADC Sampling Rate</strong></td>
+                        <td>500—1000 Hz (configurable) per sensor</td>
+                        <td>In Progress</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Compression Detection</strong></td>
+                        <td>Pressure threshold + hysteresis; debounce window 50 ms</td>
+                        <td>Implemented</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Compression Count</strong></td>
+                        <td>Event counter; total compressions per session</td>
+                        <td>Implemented</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Compression Rate (cpm)</strong></td>
+                        <td>Compressions per minute; moving average over 10-second window</td>
+                        <td>Implemented</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Compression Depth (mm)</strong></td>
+                        <td>Estimated from Hall sensor displacement; calibrated to known distances</td>
+                        <td>In Progress</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pause Detection</strong></td>
+                        <td>Time without compressions (pressure < threshold); accumulated per session</td>
+                        <td>Implemented</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Recoil Quality</strong></td>
+                        <td>Chest return to baseline (design-dependent, pressure or depth-based)</td>
+                        <td>Planned</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Placement Drift</strong></td>
+                        <td>Uneven pressure across bladder array; directional tracking (L/R/U/D)</td>
+                        <td>Planned</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Data Format (Serial/USB)</strong></td>
+                        <td>JSON or CSV line format; metric timestamp, values, state</td>
+                        <td>Planned</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Dashboard Software Stack</h2>
+            
+            <div class="stack-grid">
+                <div class="stack-card">
+                    <h3>Frontend</h3>
+                    <ul>
+                        <li>HTML5 (semantic structure)</li>
+                        <li>CSS3 (responsive grid + flexbox)</li>
+                        <li>Vanilla JavaScript (no framework)</li>
+                        <li>Chart.js or Canvas API for live graphs</li>
+                        <li>Event-driven architecture</li>
+                    </ul>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;"><strong>Status:</strong> Prototype complete; refinement ongoing</p>
+                </div>
+                <div class="stack-card">
+                    <h3>Data Input</h3>
+                    <ul>
+                        <li>Serial/USB connection from firmware device</li>
+                        <li>JSON parsing of incoming metric packets</li>
+                        <li>Real-time data binding to UI elements</li>
+                        <li>Local browser storage (localStorage)</li>
+                    </ul>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;"><strong>Status:</strong> Designed; integration in progress</p>
+                </div>
+                <div class="stack-card">
+                    <h3>Session Management</h3>
+                    <ul>
+                        <li>Start/pause/stop session controls</li>
+                        <li>Persistent in-memory session object</li>
+                        <li>Metric accumulation (count, averages, max/min)</li>
+                        <li>Session summary calculation</li>
+                    </ul>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;"><strong>Status:</strong> Implemented</p>
+                </div>
+                <div class="stack-card">
+                    <h3>Reporting & Export</h3>
+                    <ul>
+                        <li>CSV export (metric history + session stats)</li>
+                        <li>PDF generation (graphs + scores + comments)</li>
+                        <li>Instructor comments box (freetext)</li>
+                        <li>CPR quality score calculation</li>
+                    </ul>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;"><strong>Status:</strong> In progress</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Measured Metrics & Calculations</h2>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Compression Count</h3>
+                    <p><strong>Definition:</strong> Total number of compression events detected.</p>
+                    <p><strong>Source:</strong> Pressure threshold crossing (rising edge = compression start)</p>
+                    <p><strong>Accuracy:</strong> ±0 detections (single trigger per compression)</p>
+                </div>
+                <div class="metric-card">
+                    <h3>Compression Rate (cpm)</h3>
+                    <p><strong>Definition:</strong> Compressions per minute (moving average).</p>
+                    <p><strong>Target:</strong> 100–120 cpm (AHA guidelines)</p>
+                    <p><strong>Calculation:</strong> Count events in 10-second window × 6</p>
+                </div>
+                <div class="metric-card">
+                    <h3>Compression Depth (mm)</h3>
+                    <p><strong>Definition:</strong> How far the chest compresses downward.</p>
+                    <p><strong>Target:</strong> 50–60 mm (AHA guidelines)</p>
+                    <p><strong>Source:</strong> Hall sensor displacement; calibrated via known displacement steps</p>
+                </div>
+                <div class="metric-card">
+                    <h3>Pause Time (seconds)</h3>
+                    <p><strong>Definition:</strong> Cumulative time without compressions during session.</p>
+                    <p><strong>Target:</strong> Minimize (goal: &lt; 10 sec per minute)</p>
+                    <p><strong>Detection:</strong> Pressure below threshold for &gt; 1 second</p>
+                </div>
+                <div class="metric-card">
+                    <h3>Hand Placement Drift</h3>
+                    <p><strong>Definition:</strong> Directional indication if compression force is uneven.</p>
+                    <p><strong>Calculation:</strong> Compare pressure readings across 2×2 bladder array</p>
+                    <p><strong>Status:</strong> Planned algorithm; under design</p>
+                </div>
+                <div class="metric-card">
+                    <h3>Recoil Quality</h3>
+                    <p><strong>Definition:</strong> Fraction of compression that fully recoils (chest returns to baseline).</p>
+                    <p><strong>Target:</strong> 100% full recoil (minimal incomplete releases)</p>
+                    <p><strong>Status:</strong> Design-dependent; to be finalized</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Calibration Strategy</h2>
+            
+            <div class="security-spec">
+                <h3>Zero Calibration</h3>
+                <ul>
+                    <li>Base pressure reading at rest (no load) recorded as P₀</li>
+                    <li>Threshold = P₀ + 5 kPa (or design-dependent offset)</li>
+                    <li>Performed at startup or before each session</li>
+                </ul>
+
+                <h3>Depth Calibration</h3>
+                <ul>
+                    <li>Known displacement steps (10 mm, 20 mm, 30 mm, etc.) applied manually</li>
+                    <li>Hall sensor output recorded at each displacement; linear regression fitted</li>
+                    <li>Calibration curve stored; used to convert Hall reading → depth in mm</li>
+                </ul>
+
+                <h3>Pressure Calibration</h3>
+                <ul>
+                    <li>Per-bladder calibration (if using 4 independent sensors)</li>
+                    <li>Known force weights (10 kg, 20 kg, etc.) applied; pressure recorded</li>
+                    <li>Conversion factor: Newtons (or force units) → kPa stored</li>
+                </ul>
+
+                <h3>Threshold Tuning</h3>
+                <ul>
+                    <li>Mock compressions performed; threshold adjusted to avoid false triggers</li>
+                    <li>Adult vs. child profiles may require different thresholds</li>
+                    <li>Stored in firmware EEPROM for reuse across sessions</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Performance Targets</h2>
+            
+            <table class="spec-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Target</th>
+                        <th>Current Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Compression detection latency</strong></td>
+                        <td>&lt; 100 ms (firmware event → dashboard display)</td>
+                        <td>In Progress</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Compression count accuracy</strong></td>
+                        <td>±0 errors (single trigger per event)</td>
+                        <td>Achieved</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Depth measurement accuracy</strong></td>
+                        <td>±3 mm</td>
+                        <td>Bench testing</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Rate (cpm) accuracy</strong></td>
+                        <td>±1 cpm</td>
+                        <td>Bench testing</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Dashboard refresh rate</strong></td>
+                        <td>10 Hz (100 ms per update)</td>
+                        <td>Designed</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Session duration support</strong></td>
+                        <td>≥ 10 minutes continuous operation</td>
+                        <td>Planned test</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Sensor noise resilience</strong></td>
+                        <td>Low-pass filter @ 10 Hz; moving average</td>
+                        <td>Implemented</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>ResQ Project</h3>
+                    <p>University of Plymouth BSc (Hons) Engineering 3rd Year Project (e21-3yp)</p>
+                </div>
+                <div class="footer-section">
+                    <h3>Quick Links</h3>
+                    <ul>
+                        <li><a href="../">Home</a></li>
+                        <li><a href="../about/">About</a></li>
+                        <li><a href="../blog/">Blog</a></li>
+                        <li><a href="../how-to-use/">How to Use</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h3>Resources</h3>
+                    <ul>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ">GitHub Repository</a></li>
+                        <li><a href="#" title="Project documentation">Documentation</a></li>
+                        <li><a href="#" title="Download latest build">Latest Release</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 ResQ Project. University of Plymouth.</p>
+                <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../assets/script.js"></script>
+</body>
+</html>
