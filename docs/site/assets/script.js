@@ -20,6 +20,112 @@ function applyTheme(theme) {
     localStorage.setItem("resq-theme", theme);
 }
 
+const revealSelectors = [
+    '.hero',
+    '.page-header',
+    'section',
+    '.highlight-card',
+    '.arch-card',
+    '.demo-card',
+    '.proposal-card',
+    '.scope-card',
+    '.user-card',
+    '.outcome-item',
+    '.status-item',
+    '.blog-post',
+    '.overview-block',
+    '.stack-card',
+    '.metric-card',
+    '.security-spec',
+    '.requirements-box',
+    '.step',
+    '.workflow-box',
+    '.troubleshoot-item',
+    '.safety-privacy',
+    '.spec-table',
+    '.footer'
+];
+
+const staggerContainers = [
+    '.highlights-grid',
+    '.architecture-details',
+    '.demo-grid',
+    '.proposal-grid',
+    '.scope-grid',
+    '.users-grid',
+    '.outcomes-list',
+    '.status-timeline',
+    '.blog-posts',
+    '.spec-overview',
+    '.stack-grid',
+    '.metrics-grid',
+    '.setup-steps',
+    '.troubleshoot-section'
+];
+
+function markRevealTargets() {
+    revealSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+            if (!el.hasAttribute('data-reveal')) {
+                el.setAttribute('data-reveal', '');
+            }
+        });
+    });
+}
+
+function applyStagger() {
+    staggerContainers.forEach(selector => {
+        document.querySelectorAll(selector).forEach(container => {
+            container.setAttribute('data-stagger', '');
+            const children = Array.from(container.children).filter(child => child.matches('[data-reveal], .reveal'));
+            children.forEach((child, index) => {
+                const delay = Math.min(index * 70, 500);
+                child.style.transitionDelay = `${delay}ms`;
+            });
+        });
+    });
+}
+
+function initRevealObserver() {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const revealables = document.querySelectorAll('[data-reveal], .reveal');
+
+    if (prefersReducedMotion.matches) {
+        revealables.forEach(el => {
+            el.classList.add('is-visible');
+            el.style.transition = 'none';
+            el.style.filter = 'none';
+            el.style.transform = 'none';
+        });
+        return;
+    }
+
+    const isInViewport = (el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.top < window.innerHeight * 0.9 && rect.bottom > 0;
+    };
+
+    const observer = new IntersectionObserver((entries, obs) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                obs.unobserve(entry.target);
+            }
+        });
+    }, {
+        threshold: 0.12,
+        rootMargin: '0px 0px -10% 0px'
+    });
+
+    revealables.forEach(el => {
+        if (isInViewport(el)) {
+            el.classList.add('is-visible');
+        } else {
+            observer.observe(el);
+        }
+    });
+}
+
 // Initialize theme on page load
 document.addEventListener('DOMContentLoaded', function() {
     const root = document.documentElement;
@@ -134,39 +240,12 @@ document.addEventListener('DOMContentLoaded', function() {
         scrollToTopLink.style.pointerEvents = 'none';
         scrollToTopLink.style.transition = 'opacity 0.3s ease';
     }
+
+    // Reveal animations
+    markRevealTargets();
+    applyStagger();
+    initRevealObserver();
 });
-
-// Utility function to add animation to elements on scroll
-function observeElements() {
-    const options = {
-        threshold: 0.1,
-        rootMargin: '0px 0px -100px 0px'
-    };
-
-    const observer = new IntersectionObserver(function(entries) {
-        entries.forEach(entry => {
-            if (entry.isIntersecting) {
-                entry.target.style.opacity = '1';
-                entry.target.style.transform = 'translateY(0)';
-            }
-        });
-    }, options);
-
-    // Observe all cards
-    document.querySelectorAll('.highlight-card, .proposal-card, .user-card, .blog-post, .metric-card').forEach(element => {
-        element.style.opacity = '0';
-        element.style.transform = 'translateY(10px)';
-        element.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-        observer.observe(element);
-    });
-}
-
-// Initialize when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', observeElements);
-} else {
-    observeElements();
-}
 
 // Keyboard navigation support
 document.addEventListener('keydown', function(e) {

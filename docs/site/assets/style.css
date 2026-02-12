@@ -1196,12 +1196,21 @@ code {
     flex-shrink: 0;
 }
 
+.step > :not(.step-number) {
+    grid-column: 2;
+}
+
 .step h3 {
     color: var(--text);
 }
 
 .step p {
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
+    line-height: 1.5;
+}
+
+.step p:last-child {
+    margin-bottom: 0;
 }
 
 /* ================================================================
@@ -1215,6 +1224,7 @@ code {
     padding: 2rem;
     margin: 2rem 0;
     box-shadow: var(--shadow-sm);
+    text-align: left;
 }
 
 .workflow-box h3 {
@@ -1227,6 +1237,15 @@ code {
 
 .workflow-box li {
     margin-bottom: 1rem;
+}
+
+.workflow-box p {
+    margin-bottom: 0.6rem;
+    line-height: 1.5;
+}
+
+.workflow-box p:last-child {
+    margin-bottom: 0;
 }
 
 /* ================================================================
@@ -1247,10 +1266,20 @@ code {
     border-radius: 12px;
     padding: 2rem;
     box-shadow: var(--shadow-sm);
+    text-align: left;
 }
 
 .troubleshoot-item h3 {
     color: var(--text);
+}
+
+.troubleshoot-item p {
+    margin-bottom: 0.6rem;
+    line-height: 1.5;
+}
+
+.troubleshoot-item p:last-child {
+    margin-bottom: 0;
 }
 
 /* ================================================================
@@ -1263,6 +1292,7 @@ code {
     border-radius: 12px;
     padding: 2rem;
     box-shadow: var(--shadow-sm);
+    text-align: left;
 }
 
 .safety-privacy h3 {
@@ -1458,6 +1488,36 @@ code {
 }
 
 /* ================================================================
+   REVEAL ANIMATIONS
+   ================================================================ */
+
+[data-reveal] {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(4px);
+    transition:
+        opacity 600ms ease,
+        transform 600ms ease,
+        filter 600ms ease;
+    will-change: opacity, transform, filter;
+}
+
+[data-reveal].is-visible {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-reveal] {
+        opacity: 1;
+        transform: none;
+        filter: none;
+        transition: none;
+    }
+}
+
+/* ================================================================
    FOCUS STATES
    ================================================================ */
 
@@ -1560,6 +1620,10 @@ button:focus-visible,
         height: 60px;
         align-self: center;
         justify-self: center;
+    }
+
+    .step > :not(.step-number) {
+        grid-column: 1;
     }
 
     .spec-table {
