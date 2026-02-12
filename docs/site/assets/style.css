@@ -2,6 +2,7 @@
    ResQ Project Website - Main Stylesheet
    Palette-driven light theme with optional dark theme support
    ================================================================ */
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap");
 
 :root {
     --bg: #ECECEC;
@@ -235,14 +236,21 @@ code {
 }
 
 .brand-name{
-    font-weight:800;
-    letter-spacing:-0.3px;
+    font-family: "Playfair Display", "Manrope", serif;
+    font-weight: 700;
+    letter-spacing: 0.02em;
     font-size:20px;
 }
 
 @media (max-width: 520px){
     .brand-logo{ height:36px; }
     .brand-name{ font-size:18px; }
+}
+
+.resq-word {
+    font-family: "Playfair Display", "Manrope", serif;
+    font-weight: 700;
+    letter-spacing: 0.02em;
 }
 
 /* ================================================================

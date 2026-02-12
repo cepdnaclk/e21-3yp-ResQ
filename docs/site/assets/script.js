@@ -126,6 +126,40 @@ function initRevealObserver() {
     });
 }
 
+function wrapResQText() {
+    const skipTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE']);
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            if (!node.nodeValue || !node.nodeValue.includes('ResQ')) return NodeFilter.FILTER_REJECT;
+            const parent = node.parentNode;
+            if (!parent || skipTags.has(parent.nodeName)) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+        }
+    });
+
+    const nodes = [];
+    let current;
+    while ((current = walker.nextNode())) {
+        nodes.push(current);
+    }
+
+    nodes.forEach(node => {
+        const frag = document.createDocumentFragment();
+        node.nodeValue.split(/(ResQ)/).forEach(part => {
+            if (!part) return;
+            if (part === 'ResQ') {
+                const span = document.createElement('span');
+                span.className = 'resq-word';
+                span.textContent = part;
+                frag.appendChild(span);
+            } else {
+                frag.appendChild(document.createTextNode(part));
+            }
+        });
+        node.parentNode.replaceChild(frag, node);
+    });
+}
+
 // Initialize theme on page load
 document.addEventListener('DOMContentLoaded', function() {
     const root = document.documentElement;
@@ -138,6 +172,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const initialTheme = savedTheme || (prefersDark ? 'dark' : 'light');
 
     applyTheme(initialTheme);
+    wrapResQText();
     
     // Mobile Menu Toggle
     if (hamburger) {
