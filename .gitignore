@@ -4,3 +4,4 @@ node_modules/
 out/
 build/
 *.log
+node_modules copy/
