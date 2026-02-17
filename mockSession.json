@@ -1,0 +1,27 @@
+{
+  "averageDepth": 52,
+  "rate": 110,
+  "recoilAccuracy": 94,
+  "handPlacementAccuracy": 73,
+  "incompleteRecoil": 12,
+  "longestPause": 3.1,
+  "handsOffTime": 12.6,
+  "pausesDetected": 5,
+  "pressure": 42,
+  "timeElapsedSeconds": 120,
+  "handPlacement": {
+    "errorAtCenterMm": 4,
+    "offCenterStreaks": 3,
+    "angleTiltIndicator": 2
+  },
+  "finalVerdict": {
+    "status": "PASS",
+    "score": 92
+  },
+  "performance": {
+    "depth": [2.1, 2.8, 3.2, 2.9, 3.0, 3.3, 2.7],
+    "rate": [110, 108, 112, 115, 109],
+    "pauses": [0, 1, 0, 2, 0]
+  },
+  "compressions": [51.6, 51.5, 51.7, 54.1, 51.6, 47.5, 53.0, 51.2, 51.3, 52.3]
+}

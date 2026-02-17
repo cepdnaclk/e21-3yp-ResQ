@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --medical-white: #fafbfc;
+  --resq-navy: #0f172a;
+  --resq-blue: #2563eb;
+  /* Logo-matching background: soft warm gray, paper-like */
+  --login-bg: #f0f2f4;
+  --login-bg-warm: #ebeef2;
+}
+
+body {
+  min-height: 100vh;
+}
+
+/* Login page: background that matches logo (soft gray, subtle texture) */
+.login-page-bg {
+  background-color: var(--login-bg);
+  background-image:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(15, 23, 42, 0.04), transparent),
+    radial-gradient(ellipse 80% 50% at 80% 50%, rgba(37, 99, 235, 0.03), transparent),
+    radial-gradient(ellipse 80% 50% at 20% 80%, rgba(37, 99, 235, 0.02), transparent);
+}
+
+/* Subtle paper texture overlay */
+.login-page-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
