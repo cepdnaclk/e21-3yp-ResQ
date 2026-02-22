@@ -24,9 +24,21 @@
     ],
     "supervisors": [
         {
+            "name": "Dr. Isuru Nawinne",
+            "email": "isurunawinne@eng.pdn.ac.lk"
+        },
+        {
             "name": "Ms. Yasodha Vimukthi",
             "email": "yasodhav@eng.pdn.ac.lk"
+        },
+        {
+            "name": "Mr. Sanka Peeris",
+            "email": "e19275@eng.pdn.ac.lk"
+        },
+        {
+            "name": "Ms. Sayumi Muthukumarana",
+            "email": "e19249@eng.pdn.ac.lk"
         }
     ],
-    "tags": ["Web", "Embedded Systems", "Healthcare", "Manikin"]
+    "tags": ["Web", "Embedded Systems", "Healthcare", "Manikin", "CPR", "Medical", "3YP"]
 }
