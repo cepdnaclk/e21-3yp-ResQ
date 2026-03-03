@@ -105,7 +105,7 @@ function PerformanceCard({ student }: { student: Student }) {
 
   return (
     <Link
-      href={`/student/dashboard?student=${encodeURIComponent(student.id)}`}
+      href={`/dashboard/instructor/student/${encodeURIComponent(student.id)}`}
       className="relative group block cursor-pointer rounded-2xl bg-white p-5 shadow-sm hover:shadow-md transform hover:-translate-y-1 transition-all border border-transparent hover:border-slate-200"
     >
       <div className="flex items-start justify-between gap-4">

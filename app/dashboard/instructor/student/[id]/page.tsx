@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { studentSessionMetrics, getRecoilStatus, mockLiveStudents } from '../../data/mockDashboard'
-import mockRootSession from '../../../mockSession.json'
+import { useParams } from 'next/navigation'
+import { studentSessionMetrics, getRecoilStatus, mockLiveStudents } from '../../../../data/mockDashboard'
+import mockRootSession from '../../../../../mockSession.json'
 
 // Seeded random function for consistent server/client rendering
 function seededRandom(seed: number): number {
@@ -121,76 +122,94 @@ function MetricCard({
   )
 }
 
-export default function StudentDashboardPage() {
+export default function InstructorStudentDetailPage() {
+  const params = useParams()
+  const studentId = params?.id ? String(params.id) : null
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackHistory, setFeedbackHistory] = useState<FeedbackEntry[]>([])
 
+  const feedbackStorageKey = useMemo(() => `resq-feedback-student-${studentId ?? 'default'}`, [studentId])
+
   const { metrics, studentName, studentSpecificPerformance } = useMemo(() => {
-    // Student dashboard only shows the logged-in student's own data
-    // No query parameter handling to prevent viewing other students' performance
-    // For demo: use first student from mockLiveStudents as the logged-in student
-    const currentStudent = mockLiveStudents[0]
-    
-    const baseMetrics = {
-      ...studentSessionMetrics,
-      handPlacementAccuracy: (mockRootSession as any).handPlacementAccuracy ?? 0,
-      incompleteRecoil: (mockRootSession as any).incompleteRecoil ?? 0,
-      longestPause: (mockRootSession as any).longestPause ?? 0,
-      handsOffTime: (mockRootSession as any).handsOffTime ?? 0,
-      pausesDetected: (mockRootSession as any).pausesDetected ?? 0,
-      handPlacement: (mockRootSession as any).handPlacement,
-      finalVerdict: (mockRootSession as any).finalVerdict,
-      performance: (mockRootSession as any).performance,
-      averageDepth: currentStudent.averageDepth,
-      rate: 110, // realistic rate for CPR
-      recoilAccuracy: currentStudent.recoilAccuracy,
-      pressure: currentStudent.pressure,
+    if (studentId) {
+      const s = mockLiveStudents.find((st) => String(st.id) === String(studentId))
+      if (s) {
+        const baseMetrics = {
+          averageDepth: s.averageDepth,
+          rate: 110,
+          recoilAccuracy: s.recoilAccuracy,
+          pressure: s.pressure ?? (studentSessionMetrics as any).pressure ?? 0,
+          timeElapsedSeconds: s.timeElapsedSeconds ?? (studentSessionMetrics as any).timeElapsedSeconds ?? 0,
+          handPlacementAccuracy: (mockRootSession as any).handPlacementAccuracy ?? 0,
+          incompleteRecoil: (mockRootSession as any).incompleteRecoil ?? 0,
+          longestPause: (mockRootSession as any).longestPause ?? 0,
+          handsOffTime: (mockRootSession as any).handsOffTime ?? 0,
+          pausesDetected: (mockRootSession as any).pausesDetected ?? 0,
+          handPlacement: (mockRootSession as any).handPlacement ?? {},
+          finalVerdict: (mockRootSession as any).finalVerdict ?? null,
+          performance: (mockRootSession as any).performance ?? {},
+        }
+
+        // Generate performance data based on student's metrics
+        // Use student ID as seed for consistent server/client rendering
+        const seed = parseInt(studentId) || 1
+        const numCompressions = 10
+        const baseDepth = s.averageDepth
+        const depthVariation = baseDepth * 0.15
+        
+        const depthArray = Array.from({ length: numCompressions }, (_, i) => {
+          const variation = (seededRandom(seed * 100 + i) - 0.5) * depthVariation
+          return Math.max(30, Math.round(baseDepth + variation))
+        })
+
+        const basePressure = s.pressure || 42
+        const pressureVariation = basePressure * 0.2
+        const pressureArray = Array.from({ length: numCompressions }, (_, i) => {
+          const variation = (seededRandom(seed * 200 + i) - 0.5) * pressureVariation
+          return Math.max(20, Math.round(basePressure + variation))
+        })
+
+        const baseRate = 110
+        const rateArray = Array.from({ length: numCompressions }, (_, i) => {
+          const variation = (seededRandom(seed * 300 + i) - 0.5) * 30
+          return Math.max(80, Math.round(baseRate + variation))
+        })
+
+        const pauseProbability = s.averageDepth < 50 ? 0.4 : s.averageDepth < 55 ? 0.2 : 0.1
+        const pausesArray = Array.from({ length: numCompressions }, (_, i) => {
+          return seededRandom(seed * 400 + i) < pauseProbability ? Math.round(seededRandom(seed * 500 + i) * 2) : 0
+        })
+
+        const studentSpecificPerf = {
+          depth: depthArray,
+          rate: rateArray,
+          pressure: pressureArray,
+          pauses: pausesArray,
+        }
+
+        return {
+          metrics: baseMetrics,
+          studentName: s.name,
+          studentSpecificPerformance: studentSpecificPerf,
+        }
+      }
     }
-
-    // Generate performance data based on student's metrics
-    // Use student ID as seed for consistent server/client rendering
-    const seed = parseInt(currentStudent.id) || 1
-    const numCompressions = 10
-    const baseDepth = currentStudent.averageDepth
-    const depthVariation = baseDepth * 0.15 // ±15% variation
-    
-    const depthArray = Array.from({ length: numCompressions }, (_, i) => {
-      const variation = (seededRandom(seed * 100 + i) - 0.5) * depthVariation
-      return Math.max(30, Math.round(baseDepth + variation))
-    })
-
-    const basePressure = currentStudent.pressure
-    const pressureVariation = basePressure * 0.2 // ±20% variation
-    const pressureArray = Array.from({ length: numCompressions }, (_, i) => {
-      const variation = (seededRandom(seed * 200 + i) - 0.5) * pressureVariation
-      return Math.max(20, Math.round(basePressure + variation))
-    })
-
-    const baseRate = 110
-    const rateArray = Array.from({ length: numCompressions }, (_, i) => {
-      const variation = (seededRandom(seed * 300 + i) - 0.5) * 30 // ±30 bpm variation
-      return Math.max(80, Math.round(baseRate + variation))
-    })
-
-    // Pauses - fewer pauses for better performers
-    const pauseProbability = currentStudent.averageDepth < 50 ? 0.4 : currentStudent.averageDepth < 55 ? 0.2 : 0.1
-    const pausesArray = Array.from({ length: numCompressions }, (_, i) => {
-      return seededRandom(seed * 400 + i) < pauseProbability ? Math.round(seededRandom(seed * 500 + i) * 2) : 0
-    })
-
-    const studentSpecificPerf = {
-      depth: depthArray,
-      rate: rateArray,
-      pressure: pressureArray,
-      pauses: pausesArray,
-    }
-
     return {
-      metrics: baseMetrics,
-      studentName: currentStudent.name,
-      studentSpecificPerformance: studentSpecificPerf,
+      metrics: {
+        ...studentSessionMetrics,
+        handPlacementAccuracy: (mockRootSession as any).handPlacementAccuracy ?? 0,
+        incompleteRecoil: (mockRootSession as any).incompleteRecoil ?? 0,
+        longestPause: (mockRootSession as any).longestPause ?? 0,
+        handsOffTime: (mockRootSession as any).handsOffTime ?? 0,
+        pausesDetected: (mockRootSession as any).pausesDetected ?? 0,
+        handPlacement: (mockRootSession as any).handPlacement,
+        finalVerdict: (mockRootSession as any).finalVerdict,
+        performance: (mockRootSession as any).performance,
+      },
+      studentName: '',
+      studentSpecificPerformance: {},
     }
-  }, [])
+  }, [studentId])
 
   const recoilStatus = getRecoilStatus(metrics.recoilAccuracy)
 
@@ -259,18 +278,13 @@ export default function StudentDashboardPage() {
 
   // Calculate pause statistics
   const pauseStats = useMemo(() => {
-    const pausesArr = sessionPerformance?.pauses ?? []
+    const pausesArr: number[] = (sessionPerformance as any)?.pauses ?? []
     const totalPauses = pausesArr.reduce((sum: number, p: number) => sum + p, 0)
     const pauseCount = pausesArr.filter((p: number) => p > 0).length
     const longestPause = pausesArr.length > 0 ? Math.max(...pausesArr) : 0
     const avgPause = pauseCount > 0 ? (totalPauses / pauseCount).toFixed(1) : '0'
     return { totalPauses, pauseCount, longestPause, avgPause }
   }, [sessionPerformance])
-
-  const feedbackStorageKey = useMemo(() => {
-    const currentStudentId = String((mockLiveStudents[0] as any)?.id ?? 'default')
-    return `resq-feedback-student-${currentStudentId}`
-  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -329,9 +343,9 @@ export default function StudentDashboardPage() {
     <main className="min-h-screen bg-slate-50">
       <div className="max-w-5xl mx-auto p-6">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold text-slate-800">{studentName ? `${studentName} — Student dashboard` : 'Student dashboard'}</h1>
+          <h1 className="text-2xl font-semibold text-slate-800">{studentName ? `${studentName} — Student Performance` : 'Student Performance'}</h1>
           <div className="flex items-center gap-4 text-sm">
-            <Link href="/login" className="text-blue-600 hover:text-blue-800 font-medium">Back to Login</Link>
+            <Link href="/dashboard/instructor" className="text-blue-600 hover:text-blue-800 font-medium">Back to Dashboard</Link>
             <div className="text-slate-500">CPR Training System</div>
           </div>
         </div>
@@ -343,7 +357,7 @@ export default function StudentDashboardPage() {
             <div className="lg:col-span-3">
               <div className="rounded-2xl bg-white p-4 shadow-sm h-full">
                 <div>
-                  <div className="text-sm font-semibold text-slate-800">{studentName || 'Alex Chen'}</div>
+                  <div className="text-sm font-semibold text-slate-800">{studentName || 'Student'}</div>
                   <div className="text-xs text-slate-400">Registration Number</div>
                 </div>
 
