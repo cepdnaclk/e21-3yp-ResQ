@@ -2,7 +2,7 @@
   "name": "resq-local-hub",
   "version": "0.1.0",
   "private": true,
-  "description": "Monorepo for ResQ Local Hub desktop, web, and services",
+  "packageManager": "pnpm@9.0.0",
   "workspaces": [
     "apps/*",
     "services/*",
@@ -10,16 +10,14 @@
   ],
   "scripts": {
     "build": "pnpm -r run build",
-    "dev": "pnpm -r run dev",
-    "lint": "pnpm -r run lint",
     "typecheck": "tsc -b --verbose",
-    "clean": "rimraf **/dist **/node_modules",
-    "start": "pnpm -r run start"
+    "clean": "rimraf **/dist **/*.tsbuildinfo"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "prettier": "^3.0.0",
+    "rimraf": "^6.0.1",
     "ts-node": "^10.0.0",
-    "eslint": "^8.0.0",
-    "prettier": "^3.0.0"
+    "typescript": "^5.0.0"
   }
 }
