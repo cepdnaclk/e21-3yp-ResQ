@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/desktop" },
+    { "path": "./apps/web" },
+    { "path": "./services/api" },
+    { "path": "./packages/shared" },
+    { "path": "./packages/config" },
+    { "path": "./packages/logging" },
+    { "path": "./packages/mqtt" },
+    { "path": "./packages/db" }
+  ]
+}

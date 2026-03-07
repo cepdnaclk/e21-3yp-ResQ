@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+**/node_modules
+**/dist
+**/build
+pnpm-lock.yaml
+.vscode/
+.DS_Store
