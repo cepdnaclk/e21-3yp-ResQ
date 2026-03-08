@@ -10,6 +10,5 @@ pnpm-lock.yaml
 .DS_Store
 *.tsbuildinfo
 .pnpm-store/
-# Mosquitto runtime files
-mosquitto/data/
 mosquitto/log/
+mosquitto/data/
