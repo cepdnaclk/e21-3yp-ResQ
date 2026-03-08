@@ -14,9 +14,10 @@ export function registerPlugins(app: FastifyInstance) {
   app.register(dbPlugin);
   app.register(authPlugin);
   app.register(websocketPlugin);
-  app.register(hubRoutes);
-  app.register(manikinsRoutes);
-  app.register(sessionsRoutes);
-  app.register(exportsRoutes);
-  app.register(localAuthRoutes);
+
+  app.register(hubRoutes, { prefix: '/api' });
+  app.register(manikinsRoutes, { prefix: '/api' });
+  app.register(sessionsRoutes, { prefix: '/api' });
+  app.register(exportsRoutes, { prefix: '/api' });
+  app.register(localAuthRoutes, { prefix: '/api' });
 }

@@ -9,6 +9,9 @@
     "packages/*"
   ],
   "scripts": {
+    "dev:web": "pnpm --filter @resq/web dev --host 0.0.0.0",
+    "dev:api": "pnpm --filter @resq/api dev",
+    "dev:desktop": "pnpm --filter @resq/desktop dev",
     "build": "pnpm -r run build",
     "typecheck": "tsc -b --verbose",
     "clean": "rimraf **/dist **/*.tsbuildinfo"
@@ -19,5 +22,9 @@
     "rimraf": "^6.0.1",
     "ts-node": "^10.0.0",
     "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": "20.x",
+    "pnpm": "9.x"
   }
 }

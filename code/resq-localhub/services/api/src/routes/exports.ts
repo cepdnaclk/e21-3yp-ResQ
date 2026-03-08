@@ -1,12 +1,13 @@
 import { FastifyPluginAsync } from 'fastify';
+
 const exportsRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/exports/:sessionId/csv', async (req, reply) => {
-    // TODO: Export CSV
+  app.get('/export/sessions/:sessionId.csv', async () => {
     return { exported: true, format: 'csv' };
   });
-  app.get('/exports/:sessionId/json', async (req, reply) => {
-    // TODO: Export JSON
+
+  app.get('/export/sessions/:sessionId.json', async () => {
     return { exported: true, format: 'json' };
   });
 };
+
 export default exportsRoutes;

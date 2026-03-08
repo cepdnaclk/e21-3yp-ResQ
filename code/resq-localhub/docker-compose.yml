@@ -1,0 +1,37 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    container_name: resq-dev
+    working_dir: /workspace
+    volumes:
+      - .:/workspace:cached
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    depends_on:
+      - mqtt
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      MQTT_WS_PORT: 9001
+      API_PORT: 8080
+      WEB_PORT: 5173
+    ports:
+      - "8080:8080"
+      - "5173:5173"
+      - "9229:9229"
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: resq-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log

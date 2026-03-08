@@ -9,3 +9,4 @@ pnpm-lock.yaml
 .vscode/
 .DS_Store
 *.tsbuildinfo
+.pnpm-store/
