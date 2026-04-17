@@ -1,5 +1,7 @@
-import Database from 'better-sqlite3';
+import Database from "better-sqlite3";
 
-const db = new Database('./data/resq.db');
+export type SqliteDb = Database.Database;
+
+export const db: SqliteDb = new Database("./data/resq.db");
 
 export default db;

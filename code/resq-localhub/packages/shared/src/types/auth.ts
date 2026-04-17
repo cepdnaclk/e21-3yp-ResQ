@@ -1,9 +1,9 @@
 export interface LocalAuthRequest {
-  traineeId: string;
-  pin: string;
+  jwt: string;
 }
+
 export interface LocalAuthResponse {
-  authenticated: boolean;
-  traineeId?: string;
-}// authentication-related types (user, token)
-// TODO: define credentials and roles
+  hubSessionToken: string;
+  expiresAt: number;
+  traineeId: string;
+}

@@ -1,4 +1,9 @@
 import { FastifyPluginAsync } from 'fastify';
+import { loadConfig } from "@resq/config";
+
+export const config = loadConfig(
+  process.env as Record<string, string | undefined>
+);
 
 const envPlugin: FastifyPluginAsync = async (app) => {
   app.decorate('env', {

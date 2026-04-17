@@ -1,8 +1,18 @@
+export type ManikinState =
+  | "UNPAIRED"
+  | "PENDING"
+  | "PAIRED_OFFLINE"
+  | "PAIRED_ONLINE";
+
 export interface Manikin {
-  id: string;
   mac: string;
-  name: string;
-  paired: boolean;
-  lastSeen?: Date;
-}// definitions for manikin entities
-// TODO: add properties such as id, model, status
+  label?: string;
+  fw?: string;
+  ip?: string;
+  rssi?: number;
+  battery?: number;
+  firstSeen?: number;
+  lastSeen?: number;
+  pairedBy?: string;
+  state: ManikinState;
+}

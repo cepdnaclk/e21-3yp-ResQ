@@ -1,5 +1,8 @@
 export interface PairingToken {
   token: string;
-  manikinId: string;
-  expiresAt: Date;
+  mac: string;
+  issuedAt: number;
+  expiresAt: number;
+  usedAt?: number;
+  hubId?: string;
 }

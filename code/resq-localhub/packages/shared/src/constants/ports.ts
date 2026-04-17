@@ -1,4 +1,6 @@
-export const MQTT_PORT = 1883;
-export const MQTT_WS_PORT = 9001;
-export const API_PORT = 8080;// default port numbers for services
-// TODO: define PORT_API, PORT_MQTT, etc.
+export const PORTS = {
+  MQTT_TCP: 1883,
+  MQTT_WS: 9001,
+  API_HTTP: 8080,
+  WEB_DEV: 5173,
+} as const;
