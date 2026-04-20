@@ -1,0 +1,2 @@
+-- initial schema for ResQ Local Hub
+-- TODO: define tables for manikins, sessions, telemetry, etc.
