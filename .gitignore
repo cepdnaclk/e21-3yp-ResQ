@@ -21,6 +21,7 @@ dist/
 coverage/
 **/build/
 **/dist/
+**/*.tsbuildinfo
 
 # Environment files
 .env
