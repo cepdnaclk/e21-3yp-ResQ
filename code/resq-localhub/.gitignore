@@ -1,8 +1,10 @@
 node_modules/
+.pnpm-store/
 dist/
 .env
 .env.local
 **/node_modules
+**/.pnpm-store
 **/dist
 **/build
 pnpm-lock.yaml
