@@ -1,4 +1,4 @@
-#include "include/hx710.h"
+#include "hx710.h"
 
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
