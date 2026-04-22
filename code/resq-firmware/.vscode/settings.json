@@ -4,5 +4,13 @@
     "--background-index",
     "--query-driver=**",
     "--compile-commands-dir=${workspaceFolder}/build"
-  ]
+  ],
+  "idf.currentSetup": "C:\\esp\\v6.0\\esp-idf",
+  "idf.portWin": "COM4",
+  "idf.openOcdConfigs": [
+    "board/esp32c3-builtin.cfg"
+  ],
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32c3"
+  }
 }

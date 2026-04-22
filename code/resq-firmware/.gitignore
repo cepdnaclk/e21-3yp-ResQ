@@ -17,8 +17,8 @@
 *.log
 
 # Build artifacts and directories
-**/build/
 build/
+**/build/
 *.o
 *.a
 *.out
@@ -29,7 +29,6 @@ build/
 *.elf
 *.map
 flasher_args.json # Generated in build directory
-sdkconfig.old
 sdkconfig
 
 # ESP-IDF dependencies
@@ -77,5 +76,5 @@ Desktop.ini
 *.suo       # Visual Studio Solution User Options
 *.sln.docstates # Visual Studio
 
-# VS Code local overrides (keep shared settings.json tracked)
-.vscode/*.local.json
+# VS Code local overrides
+.vscode/
