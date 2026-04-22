@@ -1,159 +1,105 @@
-#include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 #include "driver/gpio.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
-#include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-// ==========================================
-// PIN DEFINITIONS (ESP32-C3)
-// ==========================================
-// Dual Force/Pressure Sensors (HX710B)
+#include "cpr_logic.h"
+#include "hall_sensor.h"
+#include "hx710.h"
+
+// ==================================================
+// Pin assignments for the two HX710 force sensors
+// ==================================================
 #define HX710_1_SCK  GPIO_NUM_6
 #define HX710_1_DOUT GPIO_NUM_7
 #define HX710_2_SCK  GPIO_NUM_4
 #define HX710_2_DOUT GPIO_NUM_5
 
-// Analog Hall Sensor (HW-484 on GPIO 2)
+// ADC channel used for the Hall-effect depth sensor
 #define HALL_ADC_CHAN ADC_CHANNEL_2
 
-// ==========================================
-// CPR DEPTH CALIBRATION (HW-484)
-// ==========================================
-const int HALL_BASELINE = 3420;
-const int HALL_MIN_DELTA = 520;
-const int HALL_MAX_DELTA = 1060;
-const int COMPRESSION_START_DELTA = 200;
-// ==========================================
-
-void hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
-{
-	gpio_reset_pin(sck_pin);
-	gpio_set_direction(sck_pin, GPIO_MODE_OUTPUT);
-	gpio_set_level(sck_pin, 0);
-
-	gpio_reset_pin(dout_pin);
-	gpio_set_direction(dout_pin, GPIO_MODE_INPUT);
-}
-
-int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
-{
-	int timeout_ticks = 0;
-	const int MAX_WAIT_TICKS = 50;
-
-	while (gpio_get_level(dout_pin) == 1) {
-		vTaskDelay(1);
-		timeout_ticks++;
-		if (timeout_ticks > MAX_WAIT_TICKS) {
-			return -999999;
-		}
-	}
-
-	int32_t raw_data = 0;
-
-	for (int i = 0; i < 24; i++) {
-		gpio_set_level(sck_pin, 1);
-		esp_rom_delay_us(1);
-
-		raw_data = raw_data << 1;
-
-		gpio_set_level(sck_pin, 0);
-		esp_rom_delay_us(1);
-
-		if (gpio_get_level(dout_pin)) {
-			raw_data++;
-		}
-	}
-
-	gpio_set_level(sck_pin, 1);
-	esp_rom_delay_us(1);
-	gpio_set_level(sck_pin, 0);
-	esp_rom_delay_us(1);
-
-	if (raw_data & 0x800000) {
-		raw_data |= 0xFF000000;
-	}
-
-	return raw_data;
-}
+// ==================================================
+// Calibration values for CPR depth detection
+// ==================================================
+#define HALL_BASELINE 3420
+#define HALL_MIN_DELTA 520
+#define HALL_MAX_DELTA 1060
+#define COMPRESSION_START_DELTA 200
 
 void app_main(void)
 {
+	// Startup message
 	printf("Initializing ResQ Dual Force & Analog Depth System...\n");
 
+	// Initialize both force sensors
 	hx710_init(HX710_1_SCK, HX710_1_DOUT);
 	hx710_init(HX710_2_SCK, HX710_2_DOUT);
 
-	adc_oneshot_unit_handle_t adc1_handle;
-	adc_oneshot_unit_init_cfg_t init_config1 = {
-		.unit_id = ADC_UNIT_1,
-	};
-	ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+	// Initialize the Hall sensor with its ADC channel and baseline value
+	hall_sensor_t hall_sensor;
+	ESP_ERROR_CHECK(hall_sensor_init(&hall_sensor, HALL_ADC_CHAN, HALL_BASELINE));
 
-	adc_oneshot_chan_cfg_t config = {
-		.bitwidth = ADC_BITWIDTH_DEFAULT,
-		.atten = ADC_ATTEN_DB_12,
-	};
-	ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, HALL_ADC_CHAN, &config));
+	// Initialize CPR state tracking
+	cpr_state_t cpr_state;
+	cpr_logic_init(&cpr_state);
 
+	// Set CPR depth thresholds used by the logic module
+	cpr_thresholds_t thresholds = {
+		.hall_min_delta = HALL_MIN_DELTA,
+		.hall_max_delta = HALL_MAX_DELTA,
+		.compression_start_delta = COMPRESSION_START_DELTA,
+	};
+
+	// Small delay to allow sensors to stabilize before reading
 	vTaskDelay(pdMS_TO_TICKS(500));
 
-	bool is_compressing = false;
-	int peak_delta = 0;
-	int total_compressions = 0;
-
 	while (1) {
+		// Read force from sensor 1
 		int32_t force1 = hx710_read(HX710_1_SCK, HX710_1_DOUT);
+
+		// Read force from sensor 2
 		int32_t force2 = hx710_read(HX710_2_SCK, HX710_2_DOUT);
 
-		if (force1 != -999999) {
+		// Print force sensor 1 reading or error if disconnected/timed out
+		if (force1 != HX710_ERROR_TIMEOUT) {
 			printf(">Force_1:%ld\n", force1);
 		} else {
 			printf("Error: Force Sensor 1 Disconnected!\n");
 		}
 
-		if (force2 != -999999) {
+		// Print force sensor 2 reading or error if disconnected/timed out
+		if (force2 != HX710_ERROR_TIMEOUT) {
 			printf(">Force_2:%ld\n", force2);
 		} else {
 			printf("Error: Force Sensor 2 Disconnected!\n");
 		}
 
-		int current_adc;
-		ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, HALL_ADC_CHAN, &current_adc));
+		// Read raw analog value from the Hall sensor
+		int hall_raw = 0;
+		ESP_ERROR_CHECK(hall_sensor_read_raw(&hall_sensor, &hall_raw));
 
-		int current_delta = abs(current_adc - HALL_BASELINE);
+		// Convert raw Hall sensor value into a depth delta relative to baseline
+		int current_delta = hall_sensor_calculate_delta(&hall_sensor, hall_raw);
 
-		printf(">Analog_Depth_Raw:%d\n", current_adc);
+		// Print the raw reading and calculated delta
+		printf(">Analog_Depth_Raw:%d\n", hall_raw);
 		printf(">Current_Delta:%d\n", current_delta);
 
-		if (current_delta > COMPRESSION_START_DELTA) {
-			is_compressing = true;
+		// Update CPR logic using the current depth measurement
+		cpr_feedback_t feedback = cpr_logic_update(&cpr_state, &thresholds, current_delta);
 
-			if (current_delta > peak_delta) {
-				peak_delta = current_delta;
-			}
-		} else if (is_compressing && current_delta < COMPRESSION_START_DELTA) {
-			total_compressions++;
-			printf(">Total_Compressions:%d\n", total_compressions);
+		// If the CPR state machine produced feedback, print it
+		if (feedback != CPR_FEEDBACK_NONE) {
+			printf(">Total_Compressions:%d\n", cpr_state.total_compressions);
 			printf("--- Compression Evaluated ---\n");
-
-			if (peak_delta < HALL_MIN_DELTA) {
-				printf("Feedback: TOO SHALLOW (Peak Delta: %d)\n", peak_delta);
-			} else if (peak_delta > HALL_MAX_DELTA) {
-				printf("Feedback: TOO DEEP (Peak Delta: %d)\n", peak_delta);
-			} else {
-				printf("Feedback: PERFECT DEPTH! (Peak Delta: %d)\n", peak_delta);
-			}
+			printf("Feedback: %s\n", cpr_feedback_to_string(feedback));
 			printf("----------------------------------\n");
-
-			is_compressing = false;
-			peak_delta = 0;
 		}
 
+		// Delay between readings to control sampling rate
 		vTaskDelay(pdMS_TO_TICKS(20));
 	}
 }
