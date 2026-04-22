@@ -1,14 +1,13 @@
 idf_component_register(
     SRCS
-        "wifi_manager.c"
-        "register_client.c"
+        "mqtt_manager.c"
+        "telemetry_publisher.c"
     INCLUDE_DIRS "include"
     REQUIRES
-        esp_wifi
-        esp_event
-        esp_netif
-        esp_http_client
+        espressif__mqtt
         espressif__cjson
         app_config
+        sensor_runtime
+        runtime
         freertos
 )

@@ -46,7 +46,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     (void)event_data;
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
+        ESP_LOGI(TAG, "Wi-Fi STA started");
         return;
     }
 
@@ -233,4 +233,40 @@ esp_err_t wifi_manager_get_ip(char *out, size_t out_len)
 
     snprintf(out, out_len, IPSTR, IP2STR(&ip_info.ip));
     return ESP_OK;
+}
+
+esp_err_t wifi_manager_reconnect_last(TickType_t timeout_ticks)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    s_retry_count = 0;
+    s_connected = false;
+
+    esp_err_t err = esp_wifi_connect();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Retrying Wi-Fi connection using existing STA config");
+
+    EventBits_t bits = xEventGroupWaitBits(
+        s_wifi_events,
+        WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+        pdFALSE,
+        pdFALSE,
+        timeout_ticks
+    );
+
+    if (bits & WIFI_CONNECTED_BIT) {
+        return ESP_OK;
+    }
+
+    if (bits & WIFI_FAIL_BIT) {
+        return ESP_FAIL;
+    }
+
+    return ESP_ERR_TIMEOUT;
 }
