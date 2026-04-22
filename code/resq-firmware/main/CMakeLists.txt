@@ -6,4 +6,6 @@ idf_component_register(
         app_config
         provisioning
         network
+        runtime
+        messaging
 )
