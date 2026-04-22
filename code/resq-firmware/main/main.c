@@ -1,105 +1,113 @@
-#include <stdio.h>
-
-#include "driver/gpio.h"
-#include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "cpr_logic.h"
-#include "hall_sensor.h"
-#include "hx710.h"
+#include "config_store.h"
+#include "provision_ap.h"
+#include "sensor_runtime.h"
+#include "wifi_manager.h"
 
-// ==================================================
-// Pin assignments for the two HX710 force sensors
-// ==================================================
-#define HX710_1_SCK  GPIO_NUM_6
-#define HX710_1_DOUT GPIO_NUM_7
-#define HX710_2_SCK  GPIO_NUM_4
-#define HX710_2_DOUT GPIO_NUM_5
-
-// ADC channel used for the Hall-effect depth sensor
-#define HALL_ADC_CHAN ADC_CHANNEL_2
-
-// ==================================================
-// Calibration values for CPR depth detection
-// ==================================================
-#define HALL_BASELINE 3420
-#define HALL_MIN_DELTA 520
-#define HALL_MAX_DELTA 1060
-#define COMPRESSION_START_DELTA 200
+static const char *TAG = "main";
 
 void app_main(void)
 {
-	// Startup message
-	printf("Initializing ResQ Dual Force & Analog Depth System...\n");
+    ESP_LOGI(TAG, "ResQ firmware boot - Step 3 + Step 4");
 
-	// Initialize both force sensors
-	hx710_init(HX710_1_SCK, HX710_1_DOUT);
-	hx710_init(HX710_2_SCK, HX710_2_DOUT);
+    /* -------------------------------------------------
+     * Step 2 foundation
+     * ------------------------------------------------- */
+    ESP_ERROR_CHECK(config_store_init());
 
-	// Initialize the Hall sensor with its ADC channel and baseline value
-	hall_sensor_t hall_sensor;
-	ESP_ERROR_CHECK(hall_sensor_init(&hall_sensor, HALL_ADC_CHAN, HALL_BASELINE));
+    device_config_t cfg;
+    ESP_ERROR_CHECK(config_store_load(&cfg));
 
-	// Initialize CPR state tracking
-	cpr_state_t cpr_state;
-	cpr_logic_init(&cpr_state);
+    /* -------------------------------------------------
+     * Step 1 foundation
+     * ------------------------------------------------- */
+    ESP_ERROR_CHECK(sensor_runtime_init());
+    ESP_ERROR_CHECK(sensor_runtime_start());
 
-	// Set CPR depth thresholds used by the logic module
-	cpr_thresholds_t thresholds = {
-		.hall_min_delta = HALL_MIN_DELTA,
-		.hall_max_delta = HALL_MAX_DELTA,
-		.compression_start_delta = COMPRESSION_START_DELTA,
-	};
+    /* -------------------------------------------------
+     * Step 3
+     * If device is not provisioned, start AP mode and
+     * wait for QR-based provisioning data.
+     * ------------------------------------------------- */
+    if (!cfg.provisioned) {
+        ESP_LOGW(TAG, "Device is not provisioned yet");
+        ESP_LOGI(TAG, "Starting provisioning AP...");
 
-	// Small delay to allow sensors to stabilize before reading
-	vTaskDelay(pdMS_TO_TICKS(500));
+        ESP_ERROR_CHECK(provisioning_start());
 
-	while (1) {
-		// Read force from sensor 1
-		int32_t force1 = hx710_read(HX710_1_SCK, HX710_1_DOUT);
+        ESP_LOGI(TAG, "Waiting for provisioning data...");
+        ESP_LOGI(TAG, "Connect phone to AP and open QR2 URL");
 
-		// Read force from sensor 2
-		int32_t force2 = hx710_read(HX710_2_SCK, HX710_2_DOUT);
+        ESP_ERROR_CHECK(provisioning_wait_for_config(&cfg, portMAX_DELAY));
 
-		// Print force sensor 1 reading or error if disconnected/timed out
-		if (force1 != HX710_ERROR_TIMEOUT) {
-			printf(">Force_1:%ld\n", force1);
-		} else {
-			printf("Error: Force Sensor 1 Disconnected!\n");
-		}
+        ESP_LOGI(TAG, "Provisioning completed successfully");
+        ESP_LOGI(TAG, "Stopping provisioning AP...");
 
-		// Print force sensor 2 reading or error if disconnected/timed out
-		if (force2 != HX710_ERROR_TIMEOUT) {
-			printf(">Force_2:%ld\n", force2);
-		} else {
-			printf("Error: Force Sensor 2 Disconnected!\n");
-		}
+        ESP_ERROR_CHECK(provisioning_stop());
+    } else {
+        ESP_LOGI(TAG, "Stored provisioning found");
+        ESP_LOGI(TAG, "  wifi_ssid   : %s", cfg.wifi_ssid);
+        ESP_LOGI(TAG, "  register_url: %s", cfg.register_url);
+        ESP_LOGI(TAG, "  device_id   : %s", cfg.device_id);
+        ESP_LOGI(TAG, "  manikin_id  : %s", cfg.manikin_id);
+        ESP_LOGI(TAG, "  mqtt_host   : %s", cfg.mqtt_host);
+        ESP_LOGI(TAG, "  mqtt_port   : %d", cfg.mqtt_port);
+    }
 
-		// Read raw analog value from the Hall sensor
-		int hall_raw = 0;
-		ESP_ERROR_CHECK(hall_sensor_read_raw(&hall_sensor, &hall_raw));
+    /* -------------------------------------------------
+     * Step 4
+     * Use saved credentials to connect to Local Hub Wi-Fi
+     * ------------------------------------------------- */
+    ESP_ERROR_CHECK(wifi_manager_init());
 
-		// Convert raw Hall sensor value into a depth delta relative to baseline
-		int current_delta = hall_sensor_calculate_delta(&hall_sensor, hall_raw);
+    esp_err_t wifi_err = wifi_manager_connect_sta(
+        cfg.wifi_ssid,
+        cfg.wifi_pass,
+        pdMS_TO_TICKS(30000)
+    );
 
-		// Print the raw reading and calculated delta
-		printf(">Analog_Depth_Raw:%d\n", hall_raw);
-		printf(">Current_Delta:%d\n", current_delta);
+    if (wifi_err != ESP_OK) {
+        ESP_LOGE(TAG, "Wi-Fi connection failed: %s", esp_err_to_name(wifi_err));
+        ESP_LOGE(TAG, "At this stage, stop here and fix Wi-Fi provisioning values");
+    } else {
+        char ip_str[16] = {0};
+        if (wifi_manager_get_ip(ip_str, sizeof(ip_str)) == ESP_OK) {
+            ESP_LOGI(TAG, "Device connected to Local Hub Wi-Fi with IP: %s", ip_str);
+        }
+    }
 
-		// Update CPR logic using the current depth measurement
-		cpr_feedback_t feedback = cpr_logic_update(&cpr_state, &thresholds, current_delta);
+    /* -------------------------------------------------
+     * Keep current sensor supervisor loop for debugging.
+     * Later this will be replaced by:
+     * - backend registration
+     * - MQTT
+     * - session management
+     * ------------------------------------------------- */
+    while (1) {
+        sensor_snapshot_t snap;
 
-		// If the CPR state machine produced feedback, print it
-		if (feedback != CPR_FEEDBACK_NONE) {
-			printf(">Total_Compressions:%d\n", cpr_state.total_compressions);
-			printf("--- Compression Evaluated ---\n");
-			printf("Feedback: %s\n", cpr_feedback_to_string(feedback));
-			printf("----------------------------------\n");
-		}
+        if (sensor_runtime_get_latest(&snap) == ESP_OK) {
+            ESP_LOGI(
+                TAG,
+                "F1=%ld (%s) | F2=%ld (%s) | HallRaw=%d | Delta=%d | Count=%d | Feedback=%s | WiFi=%s",
+                (long)snap.force1,
+                snap.force1_ok ? "OK" : "ERR",
+                (long)snap.force2,
+                snap.force2_ok ? "OK" : "ERR",
+                snap.hall_raw,
+                snap.current_delta,
+                snap.total_compressions,
+                cpr_feedback_to_string(snap.feedback),
+                wifi_manager_is_connected() ? "CONNECTED" : "DISCONNECTED"
+            );
+        } else {
+            ESP_LOGW(TAG, "Latest snapshot not available yet");
+        }
 
-		// Delay between readings to control sampling rate
-		vTaskDelay(pdMS_TO_TICKS(20));
-	}
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
