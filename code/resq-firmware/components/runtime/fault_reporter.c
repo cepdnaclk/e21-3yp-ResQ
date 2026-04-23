@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "queued_publisher.h"
 #include "mqtt_manager.h"
 #include "resq_protocol.h"
 #include "sensor_runtime.h"
@@ -37,7 +38,7 @@ static void publish_fault(const char *fault_code, const char *message, bool acti
     );
 
     if (payload) {
-        mqtt_manager_publish(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+        queued_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
         cJSON_free(payload);
     }
 }

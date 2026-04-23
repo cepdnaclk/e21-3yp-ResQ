@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "mqtt_manager.c"
         "telemetry_publisher.c"
+        "queued_publisher.c"
     INCLUDE_DIRS "include"
     REQUIRES
         espressif__mqtt
@@ -10,5 +11,6 @@ idf_component_register(
         sensor_runtime
         runtime
         protocol
+        storage
         freertos
 )

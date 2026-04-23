@@ -18,6 +18,7 @@
 #include "command_handler.h"
 #include "device_control.h"
 #include "esp_system.h"
+#include "queued_publisher.h"
 
 static const char *TAG = "main";
 
@@ -110,6 +111,16 @@ void app_main(void)
      * ------------------------------------------------- */
     ESP_ERROR_CHECK(mqtt_manager_init(&cfg));
     ESP_ERROR_CHECK(mqtt_manager_start());
+
+    /* -------------------------------------------------
+     * Start queued publisher
+     * Handles buffered/outbound messages that should be
+     * retried or sent asynchronously.
+     * ------------------------------------------------- */
+    ESP_ERROR_CHECK(queued_publisher_init());
+    ESP_ERROR_CHECK(queued_publisher_start());
+
+    ESP_LOGI(TAG, "Queued publisher started");
 
     /* -------------------------------------------------
      * Start telemetry publisher

@@ -12,6 +12,7 @@
 #include "resq_protocol.h"
 #include "sensor_runtime.h"
 #include "session_manager.h"
+#include "queued_publisher.h"
 
 #define TELEMETRY_TASK_STACK_SIZE 4096
 #define TELEMETRY_TASK_PRIORITY      4
@@ -30,7 +31,7 @@ static void publish_telemetry_packet(const sensor_snapshot_t *snap)
     );
 
     if (payload) {
-        mqtt_manager_publish(RESQ_SUFFIX_TELEMETRY, payload, 0, 0);
+        queued_publisher_publish_or_queue(RESQ_SUFFIX_TELEMETRY, payload, 0, 0);
         cJSON_free(payload);
     }
 }
@@ -44,7 +45,7 @@ static void publish_feedback_event(const sensor_snapshot_t *snap)
     );
 
     if (payload) {
-        mqtt_manager_publish(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+        queued_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
         cJSON_free(payload);
     }
 }
