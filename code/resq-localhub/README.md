@@ -39,7 +39,7 @@ cd services/hub-api
 Health endpoint:
 
 ```text
-GET http://localhost:8080/api/hub/health
+GET http://localhost:18080/api/hub/health
 ```
 
 The desktop Home page checks this endpoint on load, so the backend should be running before you open the app if you want to see live API status.
@@ -50,6 +50,10 @@ For broker lifecycle control from the desktop app, Mosquitto path resolution is:
 
 - `MOSQUITTO_EXE` environment variable (if set), otherwise `mosquitto` from PATH
 - `MOSQUITTO_CONF` environment variable (if set), otherwise `infra/mosquitto/mosquitto.conf`
+
+The LAN Info card now reads hostname and primary local IPv4 from Tauri. If no non-loopback IPv4 is found, it shows `Not detected`.
+
+When auto-detection cannot find a usable LAN IP, use Setup to save a manual LAN IP override. Home will then use the manual value.
 
 ### 2) Desktop App
 

@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import StatusCard from "../components/StatusCard";
 import QrPanel from "../components/QrPanel";
 import LogPanel from "../components/LogPanel";
+import { generateAccessUrls } from "../lib/accessUrls";
 import {
   fetchHubHealth,
   getApiServiceStatus,
   getBrokerServiceStatus,
+  getNetworkInfo,
   startApiService,
   startBrokerService,
   stopApiService,
@@ -13,7 +15,12 @@ import {
   type ApiServiceStatus,
   type BrokerServiceStatus,
   type HubHealthResponse,
+  type NetworkInfo,
 } from "../lib/tauriApi";
+
+type HomePageProps = {
+  manualLanIpOverride: string | null;
+};
 
 type ApiHealthState = {
   status: "checking" | "healthy" | "unreachable";
@@ -27,6 +34,13 @@ const STARTUP_CHECK_DELAY_MS = 2000;
 type BrokerUiState = {
   status: "checking" | "running" | "stopped";
   detail: string;
+};
+
+type LanInfoState = {
+  status: "checking" | "ready" | "error";
+  detail: string;
+  hostname?: string;
+  primaryIp?: string | null;
 };
 
 function getApiHealthState(health: HubHealthResponse): ApiHealthState {
@@ -81,7 +95,41 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-export default function HomePage() {
+function getErrorMessage(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === "string") {
+      return maybeMessage;
+    }
+  }
+
+  return "Unknown error";
+}
+
+function buttonStyle(disabled: boolean = false): React.CSSProperties {
+  return {
+    padding: "8px 14px",
+    background: disabled ? "#e5e7eb" : "#0f172a",
+    color: disabled ? "#9ca3af" : "#ffffff",
+    border: "1px solid " + (disabled ? "#d1d5db" : "#0f172a"),
+    borderRadius: "6px",
+    fontSize: "0.9rem",
+    fontWeight: 500,
+    cursor: disabled ? "not-allowed" : "pointer",
+    transition: "all 0.2s ease-in-out",
+    opacity: disabled ? 0.6 : 1,
+  };
+}
+
+export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   const [apiService, setApiService] = useState<ApiServiceStatus>({
     running: false,
     pid: null,
@@ -101,6 +149,10 @@ export default function HomePage() {
     status: "checking",
     detail: "Checking...",
   });
+  const [lanInfo, setLanInfo] = useState<LanInfoState>({
+    status: "checking",
+    detail: "Checking...",
+  });
 
   function updateBrokerUi(service: BrokerServiceStatus) {
     setBrokerState(service);
@@ -111,36 +163,70 @@ export default function HomePage() {
   }
 
   async function syncBrokerState() {
-    const service = await getBrokerServiceStatus();
-    updateBrokerUi(service);
+    try {
+      const service = await getBrokerServiceStatus();
+      updateBrokerUi(service);
+    } catch (error) {
+      setBrokerState({
+        running: false,
+        pid: null,
+        message: "Broker process is stopped.",
+      });
+      setBrokerUiState({
+        status: "stopped",
+        detail: `Unable to query broker process state. ${getErrorMessage(error)}`,
+      });
+    }
+  }
+
+  async function syncLanInfoState() {
+    try {
+      const networkInfo: NetworkInfo = await getNetworkInfo();
+
+      setLanInfo({
+        status: networkInfo.primaryIpv4 ? "ready" : "error",
+        detail: networkInfo.primaryIpv4
+          ? "LAN information loaded."
+          : "No usable local IPv4 detected. Open Setup and add a manual override.",
+        hostname: networkInfo.hostname,
+        primaryIp: networkInfo.primaryIpv4,
+      });
+    } catch (error) {
+      setLanInfo({
+        status: "error",
+        detail: `Failed to read network info. ${getErrorMessage(error)}`,
+      });
+    }
   }
 
   async function syncApiState() {
-    const service = await getApiServiceStatus();
-    setApiService(service);
-
-    if (!service.running) {
-      setApiHealth({
-        status: "unreachable",
-        detail: "Backend process is stopped.",
-      });
-      return;
-    }
-
-    setApiHealth({
-      status: "checking",
-      detail: "Checking...",
-    });
-
     try {
+      const service = await getApiServiceStatus();
+      setApiService(service);
+
+      if (!service.running) {
+        setApiHealth({
+          status: "unreachable",
+          detail: "Backend process is stopped.",
+        });
+        return;
+      }
+
+      setApiHealth({
+        status: "checking",
+        detail: "Checking...",
+      });
+
       const health = await fetchHubHealth();
       setApiHealth(getApiHealthState(health));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-
+      setApiService({
+        running: false,
+        pid: null,
+      });
       setApiHealth({
         status: "unreachable",
-        detail: `Unable to reach the backend. ${message}`,
+        detail: `Unable to query backend status. ${getErrorMessage(error)}`,
       });
     }
   }
@@ -149,29 +235,11 @@ export default function HomePage() {
     let isActive = true;
 
     async function loadApiState() {
-      try {
-        await Promise.all([syncApiState(), syncBrokerState()]);
-      } catch (error) {
-        if (!isActive) {
-          return;
-        }
-
-        const message = error instanceof Error ? error.message : "Unknown error";
-
-        setApiService({
-          running: false,
-          pid: null,
-        });
-        setApiHealth({
-          status: "unreachable",
-          detail: `Unable to query backend process state. ${message}`,
-        });
-
-        setBrokerUiState({
-          status: "stopped",
-          detail: `Unable to query broker process state. ${message}`,
-        });
+      if (!isActive) {
+        return;
       }
+
+      await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState()]);
     }
 
     loadApiState();
@@ -188,6 +256,20 @@ export default function HomePage() {
       : brokerUiState.status === "running"
         ? "Running"
         : "Stopped";
+  const lanStatusLabel =
+    lanInfo.status === "checking"
+      ? "Checking"
+      : manualLanIpOverride || lanInfo.status === "ready"
+        ? "Ready"
+        : "Error";
+  const chosenLanIp = manualLanIpOverride ?? lanInfo.primaryIp ?? null;
+  const ipSourceMessage = manualLanIpOverride
+    ? "Using manual override from Setup."
+    : chosenLanIp
+      ? "Using auto-detected LAN IP."
+      : "No selected LAN IP source yet.";
+  const lanDetail =
+    `${lanInfo.detail} • Hostname: ${lanInfo.hostname ?? "Unknown"} • Primary IP: ${chosenLanIp ?? "Not detected"} • ${ipSourceMessage}`;
 
   async function handleStartApi() {
     if (actionState !== "idle") {
@@ -207,15 +289,13 @@ export default function HomePage() {
       await sleep(STARTUP_CHECK_DELAY_MS);
       await syncApiState();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-
       setApiService({
         running: false,
         pid: null,
       });
       setApiHealth({
         status: "unreachable",
-        detail: `Unable to start the backend. ${message}`,
+        detail: `Unable to start the backend. ${getErrorMessage(error)}`,
       });
     } finally {
       setActionState("idle");
@@ -237,11 +317,9 @@ export default function HomePage() {
         detail: "Backend process is stopped.",
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-
       setApiHealth({
         status: "unreachable",
-        detail: `Unable to stop the backend. ${message}`,
+        detail: `Unable to stop the backend. ${getErrorMessage(error)}`,
       });
     } finally {
       setActionState("idle");
@@ -264,11 +342,9 @@ export default function HomePage() {
       updateBrokerUi(service);
       await syncBrokerState();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-
       setBrokerUiState({
         status: "stopped",
-        detail: message,
+        detail: getErrorMessage(error),
       });
     } finally {
       setBrokerActionState("idle");
@@ -287,33 +363,41 @@ export default function HomePage() {
       updateBrokerUi(service);
       await syncBrokerState();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-
       setBrokerUiState({
         status: "stopped",
-        detail: message,
+        detail: getErrorMessage(error),
       });
     } finally {
       setBrokerActionState("idle");
     }
   }
 
-  return (
-    <div style={{ display: "grid", gap: "12px" }}>
-      <h2 style={{ margin: 0 }}>Home</h2>
-      <p style={{ marginTop: 0, color: "#4b5563" }}>
-        Local service status and quick operational overview.
-      </p>
+  // Generate access URLs from the chosen host/IP
+  const { instructorUrl, traineeUrl } = generateAccessUrls(chosenLanIp);
+  const qrUnavailableMessage = chosenLanIp
+    ? "Unable to generate URLs for unknown reason."
+    : "No selected LAN IP source yet. Open Setup to auto-detect or manually set an IP.";
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px" }}>
+  return (
+    <div style={{ display: "grid", gap: "16px" }}>
+      <div>
+        <h2 style={{ margin: "0 0 6px 0", fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.01em" }}>Home</h2>
+        <p style={{ margin: 0, color: "#64748b", fontSize: "0.95rem" }}>
+          Local service status and quick operational overview.
+        </p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
         <StatusCard
           title="API Status"
           status={apiStatusLabel}
           detail={formatApiDetail(apiHealth)}
+          statusTone={apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped"}
           actions={
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               <button
                 type="button"
+                style={buttonStyle(actionState !== "idle" || apiService.running)}
                 onClick={handleStartApi}
                 disabled={actionState !== "idle" || apiService.running}
               >
@@ -321,6 +405,7 @@ export default function HomePage() {
               </button>
               <button
                 type="button"
+                style={buttonStyle(actionState !== "idle" || !apiService.running)}
                 onClick={handleStopApi}
                 disabled={actionState !== "idle" || !apiService.running}
               >
@@ -333,10 +418,12 @@ export default function HomePage() {
           title="Broker Status"
           status={brokerStatusLabel}
           detail={brokerUiState.detail}
+          statusTone={brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped"}
           actions={
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               <button
                 type="button"
+                style={buttonStyle(brokerActionState !== "idle" || brokerState.running)}
                 onClick={handleStartBroker}
                 disabled={brokerActionState !== "idle" || brokerState.running}
               >
@@ -344,6 +431,7 @@ export default function HomePage() {
               </button>
               <button
                 type="button"
+                style={buttonStyle(brokerActionState !== "idle" || !brokerState.running)}
                 onClick={handleStopBroker}
                 disabled={brokerActionState !== "idle" || !brokerState.running}
               >
@@ -352,10 +440,15 @@ export default function HomePage() {
             </div>
           }
         />
-        <StatusCard title="LAN Info" status="Pending" detail="Display local IP and host metadata later." />
+        <StatusCard 
+          title="LAN Info" 
+          status={lanStatusLabel} 
+          detail={lanDetail}
+          statusTone={lanStatusLabel === "Ready" ? "ready" : lanInfo.status === "checking" ? "checking" : "error"}
+        />
       </div>
 
-      <QrPanel />
+      <QrPanel instructorUrl={instructorUrl} traineeUrl={traineeUrl} unavailableMessage={qrUnavailableMessage} />
       <LogPanel />
     </div>
   );

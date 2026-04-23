@@ -23,8 +23,13 @@ export type BrokerServiceStatus = {
   message: string;
 };
 
+export type NetworkInfo = {
+  hostname: string;
+  primaryIpv4: string | null;
+};
+
 // Keep the backend URL in one place so it is easy to change later.
-export const HUB_API_BASE_URL = "http://localhost:8080";
+export const HUB_API_BASE_URL = "http://localhost:18080";
 
 const HUB_HEALTH_PATH = "/api/hub/health";
 
@@ -55,6 +60,10 @@ export async function stopBrokerService(): Promise<BrokerServiceStatus> {
 
 export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
   return invoke<BrokerServiceStatus>("get_broker_service_status");
+}
+
+export async function getNetworkInfo(): Promise<NetworkInfo> {
+  return invoke<NetworkInfo>("get_network_info");
 }
 
 function isHubHealthResponse(value: unknown): value is HubHealthResponse {

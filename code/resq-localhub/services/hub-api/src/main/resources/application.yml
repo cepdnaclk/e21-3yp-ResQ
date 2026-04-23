@@ -1,9 +1,14 @@
 server:
-  port: ${HUB_API_PORT:8080}
+  port: ${HUB_API_PORT:18080}
 
 spring:
   application:
     name: hub-api
 
-# SQLite is the intended local database direction.
-# Full datasource wiring is intentionally deferred for this initial scaffold.
+resq:
+  storage:
+    sqlite-path: ${RESQ_SQLITE_PATH:${user.home}/.resq-localhub/hub-api.sqlite}
+  mqtt:
+    broker-url: ${RESQ_MQTT_BROKER_URL:tcp://localhost:1883}
+    client-id: ${RESQ_MQTT_CLIENT_ID:hub-api-live-registry}
+    command-client-id: ${RESQ_MQTT_COMMAND_CLIENT_ID:hub-api-session-commands}

@@ -1,0 +1,518 @@
+package lk.resq.localhub.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import lk.resq.localhub.model.ActiveSessionInfo;
+import lk.resq.localhub.model.ManikinLiveSummary;
+import lk.resq.localhub.model.SessionEndRequest;
+import lk.resq.localhub.model.SessionEndResponse;
+import lk.resq.localhub.model.SessionLiveView;
+import lk.resq.localhub.model.SessionStartCommandPayload;
+import lk.resq.localhub.model.SessionStartRequest;
+import lk.resq.localhub.model.SessionStartResponse;
+import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.model.SessionSummary;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+@Service
+public class ActiveSessionService {
+
+    private static final Logger logger = LoggerFactory.getLogger(ActiveSessionService.class);
+
+    private final ConcurrentMap<String, ActiveSessionState> sessionsById = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, String> activeSessionIdByDeviceId = new ConcurrentHashMap<>();
+    private final ManikinRegistryService manikinRegistryService;
+    private final MqttCommandPublisherService mqttCommandPublisherService;
+    private final LocalSessionRepository localSessionRepository;
+
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository
+    ) {
+        this.manikinRegistryService = manikinRegistryService;
+        this.mqttCommandPublisherService = mqttCommandPublisherService;
+        this.localSessionRepository = localSessionRepository;
+    }
+
+    public synchronized SessionStartResponse startSession(SessionStartRequest request) {
+        String deviceId = normalize(request.deviceId());
+        if (deviceId == null) {
+            throw new IllegalArgumentException("deviceId is required");
+        }
+
+        String existingSessionId = activeSessionIdByDeviceId.get(deviceId);
+        if (existingSessionId != null) {
+            ActiveSessionState existing = sessionsById.get(existingSessionId);
+            if (existing != null && existing.active) {
+                throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
+            }
+        }
+
+        String sessionId = UUID.randomUUID().toString();
+        Instant startedAt = Instant.now();
+        ActiveSessionState state = new ActiveSessionState(
+                sessionId,
+                deviceId,
+                normalize(request.traineeId()),
+                startedAt,
+                true,
+                normalize(request.scenario()),
+                normalize(request.notes()),
+                null
+        );
+
+        sessionsById.put(sessionId, state);
+        activeSessionIdByDeviceId.put(deviceId, sessionId);
+
+        try {
+            mqttCommandPublisherService.publishSessionStart(new SessionStartCommandPayload(
+                    sessionId,
+                    deviceId,
+                    state.traineeId,
+                    startedAt,
+                    state.scenario
+            ));
+            logger.info("Started session {} for device {}", sessionId, deviceId);
+        } catch (RuntimeException error) {
+            sessionsById.remove(sessionId, state);
+            activeSessionIdByDeviceId.remove(deviceId, sessionId);
+            logger.warn("Rolled back session {} for device {} because the start command could not be published", sessionId, deviceId, error);
+            throw new MqttCommandPublishException("Failed to publish session start command for device " + deviceId, error);
+        }
+
+        return toStartResponse(state);
+    }
+
+    public synchronized SessionEndResponse endSession(SessionEndRequest request) {
+        String sessionId = normalize(request.sessionId());
+        if (sessionId == null) {
+            throw new IllegalArgumentException("sessionId is required");
+        }
+
+        ActiveSessionState state = sessionsById.get(sessionId);
+        if (state == null || !state.active) {
+            throw new NoSuchElementException("Session " + sessionId + " was not found or is already ended");
+        }
+
+        state.active = false;
+        state.endedAt = Instant.now();
+        activeSessionIdByDeviceId.remove(state.deviceId, sessionId);
+
+        try {
+            mqttCommandPublisherService.publishSessionStop(new SessionStopCommandPayload(
+                    state.sessionId,
+                    state.deviceId,
+                    state.endedAt
+            ));
+        } catch (RuntimeException error) {
+            state.active = true;
+            state.endedAt = null;
+            activeSessionIdByDeviceId.put(state.deviceId, sessionId);
+            logger.warn("Rolled back session end for {} on device {} because the stop command could not be published", sessionId, state.deviceId, error);
+            throw new MqttCommandPublishException("Failed to publish session stop command for device " + state.deviceId, error);
+        }
+
+        SessionSummary summary = state.accumulator.toSummary(
+                state.sessionId,
+                state.deviceId,
+                state.traineeId,
+                state.startedAt,
+                state.endedAt
+        );
+        SessionEndResponse response = toCompletedResponse(state, summary);
+
+        localSessionRepository.save(response);
+        logger.info("Ended session {} for device {}", sessionId, state.deviceId);
+        return response;
+    }
+
+    public void recordTelemetry(String deviceId, JsonNode payload) {
+        String normalizedDeviceId = normalize(deviceId);
+        if (normalizedDeviceId == null) {
+            logger.debug("Ignoring telemetry for summary because deviceId is missing or blank");
+            return;
+        }
+
+        String sessionId = activeSessionIdByDeviceId.get(normalizedDeviceId);
+        if (sessionId == null) {
+            logger.info("Ignoring telemetry for summary on device {} because no active session exists", normalizedDeviceId);
+            return;
+        }
+
+        ActiveSessionState state = sessionsById.get(sessionId);
+        if (state == null || !state.active) {
+            logger.info(
+                    "Ignoring telemetry for summary on device {} because session {} is not active",
+                    normalizedDeviceId,
+                    sessionId
+            );
+            return;
+        }
+
+        Double depthMm = firstDouble(payload, null, "depthMm", "depth_mm");
+        Double rateCpm = firstDouble(payload, null, "rateCpm", "rate_cpm");
+        Boolean recoilOk = firstBoolean(payload, null, "recoilOk", "recoil_ok", "recoil");
+        Double pauseS = firstDouble(payload, null, "pauseS", "pause_s");
+        String flags = firstFlags(payload, null, "flags");
+
+        state.accumulator.record(depthMm, rateCpm, recoilOk, pauseS, flags);
+        logger.info(
+            "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, rateCpm={}, recoilOk={}, pauseS={})",
+            state.sessionId,
+            state.deviceId,
+            state.accumulator.sampleCount(),
+            depthMm,
+            rateCpm,
+            recoilOk,
+            pauseS
+        );
+    }
+
+    public Optional<SessionEndResponse> findCompletedSession(String sessionId) {
+        return localSessionRepository.findById(sessionId);
+    }
+
+    public List<SessionEndResponse> listCompletedSessions() {
+        return localSessionRepository.findAll();
+    }
+
+    public Optional<ActiveSessionInfo> findActiveSessionForDevice(String deviceId) {
+        String normalizedDeviceId = normalize(deviceId);
+        if (normalizedDeviceId == null) {
+            return Optional.empty();
+        }
+
+        String sessionId = activeSessionIdByDeviceId.get(normalizedDeviceId);
+        if (sessionId == null) {
+            return Optional.empty();
+        }
+
+        ActiveSessionState state = sessionsById.get(sessionId);
+        if (state == null || !state.active) {
+            return Optional.empty();
+        }
+
+        return Optional.of(toInfo(state));
+    }
+
+    public ManikinLiveSummary decorateLiveSummary(ManikinLiveSummary summary) {
+        return findActiveSessionForDevice(summary.deviceId())
+                .map(session -> new ManikinLiveSummary(
+                        summary.deviceId(),
+                        summary.online(),
+                        summary.lastSeen(),
+                        summary.state(),
+                        summary.ip(),
+                        summary.fw(),
+                        summary.rssi(),
+                        summary.battery(),
+                        summary.sessionActive(),
+                        summary.latestDepthMm(),
+                        summary.latestRateCpm(),
+                        summary.latestRecoilOk(),
+                        summary.latestPauseS(),
+                        summary.latestFlags(),
+                        summary.lastEventType(),
+                        session.sessionId(),
+                        session.traineeId(),
+                        session.startedAt(),
+                        session.scenario()
+                ))
+                .orElse(summary);
+    }
+
+    public Optional<SessionLiveView> getSessionLiveView(String sessionId) {
+        String normalizedSessionId = normalize(sessionId);
+        if (normalizedSessionId == null) {
+            return Optional.empty();
+        }
+
+        ActiveSessionState state = sessionsById.get(normalizedSessionId);
+        if (state == null || !state.active) {
+            return Optional.empty();
+        }
+
+        ManikinLiveSummary summary = manikinRegistryService.getLiveSummary(state.deviceId)
+                .orElse(null);
+
+        return Optional.of(new SessionLiveView(
+                state.sessionId,
+                state.deviceId,
+                state.traineeId,
+                state.active,
+                state.startedAt,
+                state.scenario,
+                state.notes,
+                summary != null ? summary.lastSeen() : null,
+                summary != null ? summary.state() : "unknown",
+                summary != null && summary.online(),
+                summary != null ? summary.ip() : null,
+                summary != null ? summary.fw() : null,
+                summary != null ? summary.rssi() : null,
+                summary != null ? summary.battery() : null,
+                summary != null ? summary.sessionActive() : null,
+                summary != null ? summary.latestDepthMm() : null,
+                summary != null ? summary.latestRateCpm() : null,
+                summary != null ? summary.latestRecoilOk() : null,
+                summary != null ? summary.latestPauseS() : null,
+                summary != null ? summary.latestFlags() : null,
+                summary != null ? summary.lastEventType() : null
+        ));
+    }
+
+    private SessionStartResponse toStartResponse(ActiveSessionState state) {
+        return new SessionStartResponse(
+                state.sessionId,
+                state.deviceId,
+                state.traineeId,
+                state.startedAt,
+                state.active,
+                state.scenario,
+                state.notes
+        );
+    }
+
+    private SessionEndResponse toCompletedResponse(ActiveSessionState state, SessionSummary summary) {
+        return new SessionEndResponse(
+                state.sessionId,
+                state.deviceId,
+                state.traineeId,
+                state.startedAt,
+                true,
+                state.endedAt,
+                state.scenario,
+                state.notes,
+                summary
+        );
+    }
+
+    private ActiveSessionInfo toInfo(ActiveSessionState state) {
+        return new ActiveSessionInfo(
+                state.sessionId,
+                state.deviceId,
+                state.traineeId,
+                state.startedAt,
+                state.active,
+                state.scenario,
+                state.notes
+        );
+    }
+
+    private static String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static Double firstDouble(JsonNode payload, Double fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node != null && !node.isNull() && node.isNumber()) {
+                return node.asDouble();
+            }
+        }
+
+        return fallback;
+    }
+
+    private static Boolean firstBoolean(JsonNode payload, Boolean fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isBoolean()) {
+                return node.asBoolean();
+            }
+
+            if (node.isTextual()) {
+                String value = node.asText().trim();
+                if ("true".equalsIgnoreCase(value)) {
+                    return true;
+                }
+                if ("false".equalsIgnoreCase(value)) {
+                    return false;
+                }
+            }
+        }
+
+        return fallback;
+    }
+
+    private static String firstFlags(JsonNode payload, String fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isTextual()) {
+                String value = node.asText().trim();
+                return value.isEmpty() ? fallback : value;
+            }
+
+            return node.toString();
+        }
+
+        return fallback;
+    }
+
+    private static final class ActiveSessionState {
+        private final String sessionId;
+        private final String deviceId;
+        private final String traineeId;
+        private final Instant startedAt;
+        private final String scenario;
+        private final String notes;
+        private final SessionTelemetryAccumulator accumulator;
+        private boolean active;
+        private Instant endedAt;
+
+        private ActiveSessionState(
+                String sessionId,
+                String deviceId,
+                String traineeId,
+                Instant startedAt,
+                boolean active,
+                String scenario,
+                String notes,
+                Instant endedAt
+        ) {
+            this.sessionId = sessionId;
+            this.deviceId = deviceId;
+            this.traineeId = traineeId;
+            this.startedAt = startedAt;
+            this.active = active;
+            this.scenario = scenario;
+            this.notes = notes;
+            this.endedAt = endedAt;
+            this.accumulator = new SessionTelemetryAccumulator();
+        }
+    }
+
+    private static final class SessionTelemetryAccumulator {
+        private int sampleCount;
+        private double depthSumMm;
+        private double rateSumCpm;
+        private int recoilTrueCount;
+        private int recoilFalseCount;
+        private int pausesCount;
+        private String latestFlags;
+
+        private void record(Double depthMm, Double rateCpm, Boolean recoilOk, Double pauseS, String flags) {
+            sampleCount++;
+
+            if (depthMm != null) {
+                depthSumMm += depthMm;
+            }
+
+            if (rateCpm != null) {
+                rateSumCpm += rateCpm;
+            }
+
+            if (recoilOk != null) {
+                if (recoilOk) {
+                    recoilTrueCount++;
+                } else {
+                    recoilFalseCount++;
+                }
+            }
+
+            if (pauseS != null && pauseS > 0.5) {
+                pausesCount++;
+            }
+
+            if (flags != null) {
+                latestFlags = flags;
+            }
+        }
+
+        private int sampleCount() {
+            return sampleCount;
+        }
+
+        private SessionSummary toSummary(String sessionId, String deviceId, String traineeId, Instant startedAt, Instant endedAt) {
+            long durationSeconds = Math.max(0L, Duration.between(startedAt, endedAt).getSeconds());
+            int totalSamples = sampleCount;
+            int totalRecoilSamples = recoilTrueCount + recoilFalseCount;
+            double avgDepthMm = totalSamples == 0 ? 0.0 : depthSumMm / totalSamples;
+            double avgRateCpm = totalSamples == 0 ? 0.0 : rateSumCpm / totalSamples;
+            double recoilPct = totalRecoilSamples == 0 ? 0.0 : (recoilTrueCount * 100.0) / totalRecoilSamples;
+
+            logger.info(
+                    "Computed summary from telemetry (sessionId={}, sampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
+                    sessionId,
+                    totalSamples,
+                    recoilTrueCount,
+                    recoilFalseCount,
+                    pausesCount
+            );
+
+            SessionSummary baseSummary = new SessionSummary(
+                    sessionId,
+                    deviceId,
+                    traineeId,
+                    startedAt,
+                    endedAt,
+                    durationSeconds,
+                    avgDepthMm,
+                    avgRateCpm,
+                    recoilPct,
+                    pausesCount,
+                    0,
+                    latestFlags
+            );
+
+            return new SessionSummary(
+                    baseSummary.sessionId(),
+                    baseSummary.deviceId(),
+                    baseSummary.traineeId(),
+                    baseSummary.startedAt(),
+                    baseSummary.endedAt(),
+                    baseSummary.durationSeconds(),
+                    baseSummary.avgDepthMm(),
+                    baseSummary.avgRateCpm(),
+                    baseSummary.recoilPct(),
+                    baseSummary.pausesCount(),
+                    calculateScore(baseSummary),
+                    baseSummary.latestFlags()
+            );
+        }
+
+        private int calculateScore(SessionSummary summary) {
+            double depthTargetScore = Math.max(0.0, 40.0 - Math.abs(summary.avgDepthMm() - 50.0) * 0.8);
+            double rateTargetScore = Math.max(0.0, 30.0 - Math.abs(summary.avgRateCpm() - 110.0) * 0.3);
+            double recoilScore = Math.max(0.0, summary.recoilPct() * 0.2);
+            double pausePenalty = summary.pausesCount() * 4.0;
+            double rawScore = depthTargetScore + rateTargetScore + recoilScore - pausePenalty;
+            return (int) Math.round(Math.max(0.0, Math.min(100.0, rawScore)));
+        }
+    }
+}
