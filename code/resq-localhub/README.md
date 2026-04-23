@@ -46,6 +46,11 @@ The desktop Home page checks this endpoint on load, so the backend should be run
 
 The desktop Home page also includes `Start API` and `Stop API` buttons that launch and stop the backend from the Tauri app during development.
 
+For broker lifecycle control from the desktop app, Mosquitto path resolution is:
+
+- `MOSQUITTO_EXE` environment variable (if set), otherwise `mosquitto` from PATH
+- `MOSQUITTO_CONF` environment variable (if set), otherwise `infra/mosquitto/mosquitto.conf`
+
 ### 2) Desktop App
 
 ```powershell

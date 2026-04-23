@@ -5,9 +5,13 @@ import LogPanel from "../components/LogPanel";
 import {
   fetchHubHealth,
   getApiServiceStatus,
+  getBrokerServiceStatus,
   startApiService,
+  startBrokerService,
   stopApiService,
+  stopBrokerService,
   type ApiServiceStatus,
+  type BrokerServiceStatus,
   type HubHealthResponse,
 } from "../lib/tauriApi";
 
@@ -19,6 +23,11 @@ type ApiHealthState = {
 };
 
 const STARTUP_CHECK_DELAY_MS = 2000;
+
+type BrokerUiState = {
+  status: "checking" | "running" | "stopped";
+  detail: string;
+};
 
 function getApiHealthState(health: HubHealthResponse): ApiHealthState {
   if (!health.ok) {
@@ -82,6 +91,29 @@ export default function HomePage() {
     detail: "Checking...",
   });
   const [actionState, setActionState] = useState<"idle" | "starting" | "stopping">("idle");
+  const [brokerActionState, setBrokerActionState] = useState<"idle" | "starting" | "stopping">("idle");
+  const [brokerState, setBrokerState] = useState<BrokerServiceStatus>({
+    running: false,
+    pid: null,
+    message: "Checking broker status...",
+  });
+  const [brokerUiState, setBrokerUiState] = useState<BrokerUiState>({
+    status: "checking",
+    detail: "Checking...",
+  });
+
+  function updateBrokerUi(service: BrokerServiceStatus) {
+    setBrokerState(service);
+    setBrokerUiState({
+      status: service.running ? "running" : "stopped",
+      detail: service.message,
+    });
+  }
+
+  async function syncBrokerState() {
+    const service = await getBrokerServiceStatus();
+    updateBrokerUi(service);
+  }
 
   async function syncApiState() {
     const service = await getApiServiceStatus();
@@ -118,7 +150,7 @@ export default function HomePage() {
 
     async function loadApiState() {
       try {
-        await syncApiState();
+        await Promise.all([syncApiState(), syncBrokerState()]);
       } catch (error) {
         if (!isActive) {
           return;
@@ -134,6 +166,11 @@ export default function HomePage() {
           status: "unreachable",
           detail: `Unable to query backend process state. ${message}`,
         });
+
+        setBrokerUiState({
+          status: "stopped",
+          detail: `Unable to query broker process state. ${message}`,
+        });
       }
     }
 
@@ -145,6 +182,12 @@ export default function HomePage() {
   }, []);
 
   const apiStatusLabel = `${getProcessLabel(apiService)} · ${getHealthLabel(apiHealth)}`;
+  const brokerStatusLabel =
+    brokerUiState.status === "checking"
+      ? "Checking"
+      : brokerUiState.status === "running"
+        ? "Running"
+        : "Stopped";
 
   async function handleStartApi() {
     if (actionState !== "idle") {
@@ -205,6 +248,56 @@ export default function HomePage() {
     }
   }
 
+  async function handleStartBroker() {
+    if (brokerActionState !== "idle") {
+      return;
+    }
+
+    setBrokerActionState("starting");
+    setBrokerUiState({
+      status: "checking",
+      detail: "Checking...",
+    });
+
+    try {
+      const service = await startBrokerService();
+      updateBrokerUi(service);
+      await syncBrokerState();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+
+      setBrokerUiState({
+        status: "stopped",
+        detail: message,
+      });
+    } finally {
+      setBrokerActionState("idle");
+    }
+  }
+
+  async function handleStopBroker() {
+    if (brokerActionState !== "idle") {
+      return;
+    }
+
+    setBrokerActionState("stopping");
+
+    try {
+      const service = await stopBrokerService();
+      updateBrokerUi(service);
+      await syncBrokerState();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+
+      setBrokerUiState({
+        status: "stopped",
+        detail: message,
+      });
+    } finally {
+      setBrokerActionState("idle");
+    }
+  }
+
   return (
     <div style={{ display: "grid", gap: "12px" }}>
       <h2 style={{ margin: 0 }}>Home</h2>
@@ -236,7 +329,29 @@ export default function HomePage() {
             </div>
           }
         />
-        <StatusCard title="Broker Status" status="Unknown" detail="Connect Mosquitto process check in Phase 2." />
+        <StatusCard
+          title="Broker Status"
+          status={brokerStatusLabel}
+          detail={brokerUiState.detail}
+          actions={
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={handleStartBroker}
+                disabled={brokerActionState !== "idle" || brokerState.running}
+              >
+                Start Broker
+              </button>
+              <button
+                type="button"
+                onClick={handleStopBroker}
+                disabled={brokerActionState !== "idle" || !brokerState.running}
+              >
+                Stop Broker
+              </button>
+            </div>
+          }
+        />
         <StatusCard title="LAN Info" status="Pending" detail="Display local IP and host metadata later." />
       </div>
 

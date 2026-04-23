@@ -17,6 +17,12 @@ export type ApiServiceStatus = {
   pid: number | null;
 };
 
+export type BrokerServiceStatus = {
+  running: boolean;
+  pid: number | null;
+  message: string;
+};
+
 // Keep the backend URL in one place so it is easy to change later.
 export const HUB_API_BASE_URL = "http://localhost:8080";
 
@@ -37,6 +43,18 @@ export async function stopApiService(): Promise<ApiServiceStatus> {
 
 export async function getApiServiceStatus(): Promise<ApiServiceStatus> {
   return invoke<ApiServiceStatus>("get_api_service_status");
+}
+
+export async function startBrokerService(): Promise<BrokerServiceStatus> {
+  return invoke<BrokerServiceStatus>("start_broker_service");
+}
+
+export async function stopBrokerService(): Promise<BrokerServiceStatus> {
+  return invoke<BrokerServiceStatus>("stop_broker_service");
+}
+
+export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
+  return invoke<BrokerServiceStatus>("get_broker_service_status");
 }
 
 function isHubHealthResponse(value: unknown): value is HubHealthResponse {
