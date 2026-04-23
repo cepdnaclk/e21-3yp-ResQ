@@ -1,0 +1,36 @@
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Node / frontend
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Tauri / Rust
+src-tauri/target/
+**/target/
+Cargo.lock
+
+# Java / Maven
+*.class
+*.jar
+*.war
+*.ear
+.mvn/wrapper/maven-wrapper.jar
+target/
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+
+# OS
+Thumbs.db
+.DS_Store

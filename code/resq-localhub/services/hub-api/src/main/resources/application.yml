@@ -1,0 +1,9 @@
+server:
+  port: ${HUB_API_PORT:8080}
+
+spring:
+  application:
+    name: hub-api
+
+# SQLite is the intended local database direction.
+# Full datasource wiring is intentionally deferred for this initial scaffold.
