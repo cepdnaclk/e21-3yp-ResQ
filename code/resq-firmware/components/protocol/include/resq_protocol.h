@@ -85,6 +85,21 @@ char *resq_payload_command_result(
     const char *reason
 );
 
+char *resq_payload_identity_event(
+    const char *event_type,
+    const char *device_id,
+    const char *manikin_id,
+    const char *firmware_version,
+    const char *hardware_revision,
+    const char *build_date,
+    const char *build_time,
+    const char *chip_model,
+    int chip_cores,
+    int chip_revision,
+    const char *mac_address,
+    int reset_reason
+);
+
 #ifdef __cplusplus
 }
 #endif

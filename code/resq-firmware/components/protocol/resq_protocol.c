@@ -206,3 +206,41 @@ char *resq_payload_command_result(
     cJSON_Delete(root);
     return payload;
 }
+
+char *resq_payload_identity_event(
+    const char *event_type,
+    const char *device_id,
+    const char *manikin_id,
+    const char *firmware_version,
+    const char *hardware_revision,
+    const char *build_date,
+    const char *build_time,
+    const char *chip_model,
+    int chip_cores,
+    int chip_revision,
+    const char *mac_address,
+    int reset_reason
+)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return NULL;
+    }
+
+    cJSON_AddStringToObject(root, "event_type", safe_str(event_type));
+    cJSON_AddStringToObject(root, "device_id", safe_str(device_id));
+    cJSON_AddStringToObject(root, "manikin_id", safe_str(manikin_id));
+    cJSON_AddStringToObject(root, "firmware_version", safe_str(firmware_version));
+    cJSON_AddStringToObject(root, "hardware_revision", safe_str(hardware_revision));
+    cJSON_AddStringToObject(root, "build_date", safe_str(build_date));
+    cJSON_AddStringToObject(root, "build_time", safe_str(build_time));
+    cJSON_AddStringToObject(root, "chip_model", safe_str(chip_model));
+    cJSON_AddNumberToObject(root, "chip_cores", chip_cores);
+    cJSON_AddNumberToObject(root, "chip_revision", chip_revision);
+    cJSON_AddStringToObject(root, "mac_address", safe_str(mac_address));
+    cJSON_AddNumberToObject(root, "reset_reason", reset_reason);
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return payload;
+}

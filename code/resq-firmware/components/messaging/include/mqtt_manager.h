@@ -20,7 +20,11 @@ bool mqtt_manager_is_connected(void);
  * suffix = "telemetry"
  * final topic = resq/manikins/<device_id>/telemetry
  */
-esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos, int retain);
+esp_err_t mqtt_manager_publish(
+    const char *suffix, 
+    const char *payload, 
+    int qos, int retain
+);
 
 #ifdef __cplusplus
 }

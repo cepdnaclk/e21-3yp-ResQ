@@ -12,6 +12,7 @@
 #include "resq_protocol.h"
 #include "sensor_runtime.h"
 #include "session_manager.h"
+#include "status_indicator.h"
 
 #define FAULT_TASK_STACK_SIZE 4096
 #define FAULT_TASK_PRIORITY      3
@@ -67,6 +68,11 @@ static void fault_task(void *arg)
                         snap.force1_ok ? "Force sensor 1 recovered" : "Force sensor 1 timeout/disconnected",
                         !snap.force1_ok
                     );
+
+                    if (!snap.force1_ok) {
+                        status_indicator_set(INDICATOR_STATE_FAULT);
+                    }
+
                     s_prev_force1_ok = snap.force1_ok;
                 }
 
@@ -76,6 +82,11 @@ static void fault_task(void *arg)
                         snap.force2_ok ? "Force sensor 2 recovered" : "Force sensor 2 timeout/disconnected",
                         !snap.force2_ok
                     );
+
+                    if (!snap.force2_ok) {
+                        status_indicator_set(INDICATOR_STATE_FAULT);
+                    }
+
                     s_prev_force2_ok = snap.force2_ok;
                 }
 
@@ -85,6 +96,11 @@ static void fault_task(void *arg)
                         snap.hall_ok ? "Hall sensor recovered" : "Hall sensor read failed",
                         !snap.hall_ok
                     );
+
+                    if (!snap.hall_ok) {
+                        status_indicator_set(INDICATOR_STATE_FAULT);
+                    }
+
                     s_prev_hall_ok = snap.hall_ok;
                 }
             }
