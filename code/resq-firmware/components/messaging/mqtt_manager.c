@@ -9,6 +9,8 @@
 #include "mqtt_client.h"
 #include "sensor_runtime.h"
 #include "session_manager.h"
+#include "command_handler.h"
+#include "resq_protocol.h"
 
 static const char *TAG = "mqtt_manager";
 
@@ -16,9 +18,12 @@ static esp_mqtt_client_handle_t s_client = NULL;
 static bool s_connected = false;
 static device_config_t s_cfg;
 
+static char s_lwt_topic[128];
+static char s_lwt_msg[256];
+
 static void build_topic(char *out, size_t out_len, const char *suffix)
 {
-    snprintf(out, out_len, "resq/manikins/%s/%s", s_cfg.device_id, suffix);
+    resq_topic_build(out, out_len, s_cfg.device_id, suffix);
 }
 
 esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos, int retain)
@@ -40,17 +45,15 @@ esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos,
 
 static void publish_state(const char *state)
 {
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "state", state);
-    cJSON_AddBoolToObject(root, "session_active", session_manager_is_active());
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
-
-    char *payload = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
+    char *payload = resq_payload_status(
+        s_cfg.device_id,
+        state,
+        session_manager_is_active(),
+        session_manager_get_id()
+    );
 
     if (payload) {
-        mqtt_manager_publish("status", payload, 1, 1);
+        mqtt_manager_publish(RESQ_SUFFIX_STATUS, payload, 1, 1);
         cJSON_free(payload);
     }
 }
@@ -105,16 +108,30 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             s_connected = true;
             ESP_LOGI(TAG, "MQTT connected");
 
-            char topic_start[128];
-            char topic_stop[128];
+            char topic[128];
 
-            build_topic(topic_start, sizeof(topic_start), "cmd/session/start");
-            build_topic(topic_stop, sizeof(topic_stop), "cmd/session/stop");
+            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_SESSION_START);
+            esp_mqtt_client_subscribe(s_client, topic, 1);
 
-            esp_mqtt_client_subscribe(s_client, topic_start, 1);
-            esp_mqtt_client_subscribe(s_client, topic_stop, 1);
+            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_SESSION_STOP);
+            esp_mqtt_client_subscribe(s_client, topic, 1);
 
-            publish_state("IDLE");
+            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DIAG_PING);
+            esp_mqtt_client_subscribe(s_client, topic, 1);
+
+            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DIAG_REQUEST);
+            esp_mqtt_client_subscribe(s_client, topic, 1);
+
+            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DEVICE_RESET);
+            esp_mqtt_client_subscribe(s_client, topic, 1);
+
+            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DEVICE_UNPAIR);
+            esp_mqtt_client_subscribe(s_client, topic, 1);
+
+            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_CONFIG_UPDATE);
+            esp_mqtt_client_subscribe(s_client, topic, 1);
+
+            publish_state("ONLINE");
             break;
         }
 
@@ -125,7 +142,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
         case MQTT_EVENT_DATA: {
             char topic[128] = {0};
-            char data[256] = {0};
+            char data[512] = {0};
 
             int topic_len = (event->topic_len < (int)sizeof(topic) - 1) ? event->topic_len : (int)sizeof(topic) - 1;
             int data_len  = (event->data_len  < (int)sizeof(data)  - 1) ? event->data_len  : (int)sizeof(data)  - 1;
@@ -133,16 +150,17 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             memcpy(topic, event->topic, topic_len);
             memcpy(data, event->data, data_len);
 
-            char topic_start[128];
-            char topic_stop[128];
+            char prefix[96];
+            snprintf(prefix, sizeof(prefix), "resq/manikins/%s/", s_cfg.device_id);
 
-            build_topic(topic_start, sizeof(topic_start), "cmd/session/start");
-            build_topic(topic_stop, sizeof(topic_stop), "cmd/session/stop");
+            const char *suffix = topic;
+            if (strncmp(topic, prefix, strlen(prefix)) == 0) {
+                suffix = topic + strlen(prefix);
+            }
 
-            if (strcmp(topic, topic_start) == 0) {
-                handle_session_start(data);
-            } else if (strcmp(topic, topic_stop) == 0) {
-                handle_session_stop(data);
+            esp_err_t err = command_handler_handle_message(suffix, data);
+            if (err != ESP_OK && err != ESP_ERR_NOT_SUPPORTED) {
+                ESP_LOGW(TAG, "Command handler failed for %s: %s", suffix, esp_err_to_name(err));
             }
 
             break;
@@ -168,8 +186,28 @@ esp_err_t mqtt_manager_init(const device_config_t *cfg)
     char uri[128];
     snprintf(uri, sizeof(uri), "mqtt://%s:%d", s_cfg.mqtt_host, s_cfg.mqtt_port);
 
+    resq_topic_build(s_lwt_topic, sizeof(s_lwt_topic), s_cfg.device_id, RESQ_SUFFIX_STATUS);
+
+    char *offline_payload = resq_payload_status(
+        s_cfg.device_id,
+        "OFFLINE",
+        false,
+        ""
+    );
+
+    if (offline_payload == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    snprintf(s_lwt_msg, sizeof(s_lwt_msg), "%s", offline_payload);
+    cJSON_free(offline_payload);
+
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = uri,
+        .session.last_will.topic = s_lwt_topic,
+        .session.last_will.msg = s_lwt_msg,
+        .session.last_will.qos = 1,
+        .session.last_will.retain = true,
     };
 
     s_client = esp_mqtt_client_init(&mqtt_cfg);

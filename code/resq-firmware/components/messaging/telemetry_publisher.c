@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 
 #include "mqtt_manager.h"
+#include "resq_protocol.h"
 #include "sensor_runtime.h"
 #include "session_manager.h"
 
@@ -16,54 +17,34 @@
 #define TELEMETRY_TASK_PRIORITY      4
 #define TELEMETRY_PERIOD_MS        200
 
-static const char *TAG = "telemetry_pub";
-
 static TaskHandle_t s_task_handle = NULL;
 static device_config_t s_cfg;
 
 static void publish_telemetry_packet(const sensor_snapshot_t *snap)
 {
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
-
-    cJSON_AddNumberToObject(root, "force1", snap->force1);
-    cJSON_AddNumberToObject(root, "force2", snap->force2);
-    cJSON_AddBoolToObject(root, "force1_ok", snap->force1_ok);
-    cJSON_AddBoolToObject(root, "force2_ok", snap->force2_ok);
-
-    cJSON_AddBoolToObject(root, "hall_ok", snap->hall_ok);
-    cJSON_AddNumberToObject(root, "hall_raw", snap->hall_raw);
-    cJSON_AddNumberToObject(root, "current_delta", snap->current_delta);
-
-    cJSON_AddNumberToObject(root, "total_compressions", snap->total_compressions);
-    cJSON_AddStringToObject(root, "feedback", cpr_feedback_to_string(snap->feedback));
-
-    char *payload = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
+    char *payload = resq_payload_telemetry(
+        s_cfg.device_id,
+        s_cfg.manikin_id,
+        session_manager_get_id(),
+        snap
+    );
 
     if (payload) {
-        mqtt_manager_publish("telemetry", payload, 0, 0);
+        mqtt_manager_publish(RESQ_SUFFIX_TELEMETRY, payload, 0, 0);
         cJSON_free(payload);
     }
 }
 
 static void publish_feedback_event(const sensor_snapshot_t *snap)
 {
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
-    cJSON_AddStringToObject(root, "event_type", "compression_feedback");
-    cJSON_AddNumberToObject(root, "compression_count", snap->total_compressions);
-    cJSON_AddStringToObject(root, "feedback", cpr_feedback_to_string(snap->feedback));
-    cJSON_AddNumberToObject(root, "current_delta", snap->current_delta);
-
-    char *payload = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
+    char *payload = resq_payload_feedback_event(
+        s_cfg.device_id,
+        session_manager_get_id(),
+        snap
+    );
 
     if (payload) {
-        mqtt_manager_publish("events", payload, 1, 0);
+        mqtt_manager_publish(RESQ_SUFFIX_EVENTS, payload, 1, 0);
         cJSON_free(payload);
     }
 }

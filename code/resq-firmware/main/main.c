@@ -14,6 +14,10 @@
 #include "session_manager.h"
 #include "telemetry_publisher.h"
 #include "wifi_manager.h"
+#include "fault_reporter.h"
+#include "command_handler.h"
+#include "device_control.h"
+#include "esp_system.h"
 
 static const char *TAG = "main";
 
@@ -35,6 +39,15 @@ void app_main(void)
      * ------------------------------------------------- */
     ESP_ERROR_CHECK(sensor_runtime_init());
     session_manager_init();
+
+    /* -------------------------------------------------
+     * Initialize command handling
+     * Sets up MQTT/control command processing so runtime
+     * actions (start/stop session, reboot, unpair, etc.)
+     * can be received and routed to the correct modules.
+     * ------------------------------------------------- */
+    ESP_ERROR_CHECK(command_handler_init(&cfg));
+    ESP_ERROR_CHECK(device_control_init(&cfg));
 
     /* -------------------------------------------------
      * Provisioning flow
@@ -120,6 +133,18 @@ void app_main(void)
     ESP_LOGI(TAG, "Heartbeat/status reporting enabled");
 
     /* -------------------------------------------------
+     * Start fault reporter
+     * Publishes sensor fault/recovery events when:
+     *  - MQTT is connected
+     *  - a session is active
+     *  - sensor runtime is running
+     * ------------------------------------------------- */
+    ESP_ERROR_CHECK(fault_reporter_init(&cfg));
+    ESP_ERROR_CHECK(fault_reporter_start());
+
+    ESP_LOGI(TAG, "Fault reporter started");
+
+    /* -------------------------------------------------
      * Idle loop
      * Sensor task is started/stopped by MQTT session
      * commands, not from here.
@@ -128,10 +153,31 @@ void app_main(void)
     ESP_LOGI(TAG, "Sensors will NOT run until session/start is received");
 
     while (1) {
+        device_action_t action = device_control_get_pending_action();
+
+        if (action == DEVICE_ACTION_REBOOT) {
+            ESP_LOGW(TAG, "Applying pending reboot action");
+            sensor_runtime_stop();
+            session_manager_stop();
+            device_control_clear_pending_action();
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            esp_restart();
+        }
+
+        if (action == DEVICE_ACTION_UNPAIR_REBOOT) {
+            ESP_LOGW(TAG, "Applying pending unpair action");
+            sensor_runtime_stop();
+            session_manager_stop();
+            ESP_ERROR_CHECK(config_store_clear());
+            device_control_clear_pending_action();
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            esp_restart();
+        }
+
         if (session_manager_is_active()) {
             ESP_LOGI(TAG, "Session active: %s", session_manager_get_id());
         } else {
-            ESP_LOGI(TAG, "Idle - waiting for Local Hub session/start");
+            ESP_LOGI(TAG, "Idle - waiting for Local Hub commands");
         }
 
         vTaskDelay(pdMS_TO_TICKS(3000));

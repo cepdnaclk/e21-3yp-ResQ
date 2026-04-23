@@ -9,5 +9,6 @@ idf_component_register(
         app_config
         sensor_runtime
         runtime
+        protocol
         freertos
 )

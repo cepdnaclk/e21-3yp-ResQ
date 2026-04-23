@@ -12,6 +12,7 @@
 #include "sensor_runtime.h"
 #include "session_manager.h"
 #include "wifi_manager.h"
+#include "resq_protocol.h"
 
 #define HEALTH_TASK_STACK_SIZE 4096
 #define HEALTH_TASK_PRIORITY      3
@@ -31,35 +32,23 @@ static void publish_heartbeat(void)
     char ip_str[16] = {0};
     bool ip_ok = (wifi_manager_get_ip(ip_str, sizeof(ip_str)) == ESP_OK);
 
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
-
-    cJSON_AddBoolToObject(root, "wifi_connected", wifi_manager_is_connected());
-    cJSON_AddBoolToObject(root, "mqtt_connected", mqtt_manager_is_connected());
-    cJSON_AddBoolToObject(root, "session_active", session_manager_is_active());
-    cJSON_AddBoolToObject(root, "sensor_running", sensor_runtime_is_running());
-
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
-    cJSON_AddStringToObject(root, "ip", ip_ok ? ip_str : "");
-
-    if (have_snap) {
-        cJSON_AddBoolToObject(root, "force1_ok", snap.force1_ok);
-        cJSON_AddBoolToObject(root, "force2_ok", snap.force2_ok);
-        cJSON_AddBoolToObject(root, "hall_ok", snap.hall_ok);
-        cJSON_AddNumberToObject(root, "compression_count", snap.total_compressions);
-    } else {
-        cJSON_AddBoolToObject(root, "force1_ok", false);
-        cJSON_AddBoolToObject(root, "force2_ok", false);
-        cJSON_AddBoolToObject(root, "hall_ok", false);
-        cJSON_AddNumberToObject(root, "compression_count", 0);
-    }
-
-    char *payload = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
+    char *payload = resq_payload_heartbeat(
+        s_cfg.device_id,
+        s_cfg.manikin_id,
+        wifi_manager_is_connected(),
+        mqtt_manager_is_connected(),
+        session_manager_is_active(),
+        sensor_runtime_is_running(),
+        session_manager_get_id(),
+        ip_ok ? ip_str : "",
+        have_snap ? snap.force1_ok : false,
+        have_snap ? snap.force2_ok : false,
+        have_snap ? snap.hall_ok : false,
+        have_snap ? snap.total_compressions : 0
+    );
 
     if (payload) {
-        mqtt_manager_publish("heartbeat", payload, 0, 0);
+        mqtt_manager_publish(RESQ_SUFFIX_HEARTBEAT, payload, 0, 0);
         cJSON_free(payload);
     }
 }
