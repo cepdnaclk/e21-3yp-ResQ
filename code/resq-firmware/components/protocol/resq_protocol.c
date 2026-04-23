@@ -181,3 +181,28 @@ char *resq_payload_fault_event(
     cJSON_Delete(root);
     return payload;
 }
+
+char *resq_payload_command_result(
+    const char *device_id,
+    const char *session_id,
+    const char *command,
+    const char *status,
+    const char *reason
+)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return NULL;
+    }
+
+    cJSON_AddStringToObject(root, "device_id", safe_str(device_id));
+    cJSON_AddStringToObject(root, "session_id", safe_str(session_id));
+    cJSON_AddStringToObject(root, "event_type", "command_result");
+    cJSON_AddStringToObject(root, "command", safe_str(command));
+    cJSON_AddStringToObject(root, "status", safe_str(status));
+    cJSON_AddStringToObject(root, "reason", safe_str(reason));
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return payload;
+}

@@ -22,23 +22,13 @@
 #define HALL_ADC_CHAN ADC_CHANNEL_2
 
 /* =========================================================
- * CPR / Hall calibration
- * These are copied from your current setup for now.
- * Later, you can move them into a calibration module.
- * ========================================================= */
-#define HALL_BASELINE            3420
-#define HALL_MIN_DELTA            520
-#define HALL_MAX_DELTA           1060
-#define COMPRESSION_START_DELTA   200
-
-/* =========================================================
  * Task configuration
  * ========================================================= */
-#define SENSOR_TASK_PERIOD_MS      20
 #define SENSOR_TASK_STACK_SIZE   4096
 #define SENSOR_TASK_PRIORITY        5
 
 static const char *TAG = "sensor_runtime";
+static int s_sensor_task_period_ms = 20;
 
 /* =========================================================
  * Internal module state
@@ -133,7 +123,7 @@ static void sensor_task(void *arg)
         }
 
         /* Fixed-rate sampling loop */
-        vTaskDelay(pdMS_TO_TICKS(SENSOR_TASK_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(s_sensor_task_period_ms));
     }
 
     ESP_LOGI(TAG, "Sensor task stopping");
@@ -147,31 +137,33 @@ static void sensor_task(void *arg)
 /* =========================================================
  * Public API
  * ========================================================= */
-esp_err_t sensor_runtime_init(void)
+esp_err_t sensor_runtime_init(const device_config_t *cfg)
 {
+    if (cfg == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     if (s_initialized) {
         return ESP_OK;
     }
 
-    /* Initialize HX710 interfaces */
     hx710_init(HX710_1_SCK, HX710_1_DOUT);
     hx710_init(HX710_2_SCK, HX710_2_DOUT);
 
-    /* Initialize hall sensor */
-    esp_err_t err = hall_sensor_init(&s_hall_sensor, HALL_ADC_CHAN, HALL_BASELINE);
+    esp_err_t err = hall_sensor_init(&s_hall_sensor, HALL_ADC_CHAN, cfg->hall_baseline);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "hall_sensor_init failed: %s", esp_err_to_name(err));
         return err;
     }
 
-    /* Initialize CPR logic/state */
     cpr_logic_init(&s_cpr_state);
 
-    s_thresholds.hall_min_delta = HALL_MIN_DELTA;
-    s_thresholds.hall_max_delta = HALL_MAX_DELTA;
-    s_thresholds.compression_start_delta = COMPRESSION_START_DELTA;
+    s_thresholds.hall_min_delta = cfg->hall_min_delta;
+    s_thresholds.hall_max_delta = cfg->hall_max_delta;
+    s_thresholds.compression_start_delta = cfg->compression_start_delta;
 
-    /* Create mutex protecting latest snapshot */
+    s_sensor_task_period_ms = cfg->sensor_sample_interval_ms;
+
     s_snapshot_mutex = xSemaphoreCreateMutex();
     if (s_snapshot_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create snapshot mutex");
@@ -185,7 +177,30 @@ esp_err_t sensor_runtime_init(void)
     s_sensor_task_handle = NULL;
     s_initialized = true;
 
-    ESP_LOGI(TAG, "Sensor runtime initialized");
+    ESP_LOGI(TAG, "Sensor runtime initialized from config");
+    return ESP_OK;
+}
+
+esp_err_t sensor_runtime_apply_config(const device_config_t *cfg)
+{
+    if (!s_initialized || cfg == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (s_task_running) {
+        ESP_LOGW(TAG, "Cannot apply sensor config while sensor task is running");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_hall_sensor.baseline = cfg->hall_baseline;
+
+    s_thresholds.hall_min_delta = cfg->hall_min_delta;
+    s_thresholds.hall_max_delta = cfg->hall_max_delta;
+    s_thresholds.compression_start_delta = cfg->compression_start_delta;
+
+    s_sensor_task_period_ms = cfg->sensor_sample_interval_ms;
+
+    ESP_LOGI(TAG, "Sensor config updated");
     return ESP_OK;
 }
 

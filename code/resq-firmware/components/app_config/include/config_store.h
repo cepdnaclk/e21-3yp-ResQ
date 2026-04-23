@@ -33,6 +33,16 @@ typedef struct {
     char auth_token[CONFIG_STR_MEDIUM];
 
     bool provisioned;
+
+    /* -----------------------------
+     * Calibration / runtime settings
+     * ----------------------------- */
+    int hall_baseline;
+    int hall_min_delta;
+    int hall_max_delta;
+    int compression_start_delta;
+    int sensor_sample_interval_ms;
+    
 } device_config_t;
 
 /**

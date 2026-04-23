@@ -77,6 +77,14 @@ char *resq_payload_fault_event(
     bool active
 );
 
+char *resq_payload_command_result(
+    const char *device_id,
+    const char *session_id,
+    const char *command,
+    const char *status,
+    const char *reason
+);
+
 #ifdef __cplusplus
 }
 #endif

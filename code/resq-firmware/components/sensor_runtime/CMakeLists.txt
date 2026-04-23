@@ -5,4 +5,6 @@ idf_component_register(
         cpr_logic 
         hall_sensor 
         hx710 
+        app_config 
+        freertos
 )

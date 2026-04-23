@@ -38,7 +38,7 @@ void app_main(void)
      * Initialize sensor layer only.
      * DO NOT start sensor task here.
      * ------------------------------------------------- */
-    ESP_ERROR_CHECK(sensor_runtime_init());
+    ESP_ERROR_CHECK(sensor_runtime_init(&cfg));
     session_manager_init();
 
     /* -------------------------------------------------

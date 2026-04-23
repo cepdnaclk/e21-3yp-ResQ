@@ -58,44 +58,6 @@ static void publish_state(const char *state)
     }
 }
 
-static void handle_session_start(const char *data)
-{
-    char session_id[64] = {0};
-
-    cJSON *root = cJSON_Parse(data);
-    if (root) {
-        cJSON *sid = cJSON_GetObjectItemCaseSensitive(root, "session_id");
-        if (cJSON_IsString(sid) && sid->valuestring) {
-            snprintf(session_id, sizeof(session_id), "%s", sid->valuestring);
-        }
-        cJSON_Delete(root);
-    }
-
-    if (session_id[0] == '\0') {
-        snprintf(session_id, sizeof(session_id), "unknown");
-    }
-
-    ESP_LOGI(TAG, "SESSION START received: %s", session_id);
-
-    session_manager_start(session_id);
-    sensor_runtime_reset_session_data();
-    sensor_runtime_start();
-
-    publish_state("SESSION_ACTIVE");
-}
-
-static void handle_session_stop(const char *data)
-{
-    (void)data;
-
-    ESP_LOGI(TAG, "SESSION STOP received");
-
-    sensor_runtime_stop();
-    session_manager_stop();
-
-    publish_state("IDLE");
-}
-
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     (void)handler_args;

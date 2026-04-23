@@ -17,20 +17,15 @@ static const char *TAG = "command_handler";
 
 static device_config_t s_cfg;
 
-static void publish_simple_event(const char *event_type, const char *message)
+static void publish_command_result(const char *command, const char *status, const char *reason)
 {
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        return;
-    }
-
-    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
-    cJSON_AddStringToObject(root, "event_type", event_type);
-    cJSON_AddStringToObject(root, "message", message);
-
-    char *payload = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
+    char *payload = resq_payload_command_result(
+        s_cfg.device_id,
+        session_manager_get_id(),
+        command,
+        status,
+        reason
+    );
 
     if (payload) {
         mqtt_manager_publish(RESQ_SUFFIX_EVENTS, payload, 1, 0);
@@ -42,6 +37,11 @@ static esp_err_t handle_session_start(const char *payload)
 {
     char session_id[64] = {0};
 
+    if (session_manager_is_active()) {
+        publish_command_result("session/start", "NACK", "session already active");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     cJSON *root = cJSON_Parse(payload);
     if (root) {
         cJSON *sid = cJSON_GetObjectItemCaseSensitive(root, "session_id");
@@ -52,13 +52,21 @@ static esp_err_t handle_session_start(const char *payload)
     }
 
     if (session_id[0] == '\0') {
-        snprintf(session_id, sizeof(session_id), "unknown");
+        publish_command_result("session/start", "NACK", "missing session_id");
+        return ESP_ERR_INVALID_ARG;
     }
 
     session_manager_start(session_id);
     sensor_runtime_reset_session_data();
-    ESP_ERROR_CHECK(sensor_runtime_start());
 
+    esp_err_t err = sensor_runtime_start();
+    if (err != ESP_OK) {
+        session_manager_stop();
+        publish_command_result("session/start", "NACK", "failed to start sensor task");
+        return err;
+    }
+
+    publish_command_result("session/start", "ACK", "");
     ESP_LOGI(TAG, "Session started: %s", session_id);
     return ESP_OK;
 }
@@ -67,8 +75,19 @@ static esp_err_t handle_session_stop(const char *payload)
 {
     (void)payload;
 
-    ESP_ERROR_CHECK(sensor_runtime_stop());
+    if (!session_manager_is_active()) {
+        publish_command_result("session/stop", "NACK", "no active session");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t err = sensor_runtime_stop();
+    if (err != ESP_OK) {
+        publish_command_result("session/stop", "NACK", "failed to stop sensor task");
+        return err;
+    }
+
     session_manager_stop();
+    publish_command_result("session/stop", "ACK", "");
 
     ESP_LOGI(TAG, "Session stopped");
     return ESP_OK;
@@ -78,24 +97,7 @@ static esp_err_t handle_diag_ping(const char *payload)
 {
     (void)payload;
 
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "event_type", "diag_ping_ack");
-    cJSON_AddBoolToObject(root, "session_active", session_manager_is_active());
-    cJSON_AddBoolToObject(root, "sensor_running", sensor_runtime_is_running());
-
-    char *body = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-
-    if (body) {
-        mqtt_manager_publish(RESQ_SUFFIX_EVENTS, body, 1, 0);
-        cJSON_free(body);
-    }
-
+    publish_command_result("diag/ping", "ACK", "device alive");
     ESP_LOGI(TAG, "diag/ping handled");
     return ESP_OK;
 }
@@ -142,14 +144,14 @@ static esp_err_t handle_diag_request(const char *payload)
 static esp_err_t handle_device_reset(const char *payload)
 {
     (void)payload;
-    publish_simple_event("device_reset", "Reboot requested by Local Hub");
+    publish_command_result("device/reset", "ACK", "reboot scheduled");
     return device_control_request_reboot();
 }
 
 static esp_err_t handle_device_unpair(const char *payload)
 {
     (void)payload;
-    publish_simple_event("device_unpair", "Unpair requested by Local Hub");
+    publish_command_result("device/unpair", "ACK", "unpair scheduled");
     return device_control_request_unpair();
 }
 
@@ -159,12 +161,19 @@ static esp_err_t handle_config_update(const char *payload)
 
     cJSON *root = cJSON_Parse(payload);
     if (!root) {
+        publish_command_result("config/update", "NACK", "invalid JSON");
         return ESP_ERR_INVALID_ARG;
     }
 
     cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(root, "mqtt_host");
     cJSON *mqtt_port = cJSON_GetObjectItemCaseSensitive(root, "mqtt_port");
     cJSON *register_url = cJSON_GetObjectItemCaseSensitive(root, "register_url");
+
+    cJSON *hall_baseline = cJSON_GetObjectItemCaseSensitive(root, "hall_baseline");
+    cJSON *hall_min_delta = cJSON_GetObjectItemCaseSensitive(root, "hall_min_delta");
+    cJSON *hall_max_delta = cJSON_GetObjectItemCaseSensitive(root, "hall_max_delta");
+    cJSON *compression_start_delta = cJSON_GetObjectItemCaseSensitive(root, "compression_start_delta");
+    cJSON *sensor_sample_interval_ms = cJSON_GetObjectItemCaseSensitive(root, "sensor_sample_interval_ms");
 
     if (cJSON_IsString(mqtt_host) && mqtt_host->valuestring && mqtt_host->valuestring[0] != '\0') {
         snprintf(new_cfg.mqtt_host, sizeof(new_cfg.mqtt_host), "%s", mqtt_host->valuestring);
@@ -178,18 +187,44 @@ static esp_err_t handle_config_update(const char *payload)
         snprintf(new_cfg.register_url, sizeof(new_cfg.register_url), "%s", register_url->valuestring);
     }
 
+    if (cJSON_IsNumber(hall_baseline)) {
+        new_cfg.hall_baseline = hall_baseline->valueint;
+    }
+
+    if (cJSON_IsNumber(hall_min_delta)) {
+        new_cfg.hall_min_delta = hall_min_delta->valueint;
+    }
+
+    if (cJSON_IsNumber(hall_max_delta)) {
+        new_cfg.hall_max_delta = hall_max_delta->valueint;
+    }
+
+    if (cJSON_IsNumber(compression_start_delta)) {
+        new_cfg.compression_start_delta = compression_start_delta->valueint;
+    }
+
+    if (cJSON_IsNumber(sensor_sample_interval_ms) && sensor_sample_interval_ms->valueint > 0) {
+        new_cfg.sensor_sample_interval_ms = sensor_sample_interval_ms->valueint;
+    }
+
     cJSON_Delete(root);
 
     esp_err_t err = device_control_apply_config_update(&new_cfg);
     if (err != ESP_OK) {
-        publish_simple_event("config_update_rejected", "Configuration update rejected");
+        publish_command_result("config/update", "NACK", "config save rejected");
+        return err;
+    }
+
+    err = sensor_runtime_apply_config(&new_cfg);
+    if (err != ESP_OK) {
+        publish_command_result("config/update", "NACK", "runtime apply failed");
         return err;
     }
 
     s_cfg = new_cfg;
-    publish_simple_event("config_update", "Configuration updated and saved");
-    ESP_LOGI(TAG, "config/update handled");
+    publish_command_result("config/update", "ACK", "");
 
+    ESP_LOGI(TAG, "config/update handled");
     return ESP_OK;
 }
 
