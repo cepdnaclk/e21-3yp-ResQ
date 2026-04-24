@@ -1,14 +1,22 @@
 {
+  "deviceId": "manikin-03",
+  "sessionStatus": "SESSION_ACTIVE",
+  "topics": {
+    "telemetry": "resq/manikins/manikin-03/telemetry",
+    "events": "resq/manikins/manikin-03/events",
+    "status": "resq/manikins/manikin-03/status",
+    "heartbeat": "resq/manikins/manikin-03/heartbeat"
+  },
   "averageDepth": 52,
   "rate": 110,
   "recoilAccuracy": 94,
+  "pressure": 42,
+  "timeElapsedSeconds": 120,
   "handPlacementAccuracy": 73,
   "incompleteRecoil": 12,
   "longestPause": 3.1,
   "handsOffTime": 12.6,
   "pausesDetected": 5,
-  "pressure": 42,
-  "timeElapsedSeconds": 120,
   "handPlacement": {
     "errorAtCenterMm": 4,
     "offCenterStreaks": 3,

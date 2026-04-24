@@ -9,6 +9,7 @@ type UserRole = 'student' | 'instructor'
 export default function LoginPage() {
   const router = useRouter()
   const [role, setRole] = useState<UserRole>('student')
+  const [studentId, setStudentId] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -19,12 +20,14 @@ export default function LoginPage() {
     setError('')
     setIsLoading(true)
 
-    // Simulate API call delay
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    // Mock authentication: validate email and password format
     if (!email || !password) {
       setError('Please enter both email and password')
+      setIsLoading(false)
+      return
+    }
+
+    if (role === 'student' && !studentId.trim()) {
+      setError('Please enter your student ID')
       setIsLoading(false)
       return
     }
@@ -41,16 +44,59 @@ export default function LoginPage() {
       return
     }
 
-    // Mock successful authentication
-    // Clear form
-    setEmail('')
-    setPassword('')
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          role,
+          studentId,
+          email,
+          password,
+        }),
+      })
 
-    // Redirect based on role
-    if (role === 'student') {
-      router.push('/student/dashboard')
-    } else {
-      router.push('/dashboard/instructor')
+      const contentType = response.headers.get('content-type') ?? ''
+      const isJson = contentType.toLowerCase().includes('application/json')
+
+      let result: any = null
+      let rawText = ''
+
+      if (isJson) {
+        result = await response.json()
+      } else {
+        rawText = await response.text()
+      }
+
+      if (!response.ok) {
+        if (isJson) {
+          setError(result?.error ?? 'Login failed')
+        } else {
+          setError('Login failed: server returned an unexpected response format.')
+          console.error('Non-JSON login response:', response.status, rawText.slice(0, 300))
+        }
+        setIsLoading(false)
+        return
+      }
+
+      if (!isJson) {
+        setError('Login failed: server returned an unexpected response format.')
+        console.error('Successful status but non-JSON login response:', rawText.slice(0, 300))
+        setIsLoading(false)
+        return
+      }
+
+      setStudentId('')
+      setEmail('')
+      setPassword('')
+      router.push(result?.redirectTo ?? (role === 'student' ? '/student/dashboard' : '/dashboard/instructor'))
+    } catch (err) {
+      setError('Unable to reach server. Please try again.')
+      console.error('Login request failed:', err)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -112,6 +158,23 @@ export default function LoginPage() {
 
             {/* Form */}
             <form onSubmit={handleLogin} className="space-y-4">
+              {/* Email Field */}
+              {role === 'student' && (
+                <div className="space-y-2">
+                  <label htmlFor="studentId" className="block text-sm font-medium text-resq-navy">
+                    Student ID
+                  </label>
+                  <input
+                    id="studentId"
+                    type="text"
+                    placeholder="EG/2020/1234"
+                    value={studentId}
+                    onChange={(e) => setStudentId(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-resq-blue/20 bg-medical-white text-resq-navy placeholder-resq-navy/40 transition-colors focus:outline-none focus:border-resq-blue focus:ring-2 focus:ring-resq-blue/20"
+                  />
+                </div>
+              )}
+
               {/* Email Field */}
               <div className="space-y-2">
                 <label htmlFor="email" className="block text-sm font-medium text-resq-navy">
@@ -176,7 +239,7 @@ export default function LoginPage() {
             {/* Demo Hint */}
             <div className="pt-2 border-t border-resq-blue/10">
               <p className="text-xs text-resq-navy/60 text-center">
-                Demo credentials: any email with password 6+ characters
+                Student sign in requires an authorized student ID and email pair.
               </p>
             </div>
           </div>

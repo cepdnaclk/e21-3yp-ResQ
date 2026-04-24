@@ -4,6 +4,11 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'ResQ - CPR Training System',
   description: 'Training Hands. Saving Lives.',
+  icons: {
+    icon: '/icon.png',
+    shortcut: '/icon.png',
+    apple: '/icon.png',
+  },
 }
 
 export default function RootLayout({
