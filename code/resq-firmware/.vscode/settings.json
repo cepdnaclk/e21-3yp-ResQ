@@ -1,9 +1,16 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
-  "clangd.path": "C:\\Espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=e:\\Academics\\Semester05\\3YP\\e21-3yp-ResQ\\code\\cpr-manikin\\build"
-  ]
+    "--compile-commands-dir=${workspaceFolder}/build"
+  ],
+  "idf.currentSetup": "C:\\esp\\v6.0\\esp-idf",
+  "idf.portWin": "COM4",
+  "idf.openOcdConfigs": [
+    "board/esp32c3-builtin.cfg"
+  ],
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32c3"
+  }
 }
