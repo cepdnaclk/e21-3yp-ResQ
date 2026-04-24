@@ -1,0 +1,17 @@
+server:
+  port: ${HUB_API_PORT:18080}
+
+spring:
+  application:
+    name: hub-api
+
+resq:
+  storage:
+    sqlite-path: ${RESQ_SQLITE_PATH:${user.home}/.resq-localhub/hub-api.sqlite}
+  mqtt:
+    broker-url: ${RESQ_MQTT_BROKER_URL:tcp://localhost:1883}
+    client-id: ${RESQ_MQTT_CLIENT_ID:hub-api-live-registry}
+    command-client-id: ${RESQ_MQTT_COMMAND_CLIENT_ID:hub-api-session-commands}
+  live:
+    stale-after-seconds: ${RESQ_LIVE_STALE_AFTER_SECONDS:12}
+    stale-check-interval-ms: ${RESQ_LIVE_STALE_CHECK_INTERVAL_MS:2000}

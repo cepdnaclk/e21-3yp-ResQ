@@ -1,0 +1,24 @@
+idf_component_register(
+    SRCS
+        "session_manager.c"
+        "health_monitor.c"
+        "fault_reporter.c"
+        "command_handler.c"
+        "device_control.c"
+        "recovery_manager.c"
+        "factory_reset.c"
+        "status_indicator.c"
+    INCLUDE_DIRS "include"
+    REQUIRES
+        freertos
+        sensor_runtime
+        messaging
+        network
+        app_config
+        protocol
+        device_identity
+        board_config
+        esp_system
+        espressif__cjson
+        esp_driver_gpio
+)

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ResQ Development Blog - Project progress and technical updates">
+    <title>Development Blog — ResQ CPR Training Platform</title>
+    <link rel="stylesheet" href="../assets/style.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap">
+        <link rel="icon" href="../assets/img/logo/favicon.ico" />
+        <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/logo/favicon-32.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="../assets/img/logo/apple-touch-icon.png" />
+        <meta name="theme-color" content="#12264C" />
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="navbar-brand">
+                <a class="brand" href="../" aria-label="ResQ">
+                  <span class="brand-mark">
+                    <img
+                      class="brand-logo"
+                      data-logo
+                      data-logo-light="../assets/img/logo/resq-logo-256.png"
+                      data-logo-dark="../assets/img/logo/resq-logo-dark-256.png"
+                      src="../assets/img/logo/resq-logo-256.png"
+                      alt="ResQ logo"
+                    />
+                  </span>
+                </a>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="../">Home</a></li>
+                <li><a href="../about/">About</a></li>
+                <li><a href="./">Development Blog</a></li>
+                <li><a href="../specs/">Specifications</a></li>
+                <li><a href="../how-to-use/">How to Use</a></li>
+            </ul>
+            <div class="nav-actions">
+                <button class="theme-toggle" type="button" aria-pressed="false">Dark Mode</button>
+                <div class="hamburger">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <section class="page-header">
+        <div class="container">
+            <h1>Development Blog</h1>
+            <p>Project progress, technical decisions, and development challenges</p>
+        </div>
+    </section>
+
+    <section class="section" id="posts">
+        <div class="container">
+            <h1>Development Blog</h1>
+            <p class="muted">
+                Key milestones and progress updates for the ResQ project.
+            </p>
+
+            <!-- Reusable Video Blog Card Template -->
+            <!--
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Development Update</span>
+                        <span class="badge badge-soft">Video Update</span>
+                        <span class="post-date">DD.MM.YYYY</span>
+                    </div>
+
+                    <h2 class="post-title">Video Post Title</h2>
+                    <p class="post-subtitle">Brief one-line summary of what this video demonstrates.</p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text">
+                            <p>Context: what was built, tested, or presented in this update.</p>
+                            <p>Highlights: key outcomes, technical decisions, and lessons learned.</p>
+                            <p>Next steps: what the team will do after this update.</p>
+                        </div>
+
+                        <figure class="post-figure">
+                            <div class="post-video-card">
+                                <h3 class="post-video-title">Demo Video</h3>
+                                <video controls class="post-video" preload="metadata">
+                                    <source src="../assets/img/blog/your-video.mp4" type="video/mp4" />
+                                    Your browser does not support the video tag.
+                                </video>
+                                <p class="post-video-note">Optional note: duration, context, or recording date.</p>
+                            </div>
+                            <figcaption class="muted">Video caption and date</figcaption>
+                        </figure>
+                    </div>
+                </div>
+            </article>
+            -->
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Development Update</span>
+                        <span class="badge badge-soft">Prototype Build</span>
+                        <span class="post-date">17.04.2026</span>
+                    </div>
+
+                    <h2 class="post-title">Prototype Overlay Jacket Design and Initial Validation</h2>
+                    <p class="post-subtitle">
+                        The first basic overlay jacket prototype was designed and stitched after exploring suitable designs, materials,
+                        and components, while the planned sensors were also tested successfully.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text">
+                            <p>
+                                As part of the early prototype development phase of ResQ, we designed and stitched the first basic
+                                overlay jacket after researching suitable design options, materials, and required components. A BB
+                                bladder was selected and used as the pressure bag in this initial model to support the intended
+                                compression-based mechanism.
+                            </p>
+
+                            <p>
+                                In parallel with the mechanical development, the sensors planned for the system were tested to verify
+                                their suitability for the prototype. The test results showed that the sensors were performing as
+                                expected, giving us confidence in the selected sensing approach and confirming that the current
+                                component choices are appropriate for the next development stage.
+                            </p>
+
+                            <p>
+                                With the basic jacket structure completed and the sensor behavior validated, our next plan is to assemble all components
+                                together and develop a working basic prototype model for further testing, refinement, and integration.
+                            </p>
+                        </div>
+
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/img2.jpg" alt="Prototype Overlay Jacket Development" />
+
+                            <video controls class="post-video">
+                                <source src="../assets/video/vid1.mp4" type="video/mp4" />
+                                Your browser does not support the video tag.
+                            </video>
+
+                            <video controls class="post-video">
+                                <source src="../assets/video/vid2.mp4" type="video/mp4" />
+                                Your browser does not support the video tag.
+                            </video>
+
+                            <figcaption class="muted">Prototype overlay jacket development and demo — 17.04.2026</figcaption>
+                        </figure>
+                    </div>
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Milestone</span>
+                        <span class="badge badge-soft">Milestone 1</span>
+                        <span class="post-date">10.02.2026</span>
+                    </div>
+
+                    <h2 class="post-title">Proposal Presentation Session — Milestone 1 Evaluation</h2>
+                    <p class="post-subtitle">
+                        We presented ResQ to Ms. Yasodha Vimukthi and Mr. Thilina Gunarathne to validate feasibility, clarity,
+                        and overall direction.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text">
+                            <p>
+                                As part of the project's early-stage evaluation, the Proposal Presentation Session for Milestone 1 was conducted
+                                to present ResQ to Ms. Yasodha Vimukthi and Mr. Thilina Gunarathne. The session focused on validating the
+                                feasibility, clarity, and overall direction of the proposed solution. We discussed the motivation behind ResQ,
+                                its intended functionality, and its potential impact on CPR training.
+                            </p>
+
+                            <p>
+                                The evaluators confirmed the relevance of the proposed idea and provided constructive feedback, particularly
+                                emphasizing the importance of budget feasibility and alignment with recognized CPR training standards. They also
+                                recommended engaging with resource persons from the Faculty of Allied Health Sciences to verify clinical
+                                requirements and clarify any additional needs.
+                            </p>
+
+                            <p>
+                                Overall, the session was a valuable learning experience that strengthened our understanding of real-world
+                                constraints and expectations. The feedback received will guide further research, planning, and refinement of the
+                                ResQ system to ensure it is practical, standards-compliant, and technically robust.
+                            </p>
+                        </div>
+
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/img1.png" alt="Proposal Presentation Session — Milestone 1" />
+                            <figcaption class="muted">Proposal Presentation Session (Milestone 1) — 10.02.2026</figcaption>
+                        </figure>
+                    </div>
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Milestone</span>
+                        <span class="badge badge-soft">Research & Planning</span>
+                        <span class="post-date">08.02.2026</span>
+                    </div>
+
+                    <h2 class="post-title">Mock Proposal Session — Early-Stage Validation</h2>
+                    <p class="post-subtitle">
+                        We presented ResQ to temporary instructors of the Department of Computer Engineering,
+                        University of Peradeniya, to validate feasibility and gather early technical feedback.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <p>
+                        As part of the early-stage validation of our project, a mock proposal session was conducted to present ResQ
+                        to the temporary instructors of the Department of Computer Engineering, University of Peradeniya.
+                    </p>
+
+                    <p>
+                        The session aimed to evaluate the feasibility, technical soundness, and practical relevance of the proposed
+                        solution at an early stage. We discussed the limitations of conventional CPR training manikins and explained
+                        how ResQ uses embedded sensing to provide real-time, objective feedback on compression quality.
+                    </p>
+
+                    <p>
+                        The instructors offered valuable feedback on system architecture, sensor accuracy, scalability, and alignment
+                        with CPR training standards. These insights helped us critically assess our initial assumptions and identify
+                        areas requiring further investigation.
+                    </p>
+
+                    <p>
+                        Overall, the mock proposal session served as an important milestone in refining the direction of the ResQ
+                        project. The feedback received will directly inform further research, system optimization, and design decisions,
+                        ensuring that the proposed solution is technically sound, pedagogically effective, and aligned with real-world
+                        CPR training requirements.
+                    </p>
+
+                    <div class="post-actions">
+                        <a class="btn accent" target="_blank" rel="noopener"
+                           href="https://www.canva.com/design/DAHAommGV3A/GQq2O87iZ34C3irOfoyFSw/view?utm_content=DAHAommGV3A&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hf9a33a37b6">
+                            View Proposal Presentation
+                        </a>
+                    </div>
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Development Update</span>
+                        <span class="badge badge-soft">Video Brief</span>
+                        <span class="post-date">17.04.2026</span>
+                    </div>
+
+                    <h2 class="post-title">Prototype Overlay Jacket — Video Demonstration</h2>
+                    <p class="post-subtitle">
+                        A clear video summary of the first prototype build, the initial pressure mechanism test,
+                        and the key lessons learned for the next integration stage.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text">
+                            <p>
+                                This update presents our first practical prototype of the ResQ overlay jacket. We prepared a
+                                basic stitched structure and connected a manual pressure setup to observe how compression input
+                                behaves through the jacket layer.
+                            </p>
+
+                            <p>
+                                The video focuses on three points: physical fit of the jacket, response of the pressure section
+                                during repeated compression, and overall stability of the setup for future sensor integration.
+                            </p>
+
+                            <p>
+                                Based on these observations, the next phase is to mount sensing components, collect repeatable
+                                test readings, and finalize a more robust combined prototype for validation.
+                            </p>
+                        </div>
+
+                        <figure class="post-figure">
+                            <div class="post-media-stack">
+                                <img src="../assets/img/blog/img1.png" alt="Prototype overlay jacket setup" />
+
+                                <div class="post-video-card">
+                                    <h3 class="post-video-title">Prototype Demonstration Video 1</h3>
+                                    <video controls class="post-video" preload="metadata" poster="../assets/img/blog/photo_2026-04-17_21-53-06.jpg">
+                                        <source src="../assets/img/blog/vid2.mp4" type="video/mp4" />
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    <p class="post-video-note">Main demonstration of the pressure mechanism behavior.</p>
+                                </div>
+
+                                <div class="post-video-card">
+                                    <h3 class="post-video-title">Prototype Demonstration Video 2</h3>
+                                    <video controls class="post-video" preload="metadata" poster="../assets/img/blog/photo_2026-04-17_21-53-06.jpg">
+                                        <source src="../assets/img/blog/vid1.mp4" type="video/mp4" />
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    <p class="post-video-note">Supplementary test clip from the same setup.</p>
+                                </div>
+                            </div>
+                            <figcaption class="muted">Prototype overlay jacket demo video — 17.04.2026</figcaption>
+                        </figure>
+                    </div>
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>ResQ Project</h3>
+                    <p>University of Peradeniya,<br>Faculty of Engineering,<br>Computer Engineering Department<br>3rd Year Project (e21-3yp)</p>
+                </div>
+                <div class="footer-section">
+                    <h3>Quick Links</h3>
+                    <ul>
+                        <li><a href="../">Home</a></li>
+                        <li><a href="../about/">About</a></li>
+                        <li><a href="../specs/">Specifications</a></li>
+                        <li><a href="../how-to-use/">How to Use</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h3>Resources</h3>
+                    <ul>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ">GitHub Repository</a></li>
+                        <li><a href="#" title="Project documentation">Documentation</a></li>
+                        <li><a href="#" title="Download latest build">Latest Release</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; University of Peradeniya, Faculty of Engineering, Computer Engineering Department</p>
+                <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="../assets/script.js"></script>
+</body>
+</html>

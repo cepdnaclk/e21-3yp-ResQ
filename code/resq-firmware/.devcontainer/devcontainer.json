@@ -1,0 +1,21 @@
+{
+  "name": "ResQ Firmware ESP-IDF",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "idf.gitPath": "/usr/bin/git"
+      },
+      "extensions": [
+        "espressif.esp-idf-extension",
+        "ms-vscode.cpptools",
+        "llvm-vs-code-extensions.vscode-clangd"
+      ]
+    }
+  },
+  "runArgs": ["--privileged"],
+  "postCreateCommand": "idf.py --version"
+}

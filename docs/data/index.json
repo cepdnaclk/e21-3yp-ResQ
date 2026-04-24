@@ -1,0 +1,44 @@
+{   "visibility" : true,
+    "title": "Manikin Auscultation",
+    "team": [
+        {
+            "name": "S. Ganathipan",
+            "email": "e21148@eng.pdn.ac.lk",
+            "eNumber": "E/21/148"
+        },
+        {
+            "name": "V. Amirsha",
+            "email": "e21152@eng.pdn.ac.lk",
+            "eNumber": "E/21/152"
+        },
+        {
+            "name": "K. Kartheepan",
+            "email": "e21214@eng.pdn.ac.lk",
+            "eNumber": "E/21/214"
+        },
+        {
+            "name": "S. Kavishanthan",
+            "email": "e21220@eng.pdn.ac.lk",
+            "eNumber": "E/21/220"
+        }
+    ],
+    "supervisors": [
+        {
+            "name": "Dr. Isuru Nawinne",
+            "email": "isurunawinne@eng.pdn.ac.lk"
+        },
+        {
+            "name": "Ms. Yasodha Vimukthi",
+            "email": "yasodhav@eng.pdn.ac.lk"
+        },
+        {
+            "name": "Mr. Sanka Peeris",
+            "email": "e19275@eng.pdn.ac.lk"
+        },
+        {
+            "name": "Ms. Sayumi Muthukumarana",
+            "email": "e19249@eng.pdn.ac.lk"
+        }
+    ],
+    "tags": ["Web", "Embedded Systems", "Healthcare", "Manikin", "CPR", "Medical", "3YP"]
+}

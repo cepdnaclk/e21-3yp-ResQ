@@ -1,0 +1,19 @@
+{
+  "configurations": [
+    {
+      "name": "ESP-IDF",
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+      "includePath": [
+        "${workspaceFolder}/**"
+      ],
+      "browse": {
+        "path": [
+          "${workspaceFolder}"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      },
+      "compilerPath": "C:\\Espressif\\tools\\riscv32-esp-elf\\esp-15.2.0_20251204\\riscv32-esp-elf\\bin\\riscv32-esp-elf-gcc.exe"
+    }
+  ],
+  "version": 4
+}
