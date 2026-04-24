@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
-import { fetchLiveManikins, type ManikinLiveSummary } from "../lib/browserManikinsApi";
+import {
+  fetchLiveManikins,
+  getLiveManikinsStreamUrl,
+  type ManikinLiveSummary,
+} from "../lib/browserManikinsApi";
 import {
   endSession,
+  fetchCompletedSession,
   fetchCompletedSessions,
   getSessionCsvExportUrl,
   getSessionJsonExportUrl,
@@ -79,18 +84,52 @@ function SessionStateBadge({ active }: { active: boolean }) {
         color: active ? "#1d4ed8" : "#334155",
       }}
     >
-      {active ? "In Session" : "Idle"}
+      {active ? "Session Active" : "No Session"}
     </span>
   );
 }
 
 type SessionActionState = "idle" | "starting" | "ending";
+type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
+
+function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
+  if (state === "connecting") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#e2e8f0", color: "#334155" }}>
+        Connecting
+      </span>
+    );
+  }
+
+  if (state === "connected") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#dcfce7", color: "#166534" }}>
+        Live stream connected
+      </span>
+    );
+  }
+
+  if (state === "reconnecting") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>
+        Reconnecting...
+      </span>
+    );
+  }
+
+  return (
+    <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fee2e2", color: "#991b1b" }}>
+      Stream unavailable
+    </span>
+  );
+}
 
 export default function InstructorDashboard() {
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
+  const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
   const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({});
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
@@ -100,6 +139,23 @@ export default function InstructorDashboard() {
   const [recentSessionsLoading, setRecentSessionsLoading] = useState(true);
   const [recentSessionsError, setRecentSessionsError] = useState<string | null>(null);
   const [latestEndedSession, setLatestEndedSession] = useState<CompletedSession | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [expandedSessionDetail, setExpandedSessionDetail] = useState<CompletedSession | null>(null);
+  const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
+  const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
+
+  function applyManikinSnapshot(live: ManikinLiveSummary[]) {
+    setManikins(live);
+    setSessionDrafts((current) => {
+      const next = { ...current };
+      for (const manikin of live) {
+        if (!next[manikin.deviceId]) {
+          next[manikin.deviceId] = manikin.activeTraineeId ?? `trainee-${manikin.deviceId.toLowerCase()}`;
+        }
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     async function loadHealth() {
@@ -112,17 +168,8 @@ export default function InstructorDashboard() {
     async function loadManikins() {
       try {
         const live = await fetchLiveManikins();
-        setManikins(live);
+        applyManikinSnapshot(live);
         setManikinsError(null);
-        setSessionDrafts((current) => {
-          const next = { ...current };
-          for (const manikin of live) {
-            if (!next[manikin.deviceId]) {
-              next[manikin.deviceId] = manikin.activeTraineeId ?? `trainee-${manikin.deviceId.toLowerCase()}`;
-            }
-          }
-          return next;
-        });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to fetch live manikins.";
         setManikinsError(message);
@@ -143,17 +190,121 @@ export default function InstructorDashboard() {
       }
     }
 
+    let cancelled = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+
+    function stopFallbackPolling() {
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    }
+
+    function startFallbackPolling() {
+      if (fallbackInterval) {
+        return;
+      }
+
+      fallbackInterval = setInterval(() => {
+        loadManikins();
+      }, 2000);
+    }
+
+    function safeParseManikins(raw: string): ManikinLiveSummary[] | null {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          return null;
+        }
+        return parsed as ManikinLiveSummary[];
+      } catch {
+        return null;
+      }
+    }
+
+    function connectManikinStream() {
+      if (cancelled) {
+        return;
+      }
+
+      if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
+        setManikinsStreamState("unavailable");
+        setManikinsError("Browser EventSource is not available.");
+        startFallbackPolling();
+        return;
+      }
+
+      setManikinsStreamState("connecting");
+      const stream = new EventSource(getLiveManikinsStreamUrl());
+      eventSource = stream;
+
+      stream.onopen = () => {
+        if (cancelled) {
+          return;
+        }
+
+        setManikinsStreamState("connected");
+        setManikinsError(null);
+        stopFallbackPolling();
+      };
+
+      stream.addEventListener("manikins-live", (event) => {
+        if (cancelled) {
+          return;
+        }
+
+        const payload = safeParseManikins((event as MessageEvent<string>).data);
+        if (!payload) {
+          return;
+        }
+
+        applyManikinSnapshot(payload);
+        setManikinsLoading(false);
+      });
+
+      stream.onerror = () => {
+        if (cancelled) {
+          return;
+        }
+
+        setManikinsStreamState("reconnecting");
+        setManikinsError("Live stream disconnected. Reconnecting...");
+        startFallbackPolling();
+
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connectManikinStream();
+          }, 2000);
+        }
+      };
+    }
+
     loadHealth();
     loadManikins();
     loadRecentSessions();
+    connectManikinStream();
 
     const healthInterval = setInterval(loadHealth, 5000);
-    const manikinsInterval = setInterval(loadManikins, 1500);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
 
     return () => {
+      cancelled = true;
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      stopFallbackPolling();
       clearInterval(healthInterval);
-      clearInterval(manikinsInterval);
       clearInterval(recentSessionsInterval);
     };
   }, []);
@@ -190,6 +341,11 @@ export default function InstructorDashboard() {
   function formatSummaryTime(value: string): string {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
+  }
+
+  function formatSummaryDateTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
 
   function formatMetric(value: number, suffix: string): string {
@@ -272,6 +428,30 @@ export default function InstructorDashboard() {
     }
   }
 
+  async function handleViewDetails(sessionId: string) {
+    if (expandedSessionId === sessionId) {
+      setExpandedSessionId(null);
+      setExpandedSessionDetail(null);
+      setExpandedSessionError(null);
+      setExpandedSessionLoading(false);
+      return;
+    }
+
+    setExpandedSessionId(sessionId);
+    setExpandedSessionLoading(true);
+    setExpandedSessionError(null);
+
+    try {
+      const detail = await fetchCompletedSession(sessionId);
+      setExpandedSessionDetail(detail);
+    } catch (error) {
+      setExpandedSessionDetail(null);
+      setExpandedSessionError(error instanceof Error ? error.message : "Failed to load session details.");
+    } finally {
+      setExpandedSessionLoading(false);
+    }
+  }
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -349,15 +529,34 @@ export default function InstructorDashboard() {
                       <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>{session.sessionId}</p>
                     </div>
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleViewDetails(session.sessionId)}
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff",
+                          color: "#0f172a",
+                          fontWeight: 600,
+                          fontSize: "0.85rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {expandedSessionId === session.sessionId ? "Hide Details" : "View Details"}
+                      </button>
                       <a href={getSessionJsonExportUrl(session.sessionId)} style={linkButtonStyle}>
-                        JSON
+                        Download JSON
                       </a>
                       <a href={getSessionCsvExportUrl(session.sessionId)} style={linkButtonStyle}>
-                        CSV
+                        Download CSV
                       </a>
                     </div>
                   </div>
                   <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
+                      Trainee {session.traineeId ?? "-"} | Started {formatSummaryDateTime(session.startedAt)} | Ended {formatSummaryDateTime(session.endedAt)}
+                    </p>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
                       Duration {session.summary.durationSeconds}s | Score {session.summary.score} | Depth {formatMetric(session.summary.avgDepthMm, "mm")}
                     </p>
@@ -365,6 +564,29 @@ export default function InstructorDashboard() {
                       Rate {formatMetric(session.summary.avgRateCpm, "cpm")} | Recoil {formatMetric(session.summary.recoilPct, "%")} | Pauses {session.summary.pausesCount}
                     </p>
                   </div>
+
+                  {expandedSessionId === session.sessionId ? (
+                    <div style={{ marginTop: "10px", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#f8fafc", display: "grid", gap: "4px" }}>
+                      {expandedSessionLoading ? (
+                        <p style={{ margin: 0, color: "#64748b", fontSize: "0.85rem" }}>Loading session details...</p>
+                      ) : expandedSessionError ? (
+                        <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{expandedSessionError}</p>
+                      ) : expandedSessionDetail ? (
+                        <>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Session ID: {expandedSessionDetail.sessionId}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Device ID: {expandedSessionDetail.deviceId}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Trainee ID: {expandedSessionDetail.traineeId ?? "-"}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Started At: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Ended At: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Pauses: {expandedSessionDetail.summary.pausesCount}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Score: {expandedSessionDetail.summary.score}</p>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -372,7 +594,10 @@ export default function InstructorDashboard() {
         </section>
 
         <section style={styles.card}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
+            <LiveStreamStatusBadge state={manikinsStreamState} />
+          </div>
           {manikinsLoading ? (
             <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading live manikin data...</p>
           ) : null}

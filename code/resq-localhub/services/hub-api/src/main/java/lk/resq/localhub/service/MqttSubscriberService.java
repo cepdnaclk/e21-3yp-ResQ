@@ -42,6 +42,7 @@ public class MqttSubscriberService {
     private final ObjectMapper objectMapper;
     private final ManikinRegistryService manikinRegistryService;
     private final ActiveSessionService activeSessionService;
+    private final LiveStreamService liveStreamService;
 
     private final String brokerUrl;
     private final String clientId;
@@ -55,12 +56,14 @@ public class MqttSubscriberService {
             ObjectMapper objectMapper,
             ManikinRegistryService manikinRegistryService,
             ActiveSessionService activeSessionService,
+            LiveStreamService liveStreamService,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId
     ) {
         this.objectMapper = objectMapper;
         this.manikinRegistryService = manikinRegistryService;
         this.activeSessionService = activeSessionService;
+        this.liveStreamService = liveStreamService;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
     }
@@ -173,10 +176,12 @@ public class MqttSubscriberService {
             switch (parsedTopic.messageType) {
                 case "status" -> {
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
                     logger.info("Processed MQTT status message for {}", parsedTopic.deviceId);
                 }
                 case "heartbeat" -> {
                     manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
@@ -192,10 +197,13 @@ public class MqttSubscriberService {
 
                     // Bridge telemetry into active-session summary accumulation for the same device.
                     activeSessionService.recordTelemetry(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForDevice(parsedTopic.deviceId);
                     logger.info("Processed MQTT telemetry message for {} and forwarded to active-session accumulator", parsedTopic.deviceId);
                 }
                 case "events" -> {
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
                     logger.info("Processed MQTT event message for {}", parsedTopic.deviceId);
                 }
                 default -> {
@@ -280,6 +288,20 @@ public class MqttSubscriberService {
         }
 
         return new ParsedTopic(deviceId, normalizedType);
+    }
+
+    private void publishInstructorLiveSnapshot() {
+        liveStreamService.publishInstructorLive(
+                manikinRegistryService.getLiveSummaries().stream()
+                        .map(activeSessionService::decorateLiveSummary)
+                        .toList()
+        );
+    }
+
+    private void publishSessionLiveForDevice(String deviceId) {
+        activeSessionService.findActiveSessionForDevice(deviceId)
+                .flatMap(info -> activeSessionService.getSessionLiveView(info.sessionId()))
+                .ifPresent(view -> liveStreamService.publishSessionLive(view.sessionId(), view));
     }
 
     private record ParsedTopic(String deviceId, String messageType) {

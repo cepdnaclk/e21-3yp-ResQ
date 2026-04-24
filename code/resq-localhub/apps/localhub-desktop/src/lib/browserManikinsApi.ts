@@ -24,6 +24,10 @@ function getLiveManikinsUrl(): string {
   return `http://${window.location.hostname}:18080/api/manikins/live`;
 }
 
+export function getLiveManikinsStreamUrl(): string {
+  return `http://${window.location.hostname}:18080/api/stream/manikins/live`;
+}
+
 export async function fetchLiveManikins(): Promise<ManikinLiveSummary[]> {
   const response = await fetch(getLiveManikinsUrl());
 

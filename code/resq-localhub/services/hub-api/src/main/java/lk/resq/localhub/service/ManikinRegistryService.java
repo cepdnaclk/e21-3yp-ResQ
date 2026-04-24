@@ -2,10 +2,12 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.ManikinLiveSummary;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -16,9 +18,12 @@ import java.util.function.Consumer;
 @Service
 public class ManikinRegistryService {
 
-    private static final Duration STALE_AFTER = Duration.ofSeconds(12);
-
+    private final Duration staleAfter;
     private final ConcurrentMap<String, MutableManikinState> registry = new ConcurrentHashMap<>();
+
+    public ManikinRegistryService(@Value("${resq.live.stale-after-seconds:12}") long staleAfterSeconds) {
+        this.staleAfter = Duration.ofSeconds(Math.max(1L, staleAfterSeconds));
+    }
 
     public void updateFromStatus(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
@@ -93,20 +98,28 @@ public class ManikinRegistryService {
     }
 
     private void markStaleOffline() {
+        markStaleOfflineAndGetChangedDeviceIds();
+    }
+
+    public List<String> markStaleOfflineAndGetChangedDeviceIds() {
         Instant now = Instant.now();
+        List<String> changedDeviceIds = new ArrayList<>();
 
         for (MutableManikinState state : registry.values()) {
             if (state.lastSeen == null) {
                 continue;
             }
 
-            if (Duration.between(state.lastSeen, now).compareTo(STALE_AFTER) > 0) {
+            if (Duration.between(state.lastSeen, now).compareTo(staleAfter) > 0 && state.online) {
                 state.online = false;
                 if (state.state == null || state.state.isBlank() || "online".equalsIgnoreCase(state.state)) {
                     state.state = "offline";
                 }
+                changedDeviceIds.add(state.deviceId);
             }
         }
+
+        return changedDeviceIds;
     }
 
     private ManikinLiveSummary toSummary(MutableManikinState state) {

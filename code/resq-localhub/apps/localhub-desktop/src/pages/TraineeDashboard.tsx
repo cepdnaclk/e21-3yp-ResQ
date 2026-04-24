@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
-import { fetchSessionLive, type SessionLiveView } from "../lib/browserSessionsApi";
+import {
+  fetchSessionLive,
+  getSessionLiveStreamUrl,
+  type SessionLiveView,
+} from "../lib/browserSessionsApi";
 
 /**
  * Browser-safe Trainee Dashboard.
@@ -75,6 +79,40 @@ function SessionStatusBadge({ active }: { active: boolean }) {
   );
 }
 
+type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
+
+function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
+  if (state === "connecting") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#e2e8f0", color: "#334155" }}>
+        Connecting
+      </span>
+    );
+  }
+
+  if (state === "connected") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#dcfce7", color: "#166534" }}>
+        Live stream connected
+      </span>
+    );
+  }
+
+  if (state === "reconnecting") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>
+        Reconnecting...
+      </span>
+    );
+  }
+
+  return (
+    <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fee2e2", color: "#991b1b" }}>
+      Stream unavailable
+    </span>
+  );
+}
+
 export default function TraineeDashboard() {
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
@@ -82,6 +120,8 @@ export default function TraineeDashboard() {
   const [session, setSession] = useState<SessionLiveView | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [streamState, setStreamState] = useState<LiveStreamState>("connecting");
+  const [streamMessage, setStreamMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -107,12 +147,16 @@ export default function TraineeDashboard() {
       setSession(null);
       setSessionLoading(false);
       setSessionError(null);
+      setStreamState("unavailable");
+      setStreamMessage(null);
       return;
     }
 
     const activeSessionId = sessionId;
 
     let isActive = true;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     async function loadSession() {
       try {
@@ -135,12 +179,99 @@ export default function TraineeDashboard() {
       }
     }
 
+    function safeParseSession(raw: string): SessionLiveView | null {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed === null || typeof parsed !== "object") {
+          return null;
+        }
+
+        return parsed as SessionLiveView;
+      } catch {
+        return null;
+      }
+    }
+
+    function connectSessionStream() {
+      if (!isActive) {
+        return;
+      }
+
+      if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
+        setStreamState("unavailable");
+        setStreamMessage("Stream unavailable in this browser.");
+        return;
+      }
+
+      setStreamState("connecting");
+      const stream = new EventSource(getSessionLiveStreamUrl(activeSessionId));
+      eventSource = stream;
+
+      stream.onopen = () => {
+        if (!isActive) {
+          return;
+        }
+
+        setStreamState("connected");
+        setStreamMessage(null);
+        setSessionError(null);
+      };
+
+      stream.addEventListener("session-live", (event) => {
+        if (!isActive) {
+          return;
+        }
+
+        const data = (event as MessageEvent<string>).data;
+        if (data === "null") {
+          setSession(null);
+          setSessionLoading(false);
+          return;
+        }
+
+        const payload = safeParseSession(data);
+        if (!payload) {
+          return;
+        }
+
+        setSession(payload);
+        setSessionLoading(false);
+        setSessionError(null);
+      });
+
+      stream.onerror = () => {
+        if (!isActive) {
+          return;
+        }
+
+        setStreamState("reconnecting");
+        setStreamMessage("Live stream disconnected. Reconnecting...");
+
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connectSessionStream();
+          }, 2000);
+        }
+      };
+    }
+
     loadSession();
-    const interval = setInterval(loadSession, 1500);
+    connectSessionStream();
 
     return () => {
       isActive = false;
-      clearInterval(interval);
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
     };
   }, [sessionId]);
 
@@ -208,25 +339,44 @@ export default function TraineeDashboard() {
           </section>
         ) : sessionError ? (
           <section style={styles.card}>
-            <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Session Error</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Session Error</h2>
+              <LiveStreamStatusBadge state={streamState} />
+            </div>
             <div style={{ padding: "20px", borderRadius: "8px", background: "#fef2f2", border: "1px solid #fecaca" }}>
               <p style={{ margin: 0, color: "#991b1b", fontSize: "0.92rem" }}>
                 {sessionError}
               </p>
+              {streamMessage ? (
+                <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
+                  {streamMessage}
+                </p>
+              ) : null}
             </div>
           </section>
         ) : sessionLoading ? (
           <section style={styles.card}>
-            <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Active Session Live View</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Active Session Live View</h2>
+              <LiveStreamStatusBadge state={streamState} />
+            </div>
             <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading session data...</p>
           </section>
         ) : !session ? (
           <section style={styles.card}>
-            <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Session Ended</h2>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Session Ended</h2>
+              <LiveStreamStatusBadge state={streamState} />
+            </div>
             <div style={{ padding: "20px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.92rem" }}>
                 Session {sessionId} is no longer active.
               </p>
+              {streamMessage ? (
+                <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
+                  {streamMessage}
+                </p>
+              ) : null}
               <p style={{ margin: "8px 0 0 0", color: "#94a3b8", fontSize: "0.85rem" }}>
                 The instructor can still view and export the completed summary.
               </p>
@@ -236,13 +386,24 @@ export default function TraineeDashboard() {
           <section style={styles.card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
               <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Active Session Live View</h2>
-              <SessionStatusBadge active={Boolean(session?.active)} />
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <LiveStreamStatusBadge state={streamState} />
+                <SessionStatusBadge active={Boolean(session?.active)} />
+              </div>
             </div>
+            {streamMessage ? (
+              <p style={{ margin: "0 0 8px 0", color: "#b45309", fontSize: "0.86rem" }}>
+                {streamMessage}
+              </p>
+            ) : null}
             <div style={{ display: "grid", gap: "6px" }}>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Session: {session.sessionId}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Device: {session.deviceId}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Trainee: {session.traineeId ?? "-"}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {session.state ?? "unknown"}</p>
+              <p style={{ margin: 0, color: session.online ? "#166534" : "#991b1b", fontSize: "0.88rem", fontWeight: 600 }}>
+                Device: {session.online ? "Online" : "Offline"}
+              </p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Started: {formatTime(session.startedAt)}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Last Seen: {formatTime(session.lastSeen)}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(session.latestDepthMm, "mm")}</p>

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -34,15 +35,18 @@ public class ActiveSessionService {
     private final ManikinRegistryService manikinRegistryService;
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final LocalSessionRepository localSessionRepository;
+    private final LiveStreamService liveStreamService;
 
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
             MqttCommandPublisherService mqttCommandPublisherService,
-            LocalSessionRepository localSessionRepository
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.localSessionRepository = localSessionRepository;
+        this.liveStreamService = liveStreamService;
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -83,6 +87,7 @@ public class ActiveSessionService {
                     startedAt,
                     state.scenario
             ));
+            publishInstructorLiveSnapshot();
             logger.info("Started session {} for device {}", sessionId, deviceId);
         } catch (RuntimeException error) {
             sessionsById.remove(sessionId, state);
@@ -133,6 +138,8 @@ public class ActiveSessionService {
         SessionEndResponse response = toCompletedResponse(state, summary);
 
         localSessionRepository.save(response);
+        liveStreamService.publishSessionLive(state.sessionId, null);
+        publishInstructorLiveSnapshot();
         logger.info("Ended session {} for device {}", sessionId, state.deviceId);
         return response;
     }
@@ -167,6 +174,7 @@ public class ActiveSessionService {
         String flags = firstFlags(payload, null, "flags");
 
         state.accumulator.record(depthMm, rateCpm, recoilOk, pauseS, flags);
+        getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         logger.info(
             "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, rateCpm={}, recoilOk={}, pauseS={})",
             state.sessionId,
@@ -269,6 +277,24 @@ public class ActiveSessionService {
                 summary != null ? summary.latestFlags() : null,
                 summary != null ? summary.lastEventType() : null
         ));
+    }
+
+    public void publishLiveUpdatesForStaleDevices(Collection<String> deviceIds) {
+        publishInstructorLiveSnapshot();
+
+        for (String deviceId : deviceIds) {
+            findActiveSessionForDevice(deviceId)
+                    .flatMap(info -> getSessionLiveView(info.sessionId()))
+                    .ifPresent(view -> liveStreamService.publishSessionLive(view.sessionId(), view));
+        }
+    }
+
+    private void publishInstructorLiveSnapshot() {
+        liveStreamService.publishInstructorLive(
+                manikinRegistryService.getLiveSummaries().stream()
+                        .map(this::decorateLiveSummary)
+                        .toList()
+        );
     }
 
     private SessionStartResponse toStartResponse(ActiveSessionState state) {

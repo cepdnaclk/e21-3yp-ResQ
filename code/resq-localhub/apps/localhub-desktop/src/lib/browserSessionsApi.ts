@@ -156,6 +156,10 @@ export async function fetchSessionLive(sessionId: string): Promise<SessionLiveVi
   return readJsonResponse<SessionLiveView>(response);
 }
 
+export function getSessionLiveStreamUrl(sessionId: string): string {
+  return `http://${window.location.hostname}:18080/api/stream/sessions/live/${encodeURIComponent(sessionId)}`;
+}
+
 export async function fetchCompletedSession(sessionId: string): Promise<CompletedSession> {
   const response = await fetch(`${getSessionsBaseUrl()}/${encodeURIComponent(sessionId)}`);
 
