@@ -8,6 +8,7 @@ extern "C" {
 
 esp_err_t queued_publisher_init(void);
 esp_err_t queued_publisher_start(void);
+
 esp_err_t queued_publisher_publish_or_queue(
     const char *suffix,
     const char *payload,

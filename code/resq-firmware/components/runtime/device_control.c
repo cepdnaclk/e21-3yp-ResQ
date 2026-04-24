@@ -3,7 +3,6 @@
 #include <string.h>
 
 #include "esp_log.h"
-
 #include "config_store.h"
 
 static const char *TAG = "device_control";
@@ -26,6 +25,13 @@ static bool validate_runtime_config(const device_config_t *cfg)
     }
 
     if (cfg->mqtt_port <= 0) {
+        return false;
+    }
+
+    if (cfg->hall_min_delta <= 0 ||
+        cfg->hall_max_delta <= 0 ||
+        cfg->compression_start_delta <= 0 ||
+        cfg->sensor_sample_interval_ms <= 0) {
         return false;
     }
 
@@ -57,7 +63,7 @@ esp_err_t device_control_request_unpair(void)
     return ESP_OK;
 }
 
-esp_err_t device_control_apply_config_update(const device_config_t *new_cfg)
+esp_err_t device_control_validate_config_update(const device_config_t *new_cfg)
 {
     if (new_cfg == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -68,14 +74,22 @@ esp_err_t device_control_apply_config_update(const device_config_t *new_cfg)
         return ESP_ERR_INVALID_ARG;
     }
 
-    s_cfg = *new_cfg;
+    return ESP_OK;
+}
 
-    esp_err_t err = config_store_save(&s_cfg);
+esp_err_t device_control_save_config_update(const device_config_t *new_cfg)
+{
+    if (new_cfg == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = config_store_save(new_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save updated config: %s", esp_err_to_name(err));
         return err;
     }
 
+    s_cfg = *new_cfg;
     ESP_LOGI(TAG, "Updated config saved");
     return ESP_OK;
 }

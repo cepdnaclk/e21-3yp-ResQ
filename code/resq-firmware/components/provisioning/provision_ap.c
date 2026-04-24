@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cJSON.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -141,6 +142,30 @@ static bool validate_config(const device_config_t *cfg)
     return true;
 }
 
+static esp_err_t read_request_body(httpd_req_t *req, char *buf, size_t buf_len)
+{
+    if (req == NULL || buf == NULL || buf_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int total_len = req->content_len;
+    if (total_len <= 0 || total_len >= (int)buf_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    int received = 0;
+    while (received < total_len) {
+        int r = httpd_req_recv(req, buf + received, total_len - received);
+        if (r <= 0) {
+            return ESP_FAIL;
+        }
+        received += r;
+    }
+
+    buf[received] = '\0';
+    return ESP_OK;
+}
+
 /* ---------------------------------------------------------
  * HTTP handlers
  * --------------------------------------------------------- */
@@ -151,55 +176,86 @@ static esp_err_t root_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t provision_get_handler(httpd_req_t *req)
+static esp_err_t provision_post_handler(httpd_req_t *req)
 {
-    int query_len = httpd_req_get_url_query_len(req) + 1;
-    if (query_len <= 1) {
+    char body[768] = {0};
+    esp_err_t err = read_request_body(req, body, sizeof(body));
+    if (err != ESP_OK) {
         httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"no query string provided\"}");
-        return ESP_FAIL;
+        httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"invalid request body\"}");
+        return err;
     }
 
-    char *query = malloc(query_len);
-    if (query == NULL) {
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"memory allocation failed\"}");
-        return ESP_ERR_NO_MEM;
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"invalid JSON\"}");
+        return ESP_ERR_INVALID_ARG;
     }
 
-    if (httpd_req_get_url_query_str(req, query, query_len) != ESP_OK) {
-        free(query);
-        httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"failed to read query string\"}");
-        return ESP_FAIL;
+    device_config_t cfg;
+    esp_err_t load_err = config_store_load(&cfg);
+    if (load_err != ESP_OK) {
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.mqtt_port = 1883;
+        cfg.hall_baseline = 3420;
+        cfg.hall_min_delta = 520;
+        cfg.hall_max_delta = 1060;
+        cfg.compression_start_delta = 200;
+        cfg.sensor_sample_interval_ms = 20;
     }
 
-    device_config_t cfg = {0};
-    cfg.mqtt_port = 1883;
+    cJSON *ssid = cJSON_GetObjectItemCaseSensitive(root, "ssid");
+    cJSON *password = cJSON_GetObjectItemCaseSensitive(root, "password");
+    cJSON *server_url = cJSON_GetObjectItemCaseSensitive(root, "server_url");
+    cJSON *auth_token = cJSON_GetObjectItemCaseSensitive(root, "auth_token");
+    cJSON *device_id = cJSON_GetObjectItemCaseSensitive(root, "device_id");
+    cJSON *manikin_id = cJSON_GetObjectItemCaseSensitive(root, "manikin_id");
+    cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(root, "mqtt_host");
+    cJSON *mqtt_port = cJSON_GetObjectItemCaseSensitive(root, "mqtt_port");
 
-    query_value_or_empty(query, "ssid",        cfg.wifi_ssid,    sizeof(cfg.wifi_ssid));
-    query_value_or_empty(query, "password",    cfg.wifi_pass,    sizeof(cfg.wifi_pass));
-    query_value_or_empty(query, "server_url",  cfg.register_url, sizeof(cfg.register_url));
-    query_value_or_empty(query, "auth_token",  cfg.auth_token,   sizeof(cfg.auth_token));
-
-    query_value_or_empty(query, "device_id",   cfg.device_id,    sizeof(cfg.device_id));
-    query_value_or_empty(query, "manikin_id",  cfg.manikin_id,   sizeof(cfg.manikin_id));
-    query_value_or_empty(query, "mqtt_host",   cfg.mqtt_host,    sizeof(cfg.mqtt_host));
-    cfg.mqtt_port = query_int_or_default(query, "mqtt_port", 1883);
-
-    free(query);
-
-    if (!validate_config(&cfg)) {
+    if (!cJSON_IsString(ssid) || !ssid->valuestring || ssid->valuestring[0] == '\0' ||
+        !cJSON_IsString(server_url) || !server_url->valuestring || server_url->valuestring[0] == '\0' ||
+        !cJSON_IsString(auth_token) || !auth_token->valuestring || auth_token->valuestring[0] == '\0') {
+        cJSON_Delete(root);
         httpd_resp_set_status(req, "400 Bad Request");
-        httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"missing required provisioning fields\"}");
-        return ESP_FAIL;
+        httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"missing required fields\"}");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    snprintf(cfg.wifi_ssid, sizeof(cfg.wifi_ssid), "%s", ssid->valuestring);
+
+    if (cJSON_IsString(password) && password->valuestring) {
+        snprintf(cfg.wifi_pass, sizeof(cfg.wifi_pass), "%s", password->valuestring);
+    } else {
+        cfg.wifi_pass[0] = '\0';
+    }
+
+    snprintf(cfg.register_url, sizeof(cfg.register_url), "%s", server_url->valuestring);
+    snprintf(cfg.auth_token, sizeof(cfg.auth_token), "%s", auth_token->valuestring);
+
+    if (cJSON_IsString(device_id) && device_id->valuestring) {
+        snprintf(cfg.device_id, sizeof(cfg.device_id), "%s", device_id->valuestring);
+    }
+
+    if (cJSON_IsString(manikin_id) && manikin_id->valuestring) {
+        snprintf(cfg.manikin_id, sizeof(cfg.manikin_id), "%s", manikin_id->valuestring);
+    }
+
+    if (cJSON_IsString(mqtt_host) && mqtt_host->valuestring) {
+        snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", mqtt_host->valuestring);
+    }
+
+    if (cJSON_IsNumber(mqtt_port) && mqtt_port->valueint > 0) {
+        cfg.mqtt_port = mqtt_port->valueint;
     }
 
     cfg.provisioned = true;
 
-    esp_err_t err = config_store_save(&cfg);
+    cJSON_Delete(root);
+
+    err = config_store_save(&cfg);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "config_store_save failed: %s", esp_err_to_name(err));
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"failed to save config\"}");
         return err;
@@ -208,6 +264,7 @@ static esp_err_t provision_get_handler(httpd_req_t *req)
     s_last_cfg = cfg;
     xEventGroupSetBits(s_prov_events, PROV_DONE_BIT);
 
+    /* Log only safe fields */
     ESP_LOGI(TAG, "Provisioning data received and saved");
     ESP_LOGI(TAG, "  wifi_ssid   : %s", cfg.wifi_ssid);
     ESP_LOGI(TAG, "  register_url: %s", cfg.register_url);
@@ -233,8 +290,8 @@ static httpd_uri_t root_uri = {
 
 static httpd_uri_t provision_uri = {
     .uri      = "/provision",
-    .method   = HTTP_GET,
-    .handler  = provision_get_handler,
+    .method   = HTTP_POST,
+    .handler  = provision_post_handler,
     .user_ctx = NULL,
 };
 

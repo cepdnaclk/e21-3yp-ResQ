@@ -17,6 +17,7 @@ idf_component_register(
         app_config
         protocol
         device_identity
+        board_config
         esp_system
         espressif__cjson
         esp_driver_gpio

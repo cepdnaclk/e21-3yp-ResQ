@@ -3,11 +3,13 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "mqtt_manager.h"
 #include "queue_store.h"
+#include "resq_protocol.h"
 
 #define QUEUE_FLUSH_PERIOD_MS 1000
 #define QUEUE_TASK_STACK_SIZE 4096
@@ -16,6 +18,24 @@
 static const char *TAG = "queued_pub";
 
 static TaskHandle_t s_task_handle = NULL;
+
+static bool suffix_should_queue(const char *suffix)
+{
+    if (suffix == NULL) {
+        return false;
+    }
+
+    /* queue important event/status packets only */
+    if (strcmp(suffix, RESQ_SUFFIX_EVENTS) == 0) {
+        return true;
+    }
+
+    if (strcmp(suffix, RESQ_SUFFIX_STATUS) == 0) {
+        return true;
+    }
+
+    return false;
+}
 
 static void queue_flush_task(void *arg)
 {
@@ -34,7 +54,17 @@ static void queue_flush_task(void *arg)
 
                 if (err == ESP_OK) {
                     queue_store_pop();
-                    ESP_LOGI(TAG, "Flushed queued packet, remaining=%u", (unsigned)queue_store_count());
+
+                    uint64_t now_ms = esp_timer_get_time() / 1000ULL;
+                    uint64_t age_ms = (now_ms > item.created_ms) ? (now_ms - item.created_ms) : 0;
+
+                    ESP_LOGI(
+                        TAG,
+                        "Flushed queued packet topic=%s age_ms=%llu remaining=%u",
+                        item.topic_suffix,
+                        (unsigned long long)age_ms,
+                        (unsigned)queue_store_count()
+                    );
                 }
             }
         }
@@ -84,12 +114,19 @@ esp_err_t queued_publisher_publish_or_queue(
         }
     }
 
+    if (!suffix_should_queue(suffix)) {
+        ESP_LOGW(TAG, "Dropping non-queueable packet for %s while MQTT is unavailable", suffix);
+        return ESP_OK;
+    }
+
     queue_item_t item = {0};
     snprintf(item.topic_suffix, sizeof(item.topic_suffix), "%s", suffix);
     snprintf(item.payload, sizeof(item.payload), "%s", payload);
     item.qos = qos;
     item.retain = retain;
+    item.created_ms = esp_timer_get_time() / 1000ULL;
 
-    ESP_LOGW(TAG, "MQTT unavailable, queueing packet for %s", suffix);
-    return queue_store_push(&item);
+    ESP_LOGW(TAG, "Queueing packet for %s", suffix);
+
+    return queue_store_push_overwrite_oldest(&item);
 }

@@ -5,7 +5,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define FACTORY_RESET_BUTTON GPIO_NUM_9
+#include "board_config.h"
+
+#define FACTORY_RESET_BUTTON BOARD_FACTORY_RESET_BUTTON
 
 static const char *TAG = "factory_reset";
 

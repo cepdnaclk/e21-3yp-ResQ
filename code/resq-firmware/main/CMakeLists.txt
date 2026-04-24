@@ -6,6 +6,9 @@ idf_component_register(
         app_config
         provisioning
         network
-        runtime
         messaging
+        protocol
+        runtime
+        device_identity
+        board_config
 )

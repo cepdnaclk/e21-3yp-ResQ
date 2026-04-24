@@ -20,6 +20,7 @@ typedef struct {
     bool hall_ok;
 
     int hall_raw;
+    int hall_filtered;
     int current_delta;
 
     int total_compressions;

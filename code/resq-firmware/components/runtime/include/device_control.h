@@ -16,7 +16,11 @@ typedef enum {
 esp_err_t device_control_init(const device_config_t *cfg);
 esp_err_t device_control_request_reboot(void);
 esp_err_t device_control_request_unpair(void);
-esp_err_t device_control_apply_config_update(const device_config_t *new_cfg);
+
+/* Split config update into validate + save */
+esp_err_t device_control_validate_config_update(const device_config_t *new_cfg);
+esp_err_t device_control_save_config_update(const device_config_t *new_cfg);
+
 device_action_t device_control_get_pending_action(void);
 void device_control_clear_pending_action(void);
 

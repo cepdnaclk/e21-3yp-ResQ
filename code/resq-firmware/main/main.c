@@ -68,15 +68,6 @@ void app_main(void)
     session_manager_init();
 
     /* -------------------------------------------------
-     * Initialize command handling
-     * Sets up MQTT/control command processing so runtime
-     * actions (start/stop session, reboot, unpair, etc.)
-     * can be received and routed to the correct modules.
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(command_handler_init(&cfg));
-    ESP_ERROR_CHECK(device_control_init(&cfg));
-
-    /* -------------------------------------------------
      * Provisioning flow
      * If device is not provisioned, start AP mode and
      * wait for QR-based provisioning data.
@@ -117,7 +108,7 @@ void app_main(void)
 
     /* -------------------------------------------------
      * Merge backend-assigned runtime values into config
-     * and save to NVS.
+     * and save once to NVS
      * ------------------------------------------------- */
     if (reg.assigned_device_id[0] != '\0') {
         snprintf(cfg.device_id, sizeof(cfg.device_id), "%s", reg.assigned_device_id);
@@ -139,26 +130,14 @@ void app_main(void)
     ESP_LOGI(TAG, "Updated runtime config saved after registration");
 
     /* -------------------------------------------------
-     * Merge backend-assigned values into runtime config
+     * Initialize runtime modules that cache config
+     * only after final backend-assigned config is ready
      * ------------------------------------------------- */
-    if (reg.assigned_device_id[0] != '\0') {
-        snprintf(cfg.device_id, sizeof(cfg.device_id), "%s", reg.assigned_device_id);
-    }
+    ESP_ERROR_CHECK(command_handler_init(&cfg));
+    ESP_ERROR_CHECK(device_control_init(&cfg));
 
-    if (reg.assigned_manikin_id[0] != '\0') {
-        snprintf(cfg.manikin_id, sizeof(cfg.manikin_id), "%s", reg.assigned_manikin_id);
-    }
-
-    if (reg.mqtt_host[0] != '\0') {
-        snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", reg.mqtt_host);
-    }
-
-    if (reg.mqtt_port > 0) {
-        cfg.mqtt_port = reg.mqtt_port;
-    }
-
-    ESP_ERROR_CHECK(config_store_save(&cfg));
-
+    ESP_LOGI(TAG, "Command handler and device control initialized with final config");
+    
     /* -------------------------------------------------
      * Initialize device identity using final assigned IDs
      * ------------------------------------------------- */

@@ -49,6 +49,29 @@ esp_err_t queue_store_push(const queue_item_t *item)
     return ESP_OK;
 }
 
+esp_err_t queue_store_push_overwrite_oldest(const queue_item_t *item)
+{
+    if (item == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (s_count >= QUEUE_STORE_CAPACITY) {
+        s_head = (s_head + 1) % QUEUE_STORE_CAPACITY;
+        s_count--;
+    }
+
+    s_items[s_tail] = *item;
+    s_tail = (s_tail + 1) % QUEUE_STORE_CAPACITY;
+    s_count++;
+
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
+}
+
 esp_err_t queue_store_peek(queue_item_t *out)
 {
     if (out == NULL) {

@@ -9,23 +9,29 @@
 
 #include "hall_sensor.h"
 #include "hx710.h"
+#include "board_config.h"
 
 /* =========================================================
  * Hardware pin mapping
  * Move these later into a board config header if needed.
  * ========================================================= */
-#define HX710_1_SCK   GPIO_NUM_6
-#define HX710_1_DOUT  GPIO_NUM_7
-#define HX710_2_SCK   GPIO_NUM_4
-#define HX710_2_DOUT  GPIO_NUM_5
+#define HX710_1_SCK   BOARD_HX710_1_SCK
+#define HX710_1_DOUT  BOARD_HX710_1_DOUT
+#define HX710_2_SCK   BOARD_HX710_2_SCK
+#define HX710_2_DOUT  BOARD_HX710_2_DOUT
 
-#define HALL_ADC_CHAN ADC_CHANNEL_2
+#define HALL_ADC_CHAN BOARD_HALL_ADC_CHAN
 
 /* =========================================================
  * Task configuration
  * ========================================================= */
 #define SENSOR_TASK_STACK_SIZE   4096
 #define SENSOR_TASK_PRIORITY        5
+
+/* robustness settings */
+#define SENSOR_FAULT_DEBOUNCE_COUNT  3
+#define SENSOR_GOOD_DEBOUNCE_COUNT   2
+#define MIN_FEEDBACK_GAP_MS        120
 
 static const char *TAG = "sensor_runtime";
 static int s_sensor_task_period_ms = 20;
@@ -45,6 +51,64 @@ static bool s_initialized = false;
 static volatile bool s_run_requested = false;
 static volatile bool s_task_running = false;
 
+/* filtered hall signal */
+static int s_hall_filtered = 0;
+
+/* stable sensor health state */
+static bool s_force1_ok_stable = true;
+static bool s_force2_ok_stable = true;
+static bool s_hall_ok_stable = true;
+
+/* debounce counters */
+static int s_force1_fail_count = 0;
+static int s_force1_good_count = 0;
+static int s_force2_fail_count = 0;
+static int s_force2_good_count = 0;
+static int s_hall_fail_count = 0;
+static int s_hall_good_count = 0;
+
+/* suppress repeated feedback too quickly */
+static TickType_t s_last_feedback_tick = 0;
+
+static int iir_filter_step(int prev, int current)
+{
+    /* Simple 25% new + 75% old IIR filter */
+    return (prev * 3 + current) / 4;
+}
+
+static bool update_stable_sensor_ok(bool raw_ok, bool *stable_ok, int *fail_count, int *good_count)
+{
+    if (raw_ok) {
+        *fail_count = 0;
+        (*good_count)++;
+
+        if (*good_count >= SENSOR_GOOD_DEBOUNCE_COUNT) {
+            *stable_ok = true;
+        }
+    } else {
+        *good_count = 0;
+        (*fail_count)++;
+
+        if (*fail_count >= SENSOR_FAULT_DEBOUNCE_COUNT) {
+            *stable_ok = false;
+        }
+    }
+
+    return *stable_ok;
+}
+
+static bool feedback_gap_elapsed(void)
+{
+    TickType_t now = xTaskGetTickCount();
+
+    if ((now - s_last_feedback_tick) < pdMS_TO_TICKS(MIN_FEEDBACK_GAP_MS)) {
+        return false;
+    }
+
+    s_last_feedback_tick = now;
+    return true;
+}
+
 /* =========================================================
  * Background task
  * Reads sensors only while a session has requested runtime.
@@ -54,48 +118,71 @@ static void sensor_task(void *arg)
     (void)arg;
 
     s_task_running = true;
-
     ESP_LOGI(TAG, "Sensor task entered running state");
 
     while (s_run_requested) {
         sensor_snapshot_t snap = {0};
 
         /* -----------------------------
-         * Read force sensors (HX710)
+         * Read force sensors
          * ----------------------------- */
-        snap.force1 = hx710_read(HX710_1_SCK, HX710_1_DOUT);
-        snap.force2 = hx710_read(HX710_2_SCK, HX710_2_DOUT);
+        snap.force1 = hx710_read(BOARD_HX710_1_SCK, BOARD_HX710_1_DOUT);
+        snap.force2 = hx710_read(BOARD_HX710_2_SCK, BOARD_HX710_2_DOUT);
 
-        /* Timeout is treated as read failure / disconnected */
-        snap.force1_ok = (snap.force1 != HX710_ERROR_TIMEOUT);
-        snap.force2_ok = (snap.force2 != HX710_ERROR_TIMEOUT);
+        bool raw_force1_ok = (snap.force1 != HX710_ERROR_TIMEOUT);
+        bool raw_force2_ok = (snap.force2 != HX710_ERROR_TIMEOUT);
 
-        if (!snap.force1_ok) {
-            ESP_LOGW(TAG, "Force sensor 1 timeout / disconnected");
-        }
+        snap.force1_ok = update_stable_sensor_ok(
+            raw_force1_ok,
+            &s_force1_ok_stable,
+            &s_force1_fail_count,
+            &s_force1_good_count
+        );
 
-        if (!snap.force2_ok) {
-            ESP_LOGW(TAG, "Force sensor 2 timeout / disconnected");
-        }
+        snap.force2_ok = update_stable_sensor_ok(
+            raw_force2_ok,
+            &s_force2_ok_stable,
+            &s_force2_fail_count,
+            &s_force2_good_count
+        );
 
         /* -----------------------------
-         * Read hall sensor (depth proxy)
+         * Read hall sensor
          * ----------------------------- */
         int hall_raw = 0;
         esp_err_t err = hall_sensor_read_raw(&s_hall_sensor, &hall_raw);
 
-        if (err == ESP_OK) {
-            snap.hall_ok = true;
-            snap.hall_raw = hall_raw;
+        bool raw_hall_ok = (err == ESP_OK);
 
-            /* Convert absolute ADC reading into depth-like delta */
-            snap.current_delta = hall_sensor_calculate_delta(&s_hall_sensor, hall_raw);
+        snap.hall_ok = update_stable_sensor_ok(
+            raw_hall_ok,
+            &s_hall_ok_stable,
+            &s_hall_fail_count,
+            &s_hall_good_count
+        );
 
-            /* Update CPR logic using current depth */
-            snap.feedback = cpr_logic_update(&s_cpr_state, &s_thresholds, snap.current_delta);
+        snap.hall_raw = hall_raw;
+
+        if (raw_hall_ok) {
+            s_hall_filtered = iir_filter_step(s_hall_filtered, hall_raw);
+            snap.hall_filtered = s_hall_filtered;
+
+            snap.current_delta = hall_sensor_calculate_delta(&s_hall_sensor, s_hall_filtered);
+
+            cpr_feedback_t new_feedback = cpr_logic_update(
+                &s_cpr_state,
+                &s_thresholds,
+                snap.current_delta
+            );
+
+            /* suppress unrealistically fast repeated events */
+            if (new_feedback != CPR_FEEDBACK_NONE && !feedback_gap_elapsed()) {
+                new_feedback = CPR_FEEDBACK_NONE;
+            }
+
+            snap.feedback = new_feedback;
             snap.total_compressions = s_cpr_state.total_compressions;
 
-            /* Log only when an evaluation event is produced */
             if (snap.feedback != CPR_FEEDBACK_NONE) {
                 ESP_LOGI(
                     TAG,
@@ -106,23 +193,17 @@ static void sensor_task(void *arg)
                 );
             }
         } else {
-            /* Keep the system alive even if hall read fails this cycle */
-            snap.hall_ok = false;
+            /* keep previous filtered value, but do not update CPR logic this cycle */
+            snap.hall_filtered = s_hall_filtered;
             snap.feedback = CPR_FEEDBACK_NONE;
             snap.total_compressions = s_cpr_state.total_compressions;
-
-            ESP_LOGW(TAG, "Hall sensor read failed: %s", esp_err_to_name(err));
         }
 
-        /* -----------------------------
-         * Publish latest snapshot safely
-         * ----------------------------- */
         if (xSemaphoreTake(s_snapshot_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             s_latest_snapshot = snap;
             xSemaphoreGive(s_snapshot_mutex);
         }
 
-        /* Fixed-rate sampling loop */
         vTaskDelay(pdMS_TO_TICKS(s_sensor_task_period_ms));
     }
 
@@ -160,6 +241,7 @@ esp_err_t sensor_runtime_init(const device_config_t *cfg)
 
     s_thresholds.hall_min_delta = cfg->hall_min_delta;
     s_thresholds.hall_max_delta = cfg->hall_max_delta;
+    s_hall_filtered = cfg->hall_baseline;
     s_thresholds.compression_start_delta = cfg->compression_start_delta;
 
     s_sensor_task_period_ms = cfg->sensor_sample_interval_ms;
@@ -274,8 +356,21 @@ esp_err_t sensor_runtime_reset_session_data(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Reset CPR state so each session starts clean */
     cpr_logic_init(&s_cpr_state);
+
+    s_hall_filtered = 0;
+    s_last_feedback_tick = 0;
+
+    s_force1_ok_stable = true;
+    s_force2_ok_stable = true;
+    s_hall_ok_stable = true;
+
+    s_force1_fail_count = 0;
+    s_force1_good_count = 0;
+    s_force2_fail_count = 0;
+    s_force2_good_count = 0;
+    s_hall_fail_count = 0;
+    s_hall_good_count = 0;
 
     if (xSemaphoreTake(s_snapshot_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         memset(&s_latest_snapshot, 0, sizeof(s_latest_snapshot));

@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 
@@ -18,10 +19,12 @@ typedef struct {
     char payload[QUEUE_ITEM_PAYLOAD_MAX];
     int qos;
     int retain;
+    uint64_t created_ms;
 } queue_item_t;
 
 esp_err_t queue_store_init(void);
 esp_err_t queue_store_push(const queue_item_t *item);
+esp_err_t queue_store_push_overwrite_oldest(const queue_item_t *item);
 esp_err_t queue_store_peek(queue_item_t *out);
 esp_err_t queue_store_pop(void);
 bool queue_store_is_empty(void);

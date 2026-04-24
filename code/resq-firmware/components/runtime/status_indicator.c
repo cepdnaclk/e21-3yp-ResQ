@@ -4,8 +4,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define STATUS_LED_GPIO GPIO_NUM_8
-#define BUZZER_GPIO     GPIO_NUM_10
+#include "board_config.h"
+
+#define STATUS_LED_GPIO BOARD_STATUS_LED_GPIO
+#define BUZZER_GPIO     BOARD_BUZZER_GPIO
 
 #define INDICATOR_TASK_STACK_SIZE 2048
 #define INDICATOR_TASK_PRIORITY      2

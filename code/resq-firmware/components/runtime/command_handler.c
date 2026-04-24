@@ -209,22 +209,32 @@ static esp_err_t handle_config_update(const char *payload)
 
     cJSON_Delete(root);
 
-    esp_err_t err = device_control_apply_config_update(&new_cfg);
+    /* 1. Validate the candidate config */
+    esp_err_t err = device_control_validate_config_update(&new_cfg);
     if (err != ESP_OK) {
-        publish_command_result("config/update", "NACK", "config save rejected");
+        publish_command_result("config/update", "NACK", "config validation failed");
         return err;
     }
 
+    /* 2. Apply runtime changes first */
     err = sensor_runtime_apply_config(&new_cfg);
     if (err != ESP_OK) {
         publish_command_result("config/update", "NACK", "runtime apply failed");
         return err;
     }
 
-    s_cfg = new_cfg;
-    publish_command_result("config/update", "ACK", "");
+    /* 3. Persist only after runtime apply succeeded */
+    err = device_control_save_config_update(&new_cfg);
+    if (err != ESP_OK) {
+        publish_command_result("config/update", "NACK", "config save failed");
+        return err;
+    }
 
+    s_cfg = new_cfg;
+
+    publish_command_result("config/update", "ACK", "");
     ESP_LOGI(TAG, "config/update handled");
+
     return ESP_OK;
 }
 
