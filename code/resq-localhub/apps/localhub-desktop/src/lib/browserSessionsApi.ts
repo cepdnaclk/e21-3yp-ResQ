@@ -80,6 +80,10 @@ export type SessionLiveView = {
   latestPauseS: number | null;
   latestFlags: string | null;
   lastEventType: string | null;
+  latestForce1: number | null;
+  latestForce2: number | null;
+  pressureBalancePct: number | null;
+  pressureSkewed: boolean | null;
 };
 
 export type ApiErrorResponse = {

@@ -167,11 +167,25 @@ public class ActiveSessionService {
             return;
         }
 
-        Double depthMm = firstDouble(payload, null, "depthMm", "depth_mm");
+        Double depthMm = firstDouble(payload, null, "depthMm", "depth_mm", "current_delta");
+        Integer compressionCount = firstInt(payload, null, "total_compressions", "compressionCount", "compression_count");
         Double rateCpm = firstDouble(payload, null, "rateCpm", "rate_cpm");
+        if (rateCpm == null && compressionCount != null) {
+            long elapsedSeconds = Math.max(1L, Duration.between(state.startedAt, Instant.now()).getSeconds());
+            rateCpm = (compressionCount * 60.0) / elapsedSeconds;
+        }
+
+        String feedback = firstText(payload, null, "feedback");
         Boolean recoilOk = firstBoolean(payload, null, "recoilOk", "recoil_ok", "recoil");
+        if (recoilOk == null && feedback != null) {
+            recoilOk = "NONE".equalsIgnoreCase(feedback) || feedback.toUpperCase().contains("OK");
+        }
+
         Double pauseS = firstDouble(payload, null, "pauseS", "pause_s");
         String flags = firstFlags(payload, null, "flags");
+        if (flags == null) {
+            flags = feedback;
+        }
 
         state.accumulator.record(depthMm, rateCpm, recoilOk, pauseS, flags);
         getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
@@ -232,6 +246,10 @@ public class ActiveSessionService {
                         summary.latestPauseS(),
                         summary.latestFlags(),
                         summary.lastEventType(),
+                        summary.latestForce1(),
+                        summary.latestForce2(),
+                        summary.pressureBalancePct(),
+                        summary.pressureSkewed(),
                         session.sessionId(),
                         session.traineeId(),
                         session.startedAt(),
@@ -254,6 +272,16 @@ public class ActiveSessionService {
         ManikinLiveSummary summary = manikinRegistryService.getLiveSummary(state.deviceId)
                 .orElse(null);
 
+        Double liveDepthMm = state.accumulator.lastDepthMm();
+        Double liveRateCpm = state.accumulator.lastRateCpm();
+        Boolean liveRecoilOk = state.accumulator.lastRecoilOk();
+        Double livePauseS = state.accumulator.lastPauseS();
+        String liveFlags = state.accumulator.latestFlags();
+        Long liveForce1 = summary != null ? summary.latestForce1() : null;
+        Long liveForce2 = summary != null ? summary.latestForce2() : null;
+        Double livePressureBalancePct = summary != null ? summary.pressureBalancePct() : null;
+        Boolean livePressureSkewed = summary != null ? summary.pressureSkewed() : null;
+
         return Optional.of(new SessionLiveView(
                 state.sessionId,
                 state.deviceId,
@@ -270,12 +298,16 @@ public class ActiveSessionService {
                 summary != null ? summary.rssi() : null,
                 summary != null ? summary.battery() : null,
                 summary != null ? summary.sessionActive() : null,
-                summary != null ? summary.latestDepthMm() : null,
-                summary != null ? summary.latestRateCpm() : null,
-                summary != null ? summary.latestRecoilOk() : null,
-                summary != null ? summary.latestPauseS() : null,
-                summary != null ? summary.latestFlags() : null,
-                summary != null ? summary.lastEventType() : null
+                liveDepthMm != null ? liveDepthMm : (summary != null ? summary.latestDepthMm() : null),
+                liveRateCpm != null ? liveRateCpm : (summary != null ? summary.latestRateCpm() : null),
+                liveRecoilOk != null ? liveRecoilOk : (summary != null ? summary.latestRecoilOk() : null),
+                livePauseS != null ? livePauseS : (summary != null ? summary.latestPauseS() : null),
+                liveFlags != null ? liveFlags : (summary != null ? summary.latestFlags() : null),
+                summary != null ? summary.lastEventType() : null,
+                liveForce1,
+                liveForce2,
+                livePressureBalancePct,
+                livePressureSkewed
         ));
     }
 
@@ -353,6 +385,41 @@ public class ActiveSessionService {
             JsonNode node = payload.get(key);
             if (node != null && !node.isNull() && node.isNumber()) {
                 return node.asDouble();
+            }
+        }
+
+        return fallback;
+    }
+
+    private static Integer firstInt(JsonNode payload, Integer fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node != null && !node.isNull() && node.isNumber()) {
+                return node.asInt();
+            }
+        }
+
+        return fallback;
+    }
+
+    private static String firstText(JsonNode payload, String fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull() || !node.isTextual()) {
+                continue;
+            }
+
+            String value = node.asText().trim();
+            if (!value.isEmpty()) {
+                return value;
             }
         }
 
@@ -450,6 +517,10 @@ public class ActiveSessionService {
         private int recoilTrueCount;
         private int recoilFalseCount;
         private int pausesCount;
+        private Double lastDepthMm;
+        private Double lastRateCpm;
+        private Boolean lastRecoilOk;
+        private Double lastPauseS;
         private String latestFlags;
 
         private void record(Double depthMm, Double rateCpm, Boolean recoilOk, Double pauseS, String flags) {
@@ -457,13 +528,16 @@ public class ActiveSessionService {
 
             if (depthMm != null) {
                 depthSumMm += depthMm;
+                lastDepthMm = depthMm;
             }
 
             if (rateCpm != null) {
                 rateSumCpm += rateCpm;
+                lastRateCpm = rateCpm;
             }
 
             if (recoilOk != null) {
+                lastRecoilOk = recoilOk;
                 if (recoilOk) {
                     recoilTrueCount++;
                 } else {
@@ -473,11 +547,32 @@ public class ActiveSessionService {
 
             if (pauseS != null && pauseS > 0.5) {
                 pausesCount++;
+                lastPauseS = pauseS;
             }
 
             if (flags != null) {
                 latestFlags = flags;
             }
+        }
+
+        private Double lastDepthMm() {
+            return lastDepthMm;
+        }
+
+        private Double lastRateCpm() {
+            return lastRateCpm;
+        }
+
+        private Boolean lastRecoilOk() {
+            return lastRecoilOk;
+        }
+
+        private Double lastPauseS() {
+            return lastPauseS;
+        }
+
+        private String latestFlags() {
+            return latestFlags;
         }
 
         private int sampleCount() {

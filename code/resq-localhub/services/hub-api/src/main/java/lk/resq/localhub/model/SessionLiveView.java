@@ -23,6 +23,10 @@ public record SessionLiveView(
         Boolean latestRecoilOk,
         Double latestPauseS,
         String latestFlags,
-        String lastEventType
+        String lastEventType,
+        Long latestForce1,
+        Long latestForce2,
+        Double pressureBalancePct,
+        Boolean pressureSkewed
 ) {
 }
