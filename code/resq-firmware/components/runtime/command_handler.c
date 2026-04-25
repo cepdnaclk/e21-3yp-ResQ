@@ -17,6 +17,23 @@ static const char *TAG = "command_handler";
 
 static device_config_t s_cfg;
 
+static const char *get_string_field(cJSON *root, const char *primary_name, const char *alternate_name)
+{
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, primary_name);
+    if (cJSON_IsString(item) && item->valuestring != NULL && item->valuestring[0] != '\0') {
+        return item->valuestring;
+    }
+
+    if (alternate_name != NULL) {
+        item = cJSON_GetObjectItemCaseSensitive(root, alternate_name);
+        if (cJSON_IsString(item) && item->valuestring != NULL && item->valuestring[0] != '\0') {
+            return item->valuestring;
+        }
+    }
+
+    return NULL;
+}
+
 static void publish_command_result(const char *command, const char *status, const char *reason)
 {
     char *payload = resq_payload_command_result(
@@ -33,9 +50,50 @@ static void publish_command_result(const char *command, const char *status, cons
     }
 }
 
+static esp_err_t publish_session_transition_event(
+    const char *event_type,
+    const char *reason,
+    const char *session_id,
+    const char *trainee_id,
+    const char *started_at,
+    const char *scenario,
+    bool session_active
+)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
+    cJSON_AddStringToObject(root, "session_id", session_id);
+    cJSON_AddStringToObject(root, "event_type", event_type);
+    cJSON_AddBoolToObject(root, "session_active", session_active);
+    cJSON_AddStringToObject(root, "trainee_id", trainee_id);
+    cJSON_AddStringToObject(root, "started_at", started_at);
+    cJSON_AddStringToObject(root, "scenario", scenario);
+    cJSON_AddStringToObject(root, "reason", reason);
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (payload == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    mqtt_manager_publish(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+    cJSON_free(payload);
+    return ESP_OK;
+}
+
 static esp_err_t handle_session_start(const char *payload)
 {
     char session_id[64] = {0};
+    char trainee_id[64] = {0};
+    char started_at[64] = {0};
+    char scenario[64] = {0};
+    char device_id[64] = {0};
+    bool have_device_id = false;
 
     if (session_manager_is_active()) {
         publish_command_result("session/start", "NACK", "session already active");
@@ -44,19 +102,46 @@ static esp_err_t handle_session_start(const char *payload)
 
     cJSON *root = cJSON_Parse(payload);
     if (root) {
-        cJSON *sid = cJSON_GetObjectItemCaseSensitive(root, "session_id");
-        if (cJSON_IsString(sid) && sid->valuestring) {
-            snprintf(session_id, sizeof(session_id), "%s", sid->valuestring);
+        const char *value = get_string_field(root, "sessionId", "session_id");
+        if (value != NULL) {
+            snprintf(session_id, sizeof(session_id), "%s", value);
         }
+
+        value = get_string_field(root, "deviceId", "device_id");
+        if (value != NULL) {
+            snprintf(device_id, sizeof(device_id), "%s", value);
+            have_device_id = true;
+        }
+
+        value = get_string_field(root, "traineeId", "trainee_id");
+        if (value != NULL) {
+            snprintf(trainee_id, sizeof(trainee_id), "%s", value);
+        }
+
+        value = get_string_field(root, "startedAt", "started_at");
+        if (value != NULL) {
+            snprintf(started_at, sizeof(started_at), "%s", value);
+        }
+
+        value = get_string_field(root, "scenario", NULL);
+        if (value != NULL) {
+            snprintf(scenario, sizeof(scenario), "%s", value);
+        }
+
         cJSON_Delete(root);
     }
 
     if (session_id[0] == '\0') {
-        publish_command_result("session/start", "NACK", "missing session_id");
+        publish_command_result("session/start", "NACK", "missing sessionId");
         return ESP_ERR_INVALID_ARG;
     }
 
-    session_manager_start(session_id);
+    if (have_device_id && strcmp(device_id, s_cfg.device_id) != 0) {
+        publish_command_result("session/start", "NACK", "deviceId mismatch");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    session_manager_start(session_id, trainee_id, started_at, scenario);
     sensor_runtime_reset_session_data();
 
     esp_err_t err = sensor_runtime_start();
@@ -66,18 +151,72 @@ static esp_err_t handle_session_start(const char *payload)
         return err;
     }
 
+    mqtt_manager_publish_status("SESSION_ACTIVE");
+    health_monitor_publish_heartbeat();
+    publish_session_transition_event(
+        "session_started",
+        "",
+        session_manager_get_id(),
+        session_manager_get_trainee_id(),
+        session_manager_get_started_at(),
+        session_manager_get_scenario(),
+        true
+    );
     publish_command_result("session/start", "ACK", "");
-    ESP_LOGI(TAG, "Session started: %s", session_id);
+    ESP_LOGI(
+        TAG,
+        "Session started: sessionId=%s traineeId=%s scenario=%s startedAt=%s",
+        session_id,
+        trainee_id[0] != '\0' ? trainee_id : "",
+        scenario[0] != '\0' ? scenario : "",
+        started_at[0] != '\0' ? started_at : ""
+    );
     return ESP_OK;
 }
 
 static esp_err_t handle_session_stop(const char *payload)
 {
-    (void)payload;
+    char session_id[64] = {0};
+    char device_id[64] = {0};
+    char ended_at[64] = {0};
+    bool have_session_id = false;
+    bool have_device_id = false;
+
+    cJSON *root = cJSON_Parse(payload);
+    if (root) {
+        const char *value = get_string_field(root, "sessionId", "session_id");
+        if (value != NULL) {
+            snprintf(session_id, sizeof(session_id), "%s", value);
+            have_session_id = true;
+        }
+
+        value = get_string_field(root, "deviceId", "device_id");
+        if (value != NULL) {
+            snprintf(device_id, sizeof(device_id), "%s", value);
+            have_device_id = true;
+        }
+
+        value = get_string_field(root, "endedAt", "ended_at");
+        if (value != NULL) {
+            snprintf(ended_at, sizeof(ended_at), "%s", value);
+        }
+
+        cJSON_Delete(root);
+    }
 
     if (!session_manager_is_active()) {
         publish_command_result("session/stop", "NACK", "no active session");
         return ESP_ERR_INVALID_STATE;
+    }
+
+    if (have_device_id && strcmp(device_id, s_cfg.device_id) != 0) {
+        publish_command_result("session/stop", "NACK", "deviceId mismatch");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (have_session_id && strcmp(session_id, session_manager_get_id()) != 0) {
+        publish_command_result("session/stop", "NACK", "sessionId mismatch");
+        return ESP_ERR_INVALID_ARG;
     }
 
     esp_err_t err = sensor_runtime_stop();
@@ -86,10 +225,36 @@ static esp_err_t handle_session_stop(const char *payload)
         return err;
     }
 
-    session_manager_stop();
-    publish_command_result("session/stop", "ACK", "");
+    char current_session_id[64] = {0};
+    char current_trainee_id[64] = {0};
+    char current_started_at[64] = {0};
+    char current_scenario[64] = {0};
 
-    ESP_LOGI(TAG, "Session stopped");
+    snprintf(current_session_id, sizeof(current_session_id), "%s", session_manager_get_id());
+    snprintf(current_trainee_id, sizeof(current_trainee_id), "%s", session_manager_get_trainee_id());
+    snprintf(current_started_at, sizeof(current_started_at), "%s", session_manager_get_started_at());
+    snprintf(current_scenario, sizeof(current_scenario), "%s", session_manager_get_scenario());
+
+    publish_command_result("session/stop", "ACK", "");
+    session_manager_stop();
+    mqtt_manager_publish_status("IDLE");
+    health_monitor_publish_heartbeat();
+    publish_session_transition_event(
+        "session_stopped",
+        ended_at[0] != '\0' ? ended_at : "",
+        current_session_id,
+        current_trainee_id,
+        current_started_at,
+        current_scenario,
+        false
+    );
+
+    ESP_LOGI(
+        TAG,
+        "Session stopped: sessionId=%s endedAt=%s",
+        have_session_id ? session_id : "",
+        ended_at[0] != '\0' ? ended_at : ""
+    );
     return ESP_OK;
 }
 

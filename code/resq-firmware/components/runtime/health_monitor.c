@@ -53,6 +53,12 @@ static void publish_heartbeat(void)
     }
 }
 
+esp_err_t health_monitor_publish_heartbeat(void)
+{
+    publish_heartbeat();
+    return ESP_OK;
+}
+
 static void health_task(void *arg)
 {
     (void)arg;

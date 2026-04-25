@@ -5,6 +5,7 @@ import lk.resq.localhub.model.SessionLiveView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import jakarta.annotation.PostConstruct;
@@ -102,7 +103,8 @@ public class LiveStreamService {
 
     private void sendEvent(SseEmitter emitter, String eventName, Object payload, Runnable onFailure) {
         try {
-            emitter.send(SseEmitter.event().name(eventName).data(payload));
+            Object safePayload = (payload != null) ? payload : Map.of();
+            emitter.send(SseEmitter.event().name(eventName).data(safePayload, MediaType.APPLICATION_JSON));
         } catch (IOException | IllegalStateException error) {
             onFailure.run();
             emitter.complete();

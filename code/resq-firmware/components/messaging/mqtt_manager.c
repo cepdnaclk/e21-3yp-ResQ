@@ -26,6 +26,28 @@ static void build_topic(char *out, size_t out_len, const char *suffix)
     resq_topic_build(out, out_len, s_cfg.device_id, suffix);
 }
 
+esp_err_t mqtt_manager_publish_status(const char *state)
+{
+    if (state == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char *payload = resq_payload_status(
+        s_cfg.device_id,
+        state,
+        session_manager_is_active(),
+        session_manager_get_id()
+    );
+
+    if (payload == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = mqtt_manager_publish(RESQ_SUFFIX_STATUS, payload, 1, 1);
+    cJSON_free(payload);
+    return err;
+}
+
 esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos, int retain)
 {
     if (s_client == NULL || !s_connected || suffix == NULL || payload == NULL) {
@@ -41,21 +63,6 @@ esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos,
     }
 
     return ESP_OK;
-}
-
-static void publish_state(const char *state)
-{
-    char *payload = resq_payload_status(
-        s_cfg.device_id,
-        state,
-        session_manager_is_active(),
-        session_manager_get_id()
-    );
-
-    if (payload) {
-        mqtt_manager_publish(RESQ_SUFFIX_STATUS, payload, 1, 1);
-        cJSON_free(payload);
-    }
 }
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -93,7 +100,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_CONFIG_UPDATE);
             esp_mqtt_client_subscribe(s_client, topic, 1);
 
-            publish_state("ONLINE");
+            mqtt_manager_publish_status(session_manager_is_active() ? "SESSION_ACTIVE" : "IDLE");
             break;
         }
 
@@ -166,6 +173,7 @@ esp_err_t mqtt_manager_init(const device_config_t *cfg)
 
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = uri,
+        .credentials.client_id = s_cfg.device_id,
         .session.last_will.topic = s_lwt_topic,
         .session.last_will.msg = s_lwt_msg,
         .session.last_will.qos = 1,
