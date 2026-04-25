@@ -1,0 +1,48 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+
+# Dependencies and package manager caches
+node_modules/
+.pnpm-store/
+**/node_modules/
+**/.pnpm-store/
+
+# Build artifacts
+build/
+dist/
+coverage/
+**/build/
+**/dist/
+**/*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Python cache (if any scripts use Python)
+__pycache__/
+*.pyc
+
+# Embedded firmware/build outputs
+code/resq-firmware/build/
+
+# Local runtime data
+code/resq-localhub/mosquitto/data/
+code/resq-localhub/mosquitto/log/
+
+node_modules/
+.next/
+.env*.local
+out/
+build/
+*.log
+node_modules copy/

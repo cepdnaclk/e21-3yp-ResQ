@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: jdbc:sqlite:./data/resq-local.db
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-local.sql
+      data-locations: classpath:data-local.sql
+
+logging:
+  level:
+    org.springframework.jdbc.core: info
