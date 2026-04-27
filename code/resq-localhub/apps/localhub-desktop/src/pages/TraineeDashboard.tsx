@@ -81,6 +81,11 @@ function SessionStatusBadge({ active }: { active: boolean }) {
 
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
 
+type TraineeDashboardProps = {
+  embeddedInDesktop?: boolean;
+  initialSessionId?: string | null;
+};
+
 type SensorPoint = {
   ts: number;
   depthMm: number | null;
@@ -209,7 +214,10 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   );
 }
 
-export default function TraineeDashboard() {
+export default function TraineeDashboard({
+  embeddedInDesktop = false,
+  initialSessionId = null,
+}: TraineeDashboardProps) {
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -221,10 +229,15 @@ export default function TraineeDashboard() {
   const [sensorHistory, setSensorHistory] = useState<SensorPoint[]>([]);
 
   useEffect(() => {
+    if (initialSessionId && initialSessionId.trim().length > 0) {
+      setSessionId(initialSessionId.trim());
+      return;
+    }
+
     const params = new URLSearchParams(window.location.search);
     const currentSessionId = params.get("sessionId");
     setSessionId(currentSessionId && currentSessionId.trim().length > 0 ? currentSessionId.trim() : null);
-  }, []);
+  }, [initialSessionId]);
 
   useEffect(() => {
     setSensorHistory([]);
@@ -418,6 +431,14 @@ export default function TraineeDashboard() {
     return date.toLocaleTimeString();
   }
 
+  function navigateToInstructorDashboard() {
+    window.location.assign("/instructor");
+  }
+
+  function navigateToDesktopHome() {
+    window.location.assign("/");
+  }
+
   const depthSeries = sensorHistory.map((point) => point.depthMm);
   const rateSeries = sensorHistory.map((point) => point.rateCpm);
   const pauseSeries = sensorHistory.map((point) => point.pauseS);
@@ -436,10 +457,48 @@ export default function TraineeDashboard() {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <h1 style={styles.title}>Trainee Dashboard</h1>
-        <p style={styles.subtitle}>
-          Assigned manikin live performance for one active session
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <div>
+            <h1 style={styles.title}>Trainee Dashboard</h1>
+            <p style={styles.subtitle}>
+              Assigned manikin live performance for one active session
+            </p>
+          </div>
+          {!embeddedInDesktop ? (
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={navigateToInstructorDashboard}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #0f172a",
+                  background: "#0f172a",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Back To Instructor
+              </button>
+              <button
+                type="button"
+                onClick={navigateToDesktopHome}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Back To Home
+              </button>
+            </div>
+          ) : null}
+        </div>
       </header>
 
       <div style={styles.content}>

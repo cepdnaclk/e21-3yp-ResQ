@@ -6,7 +6,7 @@ import InstructorDashboard from "./pages/InstructorDashboard";
 import TraineeDashboard from "./pages/TraineeDashboard";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "./lib/accessHost";
 
-type Page = "home" | "setup" | "diagnostics";
+type Page = "home" | "setup" | "diagnostics" | "instructor" | "trainee";
 type RouteType = "desktop" | "instructor" | "trainee";
 
 function getRouteFromPathname(): RouteType {
@@ -24,6 +24,7 @@ export default function App() {
   const [route, setRoute] = useState<RouteType>("desktop");
   const [page, setPage] = useState<Page>("home");
   const [manualLanIpOverride, setManualLanIpOverride] = useState<string | null>(null);
+  const [traineeSessionId, setTraineeSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     // Determine which route to render based on pathname
@@ -72,12 +73,29 @@ export default function App() {
       <nav style={styles.nav}>
         {/* Simple tab-like buttons keep the starter app easy to follow. */}
         <button style={tabStyle(page === "home")} onClick={() => setPage("home")}>Home</button>
+        <button style={tabStyle(page === "instructor")} onClick={() => setPage("instructor")}>Instructor</button>
+        <button style={tabStyle(page === "trainee")} onClick={() => setPage("trainee")}>Trainee</button>
         <button style={tabStyle(page === "setup")} onClick={() => setPage("setup")}>Setup</button>
         <button style={tabStyle(page === "diagnostics")} onClick={() => setPage("diagnostics")}>Diagnostics</button>
       </nav>
 
       <main style={styles.main}>
         {page === "home" && <HomePage manualLanIpOverride={manualLanIpOverride} />}
+        {page === "instructor" && (
+          <InstructorDashboard
+            embeddedInDesktop={true}
+            onOpenTraineeDashboard={(sessionId) => {
+              setTraineeSessionId(sessionId);
+              setPage("trainee");
+            }}
+          />
+        )}
+        {page === "trainee" && (
+          <TraineeDashboard
+            embeddedInDesktop={true}
+            initialSessionId={traineeSessionId}
+          />
+        )}
         {page === "setup" && (
           <SetupPage
             manualLanIpOverride={manualLanIpOverride}

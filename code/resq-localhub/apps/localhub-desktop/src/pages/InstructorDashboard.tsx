@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
+import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
+import { generateAccessUrls } from "../lib/accessUrls";
 import {
   fetchLiveManikins,
   getLiveManikinsStreamUrl,
@@ -122,6 +125,11 @@ function IndicatorBadge({
 type SessionActionState = "idle" | "starting" | "ending";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
 
+type InstructorDashboardProps = {
+  embeddedInDesktop?: boolean;
+  onOpenTraineeDashboard?: (sessionId: string) => void;
+};
+
 function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   if (state === "connecting") {
     return (
@@ -154,7 +162,10 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   );
 }
 
-export default function InstructorDashboard() {
+export default function InstructorDashboard({
+  embeddedInDesktop = false,
+  onOpenTraineeDashboard,
+}: InstructorDashboardProps) {
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [manikinsLoading, setManikinsLoading] = useState(true);
@@ -364,8 +375,45 @@ export default function InstructorDashboard() {
     return `${value.toFixed(1)} ${suffix}`;
   }
 
-  function buildTraineeUrl(sessionId: string): string {
-    return `${window.location.origin}/trainee?sessionId=${encodeURIComponent(sessionId)}`;
+  function buildTraineeUrl(sessionId: string): string | null {
+    const manualLanHost = sanitizeManualLanIp(
+      window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY) ?? "",
+    );
+
+    if (manualLanHost) {
+      const { traineeUrl } = generateAccessUrls(manualLanHost);
+      if (traineeUrl) {
+        return `${traineeUrl}?sessionId=${encodeURIComponent(sessionId)}`;
+      }
+    }
+
+    const protocol = window.location.protocol.toLowerCase();
+    const canUseOrigin = protocol === "http:" || protocol === "https:";
+    const originHost = window.location.hostname;
+    const originIsLocalOnly =
+      originHost === "localhost" ||
+      originHost === "127.0.0.1" ||
+      originHost === "::1";
+
+    if (canUseOrigin && !originIsLocalOnly) {
+      return `${window.location.origin}/trainee?sessionId=${encodeURIComponent(sessionId)}`;
+    }
+
+    return null;
+  }
+
+  function navigateToDesktopHome() {
+    window.location.assign("/");
+  }
+
+  function navigateToTraineeDashboard(sessionId: string) {
+    if (onOpenTraineeDashboard) {
+      onOpenTraineeDashboard(sessionId);
+      return;
+    }
+
+    const url = `/trainee?sessionId=${encodeURIComponent(sessionId)}`;
+    window.location.assign(url);
   }
 
   function formatSummaryTime(value: string): string {
@@ -485,10 +533,31 @@ export default function InstructorDashboard() {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <h1 style={styles.title}>Instructor Dashboard</h1>
-        <p style={styles.subtitle}>
-          Multi-manikin live performance monitoring and control
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <div>
+            <h1 style={styles.title}>Instructor Dashboard</h1>
+            <p style={styles.subtitle}>
+              Multi-manikin live performance monitoring and control
+            </p>
+          </div>
+          {!embeddedInDesktop ? (
+            <button
+              type="button"
+              onClick={navigateToDesktopHome}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                background: "#ffffff",
+                color: "#0f172a",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Back To Home
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <div style={styles.content}>
@@ -793,7 +862,7 @@ export default function InstructorDashboard() {
                       )}
                     </div>
 
-                    {active && traineeLink ? (
+                    {active ? (
                       <div style={{ display: "grid", gap: "4px", background: "#f8fafc", borderRadius: "8px", padding: "10px" }}>
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Session: {activeSession!.sessionId}
@@ -801,9 +870,59 @@ export default function InstructorDashboard() {
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Trainee: {activeSession!.traineeId ?? "-"}
                         </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                          Trainee Link: {traineeLink}
-                        </p>
+                        {traineeLink ? (
+                          <>
+                            <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
+                              Trainee Link: {traineeLink}
+                            </p>
+                            <div
+                              style={{
+                                marginTop: "4px",
+                                padding: "10px",
+                                borderRadius: "8px",
+                                border: "1px solid #dbe3ee",
+                                background: "#ffffff",
+                                display: "grid",
+                                justifyItems: "center",
+                                gap: "8px",
+                              }}
+                            >
+                              <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
+                                Student Dashboard QR
+                              </p>
+                              <QRCodeSVG value={traineeLink} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+                              <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
+                                Scan from trainee phone to open the live trainee dashboard.
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#b45309" }}>
+                            QR unavailable. Set a LAN host/IP in Setup to generate a scannable trainee URL.
+                          </p>
+                        )}
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #0f172a",
+                              background: "#0f172a",
+                              color: "#ffffff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Open Trainee Dashboard (In-App)
+                          </button>
+                          {traineeLink ? (
+                            <a href={traineeLink} style={linkButtonStyle}>
+                              Open Trainee Link
+                            </a>
+                          ) : null}
+                        </div>
                       </div>
                     ) : null}
 

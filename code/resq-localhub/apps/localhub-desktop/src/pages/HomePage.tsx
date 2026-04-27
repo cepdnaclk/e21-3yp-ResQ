@@ -373,10 +373,14 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   }
 
   // Generate access URLs from the chosen host/IP
-  const { instructorUrl, traineeUrl } = generateAccessUrls(chosenLanIp);
+  const { instructorUrl } = generateAccessUrls(chosenLanIp);
   const qrUnavailableMessage = chosenLanIp
     ? "Unable to generate URLs for unknown reason."
     : "No selected LAN IP source yet. Open Setup to auto-detect or manually set an IP.";
+
+  function handleOpenInstructorDashboard() {
+    window.location.assign("/instructor");
+  }
 
   return (
     <div style={{ display: "grid", gap: "16px" }}>
@@ -385,6 +389,15 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
         <p style={{ margin: 0, color: "#64748b", fontSize: "0.95rem" }}>
           Local service status and quick operational overview.
         </p>
+        <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <button
+            type="button"
+            style={buttonStyle(false)}
+            onClick={handleOpenInstructorDashboard}
+          >
+            Open Instructor Dashboard (In-App)
+          </button>
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
@@ -448,7 +461,7 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
         />
       </div>
 
-      <QrPanel instructorUrl={instructorUrl} traineeUrl={traineeUrl} unavailableMessage={qrUnavailableMessage} />
+      <QrPanel instructorUrl={instructorUrl} unavailableMessage={qrUnavailableMessage} />
       <LogPanel />
     </div>
   );
