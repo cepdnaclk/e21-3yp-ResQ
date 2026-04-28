@@ -36,7 +36,7 @@ export default function App() {
 
   // Render browser-safe dashboard pages that don't use Tauri APIs
   if (route === "instructor") {
-    return <InstructorDashboard />;
+    return <InstructorDashboard manualLanIpOverride={manualLanIpOverride} />;
   }
 
   if (route === "trainee") {
@@ -84,6 +84,7 @@ export default function App() {
         {page === "instructor" && (
           <InstructorDashboard
             embeddedInDesktop={true}
+            manualLanIpOverride={manualLanIpOverride}
             onOpenTraineeDashboard={(sessionId) => {
               setTraineeSessionId(sessionId);
               setPage("trainee");

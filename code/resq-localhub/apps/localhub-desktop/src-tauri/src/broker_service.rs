@@ -135,7 +135,7 @@ impl BrokerServiceState {
         command
     }
 
-    fn start(&self) -> Result<BrokerServiceStatus, String> {
+    pub fn start(&self) -> Result<BrokerServiceStatus, String> {
         let mut child_slot = self
             .child
             .lock()
@@ -197,7 +197,7 @@ impl BrokerServiceState {
         })
     }
 
-    fn stop(&self) -> Result<BrokerServiceStatus, String> {
+    pub fn stop(&self) -> Result<BrokerServiceStatus, String> {
         let mut child_slot = self
             .child
             .lock()

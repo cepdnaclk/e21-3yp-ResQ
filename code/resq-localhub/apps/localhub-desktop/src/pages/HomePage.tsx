@@ -8,10 +8,6 @@ import {
   getApiServiceStatus,
   getBrokerServiceStatus,
   getNetworkInfo,
-  startApiService,
-  startBrokerService,
-  stopApiService,
-  stopBrokerService,
   type ApiServiceStatus,
   type BrokerServiceStatus,
   type HubHealthResponse,
@@ -28,8 +24,6 @@ type ApiHealthState = {
   service?: string;
   timestamp?: string;
 };
-
-const STARTUP_CHECK_DELAY_MS = 2000;
 
 type BrokerUiState = {
   status: "checking" | "running" | "stopped";
@@ -91,10 +85,6 @@ function getHealthLabel(apiHealth: ApiHealthState): string {
   return "Unreachable";
 }
 
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
 function getErrorMessage(error: unknown): string {
   if (typeof error === "string") {
     return error;
@@ -138,8 +128,6 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     status: "checking",
     detail: "Checking...",
   });
-  const [actionState, setActionState] = useState<"idle" | "starting" | "stopping">("idle");
-  const [brokerActionState, setBrokerActionState] = useState<"idle" | "starting" | "stopping">("idle");
   const [brokerState, setBrokerState] = useState<BrokerServiceStatus>({
     running: false,
     pid: null,
@@ -271,107 +259,6 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   const lanDetail =
     `${lanInfo.detail} • Hostname: ${lanInfo.hostname ?? "Unknown"} • Primary IP: ${chosenLanIp ?? "Not detected"} • ${ipSourceMessage}`;
 
-  async function handleStartApi() {
-    if (actionState !== "idle") {
-      return;
-    }
-
-    setActionState("starting");
-
-    try {
-      const service = await startApiService();
-      setApiService(service);
-      setApiHealth({
-        status: "checking",
-        detail: "Checking...",
-      });
-
-      await sleep(STARTUP_CHECK_DELAY_MS);
-      await syncApiState();
-    } catch (error) {
-      setApiService({
-        running: false,
-        pid: null,
-      });
-      setApiHealth({
-        status: "unreachable",
-        detail: `Unable to start the backend. ${getErrorMessage(error)}`,
-      });
-    } finally {
-      setActionState("idle");
-    }
-  }
-
-  async function handleStopApi() {
-    if (actionState !== "idle") {
-      return;
-    }
-
-    setActionState("stopping");
-
-    try {
-      const service = await stopApiService();
-      setApiService(service);
-      setApiHealth({
-        status: "unreachable",
-        detail: "Backend process is stopped.",
-      });
-    } catch (error) {
-      setApiHealth({
-        status: "unreachable",
-        detail: `Unable to stop the backend. ${getErrorMessage(error)}`,
-      });
-    } finally {
-      setActionState("idle");
-    }
-  }
-
-  async function handleStartBroker() {
-    if (brokerActionState !== "idle") {
-      return;
-    }
-
-    setBrokerActionState("starting");
-    setBrokerUiState({
-      status: "checking",
-      detail: "Checking...",
-    });
-
-    try {
-      const service = await startBrokerService();
-      updateBrokerUi(service);
-      await syncBrokerState();
-    } catch (error) {
-      setBrokerUiState({
-        status: "stopped",
-        detail: getErrorMessage(error),
-      });
-    } finally {
-      setBrokerActionState("idle");
-    }
-  }
-
-  async function handleStopBroker() {
-    if (brokerActionState !== "idle") {
-      return;
-    }
-
-    setBrokerActionState("stopping");
-
-    try {
-      const service = await stopBrokerService();
-      updateBrokerUi(service);
-      await syncBrokerState();
-    } catch (error) {
-      setBrokerUiState({
-        status: "stopped",
-        detail: getErrorMessage(error),
-      });
-    } finally {
-      setBrokerActionState("idle");
-    }
-  }
-
   // Generate access URLs from the chosen host/IP
   const { instructorUrl } = generateAccessUrls(chosenLanIp);
   const qrUnavailableMessage = chosenLanIp
@@ -406,52 +293,12 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
           status={apiStatusLabel}
           detail={formatApiDetail(apiHealth)}
           statusTone={apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped"}
-          actions={
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                style={buttonStyle(actionState !== "idle" || apiService.running)}
-                onClick={handleStartApi}
-                disabled={actionState !== "idle" || apiService.running}
-              >
-                Start API
-              </button>
-              <button
-                type="button"
-                style={buttonStyle(actionState !== "idle" || !apiService.running)}
-                onClick={handleStopApi}
-                disabled={actionState !== "idle" || !apiService.running}
-              >
-                Stop API
-              </button>
-            </div>
-          }
         />
         <StatusCard
           title="Broker Status"
           status={brokerStatusLabel}
           detail={brokerUiState.detail}
           statusTone={brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped"}
-          actions={
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                style={buttonStyle(brokerActionState !== "idle" || brokerState.running)}
-                onClick={handleStartBroker}
-                disabled={brokerActionState !== "idle" || brokerState.running}
-              >
-                Start Broker
-              </button>
-              <button
-                type="button"
-                style={buttonStyle(brokerActionState !== "idle" || !brokerState.running)}
-                onClick={handleStopBroker}
-                disabled={brokerActionState !== "idle" || !brokerState.running}
-              >
-                Stop Broker
-              </button>
-            </div>
-          }
         />
         <StatusCard 
           title="LAN Info" 

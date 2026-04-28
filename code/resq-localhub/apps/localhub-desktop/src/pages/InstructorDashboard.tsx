@@ -128,6 +128,7 @@ type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailabl
 type InstructorDashboardProps = {
   embeddedInDesktop?: boolean;
   onOpenTraineeDashboard?: (sessionId: string) => void;
+  manualLanIpOverride?: string | null;
 };
 
 function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
@@ -165,6 +166,7 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
 export default function InstructorDashboard({
   embeddedInDesktop = false,
   onOpenTraineeDashboard,
+  manualLanIpOverride = null,
 }: InstructorDashboardProps) {
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
@@ -376,9 +378,7 @@ export default function InstructorDashboard({
   }
 
   function buildTraineeUrl(sessionId: string): string | null {
-    const manualLanHost = sanitizeManualLanIp(
-      window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY) ?? "",
-    );
+    const manualLanHost = sanitizeManualLanIp(manualLanIpOverride ?? window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY) ?? "");
 
     if (manualLanHost) {
       const { traineeUrl } = generateAccessUrls(manualLanHost);
