@@ -1,16 +1,29 @@
 import { useEffect, useState } from "react";
+import { ROUTE_ROLE_RULES, type UserRole } from "@resq/shared";
+import { useAuth } from "./auth/AuthContext";
+import AccessDeniedPage from "./pages/AccessDeniedPage";
+import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import SetupPage from "./pages/SetupPage";
 import DiagnosticsPage from "./pages/DiagnosticsPage";
+import AdminUsersPage from "./pages/AdminUsersPage";
 import InstructorDashboard from "./pages/InstructorDashboard";
 import TraineeDashboard from "./pages/TraineeDashboard";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "./lib/accessHost";
+import ProtectedRoute from "./auth/ProtectedRoute";
+import RoleBasedRoute from "./auth/RoleBasedRoute";
 
-type Page = "home" | "setup" | "diagnostics" | "instructor" | "trainee";
-type RouteType = "desktop" | "instructor" | "trainee";
+type Page = "home" | "setup" | "diagnostics" | "users" | "instructor" | "trainee";
+type RouteType = "desktop" | "login" | "access-denied" | "instructor" | "trainee";
 
 function getRouteFromPathname(): RouteType {
   const pathname = window.location.pathname;
+  if (pathname === "/login" || pathname === "/login/") {
+    return "login";
+  }
+  if (pathname === "/access-denied" || pathname === "/access-denied/") {
+    return "access-denied";
+  }
   if (pathname === "/instructor" || pathname === "/instructor/") {
     return "instructor";
   }
@@ -21,29 +34,53 @@ function getRouteFromPathname(): RouteType {
 }
 
 export default function App() {
-  const [route, setRoute] = useState<RouteType>("desktop");
-  const [page, setPage] = useState<Page>("home");
+  const { currentUser, isLoading, bootstrap, logout } = useAuth();
+  const [route] = useState<RouteType>(() => getRouteFromPathname());
+  const [page, setPage] = useState<Page>("instructor");
   const [manualLanIpOverride, setManualLanIpOverride] = useState<string | null>(null);
   const [traineeSessionId, setTraineeSessionId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Determine which route to render based on pathname
-    setRoute(getRouteFromPathname());
-
     const saved = window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY);
     setManualLanIpOverride(sanitizeManualLanIp(saved ?? ""));
   }, []);
 
-  // Render browser-safe dashboard pages that don't use Tauri APIs
+  if (isLoading) {
+    return (
+      <div style={{ padding: "24px", fontFamily: "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif" }}>
+        Loading authentication...
+      </div>
+    );
+  }
+
+  if (!currentUser || route === "login") {
+    return <LoginPage firstRunRequired={bootstrap?.firstRunRequired ?? false} />;
+  }
+
+  if (route === "access-denied") {
+    return <AccessDeniedPage />;
+  }
+
   if (route === "instructor") {
-    return <InstructorDashboard manualLanIpOverride={manualLanIpOverride} />;
+    return (
+      <RoleBasedRoute allowedRoles={ROUTE_ROLE_RULES.instructor}>
+        <InstructorDashboard manualLanIpOverride={manualLanIpOverride} />
+      </RoleBasedRoute>
+    );
   }
 
   if (route === "trainee") {
-    return <TraineeDashboard />;
+    return (
+      <ProtectedRoute allowedRoles={ROUTE_ROLE_RULES.trainee}>
+        <TraineeDashboard />
+      </ProtectedRoute>
+    );
   }
 
-  // Render desktop shell with Tauri-dependent pages
+  if (currentUser.role === "TRAINEE") {
+    return <TraineeDashboard embeddedInDesktop={true} initialSessionId={traineeSessionId} />;
+  }
+
   function handleApplyManualLanIpOverride(value: string) {
     const normalized = sanitizeManualLanIp(value);
     setManualLanIpOverride(normalized);
@@ -61,13 +98,33 @@ export default function App() {
     window.localStorage.removeItem(MANUAL_LAN_IP_STORAGE_KEY);
   }
 
+  async function handleLogout() {
+    await logout();
+    window.location.assign("/login");
+  }
+
   return (
     <div style={styles.app}>
       <header style={styles.header}>
-        <h1 style={{ margin: 0, fontSize: "1.75rem", fontWeight: 700, letterSpacing: "-0.02em" }}>ResQ Local Hub</h1>
-        <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: "0.95rem", fontWeight: 400 }}>
-          Windows-first local-first instructor desktop
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: "1.75rem", fontWeight: 700, letterSpacing: "-0.02em" }}>ResQ Local Hub</h1>
+            <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: "0.95rem", fontWeight: 400 }}>
+              Windows-first local-first instructor desktop
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+              {currentUser.role}
+            </span>
+            <span style={{ color: "#475569", fontSize: "0.9rem", fontWeight: 600 }}>
+              {currentUser.displayName}
+            </span>
+            <button type="button" onClick={handleLogout} style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 600, cursor: "pointer" }}>
+              Logout
+            </button>
+          </div>
+        </div>
       </header>
 
       <nav style={styles.nav}>
@@ -76,7 +133,8 @@ export default function App() {
         <button style={tabStyle(page === "instructor")} onClick={() => setPage("instructor")}>Instructor</button>
         <button style={tabStyle(page === "trainee")} onClick={() => setPage("trainee")}>Trainee</button>
         <button style={tabStyle(page === "setup")} onClick={() => setPage("setup")}>Setup</button>
-        <button style={tabStyle(page === "diagnostics")} onClick={() => setPage("diagnostics")}>Diagnostics</button>
+        {currentUser.role === "ADMIN" ? <button style={tabStyle(page === "users")} onClick={() => setPage("users")}>Users</button> : null}
+        {currentUser.role === "ADMIN" ? <button style={tabStyle(page === "diagnostics")} onClick={() => setPage("diagnostics")}>Diagnostics</button> : null}
       </nav>
 
       <main style={styles.main}>
@@ -104,7 +162,8 @@ export default function App() {
             onClearManualLanIpOverride={handleClearManualLanIpOverride}
           />
         )}
-        {page === "diagnostics" && <DiagnosticsPage />}
+        {page === "users" && currentUser.role === "ADMIN" && <AdminUsersPage />}
+        {page === "diagnostics" && currentUser.role === "ADMIN" && <DiagnosticsPage />}
       </main>
     </div>
   );

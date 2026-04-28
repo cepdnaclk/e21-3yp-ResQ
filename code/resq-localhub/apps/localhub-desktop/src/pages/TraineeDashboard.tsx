@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../auth/AuthContext";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import {
   fetchSessionLive,
@@ -218,6 +219,7 @@ export default function TraineeDashboard({
   embeddedInDesktop = false,
   initialSessionId = null,
 }: TraineeDashboardProps) {
+  const { currentUser, logout } = useAuth();
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -338,7 +340,7 @@ export default function TraineeDashboard({
       }
 
       setStreamState("connecting");
-      const stream = new EventSource(getSessionLiveStreamUrl(activeSessionId));
+      const stream = new EventSource(getSessionLiveStreamUrl(activeSessionId), { withCredentials: true });
       eventSource = stream;
 
       stream.onopen = () => {
@@ -464,23 +466,49 @@ export default function TraineeDashboard({
               Assigned manikin live performance for one active session
             </p>
           </div>
-          {!embeddedInDesktop ? (
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          {currentUser ? (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+                {currentUser.role}
+              </span>
               <button
                 type="button"
-                onClick={navigateToInstructorDashboard}
+                onClick={() => {
+                  logout().finally(() => window.location.assign("/login"));
+                }}
                 style={{
                   padding: "8px 12px",
                   borderRadius: "6px",
-                  border: "1px solid #0f172a",
-                  background: "#0f172a",
-                  color: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
-                Back To Instructor
+                Logout
               </button>
+            </div>
+          ) : null}
+          {!embeddedInDesktop ? (
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              {currentUser?.role !== "TRAINEE" ? (
+                <button
+                  type="button"
+                  onClick={navigateToInstructorDashboard}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #0f172a",
+                    background: "#0f172a",
+                    color: "#ffffff",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Back To Instructor
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={navigateToDesktopHome}
@@ -496,6 +524,30 @@ export default function TraineeDashboard({
               >
                 Back To Home
               </button>
+              {currentUser ? (
+                <>
+                  <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+                    {currentUser.role}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      logout().finally(() => window.location.assign("/login"));
+                    }}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid #cbd5e1",
+                      background: "#ffffff",
+                      color: "#0f172a",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { useAuth } from "../auth/AuthContext";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
@@ -168,6 +169,7 @@ export default function InstructorDashboard({
   onOpenTraineeDashboard,
   manualLanIpOverride = null,
 }: InstructorDashboardProps) {
+  const { currentUser, logout } = useAuth();
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [manikinsLoading, setManikinsLoading] = useState(true);
@@ -280,7 +282,7 @@ export default function InstructorDashboard({
       }
 
       setManikinsStreamState("connecting");
-      const stream = new EventSource(getLiveManikinsStreamUrl());
+      const stream = new EventSource(getLiveManikinsStreamUrl(), { withCredentials: true });
       eventSource = stream;
 
       stream.onopen = () => {
@@ -540,23 +542,49 @@ export default function InstructorDashboard({
               Multi-manikin live performance monitoring and control
             </p>
           </div>
-          {!embeddedInDesktop ? (
-            <button
-              type="button"
-              onClick={navigateToDesktopHome}
-              style={{
-                padding: "8px 12px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                background: "#ffffff",
-                color: "#0f172a",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              Back To Home
-            </button>
-          ) : null}
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {currentUser ? (
+              <>
+                <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+                  {currentUser.role}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout().finally(() => window.location.assign("/login"));
+                  }}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Logout
+                </button>
+              </>
+            ) : null}
+            {!embeddedInDesktop ? (
+              <button
+                type="button"
+                onClick={navigateToDesktopHome}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Back To Home
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
 
