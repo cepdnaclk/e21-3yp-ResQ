@@ -30,6 +30,11 @@ export type AuthBootstrapResponse = {
   firstRunRequired: boolean;
 };
 
+export type AuthStatusResponse = {
+  hasUsers: boolean;
+  requiresFirstAdmin: boolean;
+};
+
 export type CreateFirstAdminRequest = {
   username: string;
   displayName: string;

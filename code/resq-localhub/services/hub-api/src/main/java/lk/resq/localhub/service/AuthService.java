@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.AuthBootstrapResponse;
+import lk.resq.localhub.model.AuthStatusResponse;
 import lk.resq.localhub.model.AuthTokenIssue;
 import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.CreateFirstAdminRequest;
@@ -57,6 +58,11 @@ public class AuthService {
 
     public AuthBootstrapResponse bootstrap() {
         return new AuthBootstrapResponse(!authRepository.hasUsers());
+    }
+
+    public AuthStatusResponse status() {
+        boolean hasUsers = authRepository.hasUsers();
+        return new AuthStatusResponse(hasUsers, !hasUsers);
     }
 
     public AuthTokenIssue login(LoginRequest request) {

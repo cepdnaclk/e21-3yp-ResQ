@@ -1,6 +1,7 @@
 export { ROUTE_ROLE_RULES, USER_ROLES, type UserRole } from "./constants/roles";
 export type {
   AuthBootstrapResponse,
+  AuthStatusResponse,
   AuthPermissionRule,
   AuthSession,
   AuthUser,

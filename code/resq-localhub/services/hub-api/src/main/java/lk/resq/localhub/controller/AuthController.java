@@ -2,6 +2,7 @@ package lk.resq.localhub.controller;
 
 import lk.resq.localhub.model.ApiErrorResponse;
 import lk.resq.localhub.model.AuthBootstrapResponse;
+import lk.resq.localhub.model.AuthStatusResponse;
 import lk.resq.localhub.model.AuthTokenIssue;
 import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.CreateFirstAdminRequest;
@@ -43,6 +44,11 @@ public class AuthController {
     @GetMapping("/bootstrap")
     public AuthBootstrapResponse bootstrap() {
         return authService.bootstrap();
+    }
+
+    @GetMapping("/status")
+    public AuthStatusResponse status() {
+        return authService.status();
     }
 
     @PostMapping("/login")
