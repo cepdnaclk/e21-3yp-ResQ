@@ -1,11 +1,13 @@
 import type {
   AuthBootstrapResponse,
+  AuthStatusResponse,
   AuthUser,
   CreateFirstAdminRequest,
   CreateUserRequest,
   LoginRequest,
   LoginResponse,
 } from "@resq/shared";
+import { getStoredToken } from "./tokenStore";
 
 export type AuthErrorResponse = {
   error: string;
@@ -26,12 +28,14 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getStoredToken();
   const response = await fetch(`${getAuthBaseUrl()}${path}`, {
     credentials: "include",
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
 
@@ -48,6 +52,12 @@ export async function fetchAuthBootstrap(): Promise<AuthBootstrapResponse> {
   });
 }
 
+export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
+  return requestJson<AuthStatusResponse>("/status", {
+    method: "GET",
+  });
+}
+
 export async function login(request: LoginRequest): Promise<LoginResponse> {
   return requestJson<LoginResponse>("/login", {
     method: "POST",
@@ -60,6 +70,11 @@ export async function setupFirstAdmin(request: CreateFirstAdminRequest): Promise
     method: "POST",
     body: JSON.stringify(request),
   });
+}
+
+// Alias to match a more explicit name used in the UI code.
+export async function createFirstAdmin(request: CreateFirstAdminRequest): Promise<LoginResponse> {
+  return setupFirstAdmin(request);
 }
 
 export async function fetchCurrentUser(): Promise<AuthUser | null> {

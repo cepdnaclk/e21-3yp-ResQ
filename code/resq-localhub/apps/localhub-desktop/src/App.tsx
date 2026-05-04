@@ -54,7 +54,7 @@ export default function App() {
   }
 
   if (!currentUser || route === "login") {
-    return <LoginPage firstRunRequired={bootstrap?.firstRunRequired ?? false} />;
+    return <LoginPage firstRunRequired={bootstrap?.requiresFirstAdmin ?? false} />;
   }
 
   if (route === "access-denied") {

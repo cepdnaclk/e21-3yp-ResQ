@@ -76,6 +76,18 @@ public class LocalAuthRepository {
                           FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE SET NULL
                         )
                         """);
+                statement.executeUpdate("""
+                        CREATE TABLE IF NOT EXISTS trainee_records (
+                          id TEXT PRIMARY KEY,
+                          trainee_code TEXT UNIQUE NOT NULL,
+                          display_name TEXT NOT NULL,
+                          group_name TEXT NULL,
+                          notes TEXT NULL,
+                          created_at TEXT NOT NULL,
+                          updated_at TEXT NOT NULL,
+                          archived_at TEXT NULL
+                        )
+                        """);
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize auth store at " + databasePath, error);

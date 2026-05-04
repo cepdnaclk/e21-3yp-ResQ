@@ -36,17 +36,20 @@ public class ActiveSessionService {
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final LocalSessionRepository localSessionRepository;
     private final LiveStreamService liveStreamService;
+    private final TraineeRecordsRepository traineeRecordsRepository;
 
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
             MqttCommandPublisherService mqttCommandPublisherService,
             LocalSessionRepository localSessionRepository,
-            LiveStreamService liveStreamService
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.localSessionRepository = localSessionRepository;
         this.liveStreamService = liveStreamService;
+        this.traineeRecordsRepository = traineeRecordsRepository;
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -63,12 +66,14 @@ public class ActiveSessionService {
             }
         }
 
+        String traineeId = resolveTraineeId(request);
+
         String sessionId = UUID.randomUUID().toString();
         Instant startedAt = Instant.now();
         ActiveSessionState state = new ActiveSessionState(
-                sessionId,
-                deviceId,
-                normalize(request.traineeId()),
+            sessionId,
+            deviceId,
+            traineeId,
                 startedAt,
                 true,
                 normalize(request.scenario()),
@@ -97,6 +102,50 @@ public class ActiveSessionService {
         }
 
         return toStartResponse(state);
+    }
+    /**
+     * Resolve trainee ID from SessionStartRequest options.
+     * Priority: traineeRecordId > quickTrainee > guestLabel > traineeId (backward compat)
+     */
+    private String resolveTraineeId(SessionStartRequest request) {
+        try {
+            // Option 1: Explicit trainee record ID
+            if (request.traineeRecordId() != null && !request.traineeRecordId().isBlank()) {
+                return normalize(request.traineeRecordId());
+            }
+
+            // Option 2: Quick add trainee (create inline)
+            if (request.quickTrainee() != null) {
+                var qt = request.quickTrainee();
+                if (qt.traineeCode() != null && !qt.traineeCode().isBlank() &&
+                    qt.displayName() != null && !qt.displayName().isBlank()) {
+                    var created = traineeRecordsRepository.createTrainee(
+                            qt.traineeCode(),
+                            qt.displayName(),
+                            qt.groupName(),
+                            null
+                    );
+                    logger.info("Created inline trainee record {} for session", created.id());
+                    return created.id();
+                }
+            }
+
+            // Option 3: Guest session (use label or default)
+            if (request.guestLabel() != null && !request.guestLabel().isBlank()) {
+                return normalize(request.guestLabel());
+            }
+
+            // Option 4: Legacy traineeId (backward compatibility)
+            if (request.traineeId() != null && !request.traineeId().isBlank()) {
+                return normalize(request.traineeId());
+            }
+
+            // Fallback: unnamed guest
+            return "guest-" + UUID.randomUUID().toString().substring(0, 8);
+        } catch (Exception error) {
+            logger.warn("Error resolving trainee ID, using fallback", error);
+            return "trainee-" + System.currentTimeMillis();
+        }
     }
 
     public synchronized SessionEndResponse endSession(SessionEndRequest request) {

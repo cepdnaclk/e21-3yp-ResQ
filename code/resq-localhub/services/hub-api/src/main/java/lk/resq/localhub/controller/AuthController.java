@@ -28,6 +28,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -63,10 +64,13 @@ public class AuthController {
 
     @PostMapping("/logout")
     public ResponseEntity<?> logout(HttpServletRequest request) {
-        authService.logout(request);
-        return ResponseEntity.noContent()
-                .header(HttpHeaders.SET_COOKIE, clearCookie().toString())
-                .build();
+        try {
+            authService.requireAuth(request);
+            authService.logout(request);
+            return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, clearCookie().toString()).body(Map.of("success", true));
+        } catch (UnauthorizedException error) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiErrorResponse(error.getMessage()));
+        }
     }
 
     @GetMapping("/me")

@@ -42,7 +42,7 @@ public class SessionController {
         try {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
             SessionStartResponse response = activeSessionService.startSession(requestBody);
-            authService.audit(actor.id(), "START_SESSION", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
+            authService.audit(actor.id(), "SESSION_STARTED", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
@@ -50,6 +50,12 @@ public class SessionController {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "start", Map.of()),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "start", Map.of())
+            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }
 
@@ -58,7 +64,7 @@ public class SessionController {
         try {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
             SessionEndResponse response = activeSessionService.endSession(requestBody);
-            authService.audit(actor.id(), "END_SESSION", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
+            authService.audit(actor.id(), "SESSION_ENDED", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
@@ -66,6 +72,12 @@ public class SessionController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "end", Map.of()),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "end", Map.of())
+            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }
 
@@ -75,6 +87,10 @@ public class SessionController {
             authService.requireRole(request, UserRole.INSTRUCTOR);
             return ResponseEntity.ok(activeSessionService.listCompletedSessions());
         } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "list", Map.of()),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "list", Map.of())
+            );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }
@@ -94,6 +110,10 @@ public class SessionController {
                     .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                             .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
         } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "get", Map.of("sessionId", sessionId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "get", Map.of("sessionId", sessionId))
+            );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }

@@ -6,22 +6,27 @@ type LoginPageProps = {
   firstRunRequired?: boolean;
 };
 
-type FormMode = "login" | "setup";
+type FormMode = "login" | "first-run";
 
 export default function LoginPage({ firstRunRequired = false }: LoginPageProps) {
   const { bootstrap, currentUser, login, setupFirstAdmin } = useAuth();
-  const [mode, setMode] = useState<FormMode>(firstRunRequired ? "setup" : "login");
+  const [mode, setMode] = useState<FormMode>(firstRunRequired ? "first-run" : "login");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forceFirstRun, setForceFirstRun] = useState(false);
 
   useEffect(() => {
-    if (firstRunRequired) {
-      setMode("setup");
+    const allowed = (bootstrap?.requiresFirstAdmin ?? firstRunRequired) || forceFirstRun;
+    if (allowed) {
+      setMode("first-run");
+    } else {
+      setMode("login");
     }
-  }, [firstRunRequired]);
+  }, [firstRunRequired, bootstrap?.requiresFirstAdmin, forceFirstRun]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -33,12 +38,14 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
   }, [currentUser]);
 
   const helperText = useMemo(() => {
-    if (mode === "setup") {
+    if (mode === "first-run") {
       return "Create the first ADMIN account for this local hub.";
     }
 
     return "Sign in with your local hub account.";
   }, [mode]);
+
+  const firstRunAllowed = (bootstrap?.requiresFirstAdmin ?? firstRunRequired) || forceFirstRun;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,7 +53,15 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
     setError(null);
 
     try {
-      if (mode === "setup") {
+      if (mode === "first-run") {
+        if (!username.trim() || !displayName.trim() || !password) {
+          throw new Error("All fields are required for creating the admin account.");
+        }
+
+        if (password !== confirmPassword) {
+          throw new Error("Passwords do not match.");
+        }
+
         const request: CreateFirstAdminRequest = {
           username,
           displayName,
@@ -56,6 +71,10 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
         const target = response.user.role === "TRAINEE" ? "/trainee" : "/instructor";
         window.location.assign(target);
         return;
+      }
+
+      if (!username.trim() || !password) {
+        throw new Error("Username and password are required.");
       }
 
       const request: LoginRequest = { username, password };
@@ -69,8 +88,10 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
     }
   }
 
-  const firstRunMessage = bootstrap?.firstRunRequired
+  const firstRunMessage = bootstrap?.requiresFirstAdmin
     ? "No users exist yet. Create the first ADMIN account to continue."
+    : bootstrap?.hasUsers === true
+    ? "First admin already exists. Please sign in."
     : null;
 
   return (
@@ -87,11 +108,40 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
           </div>
         ) : null}
 
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button type="button" onClick={() => setMode("login")} disabled={mode === "login" || firstRunRequired} style={tabButtonStyle(mode === "login" || firstRunRequired)}>
+        {import.meta.env.DEV ? (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setForceFirstRun((v) => !v);
+                setError(null);
+              }}
+              style={{ padding: "6px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", background: forceFirstRun ? "#f8fafc" : "#ffffff", cursor: "pointer", fontSize: "0.8rem" }}
+            >
+              {forceFirstRun ? "Using fresh system" : "Start Fresh (dev)"}
+            </button>
+          </div>
+        ) : null}
+
+        <div role="tablist" aria-label="Authentication tabs" style={{ display: "flex", gap: "8px" }}>
+          <button
+            role="tab"
+            aria-pressed={mode === "login"}
+            type="button"
+            onClick={() => setMode("login")}
+            disabled={mode === "login"}
+            style={tabButtonStyle(mode === "login")}
+          >
             Login
           </button>
-          <button type="button" onClick={() => setMode("setup")} disabled={mode === "setup" || !firstRunRequired} style={tabButtonStyle(mode === "setup" || !firstRunRequired)}>
+          <button
+            role="tab"
+            aria-pressed={mode === "first-run"}
+            type="button"
+            onClick={() => setMode("first-run")}
+            disabled={mode === "first-run" || !firstRunAllowed}
+            style={tabButtonStyle(mode === "first-run")}
+          >
             First Run Setup
           </button>
         </div>
@@ -101,7 +151,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
           <input value={username} onChange={(event) => setUsername(event.target.value)} type="text" autoComplete="username" style={inputStyle} placeholder="admin" />
         </label>
 
-        {mode === "setup" ? (
+        {mode === "first-run" ? (
           <label style={fieldStyle()}>
             Display Name
             <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} type="text" autoComplete="name" style={inputStyle} placeholder="Admin User" />
@@ -110,8 +160,15 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
 
         <label style={fieldStyle()}>
           Password
-          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete={mode === "setup" ? "new-password" : "current-password"} style={inputStyle} placeholder="••••••••" />
+          <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete={mode === "first-run" ? "new-password" : "current-password"} style={inputStyle} placeholder="••••••••" />
         </label>
+
+        {mode === "first-run" ? (
+          <label style={fieldStyle()}>
+            Confirm Password
+            <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" style={inputStyle} placeholder="••••••••" />
+          </label>
+        ) : null}
 
         {error ? (
           <div style={{ padding: "12px", borderRadius: "10px", background: "#fee2e2", color: "#991b1b", fontSize: "0.9rem" }}>
@@ -120,7 +177,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
         ) : null}
 
         <button type="submit" disabled={busy} style={primaryButtonStyle(busy)}>
-          {busy ? "Working..." : mode === "setup" ? "Create ADMIN Account" : "Sign In"}
+          {busy ? "Working..." : mode === "first-run" ? "Create ADMIN Account" : "Sign In"}
         </button>
 
         <p style={{ margin: 0, color: "#64748b", fontSize: "0.82rem", lineHeight: 1.5 }}>

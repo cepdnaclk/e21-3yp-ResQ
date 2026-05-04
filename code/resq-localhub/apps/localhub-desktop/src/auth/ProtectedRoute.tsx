@@ -17,7 +17,7 @@ export default function ProtectedRoute({ allowedRoles, children }: ProtectedRout
   }
 
   if (!currentUser) {
-    return <LoginPage firstRunRequired={bootstrap?.firstRunRequired ?? false} />;
+    return <LoginPage firstRunRequired={bootstrap?.requiresFirstAdmin ?? false} />;
   }
 
   if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(currentUser.role)) {

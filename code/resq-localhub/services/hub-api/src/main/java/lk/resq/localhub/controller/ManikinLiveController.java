@@ -4,7 +4,9 @@ import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.ManikinRegistryService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/manikins")
@@ -31,18 +34,34 @@ public class ManikinLiveController {
 
     @GetMapping("/live")
     public List<ManikinLiveSummary> listLiveManikins(HttpServletRequest request) {
-        authService.requireRole(request, UserRole.INSTRUCTOR);
-        return manikinRegistryService.getLiveSummaries().stream()
-                .map(activeSessionService::decorateLiveSummary)
-                .toList();
+        try {
+            authService.requireRole(request, UserRole.INSTRUCTOR);
+            return manikinRegistryService.getLiveSummaries().stream()
+                    .map(activeSessionService::decorateLiveSummary)
+                    .toList();
+        } catch (ForbiddenException e) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "manikin", "list_live", Map.of()),
+                    () -> authService.audit(null, "ACCESS_DENIED", "manikin", "list_live", Map.of())
+            );
+            throw e;
+        }
     }
 
     @GetMapping("/live/{deviceId}")
     public ResponseEntity<ManikinLiveSummary> getLiveManikin(HttpServletRequest request, @PathVariable String deviceId) {
-        authService.requireRole(request, UserRole.INSTRUCTOR);
-        return manikinRegistryService.getLiveSummary(deviceId)
-                .map(activeSessionService::decorateLiveSummary)
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        try {
+            authService.requireRole(request, UserRole.INSTRUCTOR);
+            return manikinRegistryService.getLiveSummary(deviceId)
+                    .map(activeSessionService::decorateLiveSummary)
+                    .map(ResponseEntity::ok)
+                    .orElseGet(() -> ResponseEntity.notFound().build());
+        } catch (ForbiddenException e) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "manikin", "get_live", Map.of("deviceId", deviceId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "manikin", "get_live", Map.of("deviceId", deviceId))
+            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
     }
 }

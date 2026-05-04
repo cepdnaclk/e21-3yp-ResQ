@@ -1,4 +1,5 @@
 import { QRCodeSVG } from "qrcode.react";
+const QR = QRCodeSVG as any;
 
 type QrPanelProps = {
   instructorUrl: string | null;
@@ -21,7 +22,7 @@ function QrTile({ title, url }: { title: string; url: string | null }) {
     >
       <h4 style={{ margin: 0, fontSize: "0.95rem" }}>{title}</h4>
       {hasUrl && url ? (
-        <QRCodeSVG value={url} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+        <QR value={url} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
       ) : (
         <div
           style={{

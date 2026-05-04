@@ -39,7 +39,7 @@ public class SessionExportController {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
             return activeSessionService.findCompletedSession(sessionId)
                     .<ResponseEntity<?>>map(session -> {
-                        authService.audit(actor.id(), "EXPORT_SESSION", "session", sessionId, Map.of("format", "json"));
+                        authService.audit(actor.id(), "SESSION_EXPORTED", "session", sessionId, Map.of("format", "json"));
                         return ResponseEntity.ok()
                                 .header(HttpHeaders.CONTENT_DISPOSITION, attachmentName(sessionId, "json"))
                                 .body(session);
@@ -47,6 +47,10 @@ public class SessionExportController {
                     .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                             .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
         } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId))
+            );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }
@@ -57,7 +61,7 @@ public class SessionExportController {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
             return activeSessionService.findCompletedSession(sessionId)
                     .<ResponseEntity<?>>map(session -> {
-                        authService.audit(actor.id(), "EXPORT_SESSION", "session", sessionId, Map.of("format", "csv"));
+                        authService.audit(actor.id(), "SESSION_EXPORTED", "session", sessionId, Map.of("format", "csv"));
                         return ResponseEntity.ok()
                                 .header(HttpHeaders.CONTENT_DISPOSITION, attachmentName(sessionId, "csv"))
                                 .body(toCsv(List.of(session)));
@@ -65,6 +69,10 @@ public class SessionExportController {
                     .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                             .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
         } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId))
+            );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }
