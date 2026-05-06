@@ -1,8 +1,8 @@
 import { QRCodeSVG } from "qrcode.react";
+const QR = QRCodeSVG as any;
 
 type QrPanelProps = {
   instructorUrl: string | null;
-  traineeUrl: string | null;
   unavailableMessage: string;
 };
 
@@ -22,7 +22,7 @@ function QrTile({ title, url }: { title: string; url: string | null }) {
     >
       <h4 style={{ margin: 0, fontSize: "0.95rem" }}>{title}</h4>
       {hasUrl && url ? (
-        <QRCodeSVG value={url} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+        <QR value={url} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
       ) : (
         <div
           style={{
@@ -57,7 +57,7 @@ function QrTile({ title, url }: { title: string; url: string | null }) {
   );
 }
 
-export default function QrPanel({ instructorUrl, traineeUrl, unavailableMessage }: QrPanelProps) {
+export default function QrPanel({ instructorUrl, unavailableMessage }: QrPanelProps) {
   return (
     <section
       style={{
@@ -73,7 +73,7 @@ export default function QrPanel({ instructorUrl, traineeUrl, unavailableMessage 
         Scan to open local dashboards. Keep devices on the same LAN.
       </p>
 
-      {!instructorUrl || !traineeUrl ? (
+      {!instructorUrl ? (
         <p style={{ marginTop: 0, marginBottom: "12px", color: "#b45309", fontSize: "0.88rem" }}>
           {unavailableMessage}
         </p>
@@ -81,7 +81,6 @@ export default function QrPanel({ instructorUrl, traineeUrl, unavailableMessage 
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
         <QrTile title="Instructor Dashboard" url={instructorUrl} />
-        <QrTile title="Trainee Dashboard" url={traineeUrl} />
       </div>
     </section>
   );

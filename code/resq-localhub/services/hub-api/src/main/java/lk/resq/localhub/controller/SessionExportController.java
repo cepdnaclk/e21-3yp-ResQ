@@ -1,8 +1,12 @@
 package lk.resq.localhub.controller;
 
 import lk.resq.localhub.model.ApiErrorResponse;
+import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.SessionEndResponse;
+import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ActiveSessionService;
+import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.ForbiddenException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -12,36 +16,65 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/export/sessions")
 public class SessionExportController {
 
     private final ActiveSessionService activeSessionService;
+    private final AuthService authService;
 
-    public SessionExportController(ActiveSessionService activeSessionService) {
+    public SessionExportController(ActiveSessionService activeSessionService, AuthService authService) {
         this.activeSessionService = activeSessionService;
+        this.authService = authService;
     }
 
     @GetMapping(value = "/{sessionId}.json", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> exportJson(@PathVariable String sessionId) {
-        return activeSessionService.findCompletedSession(sessionId)
-                .<ResponseEntity<?>>map(session -> ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_DISPOSITION, attachmentName(sessionId, "json"))
-                        .body(session))
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
+    public ResponseEntity<?> exportJson(HttpServletRequest request, @PathVariable String sessionId) {
+        try {
+            AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
+            return activeSessionService.findCompletedSession(sessionId)
+                    .<ResponseEntity<?>>map(session -> {
+                        authService.audit(actor.id(), "SESSION_EXPORTED", "session", sessionId, Map.of("format", "json"));
+                        return ResponseEntity.ok()
+                                .header(HttpHeaders.CONTENT_DISPOSITION, attachmentName(sessionId, "json"))
+                                .body(session);
+                    })
+                    .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
+        } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId))
+            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
     }
 
     @GetMapping(value = "/{sessionId}.csv", produces = "text/csv")
-    public ResponseEntity<?> exportCsv(@PathVariable String sessionId) {
-        return activeSessionService.findCompletedSession(sessionId)
-                .<ResponseEntity<?>>map(session -> ResponseEntity.ok()
-                        .header(HttpHeaders.CONTENT_DISPOSITION, attachmentName(sessionId, "csv"))
-                        .body(toCsv(List.of(session))))
-                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
+    public ResponseEntity<?> exportCsv(HttpServletRequest request, @PathVariable String sessionId) {
+        try {
+            AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
+            return activeSessionService.findCompletedSession(sessionId)
+                    .<ResponseEntity<?>>map(session -> {
+                        authService.audit(actor.id(), "SESSION_EXPORTED", "session", sessionId, Map.of("format", "csv"));
+                        return ResponseEntity.ok()
+                                .header(HttpHeaders.CONTENT_DISPOSITION, attachmentName(sessionId, "csv"))
+                                .body(toCsv(List.of(session)));
+                    })
+                    .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
+        } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "export", Map.of("sessionId", sessionId))
+            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
     }
 
     private static String toCsv(List<SessionEndResponse> sessions) {

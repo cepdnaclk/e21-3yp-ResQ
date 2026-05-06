@@ -36,6 +36,9 @@ __pycache__/
 # Embedded firmware/build outputs
 code/resq-firmware/build/
 
+# Java/Maven build artifacts
+**/target/
+
 # Local runtime data
 code/resq-localhub/mosquitto/data/
 code/resq-localhub/mosquitto/log/

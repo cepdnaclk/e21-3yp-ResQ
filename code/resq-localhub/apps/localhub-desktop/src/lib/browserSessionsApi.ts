@@ -80,6 +80,10 @@ export type SessionLiveView = {
   latestPauseS: number | null;
   latestFlags: string | null;
   lastEventType: string | null;
+  latestForce1: number | null;
+  latestForce2: number | null;
+  pressureBalancePct: number | null;
+  pressureSkewed: boolean | null;
 };
 
 export type ApiErrorResponse = {
@@ -90,7 +94,7 @@ function getSessionsBaseUrl(): string {
   return `http://${window.location.hostname}:18080/api/sessions`;
 }
 
-function getExportBaseUrl(): string {
+function getSessionsExportBaseUrl(): string {
   return `http://${window.location.hostname}:18080/api/export/sessions`;
 }
 
@@ -110,6 +114,7 @@ function getErrorMessage(error: unknown): string {
 export async function startSession(request: SessionStartRequest): Promise<SessionStartResponse> {
   const response = await fetch(`${getSessionsBaseUrl()}/start`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
@@ -127,6 +132,7 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
 export async function endSession(request: SessionEndRequest): Promise<SessionEndResponse> {
   const response = await fetch(`${getSessionsBaseUrl()}/end`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
@@ -142,7 +148,9 @@ export async function endSession(request: SessionEndRequest): Promise<SessionEnd
 }
 
 export async function fetchSessionLive(sessionId: string): Promise<SessionLiveView | null> {
-  const response = await fetch(`${getSessionsBaseUrl()}/live/${encodeURIComponent(sessionId)}`);
+  const response = await fetch(`${getSessionsBaseUrl()}/live/${encodeURIComponent(sessionId)}`, {
+    credentials: "include",
+  });
 
   if (response.status === 404) {
     return null;
@@ -161,7 +169,9 @@ export function getSessionLiveStreamUrl(sessionId: string): string {
 }
 
 export async function fetchCompletedSession(sessionId: string): Promise<CompletedSession> {
-  const response = await fetch(`${getSessionsBaseUrl()}/${encodeURIComponent(sessionId)}`);
+  const response = await fetch(`${getSessionsBaseUrl()}/${encodeURIComponent(sessionId)}`, {
+    credentials: "include",
+  });
 
   if (!response.ok) {
     const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
@@ -172,7 +182,9 @@ export async function fetchCompletedSession(sessionId: string): Promise<Complete
 }
 
 export async function fetchCompletedSessions(): Promise<CompletedSession[]> {
-  const response = await fetch(getSessionsBaseUrl());
+  const response = await fetch(getSessionsBaseUrl(), {
+    credentials: "include",
+  });
 
   if (!response.ok) {
     const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
@@ -188,11 +200,11 @@ export async function fetchCompletedSessions(): Promise<CompletedSession[]> {
 }
 
 export function getSessionJsonExportUrl(sessionId: string): string {
-  return `${getExportBaseUrl()}/${encodeURIComponent(sessionId)}.json`;
+  return `${getSessionsExportBaseUrl()}/${encodeURIComponent(sessionId)}.json`;
 }
 
 export function getSessionCsvExportUrl(sessionId: string): string {
-  return `${getExportBaseUrl()}/${encodeURIComponent(sessionId)}.csv`;
+  return `${getSessionsExportBaseUrl()}/${encodeURIComponent(sessionId)}.csv`;
 }
 
 export { getErrorMessage };

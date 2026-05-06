@@ -53,11 +53,22 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
-            state.latestDepthMm = firstDouble(payload, state.latestDepthMm, "depthMm", "depth_mm");
-            state.latestRateCpm = firstDouble(payload, state.latestRateCpm, "rateCpm", "rate_cpm");
-            state.latestRecoilOk = firstBoolean(payload, state.latestRecoilOk, "recoilOk", "recoil_ok");
+            state.latestDepthMm = firstDouble(payload, state.latestDepthMm, "depthMm", "depth_mm", "current_delta");
+            state.latestRateCpm = firstDouble(payload, state.latestRateCpm, "rateCpm", "rate_cpm", "total_compressions");
+            state.latestRecoilOk = firstBoolean(payload, state.latestRecoilOk, "recoilOk", "recoil_ok", "recoil");
             state.latestPauseS = firstDouble(payload, state.latestPauseS, "pauseS", "pause_s");
-            state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
+            state.latestForce1 = firstLong(payload, state.latestForce1, "force1");
+            state.latestForce2 = firstLong(payload, state.latestForce2, "force2");
+
+            if (state.latestForce1 != null && state.latestForce2 != null) {
+                long sum = state.latestForce1 + state.latestForce2;
+                long absDiff = Math.abs(state.latestForce1 - state.latestForce2);
+                state.pressureBalancePct = sum > 0 ? 100.0 - ((absDiff * 100.0) / sum) : null;
+                state.pressureSkewed = state.pressureBalancePct != null && state.pressureBalancePct < 88.0;
+            }
+
+            String feedback = firstText(payload, "feedback", "eventType", null);
+            state.latestFlags = firstFlags(payload, "flags", feedback != null ? feedback : state.latestFlags);
         });
     }
 
@@ -139,6 +150,10 @@ public class ManikinRegistryService {
                 state.latestPauseS,
                 state.latestFlags,
                 state.lastEventType,
+                state.latestForce1,
+                state.latestForce2,
+                state.pressureBalancePct,
+                state.pressureSkewed,
                 null,
                 null,
                 null,
@@ -177,6 +192,17 @@ public class ManikinRegistryService {
         }
 
         return node.asInt();
+    }
+
+    private static Long firstLong(JsonNode payload, Long fallback, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node != null && !node.isNull() && node.isNumber()) {
+                return node.asLong();
+            }
+        }
+
+        return fallback;
     }
 
     private static Double firstDouble(JsonNode payload, Double fallback, String... keys) {
@@ -245,6 +271,10 @@ public class ManikinRegistryService {
         private Double latestPauseS;
         private String latestFlags;
         private String lastEventType;
+        private Long latestForce1;
+        private Long latestForce2;
+        private Double pressureBalancePct;
+        private Boolean pressureSkewed;
 
         private MutableManikinState(String deviceId) {
             this.deviceId = deviceId;

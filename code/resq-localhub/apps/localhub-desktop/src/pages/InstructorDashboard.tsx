@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
+const QR = QRCodeSVG as any;
+import { useAuth } from "../auth/AuthContext";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
+import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
+import { generateAccessUrls } from "../lib/accessUrls";
 import {
   fetchLiveManikins,
   getLiveManikinsStreamUrl,
   type ManikinLiveSummary,
 } from "../lib/browserManikinsApi";
+import {
+  fetchTrainees,
+  createTrainee,
+  type TraineeRecord,
+} from "../lib/browserTraineesApi";
 import {
   endSession,
   fetchCompletedSession,
@@ -89,8 +99,44 @@ function SessionStateBadge({ active }: { active: boolean }) {
   );
 }
 
+function IndicatorBadge({
+  label,
+  status,
+}: {
+  label: string;
+  status: "ok" | "warn" | "neutral";
+}) {
+  const palette = status === "ok"
+    ? { background: "#dcfce7", color: "#166534" }
+    : status === "warn"
+      ? { background: "#fee2e2", color: "#991b1b" }
+      : { background: "#e2e8f0", color: "#334155" };
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "4px 8px",
+        borderRadius: "999px",
+        fontSize: "0.76rem",
+        fontWeight: 700,
+        ...palette,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 type SessionActionState = "idle" | "starting" | "ending";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
+
+type InstructorDashboardProps = {
+  embeddedInDesktop?: boolean;
+  onOpenTraineeDashboard?: (sessionId: string) => void;
+  manualLanIpOverride?: string | null;
+};
 
 function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   if (state === "connecting") {
@@ -124,14 +170,34 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   );
 }
 
-export default function InstructorDashboard() {
+export default function InstructorDashboard({
+  embeddedInDesktop = false,
+  onOpenTraineeDashboard,
+  manualLanIpOverride = null,
+}: InstructorDashboardProps) {
+  const { currentUser, logout } = useAuth();
   const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
   const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
-  const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({});
+
+  // Trainee selection state (per device)
+  type SessionDraft = {
+    traineeRecordId?: string;
+    traineeMode: "select" | "quick" | "guest";
+    quickTraineeName?: string;
+    quickTraineeCode?: string;
+    quickTraineeGroup?: string;
+  };
+  const [sessionDrafts, setSessionDrafts] = useState<Record<string, SessionDraft>>({});
+
+  // Trainee records management
+  const [trainees, setTrainees] = useState<TraineeRecord[]>([]);
+  const [traineesLoading, setTraineesLoading] = useState(true);
+  const [traineesError, setTraineesError] = useState<string | null>(null);
+
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
   const [sessionActionByDevice, setSessionActionByDevice] = useState<Record<string, SessionActionState>>({});
   const [sessionMessageByDevice, setSessionMessageByDevice] = useState<Record<string, string | null>>({});
@@ -150,7 +216,9 @@ export default function InstructorDashboard() {
       const next = { ...current };
       for (const manikin of live) {
         if (!next[manikin.deviceId]) {
-          next[manikin.deviceId] = manikin.activeTraineeId ?? `trainee-${manikin.deviceId.toLowerCase()}`;
+          next[manikin.deviceId] = {
+            traineeMode: "select",
+          };
         }
       }
       return next;
@@ -187,6 +255,19 @@ export default function InstructorDashboard() {
         setRecentSessionsError(error instanceof Error ? error.message : "Failed to load completed sessions.");
       } finally {
         setRecentSessionsLoading(false);
+      }
+    }
+
+    async function loadTrainees() {
+      try {
+        const records = await fetchTrainees();
+        setTrainees(records);
+        setTraineesError(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load trainee records.";
+        setTraineesError(message);
+      } finally {
+        setTraineesLoading(false);
       }
     }
 
@@ -237,7 +318,7 @@ export default function InstructorDashboard() {
       }
 
       setManikinsStreamState("connecting");
-      const stream = new EventSource(getLiveManikinsStreamUrl());
+      const stream = new EventSource(getLiveManikinsStreamUrl(), { withCredentials: true });
       eventSource = stream;
 
       stream.onopen = () => {
@@ -290,6 +371,7 @@ export default function InstructorDashboard() {
     loadHealth();
     loadManikins();
     loadRecentSessions();
+    loadTrainees();
     connectManikinStream();
 
     const healthInterval = setInterval(loadHealth, 5000);
@@ -334,8 +416,43 @@ export default function InstructorDashboard() {
     return `${value.toFixed(1)} ${suffix}`;
   }
 
-  function buildTraineeUrl(sessionId: string): string {
-    return `${window.location.origin}/trainee?sessionId=${encodeURIComponent(sessionId)}`;
+  function buildTraineeUrl(sessionId: string): string | null {
+    const manualLanHost = sanitizeManualLanIp(manualLanIpOverride ?? window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY) ?? "");
+
+    if (manualLanHost) {
+      const { traineeUrl } = generateAccessUrls(manualLanHost);
+      if (traineeUrl) {
+        return `${traineeUrl}?sessionId=${encodeURIComponent(sessionId)}`;
+      }
+    }
+
+    const protocol = window.location.protocol.toLowerCase();
+    const canUseOrigin = protocol === "http:" || protocol === "https:";
+    const originHost = window.location.hostname;
+    const originIsLocalOnly =
+      originHost === "localhost" ||
+      originHost === "127.0.0.1" ||
+      originHost === "::1";
+
+    if (canUseOrigin && !originIsLocalOnly) {
+      return `${window.location.origin}/trainee?sessionId=${encodeURIComponent(sessionId)}`;
+    }
+
+    return null;
+  }
+
+  function navigateToDesktopHome() {
+    window.location.assign("/");
+  }
+
+  function navigateToTraineeDashboard(sessionId: string) {
+    if (onOpenTraineeDashboard) {
+      onOpenTraineeDashboard(sessionId);
+      return;
+    }
+
+    const url = `/trainee?sessionId=${encodeURIComponent(sessionId)}`;
+    window.location.assign(url);
   }
 
   function formatSummaryTime(value: string): string {
@@ -374,22 +491,46 @@ export default function InstructorDashboard() {
       return;
     }
 
-    const traineeId = sessionDrafts[deviceId]?.trim() || `trainee-${deviceId.toLowerCase()}`;
+    const draft = sessionDrafts[deviceId];
+    if (!draft) {
+      setSessionMessageByDevice((current) => ({ ...current, [deviceId]: "Please select a trainee mode." }));
+      return;
+    }
+
     setSessionActionByDevice((current) => ({ ...current, [deviceId]: "starting" }));
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
     try {
-      const response = await startSession({
+      const request: any = {
         deviceId,
-        traineeId,
         scenario: manikin.activeSessionScenario ?? null,
         notes: null,
-      });
+      };
+
+      // Build trainee info based on selected mode
+      if (draft.traineeMode === "select") {
+        if (!draft.traineeRecordId) {
+          throw new Error("Please select a trainee from the list.");
+        }
+        request.traineeRecordId = draft.traineeRecordId;
+      } else if (draft.traineeMode === "quick") {
+        if (!draft.quickTraineeName || !draft.quickTraineeCode) {
+          throw new Error("Please enter trainee name and code for quick add.");
+        }
+        request.quickTrainee = {
+          traineeCode: draft.quickTraineeCode,
+          displayName: draft.quickTraineeName,
+          groupName: draft.quickTraineeGroup || null,
+        };
+      } else if (draft.traineeMode === "guest") {
+        request.guestLabel = "Guest Trainee";
+      }
+
+      const response = await startSession(request);
       setSessionCache((current) => ({ ...current, [deviceId]: response }));
-      setSessionDrafts((current) => ({ ...current, [deviceId]: traineeId }));
       setSessionMessageByDevice((current) => ({
         ...current,
-        [deviceId]: `Started session ${response.sessionId} for ${deviceId}`,
+        [deviceId]: `Started session ${response.sessionId}`,
       }));
     } catch (error) {
       setSessionMessageByDevice((current) => ({
@@ -455,10 +596,57 @@ export default function InstructorDashboard() {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <h1 style={styles.title}>Instructor Dashboard</h1>
-        <p style={styles.subtitle}>
-          Multi-manikin live performance monitoring and control
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <div>
+            <h1 style={styles.title}>Instructor Dashboard</h1>
+            <p style={styles.subtitle}>
+              Multi-manikin live performance monitoring and control
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {currentUser ? (
+              <>
+                <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+                  {currentUser.role}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout().finally(() => window.location.assign("/login"));
+                  }}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Logout
+                </button>
+              </>
+            ) : null}
+            {!embeddedInDesktop ? (
+              <button
+                type="button"
+                onClick={navigateToDesktopHome}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Back To Home
+              </button>
+            ) : null}
+          </div>
+        </div>
       </header>
 
       <div style={styles.content}>
@@ -497,14 +685,16 @@ export default function InstructorDashboard() {
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pauses: {latestEndedSession.summary.pausesCount}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Score: {latestEndedSession.summary.score}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {latestEndedSession.summary.latestFlags ?? "-"}</p>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <a href={getSessionJsonExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                  Download JSON
-                </a>
-                <a href={getSessionCsvExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                  Download CSV
-                </a>
-              </div>
+                {currentUser && currentUser.role !== "TRAINEE" ? (
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <a href={getSessionJsonExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
+                      Download JSON
+                    </a>
+                    <a href={getSessionCsvExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
+                      Download CSV
+                    </a>
+                  </div>
+                ) : null}
             </div>
           ) : (
             <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>End a session to see the summary here.</p>
@@ -545,12 +735,16 @@ export default function InstructorDashboard() {
                       >
                         {expandedSessionId === session.sessionId ? "Hide Details" : "View Details"}
                       </button>
-                      <a href={getSessionJsonExportUrl(session.sessionId)} style={linkButtonStyle}>
-                        Download JSON
-                      </a>
-                      <a href={getSessionCsvExportUrl(session.sessionId)} style={linkButtonStyle}>
-                        Download CSV
-                      </a>
+                      {currentUser && currentUser.role !== "TRAINEE" ? (
+                        <>
+                          <a href={getSessionJsonExportUrl(session.sessionId)} style={linkButtonStyle}>
+                            Download JSON
+                          </a>
+                          <a href={getSessionCsvExportUrl(session.sessionId)} style={linkButtonStyle}>
+                            Download CSV
+                          </a>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
@@ -630,6 +824,10 @@ export default function InstructorDashboard() {
                 const active = Boolean(activeSession?.sessionId);
                 const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
                 const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
+                const depthOk = manikin.latestDepthMm !== null && manikin.latestDepthMm >= 50 && manikin.latestDepthMm <= 60;
+                const rateOk = manikin.latestRateCpm !== null && manikin.latestRateCpm >= 100 && manikin.latestRateCpm <= 120;
+                const recoilOk = manikin.latestRecoilOk === true;
+                const pressureBalanced = manikin.pressureSkewed === null ? null : !manikin.pressureSkewed;
 
                 return (
                   <article
@@ -663,10 +861,34 @@ export default function InstructorDashboard() {
                     </div>
 
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {manikin.state ?? "unknown"}</p>
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      <IndicatorBadge
+                        label={depthOk ? "Depth 50-60 OK" : manikin.latestDepthMm === null ? "Depth -" : "Depth Out"}
+                        status={manikin.latestDepthMm === null ? "neutral" : depthOk ? "ok" : "warn"}
+                      />
+                      <IndicatorBadge
+                        label={rateOk ? "Rate 100-120 OK" : manikin.latestRateCpm === null ? "Rate -" : "Rate Out"}
+                        status={manikin.latestRateCpm === null ? "neutral" : rateOk ? "ok" : "warn"}
+                      />
+                      <IndicatorBadge
+                        label={manikin.latestRecoilOk === null ? "Recoil -" : recoilOk ? "Recoil OK" : "Recoil Not OK"}
+                        status={manikin.latestRecoilOk === null ? "neutral" : recoilOk ? "ok" : "warn"}
+                      />
+                      <IndicatorBadge
+                        label={pressureBalanced === null ? "Pressure -" : pressureBalanced ? "Pressure Even" : "Pressure Skewed"}
+                        status={pressureBalanced === null ? "neutral" : pressureBalanced ? "ok" : "warn"}
+                      />
+                    </div>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(manikin.latestDepthMm, "mm")}</p>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(manikin.latestRateCpm, "cpm")}</p>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
                       Recoil: {manikin.latestRecoilOk === null ? "-" : manikin.latestRecoilOk ? "OK" : "Not OK"}
+                    </p>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
+                      Force Balance: {manikin.pressureBalancePct === null ? "-" : `${manikin.pressureBalancePct.toFixed(1)}%`}
+                    </p>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
+                      Force A/B: {manikin.latestForce1 === null || manikin.latestForce2 === null ? "-" : `${manikin.latestForce1} / ${manikin.latestForce2}`}
                     </p>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(manikin.latestPauseS, "s")}</p>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
@@ -676,29 +898,213 @@ export default function InstructorDashboard() {
                       Last Event: {manikin.lastEventType ?? "-"}
                     </p>
 
-                    <label style={{ display: "grid", gap: "4px", fontSize: "0.85rem", color: "#334155" }}>
-                      Trainee ID
-                      <input
-                        type="text"
-                        value={sessionDrafts[manikin.deviceId] ?? `trainee-${manikin.deviceId.toLowerCase()}`}
-                        onChange={(event) =>
-                          setSessionDrafts((current) => ({
-                            ...current,
-                            [manikin.deviceId]: event.target.value,
-                          }))
-                        }
-                        placeholder="trainee-1"
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: "6px",
-                          border: "1px solid #cbd5e1",
-                          fontFamily: "inherit",
-                        }}
-                      />
-                    </label>
+                    {/* Trainee Selection UI */}
+                    <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
+                      <div style={{ fontWeight: 600 }}>Select Trainee</div>
+
+                      {/* Mode Selection */}
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSessionDrafts((current) => ({
+                              ...current,
+                              [manikin.deviceId]: {
+                                ...current[manikin.deviceId],
+                                traineeMode: "select",
+                              },
+                            }))
+                          }
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                ? "#0f172a"
+                                : "#ffffff",
+                            color:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                ? "#ffffff"
+                                : "#334155",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                          }}
+                        >
+                          Select
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSessionDrafts((current) => ({
+                              ...current,
+                              [manikin.deviceId]: {
+                                ...current[manikin.deviceId],
+                                traineeMode: "quick",
+                              },
+                            }))
+                          }
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                ? "#0f172a"
+                                : "#ffffff",
+                            color:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                ? "#ffffff"
+                                : "#334155",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                          }}
+                        >
+                          Quick Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSessionDrafts((current) => ({
+                              ...current,
+                              [manikin.deviceId]: {
+                                ...current[manikin.deviceId],
+                                traineeMode: "guest",
+                              },
+                            }))
+                          }
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                ? "#0f172a"
+                                : "#ffffff",
+                            color:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                ? "#ffffff"
+                                : "#334155",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                          }}
+                        >
+                          Guest
+                        </button>
+                      </div>
+
+                      {/* Select Mode UI */}
+                      {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
+                        <select
+                          value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
+                          onChange={(event) =>
+                            setSessionDrafts((current) => ({
+                              ...current,
+                              [manikin.deviceId]: {
+                                ...current[manikin.deviceId],
+                                traineeRecordId: event.target.value,
+                              },
+                            }))
+                          }
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            fontFamily: "inherit",
+                            fontSize: "0.85rem",
+                          }}
+                        >
+                          <option value="">-- Select a trainee --</option>
+                          {traineesLoading && <option>Loading...</option>}
+                          {!traineesLoading &&
+                            trainees.map((trainee) => (
+                              <option key={trainee.id} value={trainee.id}>
+                                {trainee.displayName} ({trainee.traineeCode})
+                              </option>
+                            ))}
+                        </select>
+                      )}
+
+                      {/* Quick Add Mode UI */}
+                      {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
+                        <div style={{ display: "grid", gap: "6px" }}>
+                          <input
+                            type="text"
+                            placeholder="Trainee Code"
+                            value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
+                            onChange={(event) =>
+                              setSessionDrafts((current) => ({
+                                ...current,
+                                [manikin.deviceId]: {
+                                  ...current[manikin.deviceId],
+                                  quickTraineeCode: event.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              fontFamily: "inherit",
+                              fontSize: "0.85rem",
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Display Name"
+                            value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
+                            onChange={(event) =>
+                              setSessionDrafts((current) => ({
+                                ...current,
+                                [manikin.deviceId]: {
+                                  ...current[manikin.deviceId],
+                                  quickTraineeName: event.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              fontFamily: "inherit",
+                              fontSize: "0.85rem",
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Group (optional)"
+                            value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
+                            onChange={(event) =>
+                              setSessionDrafts((current) => ({
+                                ...current,
+                                [manikin.deviceId]: {
+                                  ...current[manikin.deviceId],
+                                  quickTraineeGroup: event.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              fontFamily: "inherit",
+                              fontSize: "0.85rem",
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Guest Mode - no input needed */}
+                      {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
+                        <p style={{ margin: "4px 0", color: "#64748b", fontSize: "0.8rem" }}>
+                          Session will start without a specific trainee assignment.
+                        </p>
+                      )}
+                    </div>
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      {!active ? (
+                      {currentUser && currentUser.role !== "TRAINEE" ? (
+                        !active ? (
                         <button
                           type="button"
                           onClick={() => handleStartSession(manikin.deviceId)}
@@ -715,7 +1121,7 @@ export default function InstructorDashboard() {
                         >
                           Start Session
                         </button>
-                      ) : (
+                        ) : (
                         <button
                           type="button"
                           onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
@@ -732,10 +1138,13 @@ export default function InstructorDashboard() {
                         >
                           End Session
                         </button>
+                        )
+                      ) : (
+                        <></>
                       )}
                     </div>
 
-                    {active && traineeLink ? (
+                    {active ? (
                       <div style={{ display: "grid", gap: "4px", background: "#f8fafc", borderRadius: "8px", padding: "10px" }}>
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Session: {activeSession!.sessionId}
@@ -743,9 +1152,59 @@ export default function InstructorDashboard() {
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Trainee: {activeSession!.traineeId ?? "-"}
                         </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                          Trainee Link: {traineeLink}
-                        </p>
+                        {traineeLink ? (
+                          <>
+                            <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
+                              Trainee Link: {traineeLink}
+                            </p>
+                            <div
+                              style={{
+                                marginTop: "4px",
+                                padding: "10px",
+                                borderRadius: "8px",
+                                border: "1px solid #dbe3ee",
+                                background: "#ffffff",
+                                display: "grid",
+                                justifyItems: "center",
+                                gap: "8px",
+                              }}
+                            >
+                              <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
+                                Student Dashboard QR
+                              </p>
+                              <QR value={traineeLink} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+                              <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
+                                Scan from trainee phone to open the live trainee dashboard.
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#b45309" }}>
+                            QR unavailable. Set a LAN host/IP in Setup to generate a scannable trainee URL.
+                          </p>
+                        )}
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #0f172a",
+                              background: "#0f172a",
+                              color: "#ffffff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Open Trainee Dashboard (In-App)
+                          </button>
+                          {traineeLink ? (
+                            <a href={traineeLink} style={linkButtonStyle}>
+                              Open Trainee Link
+                            </a>
+                          ) : null}
+                        </div>
                       </div>
                     ) : null}
 

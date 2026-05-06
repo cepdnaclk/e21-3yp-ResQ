@@ -12,6 +12,7 @@ extern "C" {
 esp_err_t mqtt_manager_init(const device_config_t *cfg);
 esp_err_t mqtt_manager_start(void);
 bool mqtt_manager_is_connected(void);
+esp_err_t mqtt_manager_publish_status(const char *state);
 
 /**
  * @brief Publish to a device-scoped topic suffix.

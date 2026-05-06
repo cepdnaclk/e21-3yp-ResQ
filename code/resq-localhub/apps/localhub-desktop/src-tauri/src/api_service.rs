@@ -89,7 +89,7 @@ impl ApiServiceState {
         }
     }
 
-    fn start(&self) -> Result<ApiServiceStatus, String> {
+    pub fn start(&self) -> Result<ApiServiceStatus, String> {
         let mut child_slot = self
             .child
             .lock()
@@ -115,7 +115,7 @@ impl ApiServiceState {
         })
     }
 
-    fn stop(&self) -> Result<ApiServiceStatus, String> {
+    pub fn stop(&self) -> Result<ApiServiceStatus, String> {
         let mut child_slot = self
             .child
             .lock()

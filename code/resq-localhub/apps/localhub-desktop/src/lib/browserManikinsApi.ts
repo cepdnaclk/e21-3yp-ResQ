@@ -14,6 +14,10 @@ export type ManikinLiveSummary = {
   latestPauseS: number | null;
   latestFlags: string | null;
   lastEventType: string | null;
+  latestForce1: number | null;
+  latestForce2: number | null;
+  pressureBalancePct: number | null;
+  pressureSkewed: boolean | null;
   activeSessionId: string | null;
   activeTraineeId: string | null;
   activeSessionStartedAt: string | null;
@@ -21,15 +25,17 @@ export type ManikinLiveSummary = {
 };
 
 function getLiveManikinsUrl(): string {
-  return `http://${window.location.hostname}:18080/api/manikins/live`;
+  return `http://${window.location.hostname}:8080/api/manikins/live`;
 }
 
 export function getLiveManikinsStreamUrl(): string {
-  return `http://${window.location.hostname}:18080/api/stream/manikins/live`;
+  return `http://${window.location.hostname}:8080/api/stream/manikins/live`;
 }
 
 export async function fetchLiveManikins(): Promise<ManikinLiveSummary[]> {
-  const response = await fetch(getLiveManikinsUrl());
+  const response = await fetch(getLiveManikinsUrl(), {
+    credentials: "include",
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to load live manikins (${response.status})`);

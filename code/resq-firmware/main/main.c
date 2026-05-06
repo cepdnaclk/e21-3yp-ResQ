@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -27,6 +28,36 @@
 #include "status_indicator.h"
 
 static const char *TAG = "main";
+
+static bool derive_host_from_url(const char *url, char *host_out, size_t host_out_len)
+{
+    if (url == NULL || host_out == NULL || host_out_len == 0) {
+        return false;
+    }
+
+    host_out[0] = '\0';
+
+    const char *start = strstr(url, "://");
+    start = (start != NULL) ? (start + 3) : url;
+
+    if (*start == '\0') {
+        return false;
+    }
+
+    const char *end = start;
+    while (*end != '\0' && *end != ':' && *end != '/' && *end != '?') {
+        end++;
+    }
+
+    size_t len = (size_t)(end - start);
+    if (len == 0 || len >= host_out_len) {
+        return false;
+    }
+
+    memcpy(host_out, start, len);
+    host_out[len] = '\0';
+    return true;
+}
 
 void app_main(void)
 {
@@ -97,9 +128,57 @@ void app_main(void)
      * Register device with backend
      * ------------------------------------------------- */
     register_result_t reg = {0};
-    ESP_ERROR_CHECK(register_client_send(&cfg, &reg));
+    bool registration_ok = false;
+    int registration_failures = 0;
+    bool used_register_url_mqtt_fallback = false;
 
-    if (!reg.ok) {
+    while (1) {
+        esp_err_t reg_err = register_client_send(&cfg, &reg);
+        if (reg_err == ESP_OK) {
+            registration_ok = true;
+            break;
+        }
+
+        registration_failures++;
+
+        bool have_cached_runtime =
+            (cfg.device_id[0] != '\0') &&
+            (cfg.manikin_id[0] != '\0') &&
+            (cfg.mqtt_host[0] != '\0') &&
+            (cfg.mqtt_port > 0);
+
+        if (have_cached_runtime && registration_failures >= 3) {
+            char derived_host[64] = {0};
+            if (derive_host_from_url(cfg.register_url, derived_host, sizeof(derived_host))) {
+                snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", derived_host);
+                cfg.mqtt_port = 1883;
+                used_register_url_mqtt_fallback = true;
+                ESP_LOGW(
+                    TAG,
+                    "Registration unavailable (%s). Using MQTT fallback derived from register_url: %s:%d",
+                    esp_err_to_name(reg_err),
+                    cfg.mqtt_host,
+                    cfg.mqtt_port
+                );
+            } else {
+                ESP_LOGW(
+                    TAG,
+                    "Registration unavailable (%s). Continuing with cached runtime config.",
+                    esp_err_to_name(reg_err)
+                );
+            }
+            break;
+        }
+
+        ESP_LOGW(
+            TAG,
+            "Registration failed: %s. Retrying in 3 seconds...",
+            esp_err_to_name(reg_err)
+        );
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
+    if (registration_ok && !reg.ok) {
         ESP_LOGE(TAG, "Backend rejected registration");
         while (1) {
             vTaskDelay(pdMS_TO_TICKS(2000));
@@ -110,24 +189,32 @@ void app_main(void)
      * Merge backend-assigned runtime values into config
      * and save once to NVS
      * ------------------------------------------------- */
-    if (reg.assigned_device_id[0] != '\0') {
+    if (registration_ok && reg.assigned_device_id[0] != '\0') {
         snprintf(cfg.device_id, sizeof(cfg.device_id), "%s", reg.assigned_device_id);
     }
 
-    if (reg.assigned_manikin_id[0] != '\0') {
+    if (registration_ok && reg.assigned_manikin_id[0] != '\0') {
         snprintf(cfg.manikin_id, sizeof(cfg.manikin_id), "%s", reg.assigned_manikin_id);
     }
 
-    if (reg.mqtt_host[0] != '\0') {
+    if (registration_ok && reg.mqtt_host[0] != '\0') {
         snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", reg.mqtt_host);
     }
 
-    if (reg.mqtt_port > 0) {
+    if (registration_ok && reg.mqtt_port > 0) {
         cfg.mqtt_port = reg.mqtt_port;
     }
 
     ESP_ERROR_CHECK(config_store_save(&cfg));
-    ESP_LOGI(TAG, "Updated runtime config saved after registration");
+    if (registration_ok) {
+        ESP_LOGI(TAG, "Updated runtime config saved after registration");
+    } else if (used_register_url_mqtt_fallback) {
+        ESP_LOGW(TAG, "Runtime config saved with MQTT fallback endpoint %s:%d", cfg.mqtt_host, cfg.mqtt_port);
+    } else {
+        ESP_LOGW(TAG, "Runtime config saved without registration update (using cached values)");
+    }
+
+    ESP_LOGI(TAG, "Active runtime endpoint: mqtt=%s:%d register=%s", cfg.mqtt_host, cfg.mqtt_port, cfg.register_url);
 
     /* -------------------------------------------------
      * Initialize runtime modules that cache config

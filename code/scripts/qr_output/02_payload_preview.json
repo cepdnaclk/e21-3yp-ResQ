@@ -1,0 +1,10 @@
+{
+  "ssid": "Dialog 4G 7A5",
+  "password": "wUHSSz7t",
+  "server_url": "http://192.168.8.105:18080/api/register",
+  "auth_token": "local-dev-token",
+  "device_id": "CTRL-REAL-001",
+  "manikin_id": "MANIKIN-001",
+  "mqtt_host": "192.168.8.105",
+  "mqtt_port": 1883
+}

@@ -74,6 +74,53 @@ This first pass only creates a clean, runnable skeleton:
 
 No full pairing/session/cloud workflow is implemented yet.
 
+## Role-Based Authentication
+
+The local hub uses **offline-first, role-based authentication** with three roles:
+
+- **ADMIN**: Full system control. Can create and manage user accounts, view diagnostics, and perform all instructor actions.
+- **INSTRUCTOR**: Manages sessions and manikins. Can start/end sessions, pair devices, monitor live performance, and export session data.
+- **TRAINEE**: Participates in sessions. Can view their assigned session results and live performance while active.
+
+### User Creation Flow
+
+1. **First Run**: When the app starts and no users exist, it shows a **"First Run Setup"** screen to create the initial ADMIN account.
+
+2. **Admin User Management**: After signing in as ADMIN, open the **"Users"** tab to:
+   - View all existing users (ADMIN, INSTRUCTOR, TRAINEE)
+   - Create new INSTRUCTOR or TRAINEE accounts with username, display name, password, and role
+   - Disable user accounts (preventing them from signing in)
+
+3. **Login**: All users sign in with their username and password on the login screen.
+
+### Authorization Enforcement
+
+- **Backend**: Protected API endpoints check user role using `AuthService.requireRole(...)` and return `401 Unauthorized` for missing credentials or `403 Forbidden` for insufficient privileges.
+- **Frontend**: Route guards (`ProtectedRoute`, `RoleBasedRoute`) prevent unauthorized access and show an "Access Denied" page for insufficient roles.
+- **Audit Logging**: Login attempts, user creation, session start/end, and exports are recorded in the local SQLite audit log.
+
+### Session & Data Access Control
+
+- **ADMIN/INSTRUCTOR** can list, start, end, and export any session.
+- **TRAINEE** can only view their own session results and live performance (matched by username).
+- Public health endpoint (`/api/hub/health`) requires no authentication.
+
+## Auth Smoke Test
+
+Use these checks after pulling the auth slice:
+
+1. Start the backend from `services/hub-api`.
+2. Start the desktop app from `apps/localhub-desktop`.
+3. Open the app with no existing auth cookie and confirm the first-run ADMIN setup screen appears.
+4. Create the first ADMIN user, then confirm the app lands on the instructor flow.
+5. Sign in as ADMIN, open the **"Users"** tab, and create an INSTRUCTOR and a TRAINEE account.
+6. Log out and sign back in as INSTRUCTOR. Confirm you can open instructor views, start/end sessions, and export data. Diagnostics tab should be hidden.
+7. Log out and sign in as TRAINEE. Confirm you can only open the trainee view and get access denied on instructor routes.
+8. Log out as TRAINEE (no current session) and confirm the trainee dashboard shows "No active sessions".
+9. Confirm a direct unauthenticated request to `/api/sessions` returns `401` and a TRAINEE request to `/api/sessions/list` returns `403`.
+10. Confirm `GET /api/hub/health` still responds without auth.
+11. Run `pnpm exec tsc --noEmit` in `apps/localhub-desktop` and `./mvnw -q -DskipTests compile` in `services/hub-api`.
+
 ## Next Steps
 
 See:
