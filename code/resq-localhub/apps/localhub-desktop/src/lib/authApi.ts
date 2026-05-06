@@ -118,3 +118,9 @@ export async function disableUser(userId: string): Promise<AuthUser> {
     method: "POST",
   });
 }
+
+export async function enableUser(userId: string): Promise<AuthUser> {
+  return requestJson<AuthUser>(`/users/${encodeURIComponent(userId)}/enable`, {
+    method: "POST",
+  });
+}

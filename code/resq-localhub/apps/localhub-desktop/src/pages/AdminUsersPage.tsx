@@ -4,7 +4,7 @@ import { USER_ROLES } from "@resq/shared";
 import { useAuth } from "../auth/AuthContext";
 
 export default function AdminUsersPage() {
-  const { currentUser, listUsers, createUser, disableUser } = useAuth();
+  const { currentUser, listUsers, createUser, disableUser, enableUser } = useAuth();
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +71,19 @@ export default function AdminUsersPage() {
       await loadUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to disable user");
+    }
+  }
+
+  async function handleEnableUser(userId: string) {
+    if (!confirm("Enable this user? They will be able to sign in again.")) {
+      return;
+    }
+
+    try {
+      await enableUser(userId);
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to enable user");
     }
   }
 
@@ -285,22 +298,41 @@ export default function AdminUsersPage() {
                       </td>
                       <td style={{ padding: "12px", textAlign: "center" }}>
                         {currentUser?.id !== user.id && user.role !== "ADMIN" && (
-                          <button
-                            type="button"
-                            onClick={() => handleDisableUser(user.id)}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: "6px",
-                              border: "1px solid #fca5a5",
-                              background: "#fee2e2",
-                              color: "#991b1b",
-                              fontWeight: 600,
-                              fontSize: "0.85rem",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Disable
-                          </button>
+                          user.disabledAt ? (
+                            <button
+                              type="button"
+                              onClick={() => handleEnableUser(user.id)}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: "6px",
+                                border: "1px solid #10b981",
+                                background: "#dcfce7",
+                                color: "#065f46",
+                                fontWeight: 600,
+                                fontSize: "0.85rem",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Enable
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleDisableUser(user.id)}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: "6px",
+                                border: "1px solid #fca5a5",
+                                background: "#fee2e2",
+                                color: "#991b1b",
+                                fontWeight: 600,
+                                fontSize: "0.85rem",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Disable
+                            </button>
+                          )
                         )}
                       </td>
                     </tr>

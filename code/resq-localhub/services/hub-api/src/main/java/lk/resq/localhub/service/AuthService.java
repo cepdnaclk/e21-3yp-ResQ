@@ -162,6 +162,14 @@ public class AuthService {
         return toAuthUser(disabled);
     }
 
+    public AuthUser enableUser(HttpServletRequest request, String userId) {
+        AuthUser actor = requireRole(request, UserRole.ADMIN);
+        LocalAuthRepository.UserRecord enabled = authRepository.enableUser(userId, Instant.now())
+                .orElseThrow(() -> new IllegalArgumentException("User " + userId + " was not found."));
+        audit(actor.id(), "ENABLE_USER", "user", enabled.id(), Map.of("role", enabled.role().name()));
+        return toAuthUser(enabled);
+    }
+
     public AuthUser requireAuth(HttpServletRequest request) {
         String token = extractToken(request);
         if (!StringUtils.hasText(token)) {
@@ -254,7 +262,13 @@ public class AuthService {
     }
 
     private AuthUser toAuthUser(LocalAuthRepository.UserRecord record) {
-        return new AuthUser(record.id(), record.username(), record.displayName(), record.role());
+        return new AuthUser(
+                record.id(),
+                record.username(),
+                record.displayName(),
+                record.role(),
+                record.disabledAt() == null ? null : record.disabledAt().toString()
+        );
     }
 
     private String normalizeUsername(String value) {

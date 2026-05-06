@@ -5,6 +5,7 @@ export type AuthUser = {
   username: string;
   displayName: string;
   role: UserRole;
+  disabledAt?: string | null;
 };
 
 export type LoginRequest = {

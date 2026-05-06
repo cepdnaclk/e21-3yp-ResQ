@@ -4,6 +4,7 @@ public record AuthUser(
         String id,
         String username,
         String displayName,
-        UserRole role
+        UserRole role,
+        String disabledAt
 ) {
 }

@@ -207,6 +207,24 @@ public class LocalAuthRepository {
         }
     }
 
+    public synchronized Optional<UserRecord> enableUser(String userId, Instant updatedAt) {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                UPDATE users
+                SET disabled_at = NULL, updated_at = ?
+                WHERE id = ?
+                """)) {
+            statement.setString(1, updatedAt.toString());
+            statement.setString(2, userId);
+            int updated = statement.executeUpdate();
+            if (updated == 0) {
+                return Optional.empty();
+            }
+            return findUserById(userId);
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to enable user " + userId, error);
+        }
+    }
+
     public synchronized AuthSessionRecord createAuthSession(
             String id,
             String userId,

@@ -123,6 +123,20 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/users/{userId}/enable")
+    public ResponseEntity<?> enableUser(HttpServletRequest request, @PathVariable String userId) {
+        try {
+            AuthUser enabled = authService.enableUser(request, userId);
+            return ResponseEntity.ok(enabled);
+        } catch (IllegalArgumentException error) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
+        } catch (UnauthorizedException error) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
     private ResponseEntity<?> issueSession(SessionIssuer issuer) {
         try {
             AuthTokenIssue issue = issuer.issue();

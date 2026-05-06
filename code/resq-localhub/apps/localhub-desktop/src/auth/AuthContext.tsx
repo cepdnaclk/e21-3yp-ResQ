@@ -26,6 +26,7 @@ type AuthContextValue = {
   listUsers: () => Promise<AuthUser[]>;
   createUser: (request: CreateUserRequest) => Promise<AuthUser>;
   disableUser: (userId: string) => Promise<AuthUser>;
+  enableUser: (userId: string) => Promise<AuthUser>;
   hasRole: (roles: readonly UserRole[] | UserRole) => boolean;
 };
 
@@ -135,6 +136,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return disableUserRequest(userId);
   }
 
+  async function enableUser(userId: string) {
+    // import is named enableUser in lib/authApi
+    // to avoid name clash with local function, call directly
+    return (await import("../lib/authApi")).enableUser(userId);
+  }
+
   const value = useMemo<AuthContextValue>(() => ({
     bootstrap,
     currentUser,
@@ -148,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     listUsers,
     createUser,
     disableUser,
+    enableUser,
     hasRole: (roles: readonly UserRole[] | UserRole) => {
       if (!currentUser) return false;
       if (!roles) return false;
