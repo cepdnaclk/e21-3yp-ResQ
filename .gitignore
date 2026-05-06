@@ -42,3 +42,11 @@ code/resq-firmware/build/
 # Local runtime data
 code/resq-localhub/mosquitto/data/
 code/resq-localhub/mosquitto/log/
+
+node_modules/
+.next/
+.env*.local
+out/
+build/
+*.log
+node_modules copy/
