@@ -95,15 +95,20 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
     : null;
 
   return (
-    <section style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: "24px", background: "linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)" }}>
-      <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: "440px", border: "1px solid #e5e7eb", borderRadius: "16px", padding: "24px", background: "#ffffff", boxShadow: "0 12px 40px rgba(15, 23, 42, 0.08)", display: "grid", gap: "14px" }}>
+    <section style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: "2rem", background: "#001a33" }}>
+      {/* Logo - Enlarged */}
+      <div style={{ position: "absolute", top: "1.5rem", left: "50%", transform: "translateX(-50%)" }}>
+        <img src="/resq-logo-dark-512.png" alt="ResQ" style={{ height: "240px", objectFit: "contain" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: "420px", border: "1px solid rgba(17, 38, 63, 0.08)", borderRadius: "1.5rem", padding: "1.25rem", background: "rgba(255, 255, 255, 0.92)", boxShadow: "0 24px 70px rgba(25, 62, 104, 0.08)", display: "grid", gap: "0.75rem", marginTop: "14rem" }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: "1.75rem", fontWeight: 700, letterSpacing: "-0.02em" }}>ResQ Local Hub</h1>
-          <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: "0.95rem" }}>{helperText}</p>
+          <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.02em" }}>ResQ Local Hub</h1>
+          <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: "0.9rem" }}>{helperText}</p>
         </div>
 
         {firstRunMessage ? (
-          <div style={{ padding: "12px", borderRadius: "10px", background: "#fef3c7", color: "#92400e", fontSize: "0.9rem" }}>
+          <div style={{ padding: "10px", borderRadius: "8px", background: "#fef3c7", color: "#92400e", fontSize: "0.85rem" }}>
             {firstRunMessage}
           </div>
         ) : null}
@@ -116,14 +121,14 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
                 setForceFirstRun((v) => !v);
                 setError(null);
               }}
-              style={{ padding: "6px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", background: forceFirstRun ? "#f8fafc" : "#ffffff", cursor: "pointer", fontSize: "0.8rem" }}
+              style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", background: forceFirstRun ? "#f8fafc" : "#ffffff", cursor: "pointer", fontSize: "0.75rem" }}
             >
-              {forceFirstRun ? "Using fresh system" : "Start Fresh (dev)"}
+              {forceFirstRun ? "Fresh" : "Dev"}
             </button>
           </div>
         ) : null}
 
-        <div role="tablist" aria-label="Authentication tabs" style={{ display: "flex", gap: "8px" }}>
+        <div role="tablist" aria-label="Authentication tabs" style={{ display: "flex", gap: "6px" }}>
           <button
             role="tab"
             aria-pressed={mode === "login"}
@@ -171,7 +176,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
         ) : null}
 
         {error ? (
-          <div style={{ padding: "12px", borderRadius: "10px", background: "#fee2e2", color: "#991b1b", fontSize: "0.9rem" }}>
+          <div style={{ padding: "10px", borderRadius: "8px", background: "#fee2e2", color: "#991b1b", fontSize: "0.85rem" }}>
             {error}
           </div>
         ) : null}
@@ -180,7 +185,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
           {busy ? "Working..." : mode === "first-run" ? "Create ADMIN Account" : "Sign In"}
         </button>
 
-        <p style={{ margin: 0, color: "#64748b", fontSize: "0.82rem", lineHeight: 1.5 }}>
+        <p style={{ margin: 0, color: "#64748b", fontSize: "0.78rem", lineHeight: 1.4 }}>
           Local-only authentication. No cloud identity provider, no external sync.
         </p>
       </form>
@@ -191,30 +196,33 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
 function fieldStyle(): React.CSSProperties {
   return {
     display: "grid",
-    gap: "6px",
+    gap: "0.35rem",
     fontSize: "0.9rem",
-    color: "#0f172a",
+    color: "#21364d",
     fontWeight: 600,
   };
 }
 
 const inputStyle: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: "10px",
-  border: "1px solid #cbd5e1",
+  padding: "0.7rem 0.9rem",
+  borderRadius: "0.8rem",
+  border: "1px solid #c9d9ea",
   fontFamily: "inherit",
   fontSize: "0.95rem",
+  background: "#fff",
+  color: "#102033",
 };
 
 function tabButtonStyle(active: boolean): React.CSSProperties {
   return {
     flex: 1,
-    padding: "10px 12px",
-    borderRadius: "10px",
-    border: "1px solid " + (active ? "#0f172a" : "#cbd5e1"),
-    background: active ? "#0f172a" : "#ffffff",
-    color: active ? "#ffffff" : "#0f172a",
+    padding: "0.7rem 0.9rem",
+    borderRadius: "0.8rem",
+    border: "none",
+    background: active ? "#1452d6" : "#e9f2ff",
+    color: active ? "#ffffff" : "#12427c",
     fontWeight: 600,
+    fontSize: "0.9rem",
     cursor: active ? "default" : "pointer",
     opacity: active ? 1 : 0.9,
   };
@@ -222,12 +230,13 @@ function tabButtonStyle(active: boolean): React.CSSProperties {
 
 function primaryButtonStyle(disabled: boolean): React.CSSProperties {
   return {
-    padding: "12px 14px",
-    borderRadius: "10px",
-    border: "1px solid #0f172a",
-    background: disabled ? "#94a3b8" : "#0f172a",
-    color: "#ffffff",
+    padding: "0.8rem 1rem",
+    borderRadius: "0.8rem",
+    border: "none",
+    background: disabled ? "#c9d9ea" : "#1452d6",
+    color: disabled ? "#50657f" : "#ffffff",
     fontWeight: 700,
     cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: "0.95rem",
   };
 }

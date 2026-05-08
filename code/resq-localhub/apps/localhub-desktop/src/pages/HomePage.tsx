@@ -1,7 +1,4 @@
 import { useEffect, useState } from "react";
-import StatusCard from "../components/StatusCard";
-import QrPanel from "../components/QrPanel";
-import LogPanel from "../components/LogPanel";
 import { generateAccessUrls } from "../lib/accessUrls";
 import {
   fetchHubHealth,
@@ -17,6 +14,32 @@ import {
 type HomePageProps = {
   manualLanIpOverride: string | null;
 };
+
+type ApiContract = {
+  method: "GET" | "POST";
+  path: string;
+  auth: string;
+  purpose: string;
+};
+
+const apiContracts: ApiContract[] = [
+  { method: "GET", path: "/api/hub/health", auth: "Public/Local", purpose: "Health check for backend, service status, version, database, broker connection." },
+  { method: "POST", path: "/api/auth/login", auth: "Public/Local", purpose: "Authenticate local user and issue local session/token." },
+  { method: "POST", path: "/api/auth/logout", auth: "Authenticated", purpose: "Invalidate current session/token." },
+  { method: "GET", path: "/api/auth/me", auth: "Authenticated", purpose: "Return current user, role, and permissions." },
+  { method: "GET", path: "/api/manikins", auth: "Instructor/Tech", purpose: "List paired, pending, online, offline, and stale manikins." },
+  { method: "POST", path: "/api/manikins/pair-request", auth: "Instructor/Admin", purpose: "Create pending pairing request and return one-time token." },
+  { method: "POST", path: "/api/manikins/unpair", auth: "Instructor/Admin/Tech", purpose: "Unpair device, clear mapping, and optionally command device to provisioning mode." },
+  { method: "POST", path: "/api/sessions/start", auth: "Instructor/Admin", purpose: "Create session and command device to start." },
+  { method: "POST", path: "/api/sessions/end", auth: "Instructor/Admin", purpose: "End/abort session and compute summary." },
+  { method: "GET", path: "/api/sessions", auth: "Instructor/Admin", purpose: "List completed/recent sessions. Trainees get own filtered history." },
+  { method: "GET", path: "/api/sessions/{id}", auth: "Authorized", purpose: "Return session details, summary, events, and timeline." },
+  { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "Instructor/Admin", purpose: "Export session as CSV." },
+  { method: "GET", path: "/api/sessions/{id}/export.json", auth: "Instructor/Admin", purpose: "Export session as JSON." },
+  { method: "GET", path: "/api/live/events", auth: "Authenticated", purpose: "SSE endpoint for live dashboard updates." },
+  { method: "POST", path: "/api/devices/{deviceId}/diag/ping", auth: "Instructor/Tech", purpose: "Publish diagnostic ping command." },
+  { method: "POST", path: "/api/devices/{deviceId}/diag/request", auth: "Technician/Admin", purpose: "Request detailed diagnostic report." },
+];
 
 type ApiHealthState = {
   status: "checking" | "healthy" | "unreachable";
@@ -261,55 +284,152 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
 
   // Generate access URLs from the chosen host/IP
   const { instructorUrl } = generateAccessUrls(chosenLanIp);
-  const qrUnavailableMessage = chosenLanIp
-    ? "Unable to generate URLs for unknown reason."
-    : "No selected LAN IP source yet. Open Setup to auto-detect or manually set an IP.";
+  const summaryCards = [
+    {
+      label: "REST contracts",
+      value: String(apiContracts.length),
+      detail: "Frontend aligned with the profile endpoints in the attached API baseline.",
+    },
+    {
+      label: "Session surface",
+      value: "5",
+      detail: "Start, end, list, inspect, and export completed sessions.",
+    },
+    {
+      label: "Auth surface",
+      value: "4",
+      detail: "Login, logout, current user, and first-run admin setup.",
+    },
+    {
+      label: "Device ops",
+      value: "4",
+      detail: "Manikin, live stream, and device diagnostics entry points.",
+    },
+  ];
+
+  const apiTone = apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped";
+  const brokerTone = brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped";
+  const lanTone = lanInfo.status === "checking" ? "checking" : manualLanIpOverride || lanInfo.status === "ready" ? "ready" : "error";
 
   function handleOpenInstructorDashboard() {
     window.location.assign("/instructor");
   }
 
+  function handleOpenTraineeDashboard() {
+    window.location.assign("/trainee");
+  }
+
+  async function loadAllState() {
+    await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState()]);
+  }
+
   return (
-    <div style={{ display: "grid", gap: "16px" }}>
-      <div>
-        <h2 style={{ margin: "0 0 6px 0", fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.01em" }}>Home</h2>
-        <p style={{ margin: 0, color: "#64748b", fontSize: "0.95rem" }}>
-          Local service status and quick operational overview.
-        </p>
-        <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <button
-            type="button"
-            style={buttonStyle(false)}
-            onClick={handleOpenInstructorDashboard}
-          >
-            Open Instructor Dashboard (In-App)
-          </button>
+    <div className="home-dashboard">
+      <section className="panel hero-layout">
+        <div className="panel hero-panel">
+          <p className="panel__eyebrow">10. API and MQTT Contracts</p>
+          <h2 className="panel__title">10.1 Backend REST API Baseline</h2>
+          <p className="panel__description">
+            A contract-first control surface for local authentication, manikin pairing, session control, exports, and diagnostics.
+          </p>
+
+          <div className="hero-panel__actions">
+            <button type="button" className="button button--primary" onClick={handleOpenInstructorDashboard}>
+              Open Instructor Dashboard
+            </button>
+            <button type="button" className="button button--secondary" onClick={handleOpenTraineeDashboard}>
+              Open Trainee Dashboard
+            </button>
+            <button type="button" className="button button--ghost" onClick={loadAllState}>
+              Refresh Status
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
-        <StatusCard
-          title="API Status"
-          status={apiStatusLabel}
-          detail={formatApiDetail(apiHealth)}
-          statusTone={apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped"}
-        />
-        <StatusCard
-          title="Broker Status"
-          status={brokerStatusLabel}
-          detail={brokerUiState.detail}
-          statusTone={brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped"}
-        />
-        <StatusCard 
-          title="LAN Info" 
-          status={lanStatusLabel} 
-          detail={lanDetail}
-          statusTone={lanStatusLabel === "Ready" ? "ready" : lanInfo.status === "checking" ? "checking" : "error"}
-        />
-      </div>
+        <div className="quick-card">
+          <span className={`status-chip status-chip--${apiTone}`}>{apiStatusLabel}</span>
+          <h3 className="quick-card__title">Live service snapshot</h3>
+          <p className="quick-card__copy">{formatApiDetail(apiHealth)}</p>
+          <p className="quick-card__copy">Broker: {brokerUiState.detail}</p>
+          <p className="quick-card__copy">LAN IP: {chosenLanIp ?? "Not detected"}</p>
+          <p className="quick-card__copy">Source: {manualLanIpOverride ? "Manual override" : "Auto-detected host"}</p>
+          <div className="hero-panel__actions">
+            <span className={`status-chip status-chip--${brokerTone}`}>{brokerStatusLabel}</span>
+            <span className={`status-chip status-chip--${lanTone}`}>{lanStatusLabel}</span>
+          </div>
+        </div>
+      </section>
 
-      <QrPanel instructorUrl={instructorUrl} unavailableMessage={qrUnavailableMessage} />
-      <LogPanel />
+      <section className="metric-grid">
+        {summaryCards.map((card) => (
+          <article key={card.label} className="metric-card">
+            <p className="metric-card__label">{card.label}</p>
+            <p className="metric-card__value">{card.value}</p>
+            <p className="metric-card__detail">{card.detail}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="panel table-panel">
+        <div className="panel__header">
+          <div>
+            <p className="panel__eyebrow">Backend REST API baseline</p>
+            <h3 className="panel__title">Relevant API calls for the frontend profile</h3>
+            <p className="panel__description">
+              The table mirrors the routes in the contract screenshot and keeps the frontend focused on the same local-first workflow.
+            </p>
+          </div>
+          <span className="panel__tag">{apiContracts.length} endpoints</span>
+        </div>
+
+        <div className="table-wrap">
+          <table className="contracts-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Path</th>
+                <th>Auth</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apiContracts.map((contract) => (
+                <tr key={`${contract.method}-${contract.path}`}>
+                  <td><span className={`method-badge method-badge--${contract.method.toLowerCase()}`}>{contract.method}</span></td>
+                  <td><code>{contract.path}</code></td>
+                  <td><span className="auth-badge">{contract.auth}</span></td>
+                  <td>{contract.purpose}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="surface-grid">
+        <article className="quick-card">
+          <h3 className="quick-card__title">API readiness</h3>
+          <p className="quick-card__copy">{apiStatusLabel}</p>
+          <span className={`status-chip status-chip--${apiTone}`}>
+            {apiHealth.status === "healthy" ? "Backend reachable" : apiService.running ? "Backend process up" : "Backend stopped"}
+          </span>
+          <p className="quick-card__copy">{apiHealth.detail}</p>
+        </article>
+
+        <article className="quick-card">
+          <h3 className="quick-card__title">Broker readiness</h3>
+          <p className="quick-card__copy">MQTT / local broker status for device traffic.</p>
+          <span className={`status-chip status-chip--${brokerTone}`}>{brokerStatusLabel}</span>
+          <p className="quick-card__copy">{brokerUiState.detail}</p>
+        </article>
+
+        <article className="quick-card">
+          <h3 className="quick-card__title">LAN access</h3>
+          <p className="quick-card__copy">{lanDetail}</p>
+          <span className={`status-chip status-chip--${lanTone}`}>{lanStatusLabel}</span>
+          <p className="quick-card__copy">Instructor URL: {instructorUrl ?? "Not available yet"}</p>
+        </article>
+      </section>
     </div>
   );
 }
