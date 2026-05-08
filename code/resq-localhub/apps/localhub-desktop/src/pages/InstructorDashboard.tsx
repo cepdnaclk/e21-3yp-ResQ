@@ -395,6 +395,68 @@ export default function InstructorDashboard({
     return new Map(manikins.map((manikin) => [manikin.deviceId, manikin]));
   }, [manikins]);
 
+  type InventoryStatus = "paired" | "pending" | "online" | "offline" | "stale" | "unknown";
+
+  const inventoryItems = useMemo(() => {
+    return manikins.map((manikin) => {
+      const state = manikin.state?.toLowerCase() ?? "";
+      const status: InventoryStatus = manikin.activeSessionId || manikin.sessionActive
+        ? "paired"
+        : state.includes("pending")
+          ? "pending"
+          : state.includes("stale")
+            ? "stale"
+            : manikin.online
+              ? "online"
+              : "offline";
+
+      return {
+        ...manikin,
+        status,
+        rawStatus: manikin.state,
+      };
+    });
+  }, [manikins]);
+
+  const inventoryBuckets = useMemo(() => {
+    return inventoryItems.reduce<Record<InventoryStatus, typeof inventoryItems>>((accumulator, entry) => {
+      accumulator[entry.status].push(entry);
+      return accumulator;
+    }, {
+      paired: [],
+      pending: [],
+      online: [],
+      offline: [],
+      stale: [],
+      unknown: [],
+    });
+  }, [inventoryItems]);
+
+  function inventoryBadgeStyle(status: InventoryStatus): React.CSSProperties {
+    if (status === "online" || status === "paired") {
+      return { background: "#dcfce7", color: "#166534" };
+    }
+
+    if (status === "pending") {
+      return { background: "#fef3c7", color: "#92400e" };
+    }
+
+    if (status === "stale" || status === "offline") {
+      return { background: "#fee2e2", color: "#991b1b" };
+    }
+
+    return { background: "#e2e8f0", color: "#334155" };
+  }
+
+  function formatInventoryLastSeen(value: string | null): string {
+    if (!value) {
+      return "No heartbeat yet";
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  }
+
   function formatLastSeen(value: string | null): string {
     if (!value) {
       return "No messages yet";
@@ -428,17 +490,24 @@ export default function InstructorDashboard({
 
     const protocol = window.location.protocol.toLowerCase();
     const canUseOrigin = protocol === "http:" || protocol === "https:";
-    const originHost = window.location.hostname;
-    const originIsLocalOnly =
-      originHost === "localhost" ||
-      originHost === "127.0.0.1" ||
-      originHost === "::1";
-
-    if (canUseOrigin && !originIsLocalOnly) {
+    if (canUseOrigin) {
       return `${window.location.origin}/trainee?sessionId=${encodeURIComponent(sessionId)}`;
     }
 
     return null;
+  }
+
+  function buildTraineeLandingUrl(): string {
+    const manualLanHost = sanitizeManualLanIp(manualLanIpOverride ?? window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY) ?? "");
+
+    if (manualLanHost) {
+      const { traineeUrl } = generateAccessUrls(manualLanHost);
+      if (traineeUrl) {
+        return traineeUrl;
+      }
+    }
+
+    return `${window.location.origin}/trainee`;
   }
 
   function navigateToDesktopHome() {
@@ -698,6 +767,54 @@ export default function InstructorDashboard({
             </div>
           ) : (
             <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>End a session to see the summary here.</p>
+          )}
+        </section>
+
+        <section style={styles.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Manikin inventory</h2>
+            <span style={{ padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 700, background: "#dbeafe", color: "#1d4ed8" }}>
+              {inventoryItems.length} devices
+            </span>
+          </div>
+
+          {inventoryItems.length === 0 ? (
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>No manikins are registered yet.</p>
+          ) : (
+            <div style={{ display: "grid", gap: "12px" }}>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {(["paired", "pending", "online", "offline", "stale"] as const).map((status) => (
+                  <span key={status} style={{ ...inventoryBadgeStyle(status), display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 700 }}>
+                    {status.charAt(0).toUpperCase() + status.slice(1)}: {inventoryBuckets[status].length}
+                  </span>
+                ))}
+              </div>
+
+              <div style={{ display: "grid", gap: "10px" }}>
+                {inventoryItems.map((entry) => (
+                  <article key={entry.deviceId} style={{ padding: "12px", borderRadius: "10px", border: "1px solid #e2e8f0", background: "#ffffff", display: "grid", gap: "6px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 700, color: "#0f172a" }}>{entry.deviceId}</p>
+                        <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>
+                          {entry.ip ?? "No IP"} • {entry.fw ?? "No firmware"}
+                        </p>
+                      </div>
+                      <span style={{ ...inventoryBadgeStyle(entry.status), display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 700 }}>
+                        {entry.status}
+                      </span>
+                    </div>
+
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
+                      State: {entry.rawStatus ?? entry.state ?? "unknown"} • Last seen: {formatInventoryLastSeen(entry.lastSeen)}
+                    </p>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
+                      Session: {entry.activeSessionId ?? "-"} • Trainee: {entry.activeTraineeId ?? "-"} • Scenario: {entry.activeSessionScenario ?? "-"}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </div>
           )}
         </section>
 
@@ -1152,37 +1269,29 @@ export default function InstructorDashboard({
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Trainee: {activeSession!.traineeId ?? "-"}
                         </p>
-                        {traineeLink ? (
-                          <>
-                            <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                              Trainee Link: {traineeLink}
-                            </p>
-                            <div
-                              style={{
-                                marginTop: "4px",
-                                padding: "10px",
-                                borderRadius: "8px",
-                                border: "1px solid #dbe3ee",
-                                background: "#ffffff",
-                                display: "grid",
-                                justifyItems: "center",
-                                gap: "8px",
-                              }}
-                            >
-                              <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                                Student Dashboard QR
-                              </p>
-                              <QR value={traineeLink} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
-                              <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
-                                Scan from trainee phone to open the live trainee dashboard.
-                              </p>
-                            </div>
-                          </>
-                        ) : (
-                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#b45309" }}>
-                            QR unavailable. Set a LAN host/IP in Setup to generate a scannable trainee URL.
+                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
+                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
+                        </p>
+                        <div
+                          style={{
+                            marginTop: "4px",
+                            padding: "10px",
+                            borderRadius: "8px",
+                            border: "1px solid #dbe3ee",
+                            background: "#ffffff",
+                            display: "grid",
+                            justifyItems: "center",
+                            gap: "8px",
+                          }}
+                        >
+                          <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
+                            Student Dashboard QR
                           </p>
-                        )}
+                          <QR value={traineeLink ?? buildTraineeLandingUrl()} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+                          <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
+                            Scan to open the trainee dashboard. The QR updates to the active session when one starts.
+                          </p>
+                        </div>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button
                             type="button"

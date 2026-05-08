@@ -106,12 +106,21 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="app-shell__header">
-        <div>
-          <p className="app-shell__kicker">ResQ Local Hub</p>
-          <h1 className="app-shell__title">API and MQTT Contracts</h1>
-          <p className="app-shell__subtitle">
-            Local-first instructor workstation aligned with the REST baseline, live session flows, and device diagnostics.
-          </p>
+        <div className="app-shell__brand">
+          <div className="app-shell__logo-wrap" aria-hidden="true">
+            <img
+              src="/resq-logo-dark-512.png"
+              alt=""
+              className="app-shell__logo"
+            />
+          </div>
+          <div>
+            <p className="app-shell__kicker">ResQ Local Hub</p>
+            <h1 className="app-shell__title">Command Center</h1>
+            <p className="app-shell__subtitle">
+              Train smarter with local-first control, live session workflows, and real-time device diagnostics.
+            </p>
+          </div>
         </div>
         <div className="app-shell__userbar">
           <span className={`role-pill role-pill--${currentUser.role.toLowerCase()}`}>{currentUser.role}</span>
@@ -123,7 +132,7 @@ export default function App() {
       </header>
 
       <nav className="app-shell__nav" aria-label="Desktop navigation">
-        <button type="button" className={navClass(page === "home")} onClick={() => setPage("home")}>Contracts</button>
+        <button type="button" className={navClass(page === "home")} onClick={() => setPage("home")}>Home</button>
         <button type="button" className={navClass(page === "instructor")} onClick={() => setPage("instructor")}>Instructor</button>
         <button type="button" className={navClass(page === "trainee")} onClick={() => setPage("trainee")}>Trainee</button>
         <button type="button" className={navClass(page === "setup")} onClick={() => setPage("setup")}>Setup</button>

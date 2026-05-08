@@ -466,7 +466,7 @@ export default function TraineeDashboard({
               Assigned manikin live performance for one active session
             </p>
           </div>
-          {currentUser ? (
+          {currentUser && embeddedInDesktop ? (
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
                 {currentUser.role}

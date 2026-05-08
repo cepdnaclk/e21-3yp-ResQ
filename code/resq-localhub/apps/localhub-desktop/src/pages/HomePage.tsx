@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
+import { AUTH_PERMISSION_RULES } from "@resq/shared";
+import { useAuth } from "../auth/AuthContext";
 import { generateAccessUrls } from "../lib/accessUrls";
+import QrPanel from "../components/QrPanel";
 import {
   fetchHubHealth,
   getApiServiceStatus,
@@ -127,6 +130,10 @@ function getErrorMessage(error: unknown): string {
   return "Unknown error";
 }
 
+function roleMatches(rule: readonly string[], role: string): boolean {
+  return rule.includes(role);
+}
+
 function buttonStyle(disabled: boolean = false): React.CSSProperties {
   return {
     padding: "8px 14px",
@@ -143,6 +150,7 @@ function buttonStyle(disabled: boolean = false): React.CSSProperties {
 }
 
 export default function HomePage({ manualLanIpOverride }: HomePageProps) {
+  const { currentUser } = useAuth();
   const [apiService, setApiService] = useState<ApiServiceStatus>({
     running: false,
     pid: null,
@@ -284,28 +292,42 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
 
   // Generate access URLs from the chosen host/IP
   const { instructorUrl } = generateAccessUrls(chosenLanIp);
+  const qrUnavailableMessage = chosenLanIp
+    ? "QR updates automatically when the LAN host changes."
+    : "Set a LAN host in Setup to generate this clinical access QR.";
   const summaryCards = [
     {
-      label: "REST contracts",
+      label: "Clinical workflows",
       value: String(apiContracts.length),
-      detail: "Frontend aligned with the profile endpoints in the attached API baseline.",
+      detail: "Secure local access for patient training, exports, and diagnostics.",
     },
     {
-      label: "Session surface",
+      label: "Session oversight",
       value: "5",
-      detail: "Start, end, list, inspect, and export completed sessions.",
+      detail: "Start, end, inspect, and export supervised training sessions.",
     },
     {
-      label: "Auth surface",
+      label: "Identity & roles",
       value: "4",
-      detail: "Login, logout, current user, and first-run admin setup.",
+      detail: "Login, logout, current user, and first-run administrator setup.",
     },
     {
-      label: "Device ops",
+      label: "Device readiness",
       value: "4",
       detail: "Manikin, live stream, and device diagnostics entry points.",
     },
   ];
+
+  const effectivePermissions = currentUser
+    ? [
+        ...(roleMatches(AUTH_PERMISSION_RULES.desktop, currentUser.role) ? [{ key: "desktop", label: "Desktop shell" }] : []),
+        ...(roleMatches(AUTH_PERMISSION_RULES.instructor, currentUser.role) ? [{ key: "instructor", label: "Instructor tools" }] : []),
+        ...(roleMatches(AUTH_PERMISSION_RULES.trainee, currentUser.role) ? [{ key: "trainee", label: "Trainee view" }] : []),
+        ...(roleMatches(AUTH_PERMISSION_RULES.setup, currentUser.role) ? [{ key: "setup", label: "Setup" }] : []),
+        ...(roleMatches(AUTH_PERMISSION_RULES.diagnostics, currentUser.role) ? [{ key: "diagnostics", label: "Diagnostics" }] : []),
+        ...(roleMatches(AUTH_PERMISSION_RULES.users, currentUser.role) ? [{ key: "users", label: "User administration" }] : []),
+      ]
+    : [];
 
   const apiTone = apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped";
   const brokerTone = brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped";
@@ -327,10 +349,8 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     <div className="home-dashboard">
       <section className="panel hero-layout">
         <div className="panel hero-panel">
-          <p className="panel__eyebrow">10. API and MQTT Contracts</p>
-          <h2 className="panel__title">10.1 Backend REST API Baseline</h2>
           <p className="panel__description">
-            A contract-first control surface for local authentication, manikin pairing, session control, exports, and diagnostics.
+            A clinical control surface for secure authentication, manikin pairing, session governance, exports, and diagnostics.
           </p>
 
           <div className="hero-panel__actions">
@@ -348,9 +368,9 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
 
         <div className="quick-card">
           <span className={`status-chip status-chip--${apiTone}`}>{apiStatusLabel}</span>
-          <h3 className="quick-card__title">Live service snapshot</h3>
+          <h3 className="quick-card__title">Clinical service snapshot</h3>
           <p className="quick-card__copy">{formatApiDetail(apiHealth)}</p>
-          <p className="quick-card__copy">Broker: {brokerUiState.detail}</p>
+          <p className="quick-card__copy">Telemetry broker: {brokerUiState.detail}</p>
           <p className="quick-card__copy">LAN IP: {chosenLanIp ?? "Not detected"}</p>
           <p className="quick-card__copy">Source: {manualLanIpOverride ? "Manual override" : "Auto-detected host"}</p>
           <div className="hero-panel__actions">
@@ -370,43 +390,31 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
         ))}
       </section>
 
-      <section className="panel table-panel">
-        <div className="panel__header">
-          <div>
-            <p className="panel__eyebrow">Backend REST API baseline</p>
-            <h3 className="panel__title">Relevant API calls for the frontend profile</h3>
-            <p className="panel__description">
-              The table mirrors the routes in the contract screenshot and keeps the frontend focused on the same local-first workflow.
-            </p>
-          </div>
-          <span className="panel__tag">{apiContracts.length} endpoints</span>
-        </div>
-
-        <div className="table-wrap">
-          <table className="contracts-table">
-            <thead>
-              <tr>
-                <th>Method</th>
-                <th>Path</th>
-                <th>Auth</th>
-                <th>Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              {apiContracts.map((contract) => (
-                <tr key={`${contract.method}-${contract.path}`}>
-                  <td><span className={`method-badge method-badge--${contract.method.toLowerCase()}`}>{contract.method}</span></td>
-                  <td><code>{contract.path}</code></td>
-                  <td><span className="auth-badge">{contract.auth}</span></td>
-                  <td>{contract.purpose}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <section className="rounded-3xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4 shadow-sm">
+        <QrPanel instructorUrl={instructorUrl} unavailableMessage={qrUnavailableMessage} />
       </section>
 
       <section className="surface-grid">
+        <article className="quick-card">
+          <h3 className="quick-card__title">Current operator</h3>
+          <p className="quick-card__copy">{currentUser?.displayName ?? "No active user"}</p>
+          <p className="quick-card__copy">Username: {currentUser?.username ?? "-"}</p>
+          <span className={`status-chip status-chip--${currentUser ? "running" : "stopped"}`}>
+            {currentUser?.role ?? "Unknown role"}
+          </span>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+            {effectivePermissions.length > 0 ? (
+              effectivePermissions.map((permission) => (
+                <span key={permission.key} className="status-chip status-chip--healthy">
+                  {permission.label}
+                </span>
+              ))
+            ) : (
+              <span className="status-chip status-chip--stopped">No derived permissions</span>
+            )}
+          </div>
+        </article>
+
         <article className="quick-card">
           <h3 className="quick-card__title">API readiness</h3>
           <p className="quick-card__copy">{apiStatusLabel}</p>

@@ -10,47 +10,18 @@ function QrTile({ title, url }: { title: string; url: string | null }) {
   const hasUrl = Boolean(url);
 
   return (
-    <article
-      style={{
-        border: "1px solid #dbe3ee",
-        borderRadius: "12px",
-        padding: "12px",
-        display: "grid",
-        gap: "10px",
-        justifyItems: "center",
-      }}
-    >
-      <h4 style={{ margin: 0, fontSize: "0.95rem" }}>{title}</h4>
+    <article style={{ padding: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", textAlign: "center" }}>
+      <h4 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: "600" }}>{title}</h4>
       {hasUrl && url ? (
-        <QR value={url} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+        <div style={{ padding: "12px", display: "inline-block" }}>
+          <QR value={url} size={168} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+        </div>
       ) : (
-        <div
-          style={{
-            width: 144,
-            height: 144,
-            borderRadius: "10px",
-            border: "1px dashed #cbd5e1",
-            display: "grid",
-            placeItems: "center",
-            color: "#64748b",
-            fontSize: "0.85rem",
-            textAlign: "center",
-            padding: "8px",
-          }}
-        >
+        <div style={{ height: "168px", width: "168px", display: "flex", alignItems: "center", justifyContent: "center", border: "1px dashed #d1d5db", borderRadius: "8px", backgroundColor: "#f9fafb", margin: "0 auto", color: "#6b7280", fontSize: "14px" }}>
           URL unavailable
         </div>
       )}
-      <p
-        style={{
-          margin: 0,
-          color: "#475569",
-          fontSize: "0.82rem",
-          lineHeight: 1.35,
-          wordBreak: "break-all",
-          textAlign: "center",
-        }}
-      >
+      <p style={{ margin: "8px 0 0", fontSize: "13px", color: "#6b7280", wordBreak: "break-all" }}>
         {url ?? "Set a LAN host in Setup to generate this QR."}
       </p>
     </article>
@@ -59,27 +30,21 @@ function QrTile({ title, url }: { title: string; url: string | null }) {
 
 export default function QrPanel({ instructorUrl, unavailableMessage }: QrPanelProps) {
   return (
-    <section
-      style={{
-        border: "1px solid #dbe3ee",
-        borderRadius: "12px",
-        padding: "14px",
-        background: "#ffffff",
-        boxShadow: "0 3px 10px rgba(15, 23, 42, 0.04)",
-      }}
-    >
-      <h3 style={{ marginTop: 0, marginBottom: "6px" }}>Access QR Codes</h3>
-      <p style={{ marginTop: 0, marginBottom: "12px", color: "#64748b", fontSize: "0.92rem" }}>
-        Scan to open local dashboards. Keep devices on the same LAN.
+    <section style={{ padding: "20px", border: "1px solid #e5e7eb", borderRadius: "8px", backgroundColor: "#ffffff" }}>
+      <div style={{ marginBottom: "16px" }}>
+        <h3 style={{ margin: "0", fontSize: "18px", fontWeight: "600", color: "#1f2937" }}>Access QR</h3>
+      </div>
+      <p style={{ margin: "0 0 16px", fontSize: "14px", color: "#6b7280", lineHeight: "1.5" }}>
+        Scan to open secure local dashboards used for clinical training and device oversight.
       </p>
 
       {!instructorUrl ? (
-        <p style={{ marginTop: 0, marginBottom: "12px", color: "#b45309", fontSize: "0.88rem" }}>
+        <p style={{ margin: "0 0 16px", fontSize: "14px", color: "#b45309" }}>
           {unavailableMessage}
         </p>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" }}>
+      <div>
         <QrTile title="Instructor Dashboard" url={instructorUrl} />
       </div>
     </section>
