@@ -12,6 +12,7 @@
 #include "session_manager.h"
 #include "command_handler.h"
 #include "resq_protocol.h"
+#include "config_store.h"
 
 static const char *TAG = "mqtt_manager";
 
@@ -22,9 +23,9 @@ static device_config_t s_cfg;
 static char s_lwt_topic[128];
 static char s_lwt_msg[256];
 
-static void build_topic(char *out, size_t out_len, const char *suffix)
+static esp_err_t build_topic(char *out, size_t out_len, const char *suffix)
 {
-    resq_topic_build(out, out_len, s_cfg.device_id, suffix);
+    return resq_build_topic(s_cfg.device_id, suffix, out, out_len);
 }
 
 esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos, int retain)
@@ -34,7 +35,11 @@ esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos,
     }
 
     char topic[128];
-    build_topic(topic, sizeof(topic), suffix);
+    esp_err_t err = build_topic(topic, sizeof(topic), suffix);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to build publish topic for suffix=%s", suffix);
+        return err;
+    }
 
     int msg_id = esp_mqtt_client_publish(s_client, topic, payload, 0, qos, retain);
     if (msg_id < 0) {
@@ -59,6 +64,38 @@ static void publish_state(const char *state)
     }
 }
 
+static esp_err_t mqtt_subscribe_suffix(const char *device_id, const char *suffix, int qos)
+{
+    if (!device_id || !suffix || device_id[0] == '\0') {
+        ESP_LOGW(TAG, "cannot subscribe, missing device_id or suffix");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char topic[160];
+
+    esp_err_t err = resq_build_topic(
+        device_id,
+        suffix,
+        topic,
+        sizeof(topic)
+    );
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to build subscribe topic for suffix=%s", suffix);
+        return err;
+    }
+
+    int msg_id = esp_mqtt_client_subscribe(s_client, topic, qos);
+
+    if (msg_id < 0) {
+        ESP_LOGE(TAG, "subscribe failed: %s", topic);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "subscribed: %s", topic);
+    return ESP_OK;
+}
+
 static void mqtt_event_handler(
     void *handler_args,
     esp_event_base_t base,
@@ -76,28 +113,19 @@ static void mqtt_event_handler(
             s_connected = true;
             ESP_LOGI(TAG, "MQTT connected");
 
-            char topic[128];
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_SESSION_START, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_SESSION_STOP, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DIAG_PING, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DIAG_REQUEST, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DEVICE_RESET, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DEVICE_UNPAIR, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_CONFIG_UPDATE, 1);
 
-            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_SESSION_START);
-            esp_mqtt_client_subscribe(s_client, topic, 1);
-
-            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_SESSION_STOP);
-            esp_mqtt_client_subscribe(s_client, topic, 1);
-
-            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DIAG_PING);
-            esp_mqtt_client_subscribe(s_client, topic, 1);
-
-            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DIAG_REQUEST);
-            esp_mqtt_client_subscribe(s_client, topic, 1);
-
-            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DEVICE_RESET);
-            esp_mqtt_client_subscribe(s_client, topic, 1);
-
-            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_DEVICE_UNPAIR);
-            esp_mqtt_client_subscribe(s_client, topic, 1);
-
-            build_topic(topic, sizeof(topic), RESQ_SUFFIX_CMD_CONFIG_UPDATE);
-            esp_mqtt_client_subscribe(s_client, topic, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_CALIBRATION_START, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_CALIBRATION_CAPTURE_NORMAL, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_CALIBRATION_CAPTURE_DEPTH, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_CALIBRATION_VALIDATE, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_CALIBRATION_CANCEL, 1);
 
             publish_state("ONLINE");
             break;
@@ -154,7 +182,11 @@ esp_err_t mqtt_manager_init(const device_config_t *cfg)
     char uri[128];
     snprintf(uri, sizeof(uri), "mqtt://%s:%d", s_cfg.mqtt_host, s_cfg.mqtt_port);
 
-    resq_topic_build(s_lwt_topic, sizeof(s_lwt_topic), s_cfg.device_id, RESQ_SUFFIX_STATUS);
+    esp_err_t err = build_topic(s_lwt_topic, sizeof(s_lwt_topic), RESQ_SUFFIX_STATUS);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to build LWT topic");
+        return err;
+    }
 
     char *offline_payload = resq_payload_status(
         s_cfg.device_id,

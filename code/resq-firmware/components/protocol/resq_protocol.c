@@ -11,28 +11,6 @@ static const char *safe_str(const char *s)
     return (s != NULL) ? s : "";
 }
 
-size_t resq_topic_build(char *out, size_t out_len, const char *device_id, const char *suffix)
-{
-    if (out == NULL || out_len == 0) {
-        return 0;
-    }
-
-    int written = snprintf(
-        out,
-        out_len,
-        "resq/manikins/%s/%s",
-        safe_str(device_id),
-        safe_str(suffix)
-    );
-
-    if (written < 0) {
-        out[0] = '\0';
-        return 0;
-    }
-
-    return (size_t)written;
-}
-
 char *resq_payload_status(
     const char *device_id,
     const char *state,
