@@ -12,7 +12,11 @@
 #define INDICATOR_TASK_STACK_SIZE 2048
 #define INDICATOR_TASK_PRIORITY      2
 
-static indicator_state_t s_state = INDICATOR_STATE_OFF;
+/*
+ * This is written by other tasks and read by indicator_task.
+ * volatile is enough for this simple state flag.
+ */
+static volatile indicator_state_t s_state = INDICATOR_STATE_OFF;
 static TaskHandle_t s_task_handle = NULL;
 
 static void led_on(void)
@@ -48,50 +52,130 @@ static void indicator_task(void *arg)
                 break;
 
             case INDICATOR_STATE_PROVISIONING:
+                buzzer_off();
+
                 led_on();
                 vTaskDelay(pdMS_TO_TICKS(500));
+
                 led_off();
                 vTaskDelay(pdMS_TO_TICKS(500));
                 break;
 
             case INDICATOR_STATE_WIFI_CONNECTING:
+                buzzer_off();
+
                 led_on();
                 vTaskDelay(pdMS_TO_TICKS(150));
+
                 led_off();
                 vTaskDelay(pdMS_TO_TICKS(150));
                 break;
 
             case INDICATOR_STATE_ONLINE_IDLE:
-                led_on();
+                /*
+                 * Device is connected and waiting.
+                 */
                 buzzer_off();
+                led_on();
                 vTaskDelay(pdMS_TO_TICKS(300));
                 break;
 
-            case INDICATOR_STATE_SESSION_ACTIVE:
+            case INDICATOR_STATE_CALIBRATING:
+                /*
+                 * Pre-session calibration is running.
+                 * Pattern: medium blink.
+                 */
+                buzzer_off();
+
                 led_on();
                 vTaskDelay(pdMS_TO_TICKS(250));
+
                 led_off();
                 vTaskDelay(pdMS_TO_TICKS(250));
                 break;
 
+            case INDICATOR_STATE_READY_FOR_SESSION:
+                /*
+                 * Calibration passed.
+                 * Pattern: solid LED, no buzzer.
+                 */
+                buzzer_off();
+                led_on();
+                vTaskDelay(pdMS_TO_TICKS(300));
+                break;
+
+            case INDICATOR_STATE_CALIBRATION_FAIL:
+                /*
+                 * Calibration failed.
+                 * Pattern: slow warning blink + short buzzer pulse.
+                 */
+                led_on();
+                buzzer_on();
+                vTaskDelay(pdMS_TO_TICKS(120));
+
+                buzzer_off();
+                vTaskDelay(pdMS_TO_TICKS(180));
+
+                led_off();
+                vTaskDelay(pdMS_TO_TICKS(700));
+                break;
+
+            case INDICATOR_STATE_SESSION_ACTIVE:
+                /*
+                 * Real CPR session is active.
+                 * Pattern: fast/regular blink.
+                 */
+                buzzer_off();
+
+                led_on();
+                vTaskDelay(pdMS_TO_TICKS(250));
+
+                led_off();
+                vTaskDelay(pdMS_TO_TICKS(250));
+                break;
+
+            case INDICATOR_STATE_SESSION_INTERRUPTED:
+                /*
+                 * Session was interrupted by Wi-Fi/MQTT/sensor issue.
+                 * Pattern: slower blink, no buzzer.
+                 */
+                buzzer_off();
+
+                led_on();
+                vTaskDelay(pdMS_TO_TICKS(700));
+
+                led_off();
+                vTaskDelay(pdMS_TO_TICKS(700));
+                break;
+
             case INDICATOR_STATE_FAULT:
+                /*
+                 * Hard fault.
+                 * Pattern: double pulse with buzzer.
+                 */
                 led_on();
                 buzzer_on();
                 vTaskDelay(pdMS_TO_TICKS(100));
+
                 led_off();
                 buzzer_off();
                 vTaskDelay(pdMS_TO_TICKS(100));
+
                 led_on();
                 buzzer_on();
                 vTaskDelay(pdMS_TO_TICKS(100));
+
                 led_off();
                 buzzer_off();
                 vTaskDelay(pdMS_TO_TICKS(600));
                 break;
 
             case INDICATOR_STATE_RESETTING:
+                buzzer_off();
+
                 led_on();
                 vTaskDelay(pdMS_TO_TICKS(70));
+
                 led_off();
                 vTaskDelay(pdMS_TO_TICKS(70));
                 break;
@@ -122,6 +206,7 @@ esp_err_t status_indicator_init(void)
 
     led_off();
     buzzer_off();
+
     s_state = INDICATOR_STATE_OFF;
 
     return ESP_OK;

@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 
+
 /*
  * Initialize the hall sensor structure and configure the ADC channel.
  * - Stores the selected ADC channel and baseline value

@@ -42,7 +42,34 @@ typedef struct {
     int hall_max_delta;
     int compression_start_delta;
     int sensor_sample_interval_ms;
-    
+
+    // Calibration profile identity
+    char calibration_profile_id[CONFIG_STR_SMALL];
+
+    // Base reference pressure expected at rest
+    int force1_base_reference;
+    int force2_base_reference;
+    int force_base_tolerance_pct;
+
+    // Normal/rest position validation
+    int normal_hall_tolerance;
+    int normal_pressure_tolerance;
+
+    // Full compression depth mapping
+    int full_depth_target_mm;
+    int full_depth_hall_delta;
+    int full_depth_tolerance_pct;
+
+    // Recoil and hand placement
+    int recoil_return_threshold_delta;
+    int max_pressure_imbalance_pct;
+
+    // Calibration timing
+    int calibration_window_ms;
+
+    // Behavior flags
+    bool calibration_required;
+    bool debug_raw_enabled;   
 } device_config_t;
 
 /**
@@ -71,6 +98,8 @@ esp_err_t config_store_clear(void);
  * @brief Fast check for provisioned state.
  */
 bool config_store_is_provisioned(void);
+
+bool config_store_calibration_values_valid(const device_config_t *cfg);
 
 #ifdef __cplusplus
 }

@@ -21,4 +21,5 @@ idf_component_register(
         esp_system
         espressif__cjson
         esp_driver_gpio
+        calibration_manager
 )

@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "cJSON.h"
 #include "esp_event.h"
@@ -65,7 +66,27 @@ esp_err_t mqtt_manager_publish(const char *suffix, const char *payload, int qos,
     return ESP_OK;
 }
 
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+static void publish_state(const char *state)
+{
+    char *payload = resq_payload_status(
+        s_cfg.device_id,
+        state,
+        session_manager_is_active(),
+        session_manager_get_id()
+    );
+
+    if (payload) {
+        mqtt_manager_publish(RESQ_SUFFIX_STATUS, payload, 1, 1);
+        cJSON_free(payload);
+    }
+}
+
+static void mqtt_event_handler(
+    void *handler_args,
+    esp_event_base_t base,
+    int32_t event_id,
+    void *event_data
+)
 {
     (void)handler_args;
     (void)base;

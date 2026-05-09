@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+
 #include "cJSON.h"
 
 static const char *safe_str(const char *s)
@@ -243,4 +244,125 @@ char *resq_payload_identity_event(
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return payload;
+}
+
+esp_err_t resq_build_topic(
+    const char *device_id,
+    const char *suffix,
+    char *out,
+    size_t out_len
+) {
+    if (!device_id || !suffix || !out || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int written = snprintf(
+        out,
+        out_len,
+        "resq/manikins/%s/%s",
+        device_id,
+        suffix
+    );
+
+    if (written < 0 || written >= (int)out_len) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t resq_payload_metric_telemetry(
+    const char *device_id,
+    const char *manikin_id,
+    const char *session_id,
+    uint64_t ts_ms,
+    float depth_mm,
+    float rate_cpm,
+    bool recoil_ok,
+    float pause_s,
+    int compression_count,
+    const char *hand_placement,
+    const char *flags_json,
+    bool debug_raw_enabled,
+    char *out,
+    size_t out_len
+) {
+    if (!device_id || !manikin_id || !session_id || !out || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /*
+     * IMPORTANT:
+     * debugRaw is intentionally NOT included here yet.
+     * Add it later only when debug_raw_enabled is true and raw values are passed in.
+     */
+    int written = snprintf(
+        out,
+        out_len,
+        "{"
+            "\"deviceId\":\"%s\","
+            "\"manikinId\":\"%s\","
+            "\"sessionId\":\"%s\","
+            "\"tsMs\":%llu,"
+            "\"depthMm\":%.1f,"
+            "\"rateCpm\":%.1f,"
+            "\"recoilOk\":%s,"
+            "\"pauseS\":%.2f,"
+            "\"compressionCount\":%d,"
+            "\"handPlacement\":\"%s\","
+            "\"flags\":%s"
+        "}",
+        device_id,
+        manikin_id,
+        session_id,
+        (unsigned long long)ts_ms,
+        depth_mm,
+        rate_cpm,
+        recoil_ok ? "true" : "false",
+        pause_s,
+        compression_count,
+        hand_placement ? hand_placement : "UNKNOWN",
+        flags_json ? flags_json : "[]"
+    );
+
+    if (written < 0 || written >= (int)out_len) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t resq_payload_calibration_report(
+    const char *device_id,
+    const char *profile_id,
+    const char *result,
+    bool ready_for_session,
+    char *out,
+    size_t out_len
+) {
+    if (!device_id || !profile_id || !result || !out || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int written = snprintf(
+        out,
+        out_len,
+        "{"
+            "\"event_type\":\"calibration_report\","
+            "\"device_id\":\"%s\","
+            "\"profileId\":\"%s\","
+            "\"result\":\"%s\","
+            "\"readyForSession\":%s"
+        "}",
+        device_id,
+        profile_id,
+        result,
+        ready_for_session ? "true" : "false"
+    );
+
+    if (written < 0 || written >= (int)out_len) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    return ESP_OK;
 }

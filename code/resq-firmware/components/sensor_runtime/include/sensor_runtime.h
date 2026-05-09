@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include <stdint.h>
+
 
 #include "esp_err.h"
 #include "cpr_logic.h"
@@ -12,8 +12,8 @@ extern "C" {
 #endif
 
 typedef struct {
-    int32_t force1;
-    int32_t force2;
+    int force1;
+    int force2;
 
     bool force1_ok;
     bool force2_ok;
