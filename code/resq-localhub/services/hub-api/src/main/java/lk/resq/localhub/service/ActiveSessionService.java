@@ -281,6 +281,8 @@ public class ActiveSessionService {
         return findActiveSessionForDevice(summary.deviceId())
                 .map(session -> new ManikinLiveSummary(
                         summary.deviceId(),
+                        summary.sessionId(),
+                        summary.manikinId(),
                         summary.online(),
                         summary.lastSeen(),
                         summary.state(),
@@ -302,7 +304,12 @@ public class ActiveSessionService {
                         session.sessionId(),
                         session.traineeId(),
                         session.startedAt(),
-                        session.scenario()
+                        session.scenario(),
+                        summary.latestMetric(),
+                        summary.seq(),
+                        summary.connectionState(),
+                        summary.stale(),
+                        summary.offline()
                 ))
                 .orElse(summary);
     }
@@ -334,6 +341,7 @@ public class ActiveSessionService {
         return Optional.of(new SessionLiveView(
                 state.sessionId,
                 state.deviceId,
+                summary != null ? summary.manikinId() : null,
                 state.traineeId,
                 state.active,
                 state.startedAt,
@@ -356,7 +364,12 @@ public class ActiveSessionService {
                 liveForce1,
                 liveForce2,
                 livePressureBalancePct,
-                livePressureSkewed
+                livePressureSkewed,
+                summary != null ? summary.latestMetric() : null,
+                summary != null ? summary.seq() : null,
+                summary != null ? summary.connectionState() : "CONNECTING",
+                summary != null && summary.stale(),
+                summary == null || summary.offline()
         ));
     }
 

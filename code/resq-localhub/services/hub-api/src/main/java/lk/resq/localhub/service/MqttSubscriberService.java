@@ -177,11 +177,13 @@ public class MqttSubscriberService {
                 case "status" -> {
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT status message for {}", parsedTopic.deviceId);
                 }
                 case "heartbeat" -> {
                     manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
@@ -199,11 +201,13 @@ public class MqttSubscriberService {
                     activeSessionService.recordTelemetry(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForDevice(parsedTopic.deviceId);
+                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT telemetry message for {} and forwarded to active-session accumulator", parsedTopic.deviceId);
                 }
                 case "events" -> {
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT event message for {}", parsedTopic.deviceId);
                 }
                 default -> {
@@ -302,6 +306,36 @@ public class MqttSubscriberService {
         activeSessionService.findActiveSessionForDevice(deviceId)
                 .flatMap(info -> activeSessionService.getSessionLiveView(info.sessionId()))
                 .ifPresent(view -> liveStreamService.publishSessionLive(view.sessionId(), view));
+    }
+
+    private void publishSessionLiveForPayload(JsonNode payload) {
+        String sessionId = text(payload, "sessionId");
+        if (sessionId == null) {
+            sessionId = text(payload, "session_id");
+        }
+
+        if (sessionId == null) {
+            return;
+        }
+
+        String resolvedSessionId = sessionId;
+        activeSessionService.getSessionLiveView(resolvedSessionId)
+                .or(() -> manikinRegistryService.getSessionLiveView(resolvedSessionId))
+                .ifPresent(view -> liveStreamService.publishSessionLive(resolvedSessionId, view));
+    }
+
+    private static String text(JsonNode payload, String key) {
+        if (payload == null) {
+            return null;
+        }
+
+        JsonNode node = payload.get(key);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+
+        String value = node.asText().trim();
+        return value.isEmpty() ? null : value;
     }
 
     private record ParsedTopic(String deviceId, String messageType) {

@@ -11,6 +11,7 @@ import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.MqttCommandPublishException;
+import lk.resq.localhub.service.ManikinRegistryService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,10 +32,12 @@ public class SessionController {
 
     private final ActiveSessionService activeSessionService;
     private final AuthService authService;
+    private final ManikinRegistryService manikinRegistryService;
 
-    public SessionController(ActiveSessionService activeSessionService, AuthService authService) {
+    public SessionController(ActiveSessionService activeSessionService, AuthService authService, ManikinRegistryService manikinRegistryService) {
         this.activeSessionService = activeSessionService;
         this.authService = authService;
+        this.manikinRegistryService = manikinRegistryService;
     }
 
     @PostMapping("/start")
@@ -123,6 +126,7 @@ public class SessionController {
         try {
             AuthUser actor = authService.requireAuth(request);
             return activeSessionService.getSessionLiveView(sessionId)
+                    .or(() -> manikinRegistryService.getSessionLiveView(sessionId))
                     .<ResponseEntity<?>>map(session -> {
                         if (actor.role() == UserRole.TRAINEE && (session.traineeId() == null || !session.traineeId().equalsIgnoreCase(actor.username()))) {
                             throw new ForbiddenException("You can only view your own active session.");

@@ -63,7 +63,9 @@ public class LiveStreamController {
         try {
             // TODO: allow TRAINEE to subscribe to their own session when ownership is implemented.
             authService.requireRole(request, UserRole.INSTRUCTOR);
-            SessionLiveView initialPayload = activeSessionService.getSessionLiveView(sessionId).orElse(null);
+            SessionLiveView initialPayload = activeSessionService.getSessionLiveView(sessionId)
+                    .or(() -> manikinRegistryService.getSessionLiveView(sessionId))
+                    .orElse(null);
             SseEmitter emitter = liveStreamService.subscribeSession(sessionId, initialPayload);
             return ResponseEntity.ok(emitter);
         } catch (ForbiddenException e) {

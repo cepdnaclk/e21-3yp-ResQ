@@ -1,7 +1,9 @@
 package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
+import lk.resq.localhub.model.SessionLiveView;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +22,7 @@ public class ManikinRegistryService {
 
     private final Duration staleAfter;
     private final ConcurrentMap<String, MutableManikinState> registry = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, String> deviceIdBySessionId = new ConcurrentHashMap<>();
 
     public ManikinRegistryService(@Value("${resq.live.stale-after-seconds:12}") long staleAfterSeconds) {
         this.staleAfter = Duration.ofSeconds(Math.max(1L, staleAfterSeconds));
@@ -29,6 +32,8 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
+            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            indexSession(state);
             state.state = firstText(payload, "state", "status", state.state);
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
@@ -40,6 +45,9 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
+            state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
+            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            indexSession(state);
             state.state = firstText(payload, "state", "status", state.state);
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
@@ -53,10 +61,20 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
+            state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
+            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            state.seq = firstLong(payload, state.seq, "seq");
             state.latestDepthMm = firstDouble(payload, state.latestDepthMm, "depthMm", "depth_mm", "current_delta");
             state.latestRateCpm = firstDouble(payload, state.latestRateCpm, "rateCpm", "rate_cpm", "total_compressions");
             state.latestRecoilOk = firstBoolean(payload, state.latestRecoilOk, "recoilOk", "recoil_ok", "recoil");
             state.latestPauseS = firstDouble(payload, state.latestPauseS, "pauseS", "pause_s");
+            Integer compressionCount = firstInt(payload, "compressionCount", null);
+            if (compressionCount == null) {
+                compressionCount = firstInt(payload, "compression_count", null);
+            }
+            if (compressionCount == null) {
+                compressionCount = firstInt(payload, "total_compressions", null);
+            }
             state.latestForce1 = firstLong(payload, state.latestForce1, "force1");
             state.latestForce2 = firstLong(payload, state.latestForce2, "force2");
 
@@ -69,6 +87,24 @@ public class ManikinRegistryService {
 
             String feedback = firstText(payload, "feedback", "eventType", null);
             state.latestFlags = firstFlags(payload, "flags", feedback != null ? feedback : state.latestFlags);
+            state.latestMetric = new LiveMetricPayload(
+                    firstText(payload, "deviceId", "device_id", state.deviceId),
+                    state.manikinId,
+                    state.sessionId,
+                    state.seq,
+                    firstLong(payload, null, "tsMs", "ts_ms"),
+                    jsonValue(payload.get("timestamp")),
+                    state.latestDepthMm,
+                    state.latestRateCpm,
+                    state.latestRecoilOk,
+                    state.latestPauseS,
+                    compressionCount,
+                    firstText(payload, "handPlacement", "hand_placement", null),
+                    jsonValue(payload.get("flags")),
+                    firstText(payload, "sourceMode", "source_mode", null),
+                    jsonValue(payload.get("debugRaw"))
+            );
+            indexSession(state);
         });
     }
 
@@ -76,6 +112,8 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
+            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            indexSession(state);
             state.lastEventType = firstText(payload, "eventType", "type", state.lastEventType);
         });
     }
@@ -98,6 +136,21 @@ public class ManikinRegistryService {
         }
 
         return Optional.of(toSummary(state));
+    }
+
+    public Optional<SessionLiveView> getSessionLiveView(String sessionId) {
+        markStaleOffline();
+        String deviceId = deviceIdBySessionId.get(sessionId);
+        if (deviceId == null) {
+            return Optional.empty();
+        }
+
+        MutableManikinState state = registry.get(deviceId);
+        if (state == null) {
+            return Optional.empty();
+        }
+
+        return Optional.of(toSessionLiveView(state, sessionId));
     }
 
     private void upsert(String deviceId, Consumer<MutableManikinState> updater) {
@@ -134,8 +187,12 @@ public class ManikinRegistryService {
     }
 
     private ManikinLiveSummary toSummary(MutableManikinState state) {
+        boolean stale = isStale(state);
+        boolean offline = !state.online;
         return new ManikinLiveSummary(
                 state.deviceId,
+                state.sessionId,
+                state.manikinId,
                 state.online,
                 state.lastSeen,
                 state.state,
@@ -157,8 +214,74 @@ public class ManikinRegistryService {
                 null,
                 null,
                 null,
-                null
+                null,
+                state.latestMetric,
+                state.seq,
+                connectionState(state, stale, offline),
+                stale,
+                offline
         );
+    }
+
+    private SessionLiveView toSessionLiveView(MutableManikinState state, String sessionId) {
+        boolean stale = isStale(state);
+        boolean offline = !state.online;
+        return new SessionLiveView(
+                sessionId,
+                state.deviceId,
+                state.manikinId,
+                null,
+                Boolean.TRUE.equals(state.sessionActive),
+                null,
+                null,
+                null,
+                state.lastSeen,
+                state.state,
+                state.online,
+                state.ip,
+                state.fw,
+                state.rssi,
+                state.battery,
+                state.sessionActive,
+                state.latestDepthMm,
+                state.latestRateCpm,
+                state.latestRecoilOk,
+                state.latestPauseS,
+                state.latestFlags,
+                state.lastEventType,
+                state.latestForce1,
+                state.latestForce2,
+                state.pressureBalancePct,
+                state.pressureSkewed,
+                state.latestMetric,
+                state.seq,
+                connectionState(state, stale, offline),
+                stale,
+                offline
+        );
+    }
+
+    private void indexSession(MutableManikinState state) {
+        if (state.sessionId != null && !state.sessionId.isBlank()) {
+            deviceIdBySessionId.put(state.sessionId, state.deviceId);
+        }
+    }
+
+    private boolean isStale(MutableManikinState state) {
+        return state.lastSeen != null && Duration.between(state.lastSeen, Instant.now()).compareTo(staleAfter) > 0;
+    }
+
+    private String connectionState(MutableManikinState state, boolean stale, boolean offline) {
+        if (offline) {
+            return "OFFLINE";
+        }
+        if (stale) {
+            return "STALE";
+        }
+        if (state.lastSeen == null) {
+            return "CONNECTING";
+        }
+        return "BACKEND_SSE_FALLBACK";
     }
 
     private static String firstText(JsonNode payload, String firstKey, String secondKey, String fallback) {
@@ -255,10 +378,32 @@ public class ManikinRegistryService {
         return node.toString();
     }
 
+    private static Object jsonValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        if (node.isBoolean()) {
+            return node.asBoolean();
+        }
+        if (node.isIntegralNumber()) {
+            return node.asLong();
+        }
+        if (node.isFloatingPointNumber()) {
+            return node.asDouble();
+        }
+        return node;
+    }
+
     private static class MutableManikinState {
         private final String deviceId;
         private boolean online;
         private Instant lastSeen;
+        private String sessionId;
+        private String manikinId;
+        private Long seq;
         private String state;
         private String ip;
         private String fw;
@@ -275,6 +420,7 @@ public class ManikinRegistryService {
         private Long latestForce2;
         private Double pressureBalancePct;
         private Boolean pressureSkewed;
+        private LiveMetricPayload latestMetric;
 
         private MutableManikinState(String deviceId) {
             this.deviceId = deviceId;
