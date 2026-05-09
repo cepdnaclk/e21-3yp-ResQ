@@ -54,12 +54,17 @@ export function useLiveSession(options: UseLiveSessionOptions): LiveClientState 
       ...previous,
       deviceId,
       sessionId,
+      latestMetric: null,
+      lastSeenAt: null,
       connectionState: clientOptions.enabled ? "CONNECTING" : "OFFLINE",
       sourceMode: "NONE",
       stale: false,
       offline: !clientOptions.enabled,
       error: null,
       message: null,
+      lastHeartbeatAt: null,
+      lastStatusAt: null,
+      lastEventType: null,
     }));
 
     if (!clientOptions.enabled) {
