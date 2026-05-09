@@ -202,8 +202,24 @@ public class MqttSubscriberService {
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
+                    TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                            TelemetryPayloadNormalizer.normalize(payload);
+                    if (!normalization.ok()) {
+                        long rejected = rejectedTelemetryCount.incrementAndGet();
+                        logger.warn(
+                                "Rejected MQTT telemetry for device {} on topic {} during normalization: {} (accepted={}, rejected={})",
+                                parsedTopic.deviceId,
+                                topic,
+                                normalization.reason(),
+                                acceptedTelemetryCount.get(),
+                                rejected
+                        );
+                        return;
+                    }
+
+                    JsonNode normalizedPayload = objectMapper.valueToTree(normalization.value());
                     ActiveSessionService.TelemetryValidationResult validation =
-                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, payload);
+                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, normalizedPayload);
                     if (!validation.accepted()) {
                         long rejected = rejectedTelemetryCount.incrementAndGet();
                         logger.warn(
@@ -217,8 +233,17 @@ public class MqttSubscriberService {
                         return;
                     }
 
-                    manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, payload);
-                    activeSessionService.recordTelemetry(parsedTopic.deviceId, payload);
+                    if (!normalization.warnings().isEmpty()) {
+                        logger.info(
+                                "Normalized MQTT telemetry for device {} session {} with warnings: {}",
+                                validation.deviceId(),
+                                validation.sessionId(),
+                                normalization.warnings()
+                        );
+                    }
+
+                    manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, normalizedPayload);
+                    activeSessionService.recordTelemetry(parsedTopic.deviceId, normalizedPayload);
                     long accepted = acceptedTelemetryCount.incrementAndGet();
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForDevice(parsedTopic.deviceId);

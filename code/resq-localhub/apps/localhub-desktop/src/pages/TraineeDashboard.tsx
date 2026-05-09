@@ -94,10 +94,6 @@ type SensorPoint = {
   rateCpm: number | null;
   pauseS: number | null;
   recoilOk: boolean | null;
-  force1: number | null;
-  force2: number | null;
-  pressureBalancePct: number | null;
-  pressureSkewed: boolean | null;
   flags: string | null;
 };
 
@@ -330,10 +326,6 @@ export default function TraineeDashboard({
         rateCpm: metric.rateCpm,
         pauseS: metric.pauseS,
         recoilOk: metric.recoilOk,
-        force1: null,
-        force2: null,
-        pressureBalancePct: null,
-        pressureSkewed: null,
         flags: Array.isArray(metric.flags) ? metric.flags.join(", ") : metric.flags,
       },
     ].slice(-MAX_SENSOR_POINTS));
@@ -377,11 +369,6 @@ export default function TraineeDashboard({
   const rateSeries = sensorHistory.map((point) => point.rateCpm);
   const pauseSeries = sensorHistory.map((point) => point.pauseS);
   const recoilSeries = sensorHistory.map((point) => point.recoilOk);
-  const force1Series = sensorHistory.map((point) => point.force1);
-  const force2Series = sensorHistory.map((point) => point.force2);
-  const balanceSeries = sensorHistory.map((point) => point.pressureBalancePct);
-  const latestBalance = sensorHistory.length > 0 ? sensorHistory[sensorHistory.length - 1].pressureBalancePct : null;
-  const latestSkewed = sensorHistory.length > 0 ? sensorHistory[sensorHistory.length - 1].pressureSkewed : null;
   const recentFlags = sensorHistory
     .map((point) => point.flags)
     .filter((value): value is string => Boolean(value && value.trim()))
@@ -598,18 +585,12 @@ export default function TraineeDashboard({
                 Rolling window of last {MAX_SENSOR_POINTS} updates. Use this to quickly confirm sensor behavior.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
-                <Sparkline values={depthSeries} color="#0ea5e9" label="Depth / Delta" />
-                <Sparkline values={rateSeries} color="#22c55e" label="Rate / Compression Trend" />
+                <Sparkline values={depthSeries} color="#0ea5e9" label="Depth" />
+                <Sparkline values={rateSeries} color="#22c55e" label="Rate" />
                 <Sparkline values={pauseSeries} color="#f97316" label="Pause" />
-                <Sparkline values={force1Series} color="#2563eb" label="Force Graph A (Bladder 1)" />
-                <Sparkline values={force2Series} color="#7c3aed" label="Force Graph B (Bladder 2)" />
-                <Sparkline values={balanceSeries} color="#0891b2" label="Pressure Balance (%)" />
                 <RecoilTimeline values={recoilSeries} />
               </div>
               <div style={{ marginTop: "10px", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px", background: "#f8fafc" }}>
-                <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                  Live Balance: {latestBalance === null ? "-" : `${latestBalance.toFixed(1)}%`} | Status: {latestSkewed === null ? "-" : latestSkewed ? "Skewed" : "Even"}
-                </p>
                 <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>Recent Flags / Feedback</p>
                 {recentFlags.length === 0 ? (
                   <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>No feedback flags yet</p>

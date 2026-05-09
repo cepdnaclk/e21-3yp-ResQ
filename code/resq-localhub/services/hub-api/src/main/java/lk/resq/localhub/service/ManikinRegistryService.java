@@ -64,8 +64,8 @@ public class ManikinRegistryService {
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.seq = firstLong(payload, state.seq, "seq");
-            state.latestDepthMm = firstDouble(payload, state.latestDepthMm, "depthMm", "depth_mm", "current_delta");
-            state.latestRateCpm = firstDouble(payload, state.latestRateCpm, "rateCpm", "rate_cpm", "total_compressions");
+            state.latestDepthMm = firstDouble(payload, state.latestDepthMm, "depthMm", "depth_mm");
+            state.latestRateCpm = firstDouble(payload, state.latestRateCpm, "rateCpm", "rate_cpm");
             state.latestRecoilOk = firstBoolean(payload, state.latestRecoilOk, "recoilOk", "recoil_ok", "recoil");
             state.latestPauseS = firstDouble(payload, state.latestPauseS, "pauseS", "pause_s");
             Integer compressionCount = firstInt(payload, "compressionCount", null);
@@ -85,8 +85,7 @@ public class ManikinRegistryService {
                 state.pressureSkewed = state.pressureBalancePct != null && state.pressureBalancePct < 88.0;
             }
 
-            String feedback = firstText(payload, "feedback", "eventType", null);
-            state.latestFlags = firstFlags(payload, "flags", feedback != null ? feedback : state.latestFlags);
+            state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
             state.latestMetric = new LiveMetricPayload(
                     firstText(payload, "deviceId", "device_id", state.deviceId),
                     state.manikinId,

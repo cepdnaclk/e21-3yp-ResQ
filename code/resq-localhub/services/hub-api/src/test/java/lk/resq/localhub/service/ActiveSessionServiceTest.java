@@ -45,9 +45,60 @@ class ActiveSessionServiceTest {
         assertRejected(service.validateTelemetryBinding("M01", objectMapper.readTree("""
                 {
                   "deviceId": "M01",
-                  "sessionId": "%s"
+                  "sessionId": "%s",
+                  "compressionCount": 1
                 }
-                """.formatted(session.sessionId()))), "recognized metric fields");
+                """.formatted(session.sessionId()))), "required metric-first fields");
+    }
+
+    @Test
+    void acceptsNormalizedMetricFirstAndLegacyRawTelemetry() throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Compatibility smoke",
+                null
+        ));
+
+        JsonNode metricFirst = objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "sessionId": "%s",
+                  "seq": 1,
+                  "depthMm": 52,
+                  "rateCpm": 110,
+                  "recoilOk": true,
+                  "pauseS": 0.2,
+                  "compressionCount": 18,
+                  "handPlacement": "CENTER",
+                  "flags": ["DEPTH_OK", "RATE_OK"],
+                  "debugRaw": {
+                    "hallRaw": 3420,
+                    "force1Raw": 120000
+                  }
+                }
+                """.formatted(session.sessionId()));
+        assertThat(service.validateTelemetryBinding("M01", metricFirst).accepted()).isTrue();
+        service.recordTelemetry("M01", metricFirst);
+
+        JsonNode legacyRaw = objectMapper.readTree("""
+                {
+                  "device_id": "M01",
+                  "session_id": "%s",
+                  "seq": 2,
+                  "force1": 120000,
+                  "force2": 118000,
+                  "hall_raw": 3420,
+                  "current_delta": 52,
+                  "total_compressions": 18,
+                  "feedback": "PERFECT"
+                }
+                """.formatted(session.sessionId()));
+        assertThat(service.validateTelemetryBinding("M01", legacyRaw).accepted()).isTrue();
     }
 
     @Test

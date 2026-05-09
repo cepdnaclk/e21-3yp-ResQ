@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.ActiveSessionInfo;
+import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
@@ -233,12 +234,13 @@ public class ActiveSessionService {
             return TelemetryValidationResult.rejected("device active session does not match payload sessionId");
         }
 
-        String shapeError = validateTelemetryShape(payload);
-        if (shapeError != null) {
-            return TelemetryValidationResult.rejected(shapeError);
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                TelemetryPayloadNormalizer.normalize(payload);
+        if (!normalization.ok()) {
+            return TelemetryValidationResult.rejected(normalization.reason());
         }
 
-        Long seq = firstLong(payload, null, "seq");
+        Long seq = normalization.value().seq();
         if (seq != null) {
             Long previousSeq = lastAcceptedSeqBySessionId.get(payloadSessionId);
             if (previousSeq != null && seq <= previousSeq) {
@@ -256,36 +258,29 @@ public class ActiveSessionService {
             return;
         }
 
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                TelemetryPayloadNormalizer.normalize(payload);
+        if (!normalization.ok()) {
+            logger.info("Rejected telemetry for device {}: {}", deviceId, normalization.reason());
+            return;
+        }
+
         ActiveSessionState state = sessionsById.get(validation.sessionId());
         if (state == null || !state.active) {
             logger.info("Rejected telemetry for device {}: session disappeared before recording", deviceId);
             return;
         }
 
-        Double depthMm = firstDouble(payload, null, "depthMm", "depth_mm", "current_delta");
-        Integer compressionCount = firstInt(payload, null, "total_compressions", "compressionCount", "compression_count");
-        Double rateCpm = firstDouble(payload, null, "rateCpm", "rate_cpm");
-        if (rateCpm == null && compressionCount != null) {
-            long elapsedSeconds = Math.max(1L, Duration.between(state.startedAt, Instant.now()).getSeconds());
-            rateCpm = (compressionCount * 60.0) / elapsedSeconds;
-        }
-
-        String feedback = firstText(payload, null, "feedback");
-        Boolean recoilOk = firstBoolean(payload, null, "recoilOk", "recoil_ok", "recoil");
-        if (recoilOk == null && feedback != null) {
-            recoilOk = "NONE".equalsIgnoreCase(feedback) || feedback.toUpperCase().contains("OK");
-        }
-
-        Double pauseS = firstDouble(payload, null, "pauseS", "pause_s");
-        String flags = firstFlags(payload, null, "flags");
-        if (flags == null) {
-            flags = feedback;
-        }
-
-        state.accumulator.record(depthMm, rateCpm, recoilOk, pauseS, flags);
-        Long seq = firstLong(payload, null, "seq");
-        if (seq != null) {
-            lastAcceptedSeqBySessionId.put(state.sessionId, seq);
+        LiveMetricPayload metric = normalization.value();
+        state.accumulator.record(
+                metric.depthMm(),
+                metric.rateCpm(),
+                metric.recoilOk(),
+                metric.pauseS(),
+                flagsToString(metric.flags())
+        );
+        if (metric.seq() != null) {
+            lastAcceptedSeqBySessionId.put(state.sessionId, metric.seq());
         }
         getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         logger.info(
@@ -293,69 +288,11 @@ public class ActiveSessionService {
             state.sessionId,
             state.deviceId,
             state.accumulator.sampleCount(),
-            depthMm,
-            rateCpm,
-            recoilOk,
-            pauseS
+            metric.depthMm(),
+            metric.rateCpm(),
+            metric.recoilOk(),
+            metric.pauseS()
         );
-    }
-
-    private String validateTelemetryShape(JsonNode payload) {
-        boolean hasMetric = hasNumber(payload, "depthMm", "depth_mm", "current_delta")
-                || hasNumber(payload, "rateCpm", "rate_cpm")
-                || hasNumber(payload, "pauseS", "pause_s")
-                || hasNumber(payload, "compressionCount", "compression_count", "total_compressions")
-                || hasBoolean(payload, "recoilOk", "recoil_ok", "recoil");
-        if (!hasMetric) {
-            return "payload does not contain any recognized metric fields";
-        }
-
-        Double depthMm = firstDouble(payload, null, "depthMm", "depth_mm", "current_delta");
-        if (depthMm != null && (depthMm < 0.0 || depthMm > 120.0)) {
-            return "depthMm is outside the accepted range";
-        }
-
-        Double rateCpm = firstDouble(payload, null, "rateCpm", "rate_cpm");
-        if (rateCpm != null && (rateCpm < 0.0 || rateCpm > 240.0)) {
-            return "rateCpm is outside the accepted range";
-        }
-
-        Double pauseS = firstDouble(payload, null, "pauseS", "pause_s");
-        if (pauseS != null && (pauseS < 0.0 || pauseS > 600.0)) {
-            return "pauseS is outside the accepted range";
-        }
-
-        Integer compressionCount = firstInt(payload, null, "total_compressions", "compressionCount", "compression_count");
-        if (compressionCount != null && compressionCount < 0) {
-            return "compressionCount cannot be negative";
-        }
-
-        Long seq = firstLong(payload, null, "seq");
-        if (seq != null && seq < 0) {
-            return "seq cannot be negative";
-        }
-
-        return null;
-    }
-
-    private static boolean hasNumber(JsonNode payload, String... keys) {
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node != null && !node.isNull() && node.isNumber()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean hasBoolean(JsonNode payload, String... keys) {
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node != null && !node.isNull() && (node.isBoolean() || node.isTextual())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     public Optional<SessionEndResponse> findCompletedSession(String sessionId) {
@@ -546,36 +483,6 @@ public class ActiveSessionService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private static Double firstDouble(JsonNode payload, Double fallback, String... keys) {
-        if (payload == null) {
-            return fallback;
-        }
-
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node != null && !node.isNull() && node.isNumber()) {
-                return node.asDouble();
-            }
-        }
-
-        return fallback;
-    }
-
-    private static Integer firstInt(JsonNode payload, Integer fallback, String... keys) {
-        if (payload == null) {
-            return fallback;
-        }
-
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node != null && !node.isNull() && node.isNumber()) {
-                return node.asInt();
-            }
-        }
-
-        return fallback;
-    }
-
     private static Long firstLong(JsonNode payload, Long fallback, String... keys) {
         if (payload == null) {
             return fallback;
@@ -611,55 +518,15 @@ public class ActiveSessionService {
         return fallback;
     }
 
-    private static Boolean firstBoolean(JsonNode payload, Boolean fallback, String... keys) {
-        if (payload == null) {
-            return fallback;
+    private static String flagsToString(Object flags) {
+        if (flags == null) {
+            return null;
         }
-
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node == null || node.isNull()) {
-                continue;
-            }
-
-            if (node.isBoolean()) {
-                return node.asBoolean();
-            }
-
-            if (node.isTextual()) {
-                String value = node.asText().trim();
-                if ("true".equalsIgnoreCase(value)) {
-                    return true;
-                }
-                if ("false".equalsIgnoreCase(value)) {
-                    return false;
-                }
-            }
+        if (flags instanceof String text) {
+            String trimmed = text.trim();
+            return trimmed.isEmpty() ? null : trimmed;
         }
-
-        return fallback;
-    }
-
-    private static String firstFlags(JsonNode payload, String fallback, String... keys) {
-        if (payload == null) {
-            return fallback;
-        }
-
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node == null || node.isNull()) {
-                continue;
-            }
-
-            if (node.isTextual()) {
-                String value = node.asText().trim();
-                return value.isEmpty() ? fallback : value;
-            }
-
-            return node.toString();
-        }
-
-        return fallback;
+        return flags.toString();
     }
 
     private static final class ActiveSessionState {
