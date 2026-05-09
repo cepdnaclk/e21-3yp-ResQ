@@ -26,6 +26,7 @@ typedef enum {
 esp_err_t status_indicator_init(void);
 esp_err_t status_indicator_start(void);
 void status_indicator_set(indicator_state_t state);
+indicator_state_t status_indicator_get(void);
 
 #ifdef __cplusplus
 }

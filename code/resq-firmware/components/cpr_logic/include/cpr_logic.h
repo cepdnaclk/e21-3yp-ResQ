@@ -33,6 +33,7 @@ typedef struct {
 typedef struct {
   bool is_compressing;
   int peak_delta;
+  int last_peak_delta;
   int total_compressions;
 } cpr_state_t;
 

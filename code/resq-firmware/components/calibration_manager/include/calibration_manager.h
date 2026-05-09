@@ -79,6 +79,7 @@ bool calibration_manager_is_ready(void);
 bool calibration_manager_is_ready_for_profile(const char *profile_id);
 calibration_result_t calibration_manager_get_result(void);
 const calibration_report_t *calibration_manager_get_report(void);
+bool calibration_manager_get_report_copy(calibration_report_t *out);
 
 const char *calibration_manager_result_to_string(calibration_result_t result);
 

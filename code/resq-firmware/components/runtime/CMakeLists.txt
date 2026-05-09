@@ -8,11 +8,11 @@ idf_component_register(
         "recovery_manager.c"
         "factory_reset.c"
         "status_indicator.c"
+        "telemetry_publisher.c"
     INCLUDE_DIRS "include"
     REQUIRES
         freertos
         sensor_runtime
-        messaging
         network
         app_config
         protocol
@@ -22,4 +22,5 @@ idf_component_register(
         espressif__cjson
         esp_driver_gpio
         calibration_manager
+        event_publisher
 )

@@ -17,6 +17,15 @@ typedef enum {
     SENSOR_MODE_SESSION
 } sensor_mode_t;
 
+#define SENSOR_FLAG_DEPTH_LOW      (1u << 0)
+#define SENSOR_FLAG_DEPTH_HIGH     (1u << 1)
+#define SENSOR_FLAG_RATE_LOW       (1u << 2)
+#define SENSOR_FLAG_RATE_HIGH      (1u << 3)
+#define SENSOR_FLAG_RECOIL_POOR    (1u << 4)
+#define SENSOR_FLAG_PAUSE_LONG     (1u << 5)
+#define SENSOR_FLAG_HAND_OFFCENTER (1u << 6)
+#define SENSOR_FLAG_SENSOR_FAULT   (1u << 7)
+
 typedef struct {
     uint64_t ts_ms;
     sensor_mode_t mode;

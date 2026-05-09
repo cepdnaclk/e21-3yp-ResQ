@@ -7,14 +7,13 @@
 #include "esp_log.h"
 
 #include "device_control.h"
-#include "mqtt_manager.h"
+#include "event_publisher.h"
 #include "health_monitor.h"
 #include "resq_protocol.h"
 #include "sensor_runtime.h"
 #include "session_manager.h"
 #include "calibration_manager.h"
 #include "status_indicator.h"
-#include "queued_publisher.h"
 #include "command_handler.h"
 
 
@@ -22,35 +21,46 @@ static const char *TAG = "command_handler";
 
 static device_config_t s_cfg;
 
-static const char *get_string_field(cJSON *root, const char *primary_name, const char *alternate_name)
+static void current_session_id(char *out, size_t out_len)
 {
-    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, primary_name);
-    if (cJSON_IsString(item) && item->valuestring != NULL && item->valuestring[0] != '\0') {
-        return item->valuestring;
+    if (out == NULL || out_len == 0) {
+        return;
     }
 
-    if (alternate_name != NULL) {
-        item = cJSON_GetObjectItemCaseSensitive(root, alternate_name);
-        if (cJSON_IsString(item) && item->valuestring != NULL && item->valuestring[0] != '\0') {
-            return item->valuestring;
-        }
-    }
-
-    return NULL;
+    out[0] = '\0';
+    session_manager_get_session_id(out, out_len);
 }
 
-static void publish_command_result(const char *command, const char *status, const char *reason)
+static const char *command_name_from_suffix(const char *suffix)
+{
+    if (suffix == NULL) {
+        return "unknown";
+    }
+
+    if (strncmp(suffix, "cmd/", 4) == 0) {
+        return suffix + 4;
+    }
+
+    return suffix;
+}
+
+static void publish_command_result_with_session(
+    const char *session_id,
+    const char *command,
+    const char *status,
+    const char *reason
+)
 {
     char *payload = resq_payload_command_result(
         s_cfg.device_id,
-        session_manager_get_id(),
+        session_id,
         command,
         status,
         reason
     );
 
     if (payload) {
-        mqtt_manager_publish(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+        event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
         cJSON_free(payload);
     }
 }
@@ -66,11 +76,14 @@ static void publish_device_state(const char *state)
         return;
     }
 
+    char session_id[64] = {0};
+    current_session_id(session_id, sizeof(session_id));
+
     cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
     cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
     cJSON_AddStringToObject(root, "state", state);
     cJSON_AddBoolToObject(root, "session_active", session_manager_is_active());
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
+    cJSON_AddStringToObject(root, "session_id", session_id);
 
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -79,7 +92,7 @@ static void publish_device_state(const char *state)
         return;
     }
 
-    mqtt_manager_publish(RESQ_SUFFIX_STATUS, payload, 1, 1);
+    event_publisher_publish_or_queue(RESQ_SUFFIX_STATUS, payload, 1, 1);
 
     cJSON_free(payload);
 }
@@ -122,21 +135,73 @@ static bool get_session_id_from_command(
     return false;
 }
 
+static void publish_calibration_bypass_warning(const char *profile_id)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        return;
+    }
+
+    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
+    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
+    cJSON_AddStringToObject(root, "event_type", "calibration_bypassed");
+    cJSON_AddStringToObject(root, "profileId", profile_id != NULL ? profile_id : "");
+    cJSON_AddStringToObject(root, "message", "Calibration readiness was bypassed by device config");
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (payload != NULL) {
+        event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+        cJSON_free(payload);
+    }
+}
+
+static void publish_config_updated_event(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        return;
+    }
+
+    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
+    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
+    cJSON_AddStringToObject(root, "event_type", "config_updated");
+    cJSON_AddBoolToObject(root, "calibrationRequired", s_cfg.calibration_required);
+    cJSON_AddBoolToObject(root, "debugRawEnabled", s_cfg.debug_raw_enabled);
+    cJSON_AddStringToObject(root, "profileId", s_cfg.calibration_profile_id);
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (payload != NULL) {
+        event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+        cJSON_free(payload);
+    }
+}
+
+static void publish_command_result(const char *command, const char *status, const char *reason)
+{
+    char session_id[64] = {0};
+    current_session_id(session_id, sizeof(session_id));
+    publish_command_result_with_session(session_id, command, status, reason);
+}
+
 static void publish_calibration_report_event(void)
 {
     char payload[512];
 
-    const calibration_report_t *report = calibration_manager_get_report();
+    calibration_report_t report = {0};
 
-    if (report == NULL) {
+    if (!calibration_manager_get_report_copy(&report)) {
         return;
     }
 
     esp_err_t err = resq_payload_calibration_report(
         s_cfg.device_id,
-        report->profile_id,
-        calibration_manager_result_to_string(report->result),
-        report->ready_for_session,
+        report.profile_id,
+        calibration_manager_result_to_string(report.result),
+        report.ready_for_session,
         payload,
         sizeof(payload)
     );
@@ -154,7 +219,7 @@ static void publish_calibration_report_event(void)
      * Calibration report is an important one-time event.
      * So publish it to RESQ_SUFFIX_EVENTS, not telemetry.
      */
-    queued_publisher_publish_or_queue(
+    event_publisher_publish_or_queue(
         RESQ_SUFFIX_EVENTS,
         payload,
         1,
@@ -194,7 +259,8 @@ static esp_err_t handle_session_start(const char *payload)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (!calibration_manager_is_ready_for_profile(profile_id)) {
+    if (s_cfg.calibration_required &&
+        !calibration_manager_is_ready_for_profile(profile_id)) {
         status_indicator_set(INDICATOR_STATE_CALIBRATION_FAIL);
         publish_device_state(RESQ_STATE_CALIBRATION_FAIL);
 
@@ -207,12 +273,18 @@ static esp_err_t handle_session_start(const char *payload)
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (!s_cfg.calibration_required &&
+        !calibration_manager_is_ready_for_profile(profile_id)) {
+        publish_calibration_bypass_warning(profile_id);
+        ESP_LOGW(TAG, "Calibration readiness bypassed for session/start");
+    }
+
     session_manager_start(session_id);
 
     esp_err_t err = sensor_runtime_start(SENSOR_MODE_SESSION);
     if (err != ESP_OK) {
         session_manager_stop();
-        publish_command_result("session/start", "NACK", "failed to start sensor task");
+        publish_command_result_with_session(session_id, "session/start", "NACK", "failed to start sensor task");
         return err;
     }
 
@@ -259,15 +331,8 @@ static esp_err_t handle_session_stop(const char *payload)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (have_device_id && strcmp(device_id, s_cfg.device_id) != 0) {
-        publish_command_result("session/stop", "NACK", "deviceId mismatch");
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (have_session_id && strcmp(session_id, session_manager_get_id()) != 0) {
-        publish_command_result("session/stop", "NACK", "sessionId mismatch");
-        return ESP_ERR_INVALID_ARG;
-    }
+    char stopped_session_id[64] = {0};
+    current_session_id(stopped_session_id, sizeof(stopped_session_id));
 
     esp_err_t err = sensor_runtime_stop();
     if (err != ESP_OK) {
@@ -285,19 +350,7 @@ static esp_err_t handle_session_stop(const char *payload)
         publish_device_state(RESQ_STATE_ONLINE_IDLE);
     }
 
-    publish_command_result("session/stop", "ACK", "");
-    session_manager_stop();
-    mqtt_manager_publish_status("IDLE");
-    health_monitor_publish_heartbeat();
-    publish_session_transition_event(
-        "session_stopped",
-        ended_at[0] != '\0' ? ended_at : "",
-        current_session_id,
-        current_trainee_id,
-        current_started_at,
-        current_scenario,
-        false
-    );
+    publish_command_result_with_session(stopped_session_id, "session/stop", "ACK", "");
 
     ESP_LOGI(
         TAG,
@@ -329,28 +382,45 @@ static esp_err_t handle_diag_request(const char *payload)
         return ESP_ERR_NO_MEM;
     }
 
+    char session_id[64] = {0};
+    current_session_id(session_id, sizeof(session_id));
+
     cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
     cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
+    cJSON_AddStringToObject(root, "event_type", "diagnostic_report");
     cJSON_AddBoolToObject(root, "session_active", session_manager_is_active());
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
+    cJSON_AddStringToObject(root, "session_id", session_id);
     cJSON_AddBoolToObject(root, "sensor_running", sensor_runtime_is_running());
 
     if (have_snap) {
         cJSON_AddBoolToObject(root, "force1_ok", snap.force1_ok);
         cJSON_AddBoolToObject(root, "force2_ok", snap.force2_ok);
         cJSON_AddBoolToObject(root, "hall_ok", snap.hall_ok);
-        cJSON_AddNumberToObject(root, "hall_raw", snap.hall_raw);
-        cJSON_AddNumberToObject(root, "current_delta", snap.current_delta);
+        cJSON_AddNumberToObject(root, "depthMm", snap.depth_mm);
+        cJSON_AddNumberToObject(root, "rateCpm", snap.rate_cpm);
+        cJSON_AddNumberToObject(root, "pauseS", snap.pause_s);
+        cJSON_AddBoolToObject(root, "recoilOk", snap.recoil_ok);
         cJSON_AddNumberToObject(root, "compression_count", snap.total_compressions);
+
+        cJSON *debug_raw = cJSON_AddObjectToObject(root, "debugRaw");
+        if (debug_raw != NULL) {
+            cJSON_AddNumberToObject(debug_raw, "force1", snap.force1);
+            cJSON_AddNumberToObject(debug_raw, "force2", snap.force2);
+            cJSON_AddNumberToObject(debug_raw, "hallRaw", snap.hall_raw);
+            cJSON_AddNumberToObject(debug_raw, "hallFiltered", snap.hall_filtered);
+            cJSON_AddNumberToObject(debug_raw, "currentDelta", snap.current_delta);
+        }
     }
 
     char *body = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
 
     if (body) {
-        mqtt_manager_publish(RESQ_SUFFIX_EVENTS, body, 1, 0);
+        event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, body, 1, 0);
         cJSON_free(body);
     }
+
+    publish_command_result("diag/request", "ACK", "diagnostic event published");
 
     ESP_LOGI(TAG, "diag/request handled");
     return ESP_OK;
@@ -510,6 +580,8 @@ static esp_err_t handle_config_update(const char *payload)
     cJSON *hall_max_delta = cJSON_GetObjectItemCaseSensitive(root, "hall_max_delta");
     cJSON *compression_start_delta = cJSON_GetObjectItemCaseSensitive(root, "compression_start_delta");
     cJSON *sensor_sample_interval_ms = cJSON_GetObjectItemCaseSensitive(root, "sensor_sample_interval_ms");
+    cJSON *calibration_required = cJSON_GetObjectItemCaseSensitive(root, "calibrationRequired");
+    cJSON *debug_raw_enabled = cJSON_GetObjectItemCaseSensitive(root, "debugRawEnabled");
 
     if (cJSON_IsString(mqtt_host) && mqtt_host->valuestring && mqtt_host->valuestring[0] != '\0') {
         snprintf(new_cfg.mqtt_host, sizeof(new_cfg.mqtt_host), "%s", mqtt_host->valuestring);
@@ -541,6 +613,14 @@ static esp_err_t handle_config_update(const char *payload)
 
     if (cJSON_IsNumber(sensor_sample_interval_ms) && sensor_sample_interval_ms->valueint > 0) {
         new_cfg.sensor_sample_interval_ms = sensor_sample_interval_ms->valueint;
+    }
+
+    if (cJSON_IsBool(calibration_required)) {
+        new_cfg.calibration_required = cJSON_IsTrue(calibration_required);
+    }
+
+    if (cJSON_IsBool(debug_raw_enabled)) {
+        new_cfg.debug_raw_enabled = cJSON_IsTrue(debug_raw_enabled);
     }
 
     apply_calibration_config_from_json(root, &new_cfg);
@@ -577,6 +657,7 @@ static esp_err_t handle_config_update(const char *payload)
     s_cfg = new_cfg;
 
     publish_command_result("config/update", "ACK", "");
+    publish_config_updated_event();
     ESP_LOGI(TAG, "config/update handled");
 
     return ESP_OK;
@@ -585,6 +666,15 @@ static esp_err_t handle_config_update(const char *payload)
 static esp_err_t handle_calibration_start(const char *payload)
 {
     char profile_id[32] = {0};
+
+    if (session_manager_is_active() || sensor_runtime_is_session_active()) {
+        publish_command_result(
+            "calibration/start",
+            "NACK",
+            "cannot calibrate during active session"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
 
     cJSON *root = cJSON_Parse(payload ? payload : "{}");
     if (root != NULL) {
@@ -599,15 +689,6 @@ static esp_err_t handle_calibration_start(const char *payload)
         cJSON_Delete(root);
     }
 
-    /*
-     * Current temporary behavior:
-     * Until sensor_runtime supports SENSOR_MODE_CALIBRATION,
-     * start the existing sensor runtime so calibration_manager can read
-     * sensor_runtime_get_latest(&snap).
-     *
-     * Telemetry will still NOT publish because session_manager_is_active()
-     * is false during calibration.
-     */
     if (!sensor_runtime_is_running()) {
         esp_err_t sensor_err = sensor_runtime_start(SENSOR_MODE_CALIBRATION);
         if (sensor_err != ESP_OK) {
@@ -751,18 +832,9 @@ static esp_err_t handle_calibration_validate(const char *payload)
         );
     }
 
-    /*
-     * Publish calibration result as event.
-     * This uses your helper:
-     * publish_calibration_report_event()
-     */
+    /* Publish calibration result as an event, not telemetry. */
     publish_calibration_report_event();
 
-    /*
-     * Temporary behavior:
-     * Stop sensor runtime after calibration if no real session is active.
-     * Later, when SENSOR_MODE_CALIBRATION is added, this will become cleaner.
-     */
     if (!session_manager_is_active() && sensor_runtime_is_running()) {
         esp_err_t stop_err = sensor_runtime_stop();
         if (stop_err != ESP_OK) {
@@ -817,6 +889,17 @@ esp_err_t command_handler_init(const device_config_t *cfg)
 
     s_cfg = *cfg;
     return ESP_OK;
+}
+
+esp_err_t command_handler_reject_message(const char *suffix, const char *reason)
+{
+    publish_command_result(
+        command_name_from_suffix(suffix),
+        "NACK",
+        reason != NULL ? reason : "command rejected"
+    );
+
+    return ESP_ERR_INVALID_ARG;
 }
 
 esp_err_t command_handler_handle_message(const char *suffix, const char *payload)

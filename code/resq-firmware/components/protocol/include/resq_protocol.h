@@ -79,14 +79,13 @@ char *resq_payload_heartbeat(
     bool force1_ok,
     bool force2_ok,
     bool hall_ok,
-    int compression_count
-);
-
-char *resq_payload_telemetry(
-    const char *device_id,
-    const char *manikin_id,
-    const char *session_id,
-    const sensor_snapshot_t *snap
+    int compression_count,
+    bool calibration_ready,
+    const char *calibration_state,
+    const char *profile_id,
+    const char *last_calibration_result,
+    bool debug_raw_enabled,
+    const char *sensor_mode
 );
 
 char *resq_payload_feedback_event(
@@ -148,6 +147,7 @@ esp_err_t resq_payload_metric_telemetry(
     const char *hand_placement,
     const char *flags_json,
     bool debug_raw_enabled,
+    const sensor_snapshot_t *debug_snap,
     char *out,
     size_t out_len
 );

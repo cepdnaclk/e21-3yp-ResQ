@@ -234,3 +234,8 @@ void status_indicator_set(indicator_state_t state)
 {
     s_state = state;
 }
+
+indicator_state_t status_indicator_get(void)
+{
+    return s_state;
+}

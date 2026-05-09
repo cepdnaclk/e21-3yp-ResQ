@@ -7,8 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "queued_publisher.h"
-#include "mqtt_manager.h"
+#include "event_publisher.h"
 #include "resq_protocol.h"
 #include "sensor_runtime.h"
 #include "session_manager.h"
@@ -30,17 +29,35 @@ static bool s_prev_valid     = false;
 
 static void publish_fault(const char *fault_code, const char *message, bool active)
 {
+    char session_id[64] = {0};
+    session_manager_get_session_id(session_id, sizeof(session_id));
+
     char *payload = resq_payload_fault_event(
         s_cfg.device_id,
-        session_manager_get_id(),
+        session_id,
         fault_code,
         message,
         active
     );
 
     if (payload) {
-        queued_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+        event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
         cJSON_free(payload);
+    }
+}
+
+static void restore_indicator_after_recovery(void)
+{
+    if (status_indicator_get() != INDICATOR_STATE_FAULT) {
+        return;
+    }
+
+    if (session_manager_is_active()) {
+        status_indicator_set(INDICATOR_STATE_SESSION_ACTIVE);
+    } else if (sensor_runtime_is_calibrating()) {
+        status_indicator_set(INDICATOR_STATE_CALIBRATING);
+    } else {
+        status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
     }
 }
 
@@ -49,8 +66,7 @@ static void fault_task(void *arg)
     (void)arg;
 
     while (1) {
-        if (mqtt_manager_is_connected() &&
-            session_manager_is_active() &&
+        if ((session_manager_is_active() || sensor_runtime_is_calibrating()) &&
             sensor_runtime_is_running()) {
 
             sensor_snapshot_t snap;
@@ -102,6 +118,10 @@ static void fault_task(void *arg)
                     }
 
                     s_prev_hall_ok = snap.hall_ok;
+                }
+
+                if (snap.force1_ok && snap.force2_ok && snap.hall_ok) {
+                    restore_indicator_after_recovery();
                 }
             }
         } else {

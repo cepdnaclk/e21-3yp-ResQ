@@ -4,6 +4,7 @@ void cpr_logic_init(cpr_state_t *state)
 {
   state->is_compressing = false;   // No compression is currently in progress
   state->peak_delta = 0;            // No compression depth recorded yet
+  state->last_peak_delta = 0;       // Last completed compression peak
   state->total_compressions = 0;    // Start with zero completed compressions
 }
 
@@ -40,6 +41,7 @@ cpr_feedback_t cpr_logic_update(
   // the compression has ended.
   if (state->is_compressing && current_delta < thresholds->compression_start_delta) {
     state->total_compressions++;
+    state->last_peak_delta = state->peak_delta;
 
     cpr_feedback_t feedback = CPR_FEEDBACK_NONE;
 

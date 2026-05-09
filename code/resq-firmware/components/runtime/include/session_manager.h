@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,11 +24,7 @@ void session_manager_start(
 );
 void session_manager_stop(void);
 bool session_manager_is_active(void);
-const char *session_manager_get_id(void);
-const char *session_manager_get_trainee_id(void);
-const char *session_manager_get_started_at(void);
-const char *session_manager_get_scenario(void);
-session_state_view_t session_manager_get_state(void);
+bool session_manager_get_session_id(char *out, size_t out_len);
 
 #ifdef __cplusplus
 }
