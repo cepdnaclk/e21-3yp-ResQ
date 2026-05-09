@@ -48,4 +48,84 @@ class ManikinRegistryServiceTest {
         assertThat(session.latestMetric().compressionCount()).isEqualTo(18);
         assertThat(session.latestMetric().handPlacement()).isEqualTo("CENTER");
     }
+
+    @Test
+    void sessionSnapshotDoesNotDriftWhenSameDeviceReportsAnotherSession() throws Exception {
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+        JsonNode firstTelemetry = objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "sessionId": "S-OLD",
+                  "seq": 1,
+                  "depthMm": 48,
+                  "rateCpm": 104
+                }
+                """);
+        JsonNode secondTelemetry = objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "sessionId": "S-NEW",
+                  "seq": 2,
+                  "depthMm": 55,
+                  "rateCpm": 118
+                }
+                """);
+
+        registry.updateFromTelemetry("M01", firstTelemetry);
+        registry.updateFromTelemetry("M01", secondTelemetry);
+
+        SessionLiveView oldSession = registry.getSessionLiveView("S-OLD").orElseThrow();
+        assertThat(oldSession.latestMetric()).isNotNull();
+        assertThat(oldSession.latestMetric().sessionId()).isEqualTo("S-OLD");
+        assertThat(oldSession.latestMetric().depthMm()).isEqualTo(48.0);
+        assertThat(oldSession.seq()).isEqualTo(1L);
+
+        SessionLiveView newSession = registry.getSessionLiveView("S-NEW").orElseThrow();
+        assertThat(newSession.latestMetric()).isNotNull();
+        assertThat(newSession.latestMetric().sessionId()).isEqualTo("S-NEW");
+        assertThat(newSession.latestMetric().depthMm()).isEqualTo(55.0);
+        assertThat(newSession.seq()).isEqualTo(2L);
+    }
+
+    @Test
+    void statusHeartbeatAndEventsUpdateSessionLiveState() throws Exception {
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+        JsonNode status = objectMapper.readTree("""
+                {
+                  "sessionId": "S-STATE",
+                  "status": "ready",
+                  "sessionActive": true,
+                  "ip": "192.168.1.44"
+                }
+                """);
+        JsonNode heartbeat = objectMapper.readTree("""
+                {
+                  "sessionId": "S-STATE",
+                  "manikinId": "MK-01",
+                  "rssi": -61,
+                  "battery": 92
+                }
+                """);
+        JsonNode event = objectMapper.readTree("""
+                {
+                  "sessionId": "S-STATE",
+                  "eventType": "PAD_ADJUSTED"
+                }
+                """);
+
+        registry.updateFromStatus("M01", status);
+        registry.updateFromHeartbeat("M01", heartbeat);
+        registry.updateFromEvent("M01", event);
+
+        SessionLiveView session = registry.getSessionLiveView("S-STATE").orElseThrow();
+        assertThat(session.deviceId()).isEqualTo("M01");
+        assertThat(session.manikinId()).isEqualTo("MK-01");
+        assertThat(session.state()).isEqualTo("ready");
+        assertThat(session.ip()).isEqualTo("192.168.1.44");
+        assertThat(session.rssi()).isEqualTo(-61);
+        assertThat(session.battery()).isEqualTo(92);
+        assertThat(session.sessionActive()).isTrue();
+        assertThat(session.lastEventType()).isEqualTo("PAD_ADJUSTED");
+        assertThat(session.connectionState()).isEqualTo("BACKEND_SSE_FALLBACK");
+    }
 }

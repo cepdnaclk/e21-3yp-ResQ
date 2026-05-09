@@ -170,9 +170,21 @@ public class MqttSubscriberService {
 
         String payloadText = new String(message.getPayload(), StandardCharsets.UTF_8);
 
+        JsonNode payload;
         try {
-            JsonNode payload = parsePayload(payloadText, topic);
+            payload = parsePayload(payloadText, topic);
+        } catch (Exception error) {
+            logger.warn(
+                    "Invalid MQTT JSON payload on topic {}. Raw payload: {}. Error message: {}",
+                    topic,
+                    payloadText,
+                    error.getMessage(),
+                    error
+            );
+            return;
+        }
 
+        try {
             switch (parsedTopic.messageType) {
                 case "status" -> {
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
@@ -216,7 +228,7 @@ public class MqttSubscriberService {
             }
         } catch (Exception error) {
             logger.warn(
-                    "Invalid MQTT JSON payload on topic {}. Raw payload: {}. Error message: {}",
+                    "Failed to process MQTT payload on topic {}. Raw payload: {}. Error message: {}",
                     topic,
                     payloadText,
                     error.getMessage(),

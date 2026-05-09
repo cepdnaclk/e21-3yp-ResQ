@@ -22,7 +22,7 @@ public class ManikinRegistryService {
 
     private final Duration staleAfter;
     private final ConcurrentMap<String, MutableManikinState> registry = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, String> deviceIdBySessionId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, MutableManikinState> registryBySessionId = new ConcurrentHashMap<>();
 
     public ManikinRegistryService(@Value("${resq.live.stale-after-seconds:12}") long staleAfterSeconds) {
         this.staleAfter = Duration.ofSeconds(Math.max(1L, staleAfterSeconds));
@@ -33,11 +33,11 @@ public class ManikinRegistryService {
             state.lastSeen = Instant.now();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            indexSession(state);
             state.state = firstText(payload, "state", "status", state.state);
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            indexSession(state);
         });
     }
 
@@ -47,13 +47,13 @@ public class ManikinRegistryService {
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            indexSession(state);
             state.state = firstText(payload, "state", "status", state.state);
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.rssi = firstInt(payload, "rssi", state.rssi);
             state.battery = firstInt(payload, "battery", state.battery);
             state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            indexSession(state);
         });
     }
 
@@ -113,8 +113,8 @@ public class ManikinRegistryService {
             state.lastSeen = Instant.now();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            indexSession(state);
             state.lastEventType = firstText(payload, "eventType", "type", state.lastEventType);
+            indexSession(state);
         });
     }
 
@@ -140,12 +140,7 @@ public class ManikinRegistryService {
 
     public Optional<SessionLiveView> getSessionLiveView(String sessionId) {
         markStaleOffline();
-        String deviceId = deviceIdBySessionId.get(sessionId);
-        if (deviceId == null) {
-            return Optional.empty();
-        }
-
-        MutableManikinState state = registry.get(deviceId);
+        MutableManikinState state = registryBySessionId.get(sessionId);
         if (state == null) {
             return Optional.empty();
         }
@@ -183,7 +178,27 @@ public class ManikinRegistryService {
             }
         }
 
+        for (MutableManikinState state : registryBySessionId.values()) {
+            markStateOfflineIfStale(state, now);
+        }
+
         return changedDeviceIds;
+    }
+
+    private boolean markStateOfflineIfStale(MutableManikinState state, Instant now) {
+        if (state.lastSeen == null) {
+            return false;
+        }
+
+        if (Duration.between(state.lastSeen, now).compareTo(staleAfter) > 0 && state.online) {
+            state.online = false;
+            if (state.state == null || state.state.isBlank() || "online".equalsIgnoreCase(state.state)) {
+                state.state = "offline";
+            }
+            return true;
+        }
+
+        return false;
     }
 
     private ManikinLiveSummary toSummary(MutableManikinState state) {
@@ -263,8 +278,35 @@ public class ManikinRegistryService {
 
     private void indexSession(MutableManikinState state) {
         if (state.sessionId != null && !state.sessionId.isBlank()) {
-            deviceIdBySessionId.put(state.sessionId, state.deviceId);
+            registryBySessionId.put(state.sessionId, copyState(state));
         }
+    }
+
+    private MutableManikinState copyState(MutableManikinState source) {
+        MutableManikinState copy = new MutableManikinState(source.deviceId);
+        copy.online = source.online;
+        copy.lastSeen = source.lastSeen;
+        copy.sessionId = source.sessionId;
+        copy.manikinId = source.manikinId;
+        copy.seq = source.seq;
+        copy.state = source.state;
+        copy.ip = source.ip;
+        copy.fw = source.fw;
+        copy.rssi = source.rssi;
+        copy.battery = source.battery;
+        copy.sessionActive = source.sessionActive;
+        copy.latestDepthMm = source.latestDepthMm;
+        copy.latestRateCpm = source.latestRateCpm;
+        copy.latestRecoilOk = source.latestRecoilOk;
+        copy.latestPauseS = source.latestPauseS;
+        copy.latestFlags = source.latestFlags;
+        copy.lastEventType = source.lastEventType;
+        copy.latestForce1 = source.latestForce1;
+        copy.latestForce2 = source.latestForce2;
+        copy.pressureBalancePct = source.pressureBalancePct;
+        copy.pressureSkewed = source.pressureSkewed;
+        copy.latestMetric = source.latestMetric;
+        return copy;
     }
 
     private boolean isStale(MutableManikinState state) {
