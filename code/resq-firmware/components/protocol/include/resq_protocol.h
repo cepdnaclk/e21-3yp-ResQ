@@ -2,7 +2,9 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
+#include "esp_err.h"
 #include "sensor_runtime.h"
 
 #ifdef __cplusplus
@@ -48,12 +50,12 @@ extern "C" {
 /* =========================================================
  * Topic helpers
  * ========================================================= */
-size_t resq_topic_build(
-    char *out, 
-    size_t out_len, 
-    const char *device_id, 
-    const char *suffix);
-
+esp_err_t resq_build_topic(
+    const char *device_id,
+    const char *suffix,
+    char *out,
+    size_t out_len
+);
 /* =========================================================
  * Payload builders
  * Returned string must be freed with cJSON_free()
@@ -122,13 +124,6 @@ char *resq_payload_identity_event(
     int chip_revision,
     const char *mac_address,
     int reset_reason
-);
-
-esp_err_t resq_build_topic(
-    const char *device_id,
-    const char *suffix,
-    char *out,
-    size_t out_len
 );
 
 esp_err_t resq_payload_calibration_report(
