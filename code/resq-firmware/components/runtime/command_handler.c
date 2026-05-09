@@ -1,3 +1,5 @@
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -82,6 +84,44 @@ static void publish_device_state(const char *state)
     cJSON_free(payload);
 }
 
+static bool json_get_string_copy(
+    cJSON *root,
+    const char *key,
+    char *out,
+    size_t out_len
+)
+{
+    if (root == NULL || key == NULL || out == NULL || out_len == 0) {
+        return false;
+    }
+
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!cJSON_IsString(item) || item->valuestring == NULL) {
+        return false;
+    }
+
+    strncpy(out, item->valuestring, out_len - 1);
+    out[out_len - 1] = '\0';
+    return true;
+}
+
+static bool get_session_id_from_command(
+    cJSON *root,
+    char *out,
+    size_t out_len
+)
+{
+    if (json_get_string_copy(root, "sessionId", out, out_len)) {
+        return true;
+    }
+
+    if (json_get_string_copy(root, "session_id", out, out_len)) {
+        return true;
+    }
+
+    return false;
+}
+
 static void publish_calibration_report_event(void)
 {
     char payload[512];
@@ -125,67 +165,62 @@ static void publish_calibration_report_event(void)
 static esp_err_t handle_session_start(const char *payload)
 {
     char session_id[64] = {0};
-    char trainee_id[64] = {0};
-    char started_at[64] = {0};
-    char scenario[64] = {0};
-    char device_id[64] = {0};
-    bool have_device_id = false;
+    char profile_id[CAL_PROFILE_ID_LEN] = {0};
+
+    cJSON *root = cJSON_Parse(payload ? payload : "{}");
+    if (root == NULL) {
+        publish_command_result("session/start", "NACK", "invalid json");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!get_session_id_from_command(root, session_id, sizeof(session_id))) {
+        cJSON_Delete(root);
+
+        publish_command_result("session/start", "NACK", "missing sessionId");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    json_get_string_copy(root, "profileId", profile_id, sizeof(profile_id));
+
+    cJSON_Delete(root);
 
     if (session_manager_is_active()) {
         publish_command_result("session/start", "NACK", "session already active");
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (!calibration_manager_is_ready()) {
-        publish_device_state(RESQ_STATE_CALIBRATION_FAIL);
+    if (sensor_runtime_is_calibrating()) {
+        publish_command_result("session/start", "NACK", "calibration in progress");
+        return ESP_ERR_INVALID_STATE;
+    }
 
+    if (!calibration_manager_is_ready_for_profile(profile_id)) {
         status_indicator_set(INDICATOR_STATE_CALIBRATION_FAIL);
+        publish_device_state(RESQ_STATE_CALIBRATION_FAIL);
 
         publish_command_result(
             "session/start",
             "NACK",
-            "calibration not ready"
+            "calibration not ready or profile mismatch"
         );
 
         return ESP_ERR_INVALID_STATE;
     }
 
-    cJSON *root = cJSON_Parse(payload);
-    if (root) {
-        cJSON *sid = cJSON_GetObjectItemCaseSensitive(root, "sessionId");
-        if (cJSON_IsString(sid) && sid->valuestring) {
-            snprintf(session_id, sizeof(session_id), "%s", sid->valuestring);
-        }
+    session_manager_start(session_id);
 
-        cJSON_Delete(root);
-    }
-
-    if (session_id[0] == '\0') {
-        publish_command_result("session/start", "NACK", "missing sessionId");
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    session_manager_start(session_id, trainee_id, started_at, scenario);
-    sensor_runtime_reset_session_data();
-
-    esp_err_t err = sensor_runtime_start();
+    esp_err_t err = sensor_runtime_start(SENSOR_MODE_SESSION);
     if (err != ESP_OK) {
         session_manager_stop();
         publish_command_result("session/start", "NACK", "failed to start sensor task");
         return err;
     }
 
+    status_indicator_set(INDICATOR_STATE_SESSION_ACTIVE);
     publish_device_state(RESQ_STATE_SESSION_ACTIVE);
 
-    publish_command_result("session/start", "ACK", "");
-    ESP_LOGI(
-        TAG,
-        "Session started: sessionId=%s traineeId=%s scenario=%s startedAt=%s",
-        session_id,
-        trainee_id[0] != '\0' ? trainee_id : "",
-        scenario[0] != '\0' ? scenario : "",
-        started_at[0] != '\0' ? started_at : ""
-    );
+    publish_command_result("session/start", "ACK", "session started");
+    ESP_LOGI(TAG, "Session started: %s", session_id);
     return ESP_OK;
 }
 
@@ -242,7 +277,13 @@ static esp_err_t handle_session_stop(const char *payload)
 
     session_manager_stop();
 
-    publish_device_state(RESQ_STATE_ONLINE_IDLE);
+    if (calibration_manager_is_ready()) {
+        status_indicator_set(INDICATOR_STATE_READY_FOR_SESSION);
+        publish_device_state(RESQ_STATE_READY_FOR_SESSION);
+    } else {
+        status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
+        publish_device_state(RESQ_STATE_ONLINE_IDLE);
+    }
 
     publish_command_result("session/stop", "ACK", "");
     session_manager_stop();
@@ -527,6 +568,12 @@ static esp_err_t handle_config_update(const char *payload)
         return err;
     }
 
+    err = calibration_manager_apply_config(&new_cfg);
+    if (err != ESP_OK) {
+        publish_command_result("config/update", "NACK", "calibration apply failed");
+        return err;
+    }
+
     s_cfg = new_cfg;
 
     publish_command_result("config/update", "ACK", "");
@@ -562,7 +609,7 @@ static esp_err_t handle_calibration_start(const char *payload)
      * is false during calibration.
      */
     if (!sensor_runtime_is_running()) {
-        esp_err_t sensor_err = sensor_runtime_start();
+        esp_err_t sensor_err = sensor_runtime_start(SENSOR_MODE_CALIBRATION);
         if (sensor_err != ESP_OK) {
             publish_command_result(
                 "calibration/start",

@@ -1,15 +1,19 @@
 #include "sensor_runtime.h"
 
+#include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#include "board_config.h"
+#include "cpr_logic.h"
 #include "hall_sensor.h"
 #include "hx710.h"
-#include "board_config.h"
 
 /* =========================================================
  * Hardware pin mapping
@@ -70,6 +74,23 @@ static int s_hall_good_count = 0;
 /* suppress repeated feedback too quickly */
 static TickType_t s_last_feedback_tick = 0;
 
+static sensor_mode_t s_sensor_mode = SENSOR_MODE_IDLE;
+
+sensor_mode_t sensor_runtime_get_mode(void)
+{
+    return s_sensor_mode;
+}
+
+bool sensor_runtime_is_calibrating(void)
+{
+    return s_sensor_mode == SENSOR_MODE_CALIBRATION && sensor_runtime_is_running();
+}
+
+bool sensor_runtime_is_session_active(void)
+{
+    return s_sensor_mode == SENSOR_MODE_SESSION && sensor_runtime_is_running();
+}
+
 static int iir_filter_step(int prev, int current)
 {
     /* Simple 25% new + 75% old IIR filter */
@@ -120,8 +141,14 @@ static void sensor_task(void *arg)
     s_task_running = true;
     ESP_LOGI(TAG, "Sensor task entered running state");
 
+    TickType_t last_wake = xTaskGetTickCount();
+
     while (s_run_requested) {
         sensor_snapshot_t snap = {0};
+
+        snap.ts_ms = (uint64_t)(esp_timer_get_time() / 1000ULL);
+        snap.mode = s_sensor_mode;
+        snap.hall_filtered = s_hall_filtered;
 
         /* -----------------------------
          * Read force sensors
@@ -204,7 +231,7 @@ static void sensor_task(void *arg)
             xSemaphoreGive(s_snapshot_mutex);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(s_sensor_task_period_ms));
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(s_sensor_task_period_ms));
     }
 
     ESP_LOGI(TAG, "Sensor task stopping");
@@ -286,15 +313,35 @@ esp_err_t sensor_runtime_apply_config(const device_config_t *cfg)
     return ESP_OK;
 }
 
-esp_err_t sensor_runtime_start(void)
+esp_err_t sensor_runtime_start(sensor_mode_t mode)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (mode != SENSOR_MODE_CALIBRATION && mode != SENSOR_MODE_SESSION) {
+        ESP_LOGE(TAG, "Invalid sensor runtime mode: %d", mode);
+        return ESP_ERR_INVALID_ARG;
+    }
+
     if (s_task_running || s_sensor_task_handle != NULL) {
-        ESP_LOGI(TAG, "Sensor task already running");
-        return ESP_OK;
+        if (s_sensor_mode == mode) {
+            ESP_LOGI(TAG, "Sensor task already running in requested mode");
+            return ESP_OK;
+        }
+
+        ESP_LOGW(TAG, "Sensor task already running in another mode");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_sensor_mode = mode;
+
+    /*
+     * Reset CPR session counters only for actual session mode.
+     * Calibration mode should not reset or count CPR session data.
+     */
+    if (mode == SENSOR_MODE_SESSION) {
+        sensor_runtime_reset_session_data();
     }
 
     s_run_requested = true;
@@ -311,11 +358,18 @@ esp_err_t sensor_runtime_start(void)
     if (result != pdPASS) {
         s_run_requested = false;
         s_sensor_task_handle = NULL;
+        s_sensor_mode = SENSOR_MODE_IDLE;
+
         ESP_LOGE(TAG, "Failed to create sensor task");
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Sensor task start requested");
+    ESP_LOGI(
+        TAG,
+        "Sensor task start requested, mode=%s",
+        mode == SENSOR_MODE_CALIBRATION ? "CALIBRATION" : "SESSION"
+    );
+
     return ESP_OK;
 }
 
@@ -341,6 +395,8 @@ esp_err_t sensor_runtime_stop(void)
         vTaskDelay(pdMS_TO_TICKS(25));
     }
 
+    s_sensor_mode = SENSOR_MODE_IDLE;
+
     ESP_LOGW(TAG, "Timed out waiting for sensor task to stop");
     return ESP_ERR_TIMEOUT;
 }
@@ -358,7 +414,7 @@ esp_err_t sensor_runtime_reset_session_data(void)
 
     cpr_logic_init(&s_cpr_state);
 
-    s_hall_filtered = 0;
+    s_hall_filtered = s_hall_sensor.baseline;
     s_last_feedback_tick = 0;
 
     s_force1_ok_stable = true;

@@ -10,6 +10,8 @@
 extern "C" {
 #endif
 
+#define CAL_PROFILE_ID_LEN 32
+
 typedef enum {
     CAL_RESULT_NONE = 0,
     CAL_RESULT_RUNNING,
@@ -50,7 +52,7 @@ typedef struct {
 } calibration_recoil_result_t;
 
 typedef struct {
-    char profile_id[32];
+    char profile_id[CAL_PROFILE_ID_LEN];
 
     calibration_result_t result;
     bool ready_for_session;
@@ -74,6 +76,7 @@ esp_err_t calibration_manager_validate(void);
 esp_err_t calibration_manager_cancel(void);
 
 bool calibration_manager_is_ready(void);
+bool calibration_manager_is_ready_for_profile(const char *profile_id);
 calibration_result_t calibration_manager_get_result(void);
 const calibration_report_t *calibration_manager_get_report(void);
 
