@@ -45,8 +45,8 @@
  */
 #pragma once
 
-// Fixed-width integer types like int32_t
-#include <stdint.h>
+// Fixed-width integer types like int
+
 
 // ESP-IDF GPIO types such as gpio_num_t
 #include "driver/gpio.h"
@@ -82,7 +82,7 @@ void hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin);
 // Returns:
 // - sensor raw reading as a signed 32-bit integer
 // - HX710_ERROR_TIMEOUT if the sensor does not respond in time
-int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin);
+int hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin);
 
 // End of C linkage block for C++ compatibility
 #ifdef __cplusplus

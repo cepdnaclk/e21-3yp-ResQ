@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "cJSON.h"
 #include "esp_event.h"
@@ -58,7 +59,12 @@ static void publish_state(const char *state)
     }
 }
 
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+static void mqtt_event_handler(
+    void *handler_args,
+    esp_event_base_t base,
+    int32_t event_id,
+    void *event_data
+)
 {
     (void)handler_args;
     (void)base;

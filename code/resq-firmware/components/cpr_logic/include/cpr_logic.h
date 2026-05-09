@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 
+
 // Expose C-compatible symbols when included from C++ code.
 #ifdef __cplusplus
 extern "C" {

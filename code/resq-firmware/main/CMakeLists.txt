@@ -11,4 +11,5 @@ idf_component_register(
         runtime
         device_identity
         board_config
+        calibration_manager
 )

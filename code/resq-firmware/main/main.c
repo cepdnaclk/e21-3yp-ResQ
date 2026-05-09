@@ -25,6 +25,7 @@
 #include "device_identity.h"
 #include "resq_protocol.h"
 #include "status_indicator.h"
+#include "calibration_manager.h"
 
 static const char *TAG = "main";
 
@@ -66,6 +67,7 @@ void app_main(void)
      * ------------------------------------------------- */
     ESP_ERROR_CHECK(sensor_runtime_init(&cfg));
     session_manager_init();
+    ESP_ERROR_CHECK(calibration_manager_init(&cfg));
 
     /* -------------------------------------------------
      * Provisioning flow

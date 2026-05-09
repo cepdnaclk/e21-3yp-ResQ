@@ -74,6 +74,11 @@ esp_err_t device_control_validate_config_update(const device_config_t *new_cfg)
         return ESP_ERR_INVALID_ARG;
     }
 
+    if (!config_store_calibration_values_valid(new_cfg)) {
+        ESP_LOGE(TAG, "Rejected config update: invalid calibration values");
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 

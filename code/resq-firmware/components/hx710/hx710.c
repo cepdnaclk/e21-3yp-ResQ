@@ -35,7 +35,7 @@ void hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
  * @return Signed 32-bit converted sample on success,
  *         or HX710_ERROR_TIMEOUT if data-ready wait times out.
  */
-int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
+int hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
 {
   int timeout_ticks = 0;
   const int max_wait_ticks = 50; // Max RTOS ticks to wait for DOUT to go low.
@@ -51,7 +51,7 @@ int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
     }
   }
 
-  int32_t raw_data = 0;
+  int raw_data = 0;
 
   // Read 24 bits from HX710, MSB first.
   for (int i = 0; i < 24; i++) {

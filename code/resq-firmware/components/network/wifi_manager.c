@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "esp_event.h"
 #include "esp_log.h"
@@ -40,7 +41,12 @@ static esp_err_t ensure_net_stack_ready(void)
     return ESP_OK;
 }
 
-static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
+static void wifi_event_handler(
+    void *arg,
+    esp_event_base_t event_base,
+    int32_t event_id,
+    void *event_data
+)
 {
     (void)arg;
     (void)event_data;
