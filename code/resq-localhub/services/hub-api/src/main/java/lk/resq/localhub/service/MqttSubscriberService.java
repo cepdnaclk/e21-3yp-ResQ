@@ -47,6 +47,8 @@ public class MqttSubscriberService {
 
     private final String brokerUrl;
     private final String clientId;
+    private final String username;
+    private final String password;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong acceptedTelemetryCount = new AtomicLong(0);
@@ -61,7 +63,9 @@ public class MqttSubscriberService {
             ActiveSessionService activeSessionService,
             LiveStreamService liveStreamService,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
-            @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId
+            @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
+            @Value("${resq.mqtt.username:}") String username,
+            @Value("${resq.mqtt.password:}") String password
     ) {
         this.objectMapper = objectMapper;
         this.manikinRegistryService = manikinRegistryService;
@@ -69,6 +73,8 @@ public class MqttSubscriberService {
         this.liveStreamService = liveStreamService;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
+        this.username = normalize(username);
+        this.password = password;
     }
 
     @PostConstruct
@@ -136,6 +142,7 @@ public class MqttSubscriberService {
         options.setCleanSession(true);
         options.setAutomaticReconnect(true);
         options.setConnectionTimeout(5);
+        applyCredentials(options);
 
         mqttClient.setCallback(new MqttCallback() {
             @Override
@@ -163,6 +170,17 @@ public class MqttSubscriberService {
         }
 
         logger.info("MQTT subscriber subscribed to {} topic patterns", SUBSCRIPTIONS.size());
+    }
+
+    private void applyCredentials(MqttConnectOptions options) {
+        if (username == null) {
+            return;
+        }
+
+        options.setUserName(username);
+        if (password != null && !password.isBlank()) {
+            options.setPassword(password.toCharArray());
+        }
     }
 
     private void handleMessage(String topic, MqttMessage message) {
@@ -387,6 +405,15 @@ public class MqttSubscriberService {
 
         String value = node.asText().trim();
         return value.isEmpty() ? null : value;
+    }
+
+    private static String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private record ParsedTopic(String deviceId, String messageType) {

@@ -12,6 +12,8 @@ export type UseLiveSessionOptions = {
   sessionId?: string | null;
   enabled?: boolean;
   mqttUrl?: string;
+  mqttUsername?: string | null;
+  mqttPassword?: string | null;
   backendBaseUrl?: string;
 };
 
@@ -20,6 +22,8 @@ export function useLiveSession(options: UseLiveSessionOptions): LiveClientState 
   const deviceId = options.deviceId?.trim() ?? "";
   const sessionId = options.sessionId?.trim() || null;
   const mqttUrl = options.mqttUrl ?? getDefaultMqttWebSocketUrl();
+  const mqttUsername = options.mqttUsername ?? import.meta.env.VITE_RESQ_MQTT_DASHBOARD_USERNAME ?? null;
+  const mqttPassword = options.mqttPassword ?? import.meta.env.VITE_RESQ_MQTT_DASHBOARD_PASSWORD ?? null;
   const backendBaseUrl = options.backendBaseUrl ?? getDefaultBackendBaseUrl();
 
   const clientOptions = useMemo<LiveClientOptions>(
@@ -28,9 +32,11 @@ export function useLiveSession(options: UseLiveSessionOptions): LiveClientState 
       sessionId,
       enabled: enabled && deviceId.length > 0,
       mqttUrl,
+      mqttUsername,
+      mqttPassword,
       backendBaseUrl,
     }),
-    [backendBaseUrl, deviceId, enabled, mqttUrl, sessionId],
+    [backendBaseUrl, deviceId, enabled, mqttPassword, mqttUrl, mqttUsername, sessionId],
   );
 
   const [state, setState] = useState<LiveClientState>(() => ({

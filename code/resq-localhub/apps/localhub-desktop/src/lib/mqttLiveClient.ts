@@ -5,6 +5,8 @@ export type MqttLiveClientOptions = {
   deviceId: string;
   sessionId?: string | null;
   url: string;
+  username?: string | null;
+  password?: string | null;
 };
 
 export type MqttLiveClientCallbacks = {
@@ -39,6 +41,8 @@ export function createMqttLiveClient(
       connectTimeout: 3000,
       reconnectPeriod: 0,
       resubscribe: false,
+      username: options.username || undefined,
+      password: options.password || undefined,
     });
 
     client.on("connect", () => {

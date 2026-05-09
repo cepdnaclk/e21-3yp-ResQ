@@ -14,6 +14,8 @@ export type LiveClientOptions = {
   sessionId?: string | null;
   enabled: boolean;
   mqttUrl?: string;
+  mqttUsername?: string | null;
+  mqttPassword?: string | null;
   backendBaseUrl?: string;
   mqttMaxRetries?: number;
   mqttStableMs?: number;
@@ -65,6 +67,11 @@ export function getDefaultBackendBaseUrl(): string {
 }
 
 export function getDefaultMqttWebSocketUrl(): string {
+  const configuredUrl = import.meta.env.VITE_RESQ_MQTT_WS_URL;
+  if (typeof configuredUrl === "string" && configuredUrl.trim()) {
+    return configuredUrl.trim();
+  }
+
   if (typeof window === "undefined") {
     return "ws://localhost:9001";
   }
@@ -168,6 +175,8 @@ class LiveClientManager implements LiveClientSubscription {
         deviceId: this.options.deviceId,
         sessionId: this.options.sessionId,
         url: this.options.mqttUrl ?? getDefaultMqttWebSocketUrl(),
+        username: this.options.mqttUsername,
+        password: this.options.mqttPassword,
       },
       {
         onOpen: () => {

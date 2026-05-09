@@ -22,6 +22,7 @@ Prerequisites
 - Backend running on `http://localhost:18080`.
 - Frontend running on `http://localhost:1420`.
 - An authenticated instructor session in the browser when protected endpoints are enabled.
+- For final/demo MQTT ACL checks, see `docs/mqtt-security.md`.
 
 Quick commands
 --------------
@@ -49,6 +50,12 @@ Run backend fallback smoke checks:
 
 ```powershell
 .\scripts\test-live-fallback.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -IncludeInvalidSamples
+```
+
+Run static command-authority check:
+
+```powershell
+.\scripts\test-live-fallback.ps1 -StaticOnly
 ```
 
 If REST endpoints require an auth cookie outside the browser, pass it as:
