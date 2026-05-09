@@ -24,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class MqttSubscriberService {
@@ -48,6 +49,8 @@ public class MqttSubscriberService {
     private final String clientId;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong acceptedTelemetryCount = new AtomicLong(0);
+    private final AtomicLong rejectedTelemetryCount = new AtomicLong(0);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private MqttClient mqttClient;
@@ -199,22 +202,33 @@ public class MqttSubscriberService {
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
-                    try {
-                        manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, payload);
-                    } catch (RuntimeException error) {
+                    ActiveSessionService.TelemetryValidationResult validation =
+                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, payload);
+                    if (!validation.accepted()) {
+                        long rejected = rejectedTelemetryCount.incrementAndGet();
                         logger.warn(
-                                "Failed to update live registry from telemetry for {}. Continuing with session accumulator update.",
+                                "Rejected MQTT telemetry for device {} on topic {}: {} (accepted={}, rejected={})",
                                 parsedTopic.deviceId,
-                                error
+                                topic,
+                                validation.reason(),
+                                acceptedTelemetryCount.get(),
+                                rejected
                         );
+                        return;
                     }
 
-                    // Bridge telemetry into active-session summary accumulation for the same device.
+                    manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, payload);
                     activeSessionService.recordTelemetry(parsedTopic.deviceId, payload);
+                    long accepted = acceptedTelemetryCount.incrementAndGet();
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForDevice(parsedTopic.deviceId);
-                    publishSessionLiveForPayload(payload);
-                    logger.info("Processed MQTT telemetry message for {} and forwarded to active-session accumulator", parsedTopic.deviceId);
+                    logger.info(
+                            "Accepted MQTT telemetry for device {} session {} and forwarded to active-session accumulator (accepted={}, rejected={})",
+                            parsedTopic.deviceId,
+                            validation.sessionId(),
+                            accepted,
+                            rejectedTelemetryCount.get()
+                    );
                 }
                 case "events" -> {
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);

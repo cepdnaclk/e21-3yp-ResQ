@@ -32,6 +32,7 @@ public class ActiveSessionService {
 
     private final ConcurrentMap<String, ActiveSessionState> sessionsById = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> activeSessionIdByDeviceId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Long> lastAcceptedSeqBySessionId = new ConcurrentHashMap<>();
     private final ManikinRegistryService manikinRegistryService;
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final LocalSessionRepository localSessionRepository;
@@ -187,32 +188,77 @@ public class ActiveSessionService {
         SessionEndResponse response = toCompletedResponse(state, summary);
 
         localSessionRepository.save(response);
+        lastAcceptedSeqBySessionId.remove(state.sessionId);
         liveStreamService.publishSessionLive(state.sessionId, null);
         publishInstructorLiveSnapshot();
         logger.info("Ended session {} for device {}", sessionId, state.deviceId);
         return response;
     }
 
-    public void recordTelemetry(String deviceId, JsonNode payload) {
-        String normalizedDeviceId = normalize(deviceId);
+    public TelemetryValidationResult validateTelemetryBinding(String topicDeviceId, JsonNode payload) {
+        String normalizedDeviceId = normalize(topicDeviceId);
         if (normalizedDeviceId == null) {
-            logger.debug("Ignoring telemetry for summary because deviceId is missing or blank");
-            return;
+            return TelemetryValidationResult.rejected("topic deviceId is missing");
         }
 
-        String sessionId = activeSessionIdByDeviceId.get(normalizedDeviceId);
-        if (sessionId == null) {
-            logger.info("Ignoring telemetry for summary on device {} because no active session exists", normalizedDeviceId);
-            return;
+        if (payload == null || !payload.isObject()) {
+            return TelemetryValidationResult.rejected("payload must be a JSON object");
         }
 
-        ActiveSessionState state = sessionsById.get(sessionId);
+        String payloadDeviceId = firstText(payload, null, "deviceId", "device_id");
+        if (payloadDeviceId == null) {
+            return TelemetryValidationResult.rejected("payload deviceId is missing");
+        }
+
+        if (!normalizedDeviceId.equals(payloadDeviceId)) {
+            return TelemetryValidationResult.rejected("payload deviceId does not match MQTT topic deviceId");
+        }
+
+        String payloadSessionId = firstText(payload, null, "sessionId", "session_id");
+        if (payloadSessionId == null) {
+            return TelemetryValidationResult.rejected("payload sessionId is missing");
+        }
+
+        ActiveSessionState state = sessionsById.get(payloadSessionId);
         if (state == null || !state.active) {
-            logger.info(
-                    "Ignoring telemetry for summary on device {} because session {} is not active",
-                    normalizedDeviceId,
-                    sessionId
-            );
+            return TelemetryValidationResult.rejected("session is not active");
+        }
+
+        if (!state.deviceId.equals(normalizedDeviceId)) {
+            return TelemetryValidationResult.rejected("active session is assigned to a different device");
+        }
+
+        String activeSessionIdForDevice = activeSessionIdByDeviceId.get(normalizedDeviceId);
+        if (!payloadSessionId.equals(activeSessionIdForDevice)) {
+            return TelemetryValidationResult.rejected("device active session does not match payload sessionId");
+        }
+
+        String shapeError = validateTelemetryShape(payload);
+        if (shapeError != null) {
+            return TelemetryValidationResult.rejected(shapeError);
+        }
+
+        Long seq = firstLong(payload, null, "seq");
+        if (seq != null) {
+            Long previousSeq = lastAcceptedSeqBySessionId.get(payloadSessionId);
+            if (previousSeq != null && seq <= previousSeq) {
+                return TelemetryValidationResult.rejected("seq is not newer than the last accepted telemetry");
+            }
+        }
+
+        return TelemetryValidationResult.accepted(payloadSessionId, normalizedDeviceId);
+    }
+
+    public void recordTelemetry(String deviceId, JsonNode payload) {
+        TelemetryValidationResult validation = validateTelemetryBinding(deviceId, payload);
+        if (!validation.accepted()) {
+            logger.info("Rejected telemetry for device {}: {}", deviceId, validation.reason());
+            return;
+        }
+
+        ActiveSessionState state = sessionsById.get(validation.sessionId());
+        if (state == null || !state.active) {
+            logger.info("Rejected telemetry for device {}: session disappeared before recording", deviceId);
             return;
         }
 
@@ -237,6 +283,10 @@ public class ActiveSessionService {
         }
 
         state.accumulator.record(depthMm, rateCpm, recoilOk, pauseS, flags);
+        Long seq = firstLong(payload, null, "seq");
+        if (seq != null) {
+            lastAcceptedSeqBySessionId.put(state.sessionId, seq);
+        }
         getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         logger.info(
             "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, rateCpm={}, recoilOk={}, pauseS={})",
@@ -248,6 +298,64 @@ public class ActiveSessionService {
             recoilOk,
             pauseS
         );
+    }
+
+    private String validateTelemetryShape(JsonNode payload) {
+        boolean hasMetric = hasNumber(payload, "depthMm", "depth_mm", "current_delta")
+                || hasNumber(payload, "rateCpm", "rate_cpm")
+                || hasNumber(payload, "pauseS", "pause_s")
+                || hasNumber(payload, "compressionCount", "compression_count", "total_compressions")
+                || hasBoolean(payload, "recoilOk", "recoil_ok", "recoil");
+        if (!hasMetric) {
+            return "payload does not contain any recognized metric fields";
+        }
+
+        Double depthMm = firstDouble(payload, null, "depthMm", "depth_mm", "current_delta");
+        if (depthMm != null && (depthMm < 0.0 || depthMm > 120.0)) {
+            return "depthMm is outside the accepted range";
+        }
+
+        Double rateCpm = firstDouble(payload, null, "rateCpm", "rate_cpm");
+        if (rateCpm != null && (rateCpm < 0.0 || rateCpm > 240.0)) {
+            return "rateCpm is outside the accepted range";
+        }
+
+        Double pauseS = firstDouble(payload, null, "pauseS", "pause_s");
+        if (pauseS != null && (pauseS < 0.0 || pauseS > 600.0)) {
+            return "pauseS is outside the accepted range";
+        }
+
+        Integer compressionCount = firstInt(payload, null, "total_compressions", "compressionCount", "compression_count");
+        if (compressionCount != null && compressionCount < 0) {
+            return "compressionCount cannot be negative";
+        }
+
+        Long seq = firstLong(payload, null, "seq");
+        if (seq != null && seq < 0) {
+            return "seq cannot be negative";
+        }
+
+        return null;
+    }
+
+    private static boolean hasNumber(JsonNode payload, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node != null && !node.isNull() && node.isNumber()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasBoolean(JsonNode payload, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node != null && !node.isNull() && (node.isBoolean() || node.isTextual())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Optional<SessionEndResponse> findCompletedSession(String sessionId) {
@@ -468,6 +576,21 @@ public class ActiveSessionService {
         return fallback;
     }
 
+    private static Long firstLong(JsonNode payload, Long fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node != null && !node.isNull() && node.isNumber()) {
+                return node.asLong();
+            }
+        }
+
+        return fallback;
+    }
+
     private static String firstText(JsonNode payload, String fallback, String... keys) {
         if (payload == null) {
             return fallback;
@@ -569,6 +692,21 @@ public class ActiveSessionService {
             this.notes = notes;
             this.endedAt = endedAt;
             this.accumulator = new SessionTelemetryAccumulator();
+        }
+    }
+
+    public record TelemetryValidationResult(
+            boolean accepted,
+            String reason,
+            String sessionId,
+            String deviceId
+    ) {
+        private static TelemetryValidationResult accepted(String sessionId, String deviceId) {
+            return new TelemetryValidationResult(true, null, sessionId, deviceId);
+        }
+
+        private static TelemetryValidationResult rejected(String reason) {
+            return new TelemetryValidationResult(false, reason, null, null);
         }
     }
 

@@ -106,12 +106,12 @@ export function createMqttLiveClient(
     if (payloadDeviceId !== options.deviceId) {
       return null;
     }
-    if (options.sessionId && payloadSessionId && payloadSessionId !== options.sessionId) {
+    if (options.sessionId && payloadSessionId !== options.sessionId) {
       return null;
     }
 
     if (parsedTopic.kind === "telemetry") {
-      const metric = toLiveMetric({ ...raw, deviceId: payloadDeviceId, sessionId: payloadSessionId ?? options.sessionId });
+      const metric = toLiveMetric({ ...raw, deviceId: payloadDeviceId, sessionId: payloadSessionId });
       if (!metric) {
         return null;
       }

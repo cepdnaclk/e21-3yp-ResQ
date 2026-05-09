@@ -22,8 +22,8 @@ export function isLiveUpdateForSelection(
     return false;
   }
 
-  if (sessionId && update.sessionId && update.sessionId !== sessionId) {
-    return false;
+  if (sessionId) {
+    return update.sessionId === sessionId;
   }
 
   return true;
