@@ -14,6 +14,7 @@
 #include "sensor_runtime.h"
 #include "session_manager.h"
 #include "telemetry_publisher.h"
+#include "event_publisher.h"
 #include "wifi_manager.h"
 #include "fault_reporter.h"
 #include "command_handler.h"
@@ -28,6 +29,43 @@
 #include "calibration_manager.h"
 
 static const char *TAG = "main";
+
+static esp_err_t main_command_handle_cb(
+    const char *suffix,
+    const char *payload,
+    void *ctx
+)
+{
+    (void)ctx;
+    return command_handler_handle_message(suffix, payload);
+}
+
+static esp_err_t main_command_reject_cb(
+    const char *suffix,
+    const char *reason,
+    void *ctx
+)
+{
+    (void)ctx;
+    return command_handler_reject_message(suffix, reason);
+}
+
+static bool main_loop_may_set_idle_indicator(indicator_state_t state)
+{
+    switch (state) {
+        case INDICATOR_STATE_CALIBRATING:
+        case INDICATOR_STATE_READY_FOR_SESSION:
+        case INDICATOR_STATE_CALIBRATION_FAIL:
+        case INDICATOR_STATE_SESSION_ACTIVE:
+        case INDICATOR_STATE_SESSION_INTERRUPTED:
+        case INDICATOR_STATE_FAULT:
+        case INDICATOR_STATE_RESETTING:
+            return false;
+
+        default:
+            return true;
+    }
+}
 
 void app_main(void)
 {
@@ -161,6 +199,13 @@ void app_main(void)
      * Start MQTT control channel
      * ------------------------------------------------- */
     ESP_ERROR_CHECK(mqtt_manager_init(&cfg));
+    ESP_ERROR_CHECK(queued_publisher_init());
+    ESP_ERROR_CHECK(event_publisher_init(&cfg));
+    ESP_ERROR_CHECK(mqtt_manager_set_command_callbacks(
+        main_command_handle_cb,
+        main_command_reject_cb,
+        NULL
+    ));
     ESP_ERROR_CHECK(mqtt_manager_start());
 
     /* -------------------------------------------------
@@ -168,7 +213,6 @@ void app_main(void)
      * Handles buffered/outbound messages that should be
      * retried or sent asynchronously.
      * ------------------------------------------------- */
-    ESP_ERROR_CHECK(queued_publisher_init());
     ESP_ERROR_CHECK(queued_publisher_start());
 
     ESP_LOGI(TAG, "Queued publisher started");
@@ -281,12 +325,18 @@ void app_main(void)
 
         if (session_manager_is_active()) {
             status_indicator_set(INDICATOR_STATE_SESSION_ACTIVE);
-            ESP_LOGI(TAG, "Session active: %s", session_manager_get_id());
+            char session_id[64] = {0};
+            session_manager_get_session_id(session_id, sizeof(session_id));
+            ESP_LOGI(TAG, "Session active: %s", session_id);
         } else if (wifi_manager_is_connected() && mqtt_manager_is_connected()) {
-            status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
+            if (main_loop_may_set_idle_indicator(status_indicator_get())) {
+                status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
+            }
             ESP_LOGI(TAG, "Idle - waiting for Local Hub commands");
         } else {
-            status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
+            if (main_loop_may_set_idle_indicator(status_indicator_get())) {
+                status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
+            }
             ESP_LOGW(TAG, "Waiting for connectivity recovery");
         }
 

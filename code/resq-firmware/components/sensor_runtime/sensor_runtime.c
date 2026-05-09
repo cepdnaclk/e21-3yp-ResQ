@@ -36,6 +36,9 @@
 #define SENSOR_FAULT_DEBOUNCE_COUNT  3
 #define SENSOR_GOOD_DEBOUNCE_COUNT   2
 #define MIN_FEEDBACK_GAP_MS        120
+#define TARGET_RATE_MIN_CPM        100.0f
+#define TARGET_RATE_MAX_CPM        120.0f
+#define LONG_PAUSE_SECONDS          10.0f
 
 static const char *TAG = "sensor_runtime";
 static int s_sensor_task_period_ms = 20;
@@ -46,6 +49,7 @@ static int s_sensor_task_period_ms = 20;
 static hall_sensor_t s_hall_sensor;
 static cpr_state_t s_cpr_state;
 static cpr_thresholds_t s_thresholds;
+static device_config_t s_runtime_cfg;
 
 static sensor_snapshot_t s_latest_snapshot;
 static SemaphoreHandle_t s_snapshot_mutex = NULL;
@@ -73,8 +77,10 @@ static int s_hall_good_count = 0;
 
 /* suppress repeated feedback too quickly */
 static TickType_t s_last_feedback_tick = 0;
+static uint64_t s_last_compression_ts_ms = 0;
+static float s_last_rate_cpm = 0.0f;
 
-static sensor_mode_t s_sensor_mode = SENSOR_MODE_IDLE;
+static volatile sensor_mode_t s_sensor_mode = SENSOR_MODE_IDLE;
 
 sensor_mode_t sensor_runtime_get_mode(void)
 {
@@ -95,6 +101,117 @@ static int iir_filter_step(int prev, int current)
 {
     /* Simple 25% new + 75% old IIR filter */
     return (prev * 3 + current) / 4;
+}
+
+static int32_t abs_i32(int32_t value)
+{
+    return value < 0 ? -value : value;
+}
+
+static float delta_to_depth_mm(int32_t delta)
+{
+    int32_t abs_delta = abs_i32(delta);
+
+    if (s_runtime_cfg.full_depth_hall_delta <= 0 ||
+        s_runtime_cfg.full_depth_target_mm <= 0) {
+        return 0.0f;
+    }
+
+    return ((float)abs_delta * (float)s_runtime_cfg.full_depth_target_mm) /
+           (float)s_runtime_cfg.full_depth_hall_delta;
+}
+
+static const char *estimate_hand_placement(int32_t force1, int32_t force2, bool *hand_ok)
+{
+    int32_t f1 = abs_i32(force1);
+    int32_t f2 = abs_i32(force2);
+    int32_t total = f1 + f2;
+
+    if (hand_ok != NULL) {
+        *hand_ok = false;
+    }
+
+    if (total <= 0) {
+        if (hand_ok != NULL) {
+            *hand_ok = true;
+        }
+        return "UNKNOWN";
+    }
+
+    float imbalance_pct = ((float)abs_i32(f1 - f2) / (float)total) * 100.0f;
+
+    if (imbalance_pct <= (float)s_runtime_cfg.max_pressure_imbalance_pct) {
+        if (hand_ok != NULL) {
+            *hand_ok = true;
+        }
+        return "CENTER";
+    }
+
+    return f1 > f2 ? "LEFT_HEAVY" : "RIGHT_HEAVY";
+}
+
+static void populate_metrics(sensor_snapshot_t *snap)
+{
+    if (snap == NULL) {
+        return;
+    }
+
+    bool hand_ok = false;
+    snap->hand_placement = estimate_hand_placement(snap->force1, snap->force2, &hand_ok);
+    snap->hand_ok = hand_ok;
+
+    if (snap->depth_mm <= 0.0f) {
+        snap->depth_mm = delta_to_depth_mm(snap->current_delta);
+    }
+
+    snap->rate_cpm = s_last_rate_cpm;
+
+    if (s_last_compression_ts_ms > 0 && snap->ts_ms >= s_last_compression_ts_ms) {
+        snap->pause_s = (float)(snap->ts_ms - s_last_compression_ts_ms) / 1000.0f;
+    } else {
+        snap->pause_s = 0.0f;
+    }
+
+    snap->recoil_ok =
+        abs_i32(snap->current_delta) <= s_runtime_cfg.recoil_return_threshold_delta;
+
+    snap->depth_ok = snap->feedback == CPR_FEEDBACK_PERFECT;
+    snap->rate_ok =
+        s_last_rate_cpm == 0.0f ||
+        (s_last_rate_cpm >= TARGET_RATE_MIN_CPM &&
+         s_last_rate_cpm <= TARGET_RATE_MAX_CPM);
+
+    uint32_t flags = 0;
+
+    if (snap->feedback == CPR_FEEDBACK_TOO_SHALLOW) {
+        flags |= SENSOR_FLAG_DEPTH_LOW;
+    } else if (snap->feedback == CPR_FEEDBACK_TOO_DEEP) {
+        flags |= SENSOR_FLAG_DEPTH_HIGH;
+    }
+
+    if (s_last_rate_cpm > 0.0f && s_last_rate_cpm < TARGET_RATE_MIN_CPM) {
+        flags |= SENSOR_FLAG_RATE_LOW;
+    } else if (s_last_rate_cpm > TARGET_RATE_MAX_CPM) {
+        flags |= SENSOR_FLAG_RATE_HIGH;
+    }
+
+    if (!snap->recoil_ok) {
+        flags |= SENSOR_FLAG_RECOIL_POOR;
+    }
+
+    if (snap->pause_s >= LONG_PAUSE_SECONDS) {
+        flags |= SENSOR_FLAG_PAUSE_LONG;
+    }
+
+    if (!snap->hand_ok) {
+        flags |= SENSOR_FLAG_HAND_OFFCENTER;
+    }
+
+    if (!snap->force1_ok || !snap->force2_ok || !snap->hall_ok) {
+        flags |= SENSOR_FLAG_SENSOR_FAULT;
+    }
+
+    snap->flags = flags;
 }
 
 static bool update_stable_sensor_ok(bool raw_ok, bool *stable_ok, int *fail_count, int *good_count)
@@ -196,27 +313,45 @@ static void sensor_task(void *arg)
 
             snap.current_delta = hall_sensor_calculate_delta(&s_hall_sensor, s_hall_filtered);
 
-            cpr_feedback_t new_feedback = cpr_logic_update(
-                &s_cpr_state,
-                &s_thresholds,
-                snap.current_delta
-            );
+            cpr_feedback_t new_feedback = CPR_FEEDBACK_NONE;
 
-            /* suppress unrealistically fast repeated events */
-            if (new_feedback != CPR_FEEDBACK_NONE && !feedback_gap_elapsed()) {
-                new_feedback = CPR_FEEDBACK_NONE;
+            if (s_sensor_mode == SENSOR_MODE_SESSION) {
+                new_feedback = cpr_logic_update(
+                    &s_cpr_state,
+                    &s_thresholds,
+                    snap.current_delta
+                );
+
+                /* suppress unrealistically fast repeated events */
+                if (new_feedback != CPR_FEEDBACK_NONE && !feedback_gap_elapsed()) {
+                    new_feedback = CPR_FEEDBACK_NONE;
+                }
             }
 
             snap.feedback = new_feedback;
             snap.total_compressions = s_cpr_state.total_compressions;
 
+            if (new_feedback != CPR_FEEDBACK_NONE) {
+                if (s_last_compression_ts_ms > 0 && snap.ts_ms > s_last_compression_ts_ms) {
+                    uint64_t interval_ms = snap.ts_ms - s_last_compression_ts_ms;
+                    s_last_rate_cpm = 60000.0f / (float)interval_ms;
+                }
+
+                s_last_compression_ts_ms = snap.ts_ms;
+                snap.depth_mm = delta_to_depth_mm(s_cpr_state.last_peak_delta);
+                snap.rate_cpm = s_last_rate_cpm;
+            }
+
+            populate_metrics(&snap);
+
             if (snap.feedback != CPR_FEEDBACK_NONE) {
                 ESP_LOGI(
                     TAG,
-                    "Compression %d evaluated -> %s (delta=%d)",
-                    snap.total_compressions,
+                    "Compression %ld evaluated -> %s (depth=%.1fmm rate=%.1fcpm)",
+                    (long)snap.total_compressions,
                     cpr_feedback_to_string(snap.feedback),
-                    snap.current_delta
+                    snap.depth_mm,
+                    snap.rate_cpm
                 );
             }
         } else {
@@ -224,6 +359,7 @@ static void sensor_task(void *arg)
             snap.hall_filtered = s_hall_filtered;
             snap.feedback = CPR_FEEDBACK_NONE;
             snap.total_compressions = s_cpr_state.total_compressions;
+            populate_metrics(&snap);
         }
 
         if (xSemaphoreTake(s_snapshot_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -257,6 +393,7 @@ esp_err_t sensor_runtime_init(const device_config_t *cfg)
 
     hx710_init(HX710_1_SCK, HX710_1_DOUT);
     hx710_init(HX710_2_SCK, HX710_2_DOUT);
+    s_runtime_cfg = *cfg;
 
     esp_err_t err = hall_sensor_init(&s_hall_sensor, HALL_ADC_CHAN, cfg->hall_baseline);
     if (err != ESP_OK) {
@@ -302,6 +439,7 @@ esp_err_t sensor_runtime_apply_config(const device_config_t *cfg)
     }
 
     s_hall_sensor.baseline = cfg->hall_baseline;
+    s_runtime_cfg = *cfg;
 
     s_thresholds.hall_min_delta = cfg->hall_min_delta;
     s_thresholds.hall_max_delta = cfg->hall_max_delta;
@@ -380,6 +518,7 @@ esp_err_t sensor_runtime_stop(void)
     }
 
     if (!s_task_running && s_sensor_task_handle == NULL) {
+        s_sensor_mode = SENSOR_MODE_IDLE;
         ESP_LOGI(TAG, "Sensor task already stopped");
         return ESP_OK;
     }
@@ -389,6 +528,7 @@ esp_err_t sensor_runtime_stop(void)
     /* Wait briefly for task loop to exit cleanly */
     for (int i = 0; i < 40; i++) {
         if (!s_task_running && s_sensor_task_handle == NULL) {
+            s_sensor_mode = SENSOR_MODE_IDLE;
             ESP_LOGI(TAG, "Sensor task stopped cleanly");
             return ESP_OK;
         }
@@ -416,6 +556,8 @@ esp_err_t sensor_runtime_reset_session_data(void)
 
     s_hall_filtered = s_hall_sensor.baseline;
     s_last_feedback_tick = 0;
+    s_last_compression_ts_ms = 0;
+    s_last_rate_cpm = 0.0f;
 
     s_force1_ok_stable = true;
     s_force2_ok_stable = true;

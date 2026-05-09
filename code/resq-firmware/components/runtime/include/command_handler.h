@@ -9,6 +9,7 @@ extern "C" {
 
 esp_err_t command_handler_init(const device_config_t *cfg);
 esp_err_t command_handler_handle_message(const char *suffix, const char *payload);
+esp_err_t command_handler_reject_message(const char *suffix, const char *reason);
 
 #ifdef __cplusplus
 }

@@ -45,7 +45,13 @@ char *resq_payload_heartbeat(
     bool force1_ok,
     bool force2_ok,
     bool hall_ok,
-    int compression_count
+    int compression_count,
+    bool calibration_ready,
+    const char *calibration_state,
+    const char *profile_id,
+    const char *last_calibration_result,
+    bool debug_raw_enabled,
+    const char *sensor_mode
 )
 {
     cJSON *root = cJSON_CreateObject();
@@ -67,42 +73,19 @@ char *resq_payload_heartbeat(
     cJSON_AddBoolToObject(root, "hall_ok", hall_ok);
     cJSON_AddNumberToObject(root, "compression_count", compression_count);
 
-    char *payload = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    return payload;
-}
+    cJSON_AddBoolToObject(root, "calibrationReady", calibration_ready);
+    cJSON_AddStringToObject(root, "calibrationState", safe_str(calibration_state));
+    cJSON_AddStringToObject(root, "profileId", safe_str(profile_id));
+    cJSON_AddStringToObject(root, "lastCalibrationResult", safe_str(last_calibration_result));
+    cJSON_AddBoolToObject(root, "debugRawEnabled", debug_raw_enabled);
+    cJSON_AddStringToObject(root, "sensorMode", safe_str(sensor_mode));
 
-char *resq_payload_telemetry(
-    const char *device_id,
-    const char *manikin_id,
-    const char *session_id,
-    const sensor_snapshot_t *snap
-)
-{
-    if (snap == NULL) {
-        return NULL;
+    cJSON *sensor_health = cJSON_AddObjectToObject(root, "sensorHealth");
+    if (sensor_health != NULL) {
+        cJSON_AddBoolToObject(sensor_health, "force1Ok", force1_ok);
+        cJSON_AddBoolToObject(sensor_health, "force2Ok", force2_ok);
+        cJSON_AddBoolToObject(sensor_health, "hallOk", hall_ok);
     }
-
-    cJSON *root = cJSON_CreateObject();
-    if (!root) {
-        return NULL;
-    }
-
-    cJSON_AddStringToObject(root, "device_id", safe_str(device_id));
-    cJSON_AddStringToObject(root, "manikin_id", safe_str(manikin_id));
-    cJSON_AddStringToObject(root, "session_id", safe_str(session_id));
-
-    cJSON_AddNumberToObject(root, "force1", snap->force1);
-    cJSON_AddNumberToObject(root, "force2", snap->force2);
-    cJSON_AddBoolToObject(root, "force1_ok", snap->force1_ok);
-    cJSON_AddBoolToObject(root, "force2_ok", snap->force2_ok);
-
-    cJSON_AddBoolToObject(root, "hall_ok", snap->hall_ok);
-    cJSON_AddNumberToObject(root, "hall_raw", snap->hall_raw);
-    cJSON_AddNumberToObject(root, "current_delta", snap->current_delta);
-
-    cJSON_AddNumberToObject(root, "total_compressions", snap->total_compressions);
-    cJSON_AddStringToObject(root, "feedback", cpr_feedback_to_string(snap->feedback));
 
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -129,7 +112,9 @@ char *resq_payload_feedback_event(
     cJSON_AddStringToObject(root, "event_type", "compression_feedback");
     cJSON_AddNumberToObject(root, "compression_count", snap->total_compressions);
     cJSON_AddStringToObject(root, "feedback", cpr_feedback_to_string(snap->feedback));
-    cJSON_AddNumberToObject(root, "current_delta", snap->current_delta);
+    cJSON_AddNumberToObject(root, "depthMm", snap->depth_mm);
+    cJSON_AddNumberToObject(root, "rateCpm", snap->rate_cpm);
+    cJSON_AddBoolToObject(root, "recoilOk", snap->recoil_ok);
 
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -151,7 +136,7 @@ char *resq_payload_fault_event(
 
     cJSON_AddStringToObject(root, "device_id", safe_str(device_id));
     cJSON_AddStringToObject(root, "session_id", safe_str(session_id));
-    cJSON_AddStringToObject(root, "event_type", "fault");
+    cJSON_AddStringToObject(root, "event_type", active ? "fault" : "fault_recovered");
     cJSON_AddStringToObject(root, "fault_code", safe_str(fault_code));
     cJSON_AddStringToObject(root, "message", safe_str(message));
     cJSON_AddBoolToObject(root, "active", active);
@@ -262,6 +247,7 @@ esp_err_t resq_payload_metric_telemetry(
     const char *hand_placement,
     const char *flags_json,
     bool debug_raw_enabled,
+    const sensor_snapshot_t *debug_snap,
     char *out,
     size_t out_len
 ) {
@@ -269,11 +255,6 @@ esp_err_t resq_payload_metric_telemetry(
         return ESP_ERR_INVALID_ARG;
     }
 
-    /*
-     * IMPORTANT:
-     * debugRaw is intentionally NOT included here yet.
-     * Add it later only when debug_raw_enabled is true and raw values are passed in.
-     */
     int written = snprintf(
         out,
         out_len,
@@ -305,6 +286,30 @@ esp_err_t resq_payload_metric_telemetry(
 
     if (written < 0 || written >= (int)out_len) {
         return ESP_ERR_NO_MEM;
+    }
+
+    if (debug_raw_enabled && debug_snap != NULL) {
+        int used = written;
+        int extra = snprintf(
+            out + used - 1,
+            out_len - (size_t)used + 1,
+            ",\"debugRaw\":{"
+                "\"force1\":%ld,"
+                "\"force2\":%ld,"
+                "\"hallRaw\":%ld,"
+                "\"hallFiltered\":%ld,"
+                "\"currentDelta\":%ld"
+            "}}",
+            (long)debug_snap->force1,
+            (long)debug_snap->force2,
+            (long)debug_snap->hall_raw,
+            (long)debug_snap->hall_filtered,
+            (long)debug_snap->current_delta
+        );
+
+        if (extra < 0 || extra >= (int)(out_len - (size_t)used + 1)) {
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     return ESP_OK;

@@ -7,6 +7,7 @@ idf_component_register(
         provisioning
         network
         messaging
+        event_publisher
         protocol
         runtime
         device_identity

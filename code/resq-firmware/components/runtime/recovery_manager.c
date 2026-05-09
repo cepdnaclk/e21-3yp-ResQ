@@ -7,12 +7,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "mqtt_manager.h"
-#include "queued_publisher.h"
+#include "event_publisher.h"
 #include "resq_protocol.h"
 #include "sensor_runtime.h"
 #include "session_manager.h"
 #include "wifi_manager.h"
+#include "calibration_manager.h"
+#include "status_indicator.h"
 
 #define RECOVERY_TASK_STACK_SIZE 4096
 #define RECOVERY_TASK_PRIORITY      3
@@ -37,7 +38,10 @@ static void publish_system_event(const char *event_type, const char *message)
     }
 
     cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "session_id", session_manager_get_id());
+    char session_id[64] = {0};
+    session_manager_get_session_id(session_id, sizeof(session_id));
+
+    cJSON_AddStringToObject(root, "session_id", session_id);
     cJSON_AddStringToObject(root, "event_type", event_type);
     cJSON_AddStringToObject(root, "message", message);
 
@@ -45,7 +49,7 @@ static void publish_system_event(const char *event_type, const char *message)
     cJSON_Delete(root);
 
     if (payload) {
-        queued_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
+        event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
         cJSON_free(payload);
     }
 }
@@ -60,10 +64,39 @@ static void abort_active_session_due_to_disconnect(const char *reason)
 
     sensor_runtime_stop();
     session_manager_stop();
+    status_indicator_set(INDICATOR_STATE_SESSION_INTERRUPTED);
 
     s_session_aborted_due_to_link_loss = true;
 
     publish_system_event("session_aborted", reason);
+}
+
+static void abort_calibration_due_to_disconnect(const char *reason)
+{
+    if (!sensor_runtime_is_calibrating()) {
+        return;
+    }
+
+    ESP_LOGW(TAG, "Aborting calibration due to connectivity loss: %s", reason);
+
+    calibration_manager_cancel();
+    sensor_runtime_stop();
+    status_indicator_set(INDICATOR_STATE_CALIBRATION_FAIL);
+
+    publish_system_event("calibration_aborted", reason);
+}
+
+static void restore_indicator_after_link_recovery(void)
+{
+    if (status_indicator_get() != INDICATOR_STATE_SESSION_INTERRUPTED) {
+        return;
+    }
+
+    if (calibration_manager_is_ready()) {
+        status_indicator_set(INDICATOR_STATE_READY_FOR_SESSION);
+    } else {
+        status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
+    }
 }
 
 static void recovery_task(void *arg)
@@ -72,14 +105,20 @@ static void recovery_task(void *arg)
 
     while (1) {
         bool wifi_ok = wifi_manager_is_connected();
-        bool mqtt_ok = mqtt_manager_is_connected();
+        bool mqtt_ok = event_publisher_is_connected();
 
-        /* Detect connectivity loss while a session is active */
+        /* Detect connectivity loss while a session or calibration is active */
         if (session_manager_is_active()) {
             if (!wifi_ok) {
                 abort_active_session_due_to_disconnect("Wi-Fi disconnected during active session");
             } else if (!mqtt_ok) {
                 abort_active_session_due_to_disconnect("MQTT disconnected during active session");
+            }
+        } else if (sensor_runtime_is_calibrating()) {
+            if (!wifi_ok) {
+                abort_calibration_due_to_disconnect("Wi-Fi disconnected during calibration");
+            } else if (!mqtt_ok) {
+                abort_calibration_due_to_disconnect("MQTT disconnected during calibration");
             }
         }
 
@@ -87,10 +126,10 @@ static void recovery_task(void *arg)
         if (wifi_ok != s_prev_wifi) {
             if (wifi_ok) {
                 ESP_LOGI(TAG, "Wi-Fi recovered");
-                publish_system_event("wifi_recovered", "Wi-Fi connection restored");
+                publish_system_event("link_recovered", "Wi-Fi connection restored");
             } else {
                 ESP_LOGW(TAG, "Wi-Fi lost");
-                publish_system_event("wifi_lost", "Wi-Fi connection lost");
+                publish_system_event("link_loss", "Wi-Fi connection lost");
             }
             s_prev_wifi = wifi_ok;
         }
@@ -98,7 +137,8 @@ static void recovery_task(void *arg)
         if (mqtt_ok != s_prev_mqtt) {
             if (mqtt_ok) {
                 ESP_LOGI(TAG, "MQTT recovered");
-                publish_system_event("mqtt_recovered", "MQTT connection restored");
+                publish_system_event("link_recovered", "MQTT connection restored");
+                restore_indicator_after_link_recovery();
 
                 if (s_session_aborted_due_to_link_loss) {
                     publish_system_event(
@@ -109,7 +149,7 @@ static void recovery_task(void *arg)
                 }
             } else {
                 ESP_LOGW(TAG, "MQTT lost");
-                publish_system_event("mqtt_lost", "MQTT connection lost");
+                publish_system_event("link_loss", "MQTT connection lost");
             }
             s_prev_mqtt = mqtt_ok;
         }

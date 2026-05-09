@@ -547,3 +547,16 @@ const calibration_report_t *calibration_manager_get_report(void)
 {
     return &s_report;
 }
+
+bool calibration_manager_get_report_copy(calibration_report_t *out)
+{
+    if (out == NULL || s_cal_mutex == NULL) {
+        return false;
+    }
+
+    xSemaphoreTake(s_cal_mutex, portMAX_DELAY);
+    *out = s_report;
+    xSemaphoreGive(s_cal_mutex);
+
+    return true;
+}
