@@ -502,6 +502,32 @@ bool calibration_manager_is_ready(void)
     return ready;
 }
 
+bool calibration_manager_is_ready_for_profile(const char *profile_id)
+{
+    if (s_cal_mutex == NULL) {
+        return false;
+    }
+
+    bool ready = false;
+
+    xSemaphoreTake(s_cal_mutex, portMAX_DELAY);
+
+    bool profile_matches = true;
+
+    if (profile_id != NULL && profile_id[0] != '\0') {
+        profile_matches = strcmp(s_report.profile_id, profile_id) == 0;
+    }
+
+    ready =
+        s_report.ready_for_session &&
+        s_report.result == CAL_RESULT_PASS &&
+        profile_matches;
+
+    xSemaphoreGive(s_cal_mutex);
+
+    return ready;
+}
+
 calibration_result_t calibration_manager_get_result(void)
 {
     if (s_cal_mutex == NULL) {
