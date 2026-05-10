@@ -32,7 +32,7 @@ export type ManikinInventoryEntry = ManikinLiveSummary & {
 };
 
 function getLiveManikinsUrl(): string {
-  return `http://${window.location.hostname}:8080/api/manikins/live`;
+  return `http://${window.location.hostname}:18080/api/manikins/live`;
 }
 
 function getManikinInventoryUrl(): string {
@@ -40,7 +40,7 @@ function getManikinInventoryUrl(): string {
 }
 
 export function getLiveManikinsStreamUrl(): string {
-  return `http://${window.location.hostname}:8080/api/stream/manikins/live`;
+  return `http://${window.location.hostname}:18080/api/stream/manikins/live`;
 }
 
 export async function fetchLiveManikins(): Promise<ManikinLiveSummary[]> {
