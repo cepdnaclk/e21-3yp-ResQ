@@ -240,6 +240,12 @@ void app_main(void)
         cJSON_free(identity_payload);
     }
 
+    /* Publish retained status now that MQTT and publishers are initialized */
+    esp_err_t st_err = event_publisher_publish_status(RESQ_STATE_ONLINE_IDLE, false, "");
+    if (st_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to publish initial status: %s", esp_err_to_name(st_err));
+    }
+
     status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
 
     /* -------------------------------------------------

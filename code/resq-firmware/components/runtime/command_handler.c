@@ -15,6 +15,7 @@
 #include "calibration_manager.h"
 #include "status_indicator.h"
 #include "command_handler.h"
+#include "telemetry_publisher.h"
 
 
 static const char *TAG = "command_handler";
@@ -235,14 +236,14 @@ static esp_err_t handle_session_start(const char *payload)
     cJSON *root = cJSON_Parse(payload ? payload : "{}");
     if (root == NULL) {
         publish_command_result("session/start", "NACK", "invalid json");
-        return ESP_ERR_INVALID_ARG;
+        return ESP_OK;
     }
 
     if (!get_session_id_from_command(root, session_id, sizeof(session_id))) {
         cJSON_Delete(root);
 
         publish_command_result("session/start", "NACK", "missing sessionId");
-        return ESP_ERR_INVALID_ARG;
+        return ESP_OK;
     }
 
     json_get_string_copy(root, "profileId", profile_id, sizeof(profile_id));
@@ -251,12 +252,12 @@ static esp_err_t handle_session_start(const char *payload)
 
     if (session_manager_is_active()) {
         publish_command_result("session/start", "NACK", "session already active");
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     if (sensor_runtime_is_calibrating()) {
         publish_command_result("session/start", "NACK", "calibration in progress");
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     if (s_cfg.calibration_required &&
@@ -270,7 +271,7 @@ static esp_err_t handle_session_start(const char *payload)
             "calibration not ready or profile mismatch"
         );
 
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     if (!s_cfg.calibration_required &&
@@ -302,7 +303,7 @@ static esp_err_t handle_session_stop(const char *payload)
 
     if (!session_manager_is_active()) {
         publish_command_result("session/stop", "NACK", "no active session");
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     char stopped_session_id[64] = {0};
@@ -392,6 +393,22 @@ static esp_err_t handle_diag_request(const char *payload)
     publish_command_result("diag/request", "ACK", "diagnostic event published");
 
     ESP_LOGI(TAG, "diag/request handled");
+    return ESP_OK;
+}
+
+static esp_err_t handle_diag_health(const char *payload)
+{
+    (void)payload;
+
+    esp_err_t err = health_monitor_publish_now();
+    if (err == ESP_OK) {
+        publish_command_result("diag/health", "ACK", "health published");
+        ESP_LOGI(TAG, "diag/health handled");
+    } else {
+        publish_command_result("diag/health", "NACK", "health publish failed");
+        ESP_LOGW(TAG, "diag/health publish failed: %s", esp_err_to_name(err));
+    }
+
     return ESP_OK;
 }
 
@@ -529,7 +546,7 @@ static esp_err_t handle_config_update(const char *payload)
 {
     if (session_manager_is_active()) {
         publish_command_result("config/update", "NACK", "cannot update config during active session");
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     device_config_t new_cfg = s_cfg;
@@ -537,7 +554,7 @@ static esp_err_t handle_config_update(const char *payload)
     cJSON *root = cJSON_Parse(payload);
     if (!root) {
         publish_command_result("config/update", "NACK", "invalid JSON");
-        return ESP_ERR_INVALID_ARG;
+        return ESP_OK;
     }
 
     cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(root, "mqtt_host");
@@ -600,6 +617,9 @@ static esp_err_t handle_config_update(const char *payload)
     esp_err_t err = device_control_validate_config_update(&new_cfg);
     if (err != ESP_OK) {
         publish_command_result("config/update", "NACK", "config validation failed");
+        if (err == ESP_ERR_INVALID_ARG) {
+            return ESP_OK;
+        }
         return err;
     }
 
@@ -625,6 +645,17 @@ static esp_err_t handle_config_update(const char *payload)
 
     s_cfg = new_cfg;
 
+    /* Propagate partial config changes to other modules that cache config */
+    esp_err_t suberr = health_monitor_init(&s_cfg);
+    if (suberr != ESP_OK) {
+        ESP_LOGW(TAG, "health_monitor init after config update failed: %s", esp_err_to_name(suberr));
+    }
+
+    suberr = telemetry_publisher_init(&s_cfg);
+    if (suberr != ESP_OK) {
+        ESP_LOGW(TAG, "telemetry_publisher init after config update failed: %s", esp_err_to_name(suberr));
+    }
+
     publish_command_result("config/update", "ACK", "");
     publish_config_updated_event();
     ESP_LOGI(TAG, "config/update handled");
@@ -642,7 +673,7 @@ static esp_err_t handle_calibration_start(const char *payload)
             "NACK",
             "cannot calibrate during active session"
         );
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     cJSON *root = cJSON_Parse(payload ? payload : "{}");
@@ -706,7 +737,7 @@ static esp_err_t handle_calibration_capture_normal(const char *payload)
             "NACK",
             "sensor runtime is not running"
         );
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     esp_err_t err = calibration_manager_capture_normal();
@@ -740,7 +771,7 @@ static esp_err_t handle_calibration_capture_full_depth(const char *payload)
             "NACK",
             "sensor runtime is not running"
         );
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     esp_err_t err = calibration_manager_capture_full_depth();
@@ -868,14 +899,14 @@ esp_err_t command_handler_reject_message(const char *suffix, const char *reason)
         reason != NULL ? reason : "command rejected"
     );
 
-    return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
 }
 
 esp_err_t command_handler_handle_message(const char *suffix, const char *payload)
 {
     if (suffix == NULL) {
         publish_command_result("unknown", "NACK", "missing command suffix");
-        return ESP_ERR_INVALID_ARG;
+        return ESP_OK;
     }
 
     if (strcmp(suffix, RESQ_SUFFIX_CMD_SESSION_START) == 0) {
@@ -888,6 +919,10 @@ esp_err_t command_handler_handle_message(const char *suffix, const char *payload
 
     if (strcmp(suffix, RESQ_SUFFIX_CMD_DIAG_PING) == 0) {
         return handle_diag_ping(payload);
+    }
+
+    if (strcmp(suffix, RESQ_SUFFIX_CMD_DIAG_HEALTH) == 0) {
+        return handle_diag_health(payload);
     }
 
     if (strcmp(suffix, RESQ_SUFFIX_CMD_DIAG_REQUEST) == 0) {

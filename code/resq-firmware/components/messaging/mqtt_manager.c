@@ -130,9 +130,15 @@ static void command_worker_task(void *arg)
             continue;
         }
 
-        if (s_command_handle_cb != NULL) {
+            if (s_command_handle_cb != NULL) {
             esp_err_t err = s_command_handle_cb(item.suffix, item.payload, s_command_cb_ctx);
-            if (err != ESP_OK && err != ESP_ERR_NOT_SUPPORTED) {
+            /*
+             * Only log truly unexpected callback failures. Expected user
+             * rejection cases return ESP_OK (after publishing NACK) or
+             * may return ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_STATE for
+             * legacy handlers — treat those as non-actionable here.
+             */
+            if (err != ESP_OK && err != ESP_ERR_NOT_SUPPORTED && err != ESP_ERR_INVALID_ARG && err != ESP_ERR_INVALID_STATE) {
                 ESP_LOGW(TAG, "Command handler callback failed for %s: %s", item.suffix, esp_err_to_name(err));
             }
         } else {

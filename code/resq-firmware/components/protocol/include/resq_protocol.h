@@ -33,6 +33,7 @@ extern "C" {
 #define RESQ_SUFFIX_CMD_SESSION_STOP      "cmd/session/stop"
 #define RESQ_SUFFIX_CMD_DIAG_PING         "cmd/diag/ping"
 #define RESQ_SUFFIX_CMD_DIAG_REQUEST      "cmd/diag/request"
+#define RESQ_SUFFIX_CMD_DIAG_HEALTH       "cmd/diag/health"
 #define RESQ_SUFFIX_CMD_DEVICE_RESET      "cmd/device/reset"
 #define RESQ_SUFFIX_CMD_DEVICE_UNPAIR     "cmd/device/unpair"
 #define RESQ_SUFFIX_CMD_CONFIG_UPDATE     "cmd/config/update"
