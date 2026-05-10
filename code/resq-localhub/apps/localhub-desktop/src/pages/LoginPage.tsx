@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import type { CreateFirstAdminRequest, LoginRequest, UserRole } from "@resq/shared";
+import type { CreateFirstAdminRequest, UserRole } from "@resq/shared";
 import { useAuth } from "../auth/AuthContext";
 
 type LoginPageProps = {
@@ -77,10 +77,8 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
         throw new Error("Username and password are required.");
       }
 
-      const request: LoginRequest = { username, password };
-      const response = await login(request);
-      const target = response.user.role === "TRAINEE" ? "/trainee" : "/instructor";
-      window.location.assign(target);
+      await login({ username, password });
+      window.location.assign("/");
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "Login failed.");
     } finally {

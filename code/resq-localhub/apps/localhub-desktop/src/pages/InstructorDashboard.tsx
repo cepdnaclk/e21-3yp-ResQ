@@ -11,8 +11,9 @@ import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHe
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
 import {
-  fetchLiveManikins,
+  fetchManikinInventory,
   getLiveManikinsStreamUrl,
+  type ManikinInventoryEntry,
   type ManikinLiveSummary,
 } from "../lib/browserManikinsApi";
 import {
@@ -24,8 +25,6 @@ import {
   endSession,
   fetchCompletedSession,
   fetchCompletedSessions,
-  getSessionCsvExportUrl,
-  getSessionJsonExportUrl,
   startSession,
   type CompletedSession,
   type SessionStartResponse,
@@ -144,6 +143,7 @@ function IndicatorBadge({
 
 type SessionActionState = "idle" | "starting" | "ending";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
+type InventoryStatus = "paired" | "pending" | "online" | "offline" | "stale" | "unknown";
 
 type InstructorDashboardProps = {
   embeddedInDesktop?: boolean;
@@ -183,6 +183,22 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   );
 }
 
+function getInventoryBadgeTone(status: InventoryStatus): "success" | "warning" | "danger" | "info" {
+  if (status === "online") {
+    return "success";
+  }
+
+  if (status === "offline") {
+    return "danger";
+  }
+
+  if (status === "stale" || status === "pending") {
+    return "warning";
+  }
+
+  return "info";
+}
+
 export default function InstructorDashboard({
   embeddedInDesktop = false,
   onOpenTraineeDashboard,
@@ -194,7 +210,8 @@ export default function InstructorDashboard({
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
-  const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
+  const [manikins, setManikins] = useState<ManikinInventoryEntry[]>([]);
+  const [manikinsRefreshKey, setManikinsRefreshKey] = useState(0);
 
   // Trainee selection state (per device)
   type SessionDraft = {
@@ -224,14 +241,14 @@ export default function InstructorDashboard({
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
   const [showSessionTour, setShowSessionTour] = useState(false);
   const [simTheater, setSimTheater] = useState(false);
-  const [showOnlyLiveManikins, setShowOnlyLiveManikins] = useState(false);
+  const [showOnlyLiveManikins, setShowOnlyLiveManikins] = useState(true);
   const [showManikinDiagnostics, setShowManikinDiagnostics] = useState(false);
 
-  function applyManikinSnapshot(live: ManikinLiveSummary[]) {
-    setManikins(live);
+  function applyInventorySnapshot(entries: ManikinInventoryEntry[]) {
+    setManikins(entries);
     setSessionDrafts((current) => {
       const next = { ...current };
-      for (const manikin of live) {
+      for (const manikin of entries) {
         if (!next[manikin.deviceId]) {
           next[manikin.deviceId] = {
             traineeMode: "select",
@@ -285,19 +302,6 @@ export default function InstructorDashboard({
       setHealthLoading(false);
     }
 
-    async function loadManikins() {
-      try {
-        const live = await fetchLiveManikins();
-        applyManikinSnapshot(live);
-        setManikinsError(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to fetch live manikins.";
-        setManikinsError(message);
-      } finally {
-        setManikinsLoading(false);
-      }
-    }
-
     async function loadRecentSessions() {
       try {
         const sessions = await fetchCompletedSessions();
@@ -323,6 +327,20 @@ export default function InstructorDashboard({
       }
     }
 
+    loadHealth();
+    loadRecentSessions();
+    loadTrainees();
+
+    const healthInterval = setInterval(loadHealth, 5000);
+    const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
+
+    return () => {
+      clearInterval(healthInterval);
+      clearInterval(recentSessionsInterval);
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     let eventSource: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -335,13 +353,35 @@ export default function InstructorDashboard({
       }
     }
 
+    async function loadManikins() {
+      try {
+        const inventory = await fetchManikinInventory();
+        if (cancelled) {
+          return;
+        }
+
+        applyInventorySnapshot(inventory);
+        setManikinsError(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setManikinsError("Failed to fetch");
+      } finally {
+        if (!cancelled) {
+          setManikinsLoading(false);
+        }
+      }
+    }
+
     function startFallbackPolling() {
       if (fallbackInterval) {
         return;
       }
 
       fallbackInterval = setInterval(() => {
-        loadManikins();
+        void loadManikins();
       }, 2000);
     }
 
@@ -393,8 +433,29 @@ export default function InstructorDashboard({
           return;
         }
 
-        applyManikinSnapshot(payload);
+        applyInventorySnapshot(payload.map((manikin) => {
+          const state = manikin.state?.toLowerCase() ?? "";
+          const status: InventoryStatus = state.includes("pending")
+            ? "pending"
+            : state.includes("stale")
+              ? "stale"
+              : state.includes("paired") || Boolean(manikin.sessionActive)
+                ? "paired"
+                : manikin.online
+                  ? "online"
+                  : "offline";
+
+          return {
+            ...manikin,
+            status,
+            rawStatus: manikin.state,
+          };
+        }));
         setManikinsLoading(false);
+      });
+
+      stream.addEventListener("heartbeat", () => {
+        // Keep-alive only.
       });
 
       stream.onerror = () => {
@@ -420,14 +481,12 @@ export default function InstructorDashboard({
       };
     }
 
-    loadHealth();
-    loadManikins();
-    loadRecentSessions();
-    loadTrainees();
-    connectManikinStream();
-
-    const healthInterval = setInterval(loadHealth, 5000);
-    const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
+    setManikinsLoading(true);
+    void loadManikins().finally(() => {
+      if (!cancelled) {
+        connectManikinStream();
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -438,10 +497,8 @@ export default function InstructorDashboard({
         clearTimeout(reconnectTimer);
       }
       stopFallbackPolling();
-      clearInterval(healthInterval);
-      clearInterval(recentSessionsInterval);
     };
-  }, []);
+  }, [manikinsRefreshKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -483,46 +540,16 @@ export default function InstructorDashboard({
     }
   }
 
-// Expose a retry method wired to the same API call (presentation only)
-async function retryLoadManikins() {
-  setManikinsLoading(true);
-  try {
-    const live = await fetchLiveManikins();
-    applyManikinSnapshot(live);
-    setManikinsError(null);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to fetch live manikins.";
-    setManikinsError(message);
-  } finally {
-    setManikinsLoading(false);
+  function retryLoadManikins() {
+    setManikinsRefreshKey((current) => current + 1);
   }
-}
 
   const manikinByDeviceId = useMemo(() => {
     return new Map(manikins.map((manikin) => [manikin.deviceId, manikin]));
   }, [manikins]);
 
-  type InventoryStatus = "paired" | "pending" | "online" | "offline" | "stale" | "unknown";
-
   const inventoryItems = useMemo(() => {
-    return manikins.map((manikin) => {
-      const state = manikin.state?.toLowerCase() ?? "";
-      const status: InventoryStatus = manikin.activeSessionId || manikin.sessionActive
-        ? "paired"
-        : state.includes("pending")
-          ? "pending"
-          : state.includes("stale")
-            ? "stale"
-            : manikin.online
-              ? "online"
-              : "offline";
-
-      return {
-        ...manikin,
-        status,
-        rawStatus: manikin.state,
-      };
-    });
+    return manikins;
   }, [manikins]);
 
   const inventoryBuckets = useMemo(() => {
@@ -900,16 +927,6 @@ async function retryLoadManikins() {
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pauses: {latestEndedSession.summary.pausesCount}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Score: {latestEndedSession.summary.score}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {latestEndedSession.summary.latestFlags ?? "-"}</p>
-                {currentUser && currentUser.role !== "TRAINEE" ? (
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <a href={getSessionJsonExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                      Download JSON
-                    </a>
-                    <a href={getSessionCsvExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                      Download CSV
-                    </a>
-                  </div>
-                ) : null}
             </div>
           ) : (
             <div className="card card--dashed" aria-live="polite">
@@ -1027,7 +1044,14 @@ async function retryLoadManikins() {
             </Badge>
           </div>
 
-          {inventoryItems.length === 0 ? (
+          {manikinsLoading ? (
+            <div style={{ display: "grid", gap: "10px" }}>
+              <Skeleton className="skeleton--shimmer" />
+              <Skeleton className="skeleton--shimmer" />
+              <Skeleton className="skeleton--shimmer" />
+              <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>No manikins are registered yet.</p>
+            </div>
+          ) : inventoryItems.length === 0 ? (
             <div className="card card--dashed" aria-live="polite">
               <p style={{ marginTop: 8 }}>No manikins are registered yet.</p>
             </div>
@@ -1051,9 +1075,9 @@ async function retryLoadManikins() {
                           {entry.ip ?? "No IP"} • {entry.fw ?? "No firmware"}
                         </p>
                       </div>
-                      <span style={{ ...inventoryBadgeStyle(entry.status), display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 700 }}>
+                      <Badge variant="status" className={`status-badge--${getInventoryBadgeTone(entry.status)}`}>
                         {entry.status}
-                      </span>
+                      </Badge>
                     </div>
 
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
@@ -1075,9 +1099,10 @@ async function retryLoadManikins() {
             <span>Recent Sessions</span>
           </h2>
           {recentSessionsLoading ? (
-            <div>
-              <Skeleton className="" style={{ marginBottom: 8 }} />
-              <Skeleton className="" style={{ marginBottom: 8 }} />
+            <div style={{ display: "grid", gap: 8 }}>
+              <Skeleton className="skeleton--shimmer" />
+              <Skeleton className="skeleton--shimmer" />
+              <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>No completed sessions yet.</p>
             </div>
           ) : recentSessionsError ? (
             <Alert variant="danger" title={recentSessionsError ? "Unable to load completed sessions" : "Recent Sessions"} detail={recentSessionsError} />
@@ -1089,65 +1114,34 @@ async function retryLoadManikins() {
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
               {recentSessions.map((session) => (
-                <article key={session.sessionId} className="card">
+                <article
+                  key={session.sessionId}
+                  className="card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleViewDetails(session.sessionId)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      handleViewDetails(session.sessionId);
+                    }
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
                     <div>
-                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{session.deviceId}</p>
-                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>{session.sessionId}</p>
-                    </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <Button
-                        variant="secondary"
-                        onClick={() => handleViewDetails(session.sessionId)}
-                      >
-                        {expandedSessionId === session.sessionId ? "Hide Details" : "View Details"}
-                      </Button>
-                      {currentUser && currentUser.role !== "TRAINEE" ? (
-                        <>
-                          <a href={getSessionJsonExportUrl(session.sessionId)} style={linkButtonStyle}>
-                            Download JSON
-                          </a>
-                          <a href={getSessionCsvExportUrl(session.sessionId)} style={linkButtonStyle}>
-                            Download CSV
-                          </a>
-                        </>
-                      ) : null}
+                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{formatSummaryDateTime(session.startedAt)}</p>
+                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>Manikin {session.deviceId}</p>
                     </div>
                   </div>
                   <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Trainee {session.traineeId ?? "-"} | Started {formatSummaryDateTime(session.startedAt)} | Ended {formatSummaryDateTime(session.endedAt)}
+                      Duration {session.summary.durationSeconds}s
                     </p>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Duration {session.summary.durationSeconds}s | Score {session.summary.score} | Depth {formatMetric(session.summary.avgDepthMm, "mm")}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Rate {formatMetric(session.summary.avgRateCpm, "cpm")} | Recoil {formatMetric(session.summary.recoilPct, "%")} | Pauses {session.summary.pausesCount}
+                      Started {formatSummaryDateTime(session.startedAt)} • Ended {formatSummaryDateTime(session.endedAt)}
                     </p>
                   </div>
-
-                  {expandedSessionId === session.sessionId ? (
-                    <div style={{ marginTop: "10px", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#f8fafc", display: "grid", gap: "4px" }}>
-                      {expandedSessionLoading ? (
-                        <p style={{ margin: 0, color: "#64748b", fontSize: "0.85rem" }}>Loading session details...</p>
-                      ) : expandedSessionError ? (
-                        <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{expandedSessionError}</p>
-                      ) : expandedSessionDetail ? (
-                        <>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Session ID: {expandedSessionDetail.sessionId}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Device ID: {expandedSessionDetail.deviceId}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Trainee ID: {expandedSessionDetail.traineeId ?? "-"}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Started At: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Ended At: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Pauses: {expandedSessionDetail.summary.pausesCount}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Score: {expandedSessionDetail.summary.score}</p>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </article>
               ))}
             </div>
@@ -1192,7 +1186,11 @@ async function retryLoadManikins() {
           </div>
 
           {manikinsLoading ? (
-            <Skeleton size="lg" className="skeleton--shimmer" />
+            <div style={{ display: "grid", gap: 10 }}>
+              <Skeleton className="skeleton--shimmer" />
+              <Skeleton className="skeleton--shimmer" />
+              <Skeleton className="skeleton--shimmer" />
+            </div>
           ) : null}
 
           {!manikinsLoading && manikinsError ? (
@@ -1533,6 +1531,64 @@ async function retryLoadManikins() {
             </div>
           ) : null}
         </section>
+
+        {expandedSessionId ? (
+          <div
+            className="story-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="session-details-title"
+            onClick={() => {
+              setExpandedSessionId(null);
+              setExpandedSessionDetail(null);
+              setExpandedSessionError(null);
+              setExpandedSessionLoading(false);
+            }}
+          >
+            <div className="story-modal__panel" onClick={(event) => event.stopPropagation()}>
+              <h3 id="session-details-title" className="story-modal__title">
+                Session details
+              </h3>
+              {expandedSessionLoading ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <Skeleton className="skeleton--shimmer" />
+                  <Skeleton className="skeleton--shimmer" />
+                  <Skeleton className="skeleton--shimmer" />
+                </div>
+              ) : expandedSessionError ? (
+                <p className="story-modal__copy" style={{ color: "#b91c1c" }}>
+                  {expandedSessionError}
+                </p>
+              ) : expandedSessionDetail ? (
+                <div style={{ display: "grid", gap: 6 }}>
+                  <p className="story-modal__copy">Manikin: {expandedSessionDetail.deviceId}</p>
+                  <p className="story-modal__copy">Trainee: {expandedSessionDetail.traineeId ?? "-"}</p>
+                  <p className="story-modal__copy">Started: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
+                  <p className="story-modal__copy">Ended: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
+                  <p className="story-modal__copy">Duration: {expandedSessionDetail.summary.durationSeconds}s</p>
+                  <p className="story-modal__copy">Score: {expandedSessionDetail.summary.score}</p>
+                  <p className="story-modal__copy">Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
+                  <p className="story-modal__copy">Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
+                  <p className="story-modal__copy">Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
+                  <p className="story-modal__copy">Pauses: {expandedSessionDetail.summary.pausesCount}</p>
+                </div>
+              ) : null}
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setExpandedSessionId(null);
+                    setExpandedSessionDetail(null);
+                    setExpandedSessionError(null);
+                    setExpandedSessionLoading(false);
+                  }}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         
       </div>

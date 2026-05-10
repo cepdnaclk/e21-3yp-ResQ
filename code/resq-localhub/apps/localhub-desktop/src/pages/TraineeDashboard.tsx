@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
+import HubHeartbeat from "../components/icons/HubHeartbeat";
+import RadarManikin from "../components/icons/RadarManikin";
+import CounterFlip from "../components/icons/CounterFlip";
 import {
   fetchSessionLive,
   getSessionLiveStreamUrl,
@@ -86,6 +89,12 @@ type TraineeDashboardProps = {
   embeddedInDesktop?: boolean;
   initialSessionId?: string | null;
 };
+
+const WAITING_SESSION_TIPS = [
+  "Once a session is assigned, vital signs will appear here.",
+  "Your instructor will start the scenario from their dashboard.",
+  "Ensure your headset / microphone are ready for debrief.",
+];
 
 type SensorPoint = {
   ts: number;
@@ -212,6 +221,90 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
     <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fee2e2", color: "#991b1b" }}>
       Stream unavailable
     </span>
+  );
+}
+
+function WaitingSessionStory() {
+  const [tipIndex, setTipIndex] = useState(0);
+  const [placeholderSeconds, setPlaceholderSeconds] = useState(3);
+
+  useEffect(() => {
+    const tipTimer = window.setInterval(() => {
+      setTipIndex((current) => (current + 1) % WAITING_SESSION_TIPS.length);
+    }, 10000);
+
+    const countdownTimer = window.setInterval(() => {
+      setPlaceholderSeconds((current) => (current === 1 ? 3 : current - 1));
+    }, 1300);
+
+    return () => {
+      window.clearInterval(tipTimer);
+      window.clearInterval(countdownTimer);
+    };
+  }, []);
+
+  return (
+    <section className="waiting-session-story" aria-label="Waiting for session">
+      <div className="waiting-session-story__hero">
+        <div className="waiting-session-story__ring-shell" aria-hidden="true">
+          <span className="waiting-session-story__ring waiting-session-story__ring--outer" />
+          <span className="waiting-session-story__ring waiting-session-story__ring--inner" />
+          <span className="waiting-session-story__ring waiting-session-story__ring--core" />
+          <span className="waiting-session-story__glow" />
+          <span className="waiting-session-story__pulse" />
+          <div className="waiting-session-story__manikin">
+            <RadarManikin sweep size={92} />
+          </div>
+        </div>
+
+        <div className="waiting-session-story__headline-block">
+          <p className="waiting-session-story__eyebrow">Waiting for session</p>
+          <h3 className="waiting-session-story__title">Awaiting instructor assignment</h3>
+          <div className="waiting-session-story__countdown" aria-label="Assignment placeholder">
+            <span className="waiting-session-story__countdown-label">Next handoff</span>
+            <span className="waiting-session-story__countdown-value">
+              <CounterFlip value={placeholderSeconds} />
+              <span>sec</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="waiting-session-story__details">
+        <div className="waiting-session-story__arrow" aria-hidden="true">
+          <svg viewBox="0 0 88 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 12C36 12 44 22 44 34V44" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="5 7" />
+            <path d="M30 36L44 50L58 36" stroke="#1d4ed8" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>Details will anchor here</span>
+        </div>
+
+        <div className="waiting-session-story__slot" aria-hidden="true">
+          <div className="waiting-session-story__slot-header">
+            <span className="waiting-session-story__slot-kicker">Session panel</span>
+            <span className="waiting-session-story__slot-status">Idle</span>
+          </div>
+          <div className="waiting-session-story__slot-lines">
+            <span />
+            <span />
+            <span className="waiting-session-story__slot-lines--short" />
+          </div>
+        </div>
+      </div>
+
+      <div className="waiting-session-story__tip-carousel" aria-live="polite">
+        <p className="waiting-session-story__tip-label">Helpful tip</p>
+        <p className="waiting-session-story__tip-copy">{WAITING_SESSION_TIPS[tipIndex]}</p>
+        <div className="waiting-session-story__tip-dots" aria-hidden="true">
+          {WAITING_SESSION_TIPS.map((tip, index) => (
+            <span
+              key={tip}
+              className={`waiting-session-story__tip-dot ${index === tipIndex ? "waiting-session-story__tip-dot--active" : ""}`}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -554,9 +647,13 @@ export default function TraineeDashboard({
       </header>
 
       <div style={styles.content}>
+        {/* Hub Status Card - Always visible */}
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <HubHeartbeat state={healthLoading ? "checking" : health?.ok ? "ok" : "down"} size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
+            </div>
             <HealthStatusBadge health={healthLoading ? null : health} />
           </div>
           <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
@@ -573,146 +670,153 @@ export default function TraineeDashboard({
           )}
         </section>
 
-        {!sessionId ? (
+        {/* Session Details Card - Only when sessionId exists and loading or session data available */}
+        {sessionId && (sessionLoading || !sessionError) && (
+          <section style={styles.card}>
+            <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Session Details</h2>
+            {sessionLoading ? (
+              <div style={{ background: "#f1f5f9", borderRadius: "8px", padding: "12px", minHeight: "80px", display: "flex", alignItems: "center", color: "#64748b" }}>
+                Loading session details...
+              </div>
+            ) : session ? (
+              <div style={{ display: "grid", gap: "8px" }}>
+                <div>
+                  <p style={{ margin: "0 0 4px 0", fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>SCENARIO</p>
+                  <p style={{ margin: 0, fontSize: "0.95rem", fontWeight: 500, color: "#0f172a" }}>
+                    {session.scenario || "No scenario assigned"}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ margin: "0 0 4px 0", fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>MANIKIN</p>
+                  <p style={{ margin: 0, fontSize: "0.95rem", fontWeight: 500, color: "#0f172a" }}>
+                    {session.deviceId}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        )}
+
+        {/* Live Vitals Card - Only when sessionId exists */}
+        {sessionId && (
+          <>
+            {sessionError ? (
+              <section style={styles.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+                  <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Vitals</h2>
+                  <LiveStreamStatusBadge state={streamState} />
+                </div>
+                <div style={{ padding: "20px", borderRadius: "8px", background: "#fef2f2", border: "1px solid #fecaca" }}>
+                  <p style={{ margin: 0, color: "#991b1b", fontSize: "0.92rem" }}>
+                    {sessionError}
+                  </p>
+                  {streamMessage ? (
+                    <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
+                      {streamMessage}
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+            ) : !session ? (
+              <section style={styles.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+                  <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Vitals</h2>
+                  <LiveStreamStatusBadge state={streamState} />
+                </div>
+                <div style={{ padding: "20px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.92rem" }}>
+                    Session {sessionId} is no longer active.
+                  </p>
+                  {streamMessage ? (
+                    <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
+                      {streamMessage}
+                    </p>
+                  ) : null}
+                </div>
+              </section>
+            ) : (
+              <section style={styles.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                  <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Vitals</h2>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <LiveStreamStatusBadge state={streamState} />
+                    <SessionStatusBadge active={Boolean(session?.active)} />
+                  </div>
+                </div>
+                {streamMessage ? (
+                  <p style={{ margin: "0 0 8px 0", color: "#b45309", fontSize: "0.86rem" }}>
+                    {streamMessage}
+                  </p>
+                ) : null}
+                <div style={{ display: "grid", gap: "6px", marginBottom: "16px" }}>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(session.latestDepthMm, "mm")}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(session.latestRateCpm, "cpm")}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {session.latestRecoilOk === null ? "-" : session.latestRecoilOk ? "OK" : "Not OK"}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(session.latestPauseS, "s")}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
+                    Pressure Balance: {session.pressureBalancePct === null ? "-" : `${session.pressureBalancePct.toFixed(1)} %`}
+                  </p>
+                  <p style={{ margin: 0, color: session.pressureSkewed === null ? "#475569" : session.pressureSkewed ? "#991b1b" : "#166534", fontSize: "0.88rem", fontWeight: 600 }}>
+                    Pressure: {session.pressureSkewed === null ? "-" : session.pressureSkewed ? "Skewed" : "Even"}
+                  </p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
+                    Force A/B: {session.latestForce1 === null || session.latestForce2 === null ? "-" : `${session.latestForce1} / ${session.latestForce2}`}
+                  </p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Device: {session.online ? "Online" : "Offline"}</p>
+                </div>
+
+                <div>
+                  <h3 style={{ margin: "0 0 10px 0", fontSize: "1rem", fontWeight: 600, color: "#0f172a" }}>Sensor Trends</h3>
+                  <p style={{ margin: "0 0 12px 0", fontSize: "0.83rem", color: "#64748b" }}>
+                    Rolling window of last {MAX_SENSOR_POINTS} updates.
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
+                    <Sparkline values={depthSeries} color="#0ea5e9" label="Depth / Delta" />
+                    <Sparkline values={rateSeries} color="#22c55e" label="Rate / Compression Trend" />
+                    <Sparkline values={pauseSeries} color="#f97316" label="Pause" />
+                    <Sparkline values={force1Series} color="#2563eb" label="Force Graph A (Bladder 1)" />
+                    <Sparkline values={force2Series} color="#7c3aed" label="Force Graph B (Bladder 2)" />
+                    <Sparkline values={balanceSeries} color="#0891b2" label="Pressure Balance (%)" />
+                    <RecoilTimeline values={recoilSeries} />
+                  </div>
+                  <div style={{ marginTop: "10px", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px", background: "#f8fafc" }}>
+                    <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
+                      Live Balance: {latestBalance === null ? "-" : `${latestBalance.toFixed(1)}%`} | Status: {latestSkewed === null ? "-" : latestSkewed ? "Skewed" : "Even"}
+                    </p>
+                    <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>Recent Flags / Feedback</p>
+                    {recentFlags.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>No feedback flags yet</p>
+                    ) : (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                        {recentFlags.map((flag, index) => (
+                          <span
+                            key={`${flag}-${index}`}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "999px",
+                              fontSize: "0.78rem",
+                              fontWeight: 600,
+                              background: "#e2e8f0",
+                              color: "#334155",
+                            }}
+                          >
+                            {flag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+
+        {/* Waiting for Session - Only when no sessionId */}
+        {!sessionId && (
           <section style={styles.card}>
             <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>No Active Session</h2>
-            <div style={{ padding: "20px", borderRadius: "8px", background: "#f8fafc", border: "1px dashed #cbd5e1" }}>
-              <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>
-                No active session selected yet.
-              </p>
-              <p style={{ margin: "8px 0 0 0", color: "#94a3b8", fontSize: "0.85rem" }}>
-                Open a trainee link like /trainee?sessionId=&lt;id&gt; from the instructor dashboard.
-              </p>
-            </div>
-          </section>
-        ) : sessionError ? (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Session Error</h2>
-              <LiveStreamStatusBadge state={streamState} />
-            </div>
-            <div style={{ padding: "20px", borderRadius: "8px", background: "#fef2f2", border: "1px solid #fecaca" }}>
-              <p style={{ margin: 0, color: "#991b1b", fontSize: "0.92rem" }}>
-                {sessionError}
-              </p>
-              {streamMessage ? (
-                <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
-                  {streamMessage}
-                </p>
-              ) : null}
-            </div>
-          </section>
-        ) : sessionLoading ? (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Active Session Live View</h2>
-              <LiveStreamStatusBadge state={streamState} />
-            </div>
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading session data...</p>
-          </section>
-        ) : !session ? (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Session Ended</h2>
-              <LiveStreamStatusBadge state={streamState} />
-            </div>
-            <div style={{ padding: "20px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.92rem" }}>
-                Session {sessionId} is no longer active.
-              </p>
-              {streamMessage ? (
-                <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
-                  {streamMessage}
-                </p>
-              ) : null}
-              <p style={{ margin: "8px 0 0 0", color: "#94a3b8", fontSize: "0.85rem" }}>
-                The instructor can still view and export the completed summary.
-              </p>
-            </div>
-          </section>
-        ) : (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Active Session Live View</h2>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                <LiveStreamStatusBadge state={streamState} />
-                <SessionStatusBadge active={Boolean(session?.active)} />
-              </div>
-            </div>
-            {streamMessage ? (
-              <p style={{ margin: "0 0 8px 0", color: "#b45309", fontSize: "0.86rem" }}>
-                {streamMessage}
-              </p>
-            ) : null}
-            <div style={{ display: "grid", gap: "6px" }}>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Session: {session.sessionId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Device: {session.deviceId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Trainee: {session.traineeId ?? "-"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {session.state ?? "unknown"}</p>
-              <p style={{ margin: 0, color: session.online ? "#166534" : "#991b1b", fontSize: "0.88rem", fontWeight: 600 }}>
-                Device: {session.online ? "Online" : "Offline"}
-              </p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Started: {formatTime(session.startedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Last Seen: {formatTime(session.lastSeen)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(session.latestDepthMm, "mm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(session.latestRateCpm, "cpm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {session.latestRecoilOk === null ? "-" : session.latestRecoilOk ? "OK" : "Not OK"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(session.latestPauseS, "s")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                Pressure Balance: {session.pressureBalancePct === null ? "-" : `${session.pressureBalancePct.toFixed(1)} %`}
-              </p>
-              <p style={{ margin: 0, color: session.pressureSkewed === null ? "#475569" : session.pressureSkewed ? "#991b1b" : "#166534", fontSize: "0.88rem", fontWeight: 600 }}>
-                Pressure: {session.pressureSkewed === null ? "-" : session.pressureSkewed ? "Skewed" : "Even"}
-              </p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                Force A/B: {session.latestForce1 === null || session.latestForce2 === null ? "-" : `${session.latestForce1} / ${session.latestForce2}`}
-              </p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Last Event: {session.lastEventType ?? "-"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {session.latestFlags ?? "-"}</p>
-            </div>
-
-            <div style={{ marginTop: "16px" }}>
-              <h3 style={{ margin: "0 0 10px 0", fontSize: "1rem", fontWeight: 600, color: "#0f172a" }}>Live Sensor Plots</h3>
-              <p style={{ margin: "0 0 12px 0", fontSize: "0.83rem", color: "#64748b" }}>
-                Rolling window of last {MAX_SENSOR_POINTS} updates. Use this to quickly confirm sensor behavior.
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
-                <Sparkline values={depthSeries} color="#0ea5e9" label="Depth / Delta" />
-                <Sparkline values={rateSeries} color="#22c55e" label="Rate / Compression Trend" />
-                <Sparkline values={pauseSeries} color="#f97316" label="Pause" />
-                <Sparkline values={force1Series} color="#2563eb" label="Force Graph A (Bladder 1)" />
-                <Sparkline values={force2Series} color="#7c3aed" label="Force Graph B (Bladder 2)" />
-                <Sparkline values={balanceSeries} color="#0891b2" label="Pressure Balance (%)" />
-                <RecoilTimeline values={recoilSeries} />
-              </div>
-              <div style={{ marginTop: "10px", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px", background: "#f8fafc" }}>
-                <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                  Live Balance: {latestBalance === null ? "-" : `${latestBalance.toFixed(1)}%`} | Status: {latestSkewed === null ? "-" : latestSkewed ? "Skewed" : "Even"}
-                </p>
-                <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>Recent Flags / Feedback</p>
-                {recentFlags.length === 0 ? (
-                  <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>No feedback flags yet</p>
-                ) : (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                    {recentFlags.map((flag, index) => (
-                      <span
-                        key={`${flag}-${index}`}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: "999px",
-                          fontSize: "0.78rem",
-                          fontWeight: 600,
-                          background: "#e2e8f0",
-                          color: "#334155",
-                        }}
-                      >
-                        {flag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <WaitingSessionStory />
           </section>
         )}
       </div>

@@ -3,6 +3,7 @@ import { AUTH_PERMISSION_RULES } from "@resq/shared";
 import { useAuth } from "../auth/AuthContext";
 import { generateAccessUrls } from "../lib/accessUrls";
 import QrPanel from "../components/QrPanel";
+import { Skeleton } from "../components/ui";
 import {
   fetchHubHealth,
   getApiServiceStatus,
@@ -172,6 +173,7 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     status: "checking",
     detail: "Checking...",
   });
+  const [snapshotLoading, setSnapshotLoading] = useState(true);
 
   function updateBrokerUi(service: BrokerServiceStatus) {
     setBrokerState(service);
@@ -250,22 +252,18 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     }
   }
 
-  useEffect(() => {
-    let isActive = true;
+  async function refreshAllState() {
+    setSnapshotLoading(true);
 
-    async function loadApiState() {
-      if (!isActive) {
-        return;
-      }
-
+    try {
       await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState()]);
+    } finally {
+      setSnapshotLoading(false);
     }
+  }
 
-    loadApiState();
-
-    return () => {
-      isActive = false;
-    };
+  useEffect(() => {
+    void refreshAllState();
   }, []);
 
   const apiStatusLabel = `${getProcessLabel(apiService)} · ${getHealthLabel(apiHealth)}`;
@@ -341,10 +339,6 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     window.location.assign("/trainee");
   }
 
-  async function loadAllState() {
-    await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState()]);
-  }
-
   return (
     <div className="home-dashboard">
       <section className="panel hero-layout">
@@ -360,15 +354,22 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
             <button type="button" className="button button--secondary" onClick={handleOpenTraineeDashboard}>
               Open Trainee Dashboard
             </button>
-            <button type="button" className="button button--ghost" onClick={loadAllState}>
+            <button type="button" className="button button--ghost" onClick={() => void refreshAllState()}>
               Refresh Status
             </button>
           </div>
         </div>
 
-        <div className="quick-card">
+        <div className="quick-card" aria-busy={snapshotLoading}>
           <span className={`status-chip status-chip--${apiTone}`}>{apiStatusLabel}</span>
           <h3 className="quick-card__title">Clinical service snapshot</h3>
+          {snapshotLoading ? (
+            <div style={{ display: "grid", gap: "10px", margin: "10px 0 6px" }}>
+              <Skeleton size="sm" className="skeleton--shimmer" style={{ width: "72%" }} />
+              <Skeleton size="sm" className="skeleton--shimmer" style={{ width: "88%" }} />
+              <Skeleton size="sm" className="skeleton--shimmer" style={{ width: "64%" }} />
+            </div>
+          ) : null}
           <p className="quick-card__copy">{formatApiDetail(apiHealth)}</p>
           <p className="quick-card__copy">Telemetry broker: {brokerUiState.detail}</p>
           <p className="quick-card__copy">LAN IP: {chosenLanIp ?? "Not detected"}</p>
