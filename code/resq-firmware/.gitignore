@@ -78,3 +78,5 @@ Desktop.ini
 
 # Local documentation files that may be generated or edited by users
 docs/*.local.md 
+
+test_files/test-evidence/*
