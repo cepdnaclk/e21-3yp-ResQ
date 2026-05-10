@@ -2,19 +2,18 @@ import { useTheme } from "./ThemeContext";
 
 export default function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
-  const isDark = theme === "dark";
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
       className="theme-toggle"
-      aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-      title={`Switch to ${isDark ? "light" : "dark"} mode`}
+      aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+      title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
       style={{
         width: "40px",
         height: "40px",
-        borderRadius: "999px",
+        borderRadius: "8px",
         border: "1px solid var(--line)",
         background: "var(--surface)",
         color: "var(--text)",
@@ -22,21 +21,20 @@ export default function ThemeToggle() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: "1rem",
+        fontSize: "1.2rem",
         transition: "all 0.3s ease",
         padding: 0,
       }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-strong)";
+        (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 12px rgba(29, 78, 216, 0.15)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = "var(--surface)";
+        (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+      }}
     >
-      {isDark ? (
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M12 3a6.5 6.5 0 1 0 9 9A9 9 0 1 1 12 3Z" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="4.5" />
-          <path d="M12 2.75v2.5M12 18.75v2.5M4.05 4.05l1.77 1.77M18.18 18.18l1.77 1.77M2.75 12h2.5M18.75 12h2.5M4.05 19.95l1.77-1.77M18.18 5.82l1.77-1.77" />
-        </svg>
-      )}
+      {theme === "light" ? "🌙" : "☀️"}
     </button>
   );
 }
