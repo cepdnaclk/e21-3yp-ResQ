@@ -110,12 +110,10 @@ static void health_task(void *arg)
             }
         }
 
-        if (event_publisher_is_connected()) {
-            if ((now - last_heartbeat) >= pdMS_TO_TICKS(HEARTBEAT_PERIOD_MS)) {
-                last_heartbeat = now;
-                publish_heartbeat();
-            }
-        }
+        /* Do not publish heartbeat periodically by default. Health is published
+         * on-demand via health_monitor_publish_now(). Retain the task for
+         * internal checks (e.g. wifi reconnection) only.
+         */
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -147,4 +145,36 @@ esp_err_t health_monitor_start(void)
     );
 
     return (ok == pdPASS) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t health_monitor_publish_now(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    /* Determine profile id from most recent calibration report if available */
+    calibration_report_t report = {0};
+    bool have_report = calibration_manager_get_report_copy(&report);
+    const char *profile_id = have_report ? report.profile_id : s_cfg.calibration_profile_id;
+
+    cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
+    cJSON_AddBoolToObject(root, "wifi_connected", wifi_manager_is_connected());
+    cJSON_AddBoolToObject(root, "mqtt_connected", event_publisher_is_connected());
+    cJSON_AddStringToObject(root, "profileId", profile_id ? profile_id : "");
+    cJSON_AddBoolToObject(root, "debugRawEnabled", s_cfg.debug_raw_enabled);
+    cJSON_AddStringToObject(root, "sensorMode", sensor_mode_to_string(sensor_runtime_get_mode()));
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    if (payload == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = event_publisher_publish_or_queue(RESQ_SUFFIX_HEARTBEAT, payload, 0, 0);
+    cJSON_free(payload);
+
+    return err;
 }

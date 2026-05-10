@@ -198,6 +198,44 @@ static esp_err_t read_request_body(httpd_req_t *req, char *buf, size_t buf_len)
     return ESP_OK;
 }
 
+/* Apply/save provisioning config and signal completion (shared helper) */
+static esp_err_t apply_provisioning_config(const device_config_t *cfg)
+{
+    if (cfg == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = config_store_save(cfg);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    s_last_cfg = *cfg;
+    xEventGroupSetBits(s_prov_events, PROV_DONE_BIT);
+
+    /* Safe logging only (never log password or auth token) */
+    ESP_LOGI(TAG, "Provisioning data received and saved");
+    ESP_LOGI(TAG, "  wifi_ssid   : %s", cfg->wifi_ssid);
+    ESP_LOGI(TAG, "  register_url: %s", cfg->register_url);
+    ESP_LOGI(TAG, "  device_id   : %s", cfg->device_id);
+    ESP_LOGI(TAG, "  manikin_id  : %s", cfg->manikin_id);
+    ESP_LOGI(TAG, "  mqtt_host   : %s", cfg->mqtt_host);
+    ESP_LOGI(TAG, "  mqtt_port   : %d", cfg->mqtt_port);
+
+    return ESP_OK;
+}
+
+static void safe_copy(char *dst, size_t dst_len, const char *src)
+{
+    if (dst == NULL || dst_len == 0) return;
+    if (src == NULL) {
+        dst[0] = '\0';
+        return;
+    }
+    strncpy(dst, src, dst_len - 1);
+    dst[dst_len - 1] = '\0';
+}
+
 /* ---------------------------------------------------------
  * HTTP handlers
  * --------------------------------------------------------- */
@@ -286,28 +324,117 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
 
     cJSON_Delete(root);
 
-    err = config_store_save(&cfg);
+    err = apply_provisioning_config(&cfg);
     if (err != ESP_OK) {
         httpd_resp_set_status(req, "500 Internal Server Error");
         httpd_resp_sendstr(req, "{\"status\":\"error\",\"msg\":\"failed to save config\"}");
         return err;
     }
 
-    s_last_cfg = cfg;
-    xEventGroupSetBits(s_prov_events, PROV_DONE_BIT);
-
-    /* Log only safe fields */
-    ESP_LOGI(TAG, "Provisioning data received and saved");
-    ESP_LOGI(TAG, "  wifi_ssid   : %s", cfg.wifi_ssid);
-    ESP_LOGI(TAG, "  register_url: %s", cfg.register_url);
-    ESP_LOGI(TAG, "  device_id   : %s", cfg.device_id);
-    ESP_LOGI(TAG, "  manikin_id  : %s", cfg.manikin_id);
-    ESP_LOGI(TAG, "  mqtt_host   : %s", cfg.mqtt_host);
-    ESP_LOGI(TAG, "  mqtt_port   : %d", cfg.mqtt_port);
-
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "{\"status\":\"ok\",\"msg\":\"provisioning saved\"}");
     return ESP_OK;
+}
+
+static esp_err_t provision_get_handler(httpd_req_t *req)
+{
+    char query[512] = {0};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_sendstr(req, "Missing or invalid provisioning fields");
+        return ESP_FAIL;
+    }
+
+    device_config_t cfg;
+    esp_err_t load_err = config_store_load(&cfg);
+    if (load_err != ESP_OK) {
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.mqtt_port = 1883;
+        cfg.hall_baseline = 3420;
+        cfg.hall_min_delta = 520;
+        cfg.hall_max_delta = 1060;
+        cfg.compression_start_delta = 200;
+        cfg.sensor_sample_interval_ms = 20;
+    }
+
+    char temp[512] = {0};
+
+    /* Required keys: ssid, password, server_url, auth_token, device_id, manikin_id, mqtt_host, mqtt_port */
+    if (httpd_query_key_value(query, "ssid", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    if (strlen(temp) >= sizeof(cfg.wifi_ssid)) goto bad_req;
+    safe_copy(cfg.wifi_ssid, sizeof(cfg.wifi_ssid), temp);
+
+    if (httpd_query_key_value(query, "password", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    if (strlen(temp) >= sizeof(cfg.wifi_pass)) goto bad_req;
+    safe_copy(cfg.wifi_pass, sizeof(cfg.wifi_pass), temp);
+
+    if (httpd_query_key_value(query, "server_url", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    if (strlen(temp) >= sizeof(cfg.register_url)) goto bad_req;
+    safe_copy(cfg.register_url, sizeof(cfg.register_url), temp);
+
+    if (httpd_query_key_value(query, "auth_token", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    if (strlen(temp) >= sizeof(cfg.auth_token)) goto bad_req;
+    safe_copy(cfg.auth_token, sizeof(cfg.auth_token), temp);
+
+    if (httpd_query_key_value(query, "device_id", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    if (strlen(temp) >= sizeof(cfg.device_id)) goto bad_req;
+    safe_copy(cfg.device_id, sizeof(cfg.device_id), temp);
+
+    if (httpd_query_key_value(query, "manikin_id", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    if (strlen(temp) >= sizeof(cfg.manikin_id)) goto bad_req;
+    safe_copy(cfg.manikin_id, sizeof(cfg.manikin_id), temp);
+
+    if (httpd_query_key_value(query, "mqtt_host", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    if (strlen(temp) >= sizeof(cfg.mqtt_host)) goto bad_req;
+    safe_copy(cfg.mqtt_host, sizeof(cfg.mqtt_host), temp);
+
+    if (httpd_query_key_value(query, "mqtt_port", temp, sizeof(temp)) != ESP_OK) goto bad_req;
+    url_decode_inplace(temp);
+    long port = strtol(temp, NULL, 10);
+    if (port <= 0 || port > 65535) goto bad_req;
+    cfg.mqtt_port = (int)port;
+
+    cfg.provisioned = true;
+
+    /* Save and signal using shared helper */
+    esp_err_t err = apply_provisioning_config(&cfg);
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_sendstr(req, "Failed to save provisioning");
+        return err;
+    }
+
+    /* Send simple HTML success (do not reveal sensitive fields) */
+    char reply[512];
+    snprintf(reply, sizeof(reply),
+             "<html><head><title>ResQ provisioning received</title></head><body>"
+             "<h1>ResQ provisioning received</h1>"
+             "<p>Wi-Fi SSID: %s</p>"
+             "<p>Device ID: %s</p>"
+             "<p>Manikin ID: %s</p>"
+             "<p>MQTT: %s:%d</p>"
+             "<p>Device will now connect/reboot.</p>"
+             "</body></html>",
+             cfg.wifi_ssid, cfg.device_id, cfg.manikin_id, cfg.mqtt_host, cfg.mqtt_port);
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_sendstr(req, reply);
+    return ESP_OK;
+
+bad_req:
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "Missing or invalid provisioning fields");
+    return ESP_ERR_INVALID_ARG;
 }
 
 /* ---------------------------------------------------------
@@ -327,6 +454,13 @@ static httpd_uri_t provision_uri = {
     .user_ctx = NULL,
 };
 
+static httpd_uri_t provision_get_uri = {
+    .uri      = "/provision",
+    .method   = HTTP_GET,
+    .handler  = provision_get_handler,
+    .user_ctx = NULL,
+};
+
 static esp_err_t start_webserver(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -338,6 +472,7 @@ static esp_err_t start_webserver(void)
 
     httpd_register_uri_handler(s_server, &root_uri);
     httpd_register_uri_handler(s_server, &provision_uri);
+    httpd_register_uri_handler(s_server, &provision_get_uri);
 
     ESP_LOGI(TAG, "HTTP provisioning server started on port %d", config.server_port);
     return ESP_OK;
