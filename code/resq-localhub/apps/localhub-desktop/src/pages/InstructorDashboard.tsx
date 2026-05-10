@@ -2,18 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 const QR = QRCodeSVG as any;
 import { useAuth } from "../auth/AuthContext";
-import { Card, Button, Alert, Skeleton, Badge, Input, Select } from "../components/ui";
-import HubHeartbeat from "../components/icons/HubHeartbeat";
-import RadarManikin from "../components/icons/RadarManikin";
-import PlusPulse from "../components/icons/PlusPulse";
-import CounterFlip from "../components/icons/CounterFlip";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
 import {
-  fetchManikinInventory,
+  fetchLiveManikins,
   getLiveManikinsStreamUrl,
-  type ManikinInventoryEntry,
   type ManikinLiveSummary,
 } from "../lib/browserManikinsApi";
 import {
@@ -25,18 +19,13 @@ import {
   endSession,
   fetchCompletedSession,
   fetchCompletedSessions,
+  getSessionCsvExportUrl,
+  getSessionJsonExportUrl,
   startSession,
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
-
-const SESSION_TOUR_KEY = "resq-session-tour-seen";
-const SIM_THEATER_KEY = "resq-sim-theater";
-
-type HeatmapDay = {
-  date: string;
-  count: number;
-};
+import { requestManikinPairing } from "../lib/browserManikinsProvisionApi";
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -45,7 +34,7 @@ type HeatmapDay = {
  * in any browser on the LAN without depending on Tauri APIs.
  */
 
-function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHealthResponse | null; simTheater?: boolean }) {
+function HealthStatusBadge({ health }: { health: BrowserHealthResponse | null }) {
   if (!health) {
     return (
       <span style={{
@@ -54,8 +43,8 @@ function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHeal
         borderRadius: "999px",
         fontSize: "0.8rem",
         fontWeight: 600,
-        background: simTheater ? "rgba(159,214,255,0.12)" : "#e2e8f0",
-        color: simTheater ? "#D7F0FF" : "#334155",
+        background: "#e2e8f0",
+        color: "#334155",
       }}>
         Checking...
       </span>
@@ -70,8 +59,8 @@ function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHeal
         borderRadius: "999px",
         fontSize: "0.8rem",
         fontWeight: 600,
-        background: simTheater ? "rgba(34,197,94,0.18)" : "#dcfce7",
-        color: simTheater ? "#B9FFD0" : "#166534",
+        background: "#dcfce7",
+        color: "#166534",
       }}>
         Healthy
       </span>
@@ -85,8 +74,8 @@ function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHeal
       borderRadius: "999px",
       fontSize: "0.8rem",
       fontWeight: 600,
-      background: simTheater ? "rgba(220,38,38,0.16)" : "#fee2e2",
-      color: simTheater ? "#FFB6B6" : "#991b1b",
+      background: "#fee2e2",
+      color: "#991b1b",
     }}>
       Unreachable
     </span>
@@ -143,7 +132,6 @@ function IndicatorBadge({
 
 type SessionActionState = "idle" | "starting" | "ending";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
-type InventoryStatus = "paired" | "pending" | "online" | "offline" | "stale" | "unknown";
 
 type InstructorDashboardProps = {
   embeddedInDesktop?: boolean;
@@ -183,22 +171,6 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   );
 }
 
-function getInventoryBadgeTone(status: InventoryStatus): "success" | "warning" | "danger" | "info" {
-  if (status === "online") {
-    return "success";
-  }
-
-  if (status === "offline") {
-    return "danger";
-  }
-
-  if (status === "stale" || status === "pending") {
-    return "warning";
-  }
-
-  return "info";
-}
-
 export default function InstructorDashboard({
   embeddedInDesktop = false,
   onOpenTraineeDashboard,
@@ -210,8 +182,7 @@ export default function InstructorDashboard({
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
-  const [manikins, setManikins] = useState<ManikinInventoryEntry[]>([]);
-  const [manikinsRefreshKey, setManikinsRefreshKey] = useState(0);
+  const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
 
   // Trainee selection state (per device)
   type SessionDraft = {
@@ -239,16 +210,20 @@ export default function InstructorDashboard({
   const [expandedSessionDetail, setExpandedSessionDetail] = useState<CompletedSession | null>(null);
   const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
-  const [showSessionTour, setShowSessionTour] = useState(false);
-  const [simTheater, setSimTheater] = useState(false);
-  const [showOnlyLiveManikins, setShowOnlyLiveManikins] = useState(true);
-  const [showManikinDiagnostics, setShowManikinDiagnostics] = useState(false);
-
-  function applyInventorySnapshot(entries: ManikinInventoryEntry[]) {
-    setManikins(entries);
+  // State for the "Pair New Manikin" panel
+  const [pairingDeviceId, setPairingDeviceId] = useState<string>("");
+  const [pairingLoading, setPairingLoading] = useState<boolean>(false);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [pairingResult, setPairingResult] = useState<{
+    deviceId: string;
+    token: string;
+    expiresAt: string;
+  } | null>(null);
+  function applyManikinSnapshot(live: ManikinLiveSummary[]) {
+    setManikins(live);
     setSessionDrafts((current) => {
       const next = { ...current };
-      for (const manikin of entries) {
+      for (const manikin of live) {
         if (!next[manikin.deviceId]) {
           next[manikin.deviceId] = {
             traineeMode: "select",
@@ -259,47 +234,25 @@ export default function InstructorDashboard({
     });
   }
 
-  function buildRecentSessionHeatmap(sessions: CompletedSession[], days = 28): HeatmapDay[] {
-    const today = new Date();
-    const counts = new Map<string, number>();
-
-    for (const session of sessions) {
-      const date = new Date(session.endedAt);
-      if (Number.isNaN(date.getTime())) {
-        continue;
-      }
-
-      const key = date.toISOString().slice(0, 10);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-
-    return Array.from({ length: days }, (_, index) => {
-      const day = new Date(today);
-      day.setDate(today.getDate() - (days - 1 - index));
-      const key = day.toISOString().slice(0, 10);
-
-      return {
-        date: key,
-        count: counts.get(key) ?? 0,
-      };
-    });
-  }
-
-  function buildTimelineMarkers(sessions: CompletedSession[]): Array<{ label: string; position: number; completed: boolean }> {
-    return [
-      { label: "Start", position: 10, completed: sessions.length > 0 },
-      { label: "Check-in", position: 35, completed: sessions.length > 0 },
-      { label: "Midway", position: 62, completed: sessions.length > 1 },
-      { label: "Wrap-up", position: 88, completed: sessions.length > 2 },
-    ];
-  }
-
   useEffect(() => {
     async function loadHealth() {
       setHealthLoading(true);
       const result = await fetchBrowserHealth();
       setHealth(result);
       setHealthLoading(false);
+    }
+
+    async function loadManikins() {
+      try {
+        const live = await fetchLiveManikins();
+        applyManikinSnapshot(live);
+        setManikinsError(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to fetch live manikins.";
+        setManikinsError(message);
+      } finally {
+        setManikinsLoading(false);
+      }
     }
 
     async function loadRecentSessions() {
@@ -327,20 +280,6 @@ export default function InstructorDashboard({
       }
     }
 
-    loadHealth();
-    loadRecentSessions();
-    loadTrainees();
-
-    const healthInterval = setInterval(loadHealth, 5000);
-    const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
-
-    return () => {
-      clearInterval(healthInterval);
-      clearInterval(recentSessionsInterval);
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     let eventSource: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -353,35 +292,13 @@ export default function InstructorDashboard({
       }
     }
 
-    async function loadManikins() {
-      try {
-        const inventory = await fetchManikinInventory();
-        if (cancelled) {
-          return;
-        }
-
-        applyInventorySnapshot(inventory);
-        setManikinsError(null);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setManikinsError("Failed to fetch");
-      } finally {
-        if (!cancelled) {
-          setManikinsLoading(false);
-        }
-      }
-    }
-
     function startFallbackPolling() {
       if (fallbackInterval) {
         return;
       }
 
       fallbackInterval = setInterval(() => {
-        void loadManikins();
+        loadManikins();
       }, 2000);
     }
 
@@ -433,29 +350,8 @@ export default function InstructorDashboard({
           return;
         }
 
-        applyInventorySnapshot(payload.map((manikin) => {
-          const state = manikin.state?.toLowerCase() ?? "";
-          const status: InventoryStatus = state.includes("pending")
-            ? "pending"
-            : state.includes("stale")
-              ? "stale"
-              : state.includes("paired") || Boolean(manikin.sessionActive)
-                ? "paired"
-                : manikin.online
-                  ? "online"
-                  : "offline";
-
-          return {
-            ...manikin,
-            status,
-            rawStatus: manikin.state,
-          };
-        }));
+        applyManikinSnapshot(payload);
         setManikinsLoading(false);
-      });
-
-      stream.addEventListener("heartbeat", () => {
-        // Keep-alive only.
       });
 
       stream.onerror = () => {
@@ -481,13 +377,15 @@ export default function InstructorDashboard({
       };
     }
 
-    setManikinsLoading(true);
-    void loadManikins().finally(() => {
-      if (!cancelled) {
-        connectManikinStream();
-      }
-    });
+    loadHealth();
+    loadManikins();
+    loadRecentSessions();
+    loadTrainees();
+    connectManikinStream();
 
+    const healthInterval = setInterval(loadHealth, 5000);
+    const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
+    
     return () => {
       cancelled = true;
       if (eventSource) {
@@ -497,124 +395,14 @@ export default function InstructorDashboard({
         clearTimeout(reconnectTimer);
       }
       stopFallbackPolling();
+      clearInterval(healthInterval);
+      clearInterval(recentSessionsInterval);
     };
-  }, [manikinsRefreshKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    setShowSessionTour(window.localStorage.getItem(SESSION_TOUR_KEY) !== "true");
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const val = window.localStorage.getItem(SIM_THEATER_KEY);
-      setSimTheater(val === "true");
-    } catch {
-      setSimTheater(false);
-    }
-  }, []);
-
-  function toggleSimTheater() {
-    setSimTheater((v) => {
-      const next = !v;
-      try { if (typeof window !== 'undefined') window.localStorage.setItem(SIM_THEATER_KEY, next ? 'true' : 'false'); } catch {}
-      return next;
-    });
-  }
-
-  useEffect(() => {
-    if (!manikinsError) {
-      setShowManikinDiagnostics(false);
-    }
-  }, [manikinsError]);
-
-  function dismissSessionTour() {
-    setShowSessionTour(false);
-
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(SESSION_TOUR_KEY, "true");
-    }
-  }
-
-  function retryLoadManikins() {
-    setManikinsRefreshKey((current) => current + 1);
-  }
 
   const manikinByDeviceId = useMemo(() => {
     return new Map(manikins.map((manikin) => [manikin.deviceId, manikin]));
   }, [manikins]);
-
-  const inventoryItems = useMemo(() => {
-    return manikins;
-  }, [manikins]);
-
-  const inventoryBuckets = useMemo(() => {
-    return inventoryItems.reduce<Record<InventoryStatus, typeof inventoryItems>>((accumulator, entry) => {
-      accumulator[entry.status].push(entry);
-      return accumulator;
-    }, {
-      paired: [],
-      pending: [],
-      online: [],
-      offline: [],
-      stale: [],
-      unknown: [],
-    });
-  }, [inventoryItems]);
-
-  const visibleManikins = useMemo(() => {
-    if (!showOnlyLiveManikins) {
-      return manikins;
-    }
-
-    return manikins.filter((manikin) => manikin.online);
-  }, [manikins, showOnlyLiveManikins]);
-
-  const hubStatusCardClass = healthLoading
-    ? "card--status-info"
-    : health?.ok
-      ? "card--status-success"
-      : "card--status-danger";
-
-  const liveManikinsCardClass = manikinsError
-    ? "card--status-danger"
-    : manikinsStreamState === "connected"
-      ? "card--status-success"
-      : manikinsStreamState === "reconnecting"
-        ? "card--status-warning"
-        : "card--status-info";
-
-  const recentSessionHeatmap = useMemo(() => buildRecentSessionHeatmap(recentSessions), [recentSessions]);
-  const sessionTimelineMarkers = useMemo(() => buildTimelineMarkers(recentSessions), [recentSessions]);
-
-  function inventoryBadgeStyle(status: InventoryStatus): React.CSSProperties {
-    if (status === "online" || status === "paired") {
-      return { background: "#dcfce7", color: "#166534" };
-    }
-
-    if (status === "pending") {
-      return { background: "#fef3c7", color: "#92400e" };
-    }
-
-    if (status === "stale" || status === "offline") {
-      return { background: "#fee2e2", color: "#991b1b" };
-    }
-
-    return { background: "#e2e8f0", color: "#334155" };
-  }
-
-  function formatInventoryLastSeen(value: string | null): string {
-    if (!value) {
-      return "No heartbeat yet";
-    }
-
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-  }
 
   function formatLastSeen(value: string | null): string {
     if (!value) {
@@ -627,19 +415,6 @@ export default function InstructorDashboard({
     }
 
     return date.toLocaleTimeString();
-  }
-
-  function isDataStale(lastSeenString: string | null): boolean {
-    if (!lastSeenString) return true;
-    
-    const lastSeenDate = new Date(lastSeenString);
-    if (Number.isNaN(lastSeenDate.getTime())) return true;
-    
-    const now = new Date();
-    const ageSeconds = (now.getTime() - lastSeenDate.getTime()) / 1000;
-    
-    // Data is stale if older than 5 seconds
-    return ageSeconds > 5;
   }
 
   function metric(value: number | null, suffix: string): string {
@@ -662,24 +437,17 @@ export default function InstructorDashboard({
 
     const protocol = window.location.protocol.toLowerCase();
     const canUseOrigin = protocol === "http:" || protocol === "https:";
-    if (canUseOrigin) {
+    const originHost = window.location.hostname;
+    const originIsLocalOnly =
+      originHost === "localhost" ||
+      originHost === "127.0.0.1" ||
+      originHost === "::1";
+
+    if (canUseOrigin && !originIsLocalOnly) {
       return `${window.location.origin}/trainee?sessionId=${encodeURIComponent(sessionId)}`;
     }
 
     return null;
-  }
-
-  function buildTraineeLandingUrl(): string {
-    const manualLanHost = sanitizeManualLanIp(manualLanIpOverride ?? window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY) ?? "");
-
-    if (manualLanHost) {
-      const { traineeUrl } = generateAccessUrls(manualLanHost);
-      if (traineeUrl) {
-        return traineeUrl;
-      }
-    }
-
-    return `${window.location.origin}/trainee`;
   }
 
   function navigateToDesktopHome() {
@@ -833,64 +601,90 @@ export default function InstructorDashboard({
       setExpandedSessionLoading(false);
     }
   }
+  async function handleRequestPairing() {
+    // Guard: don't do anything if the input box is empty
+    if (!pairingDeviceId.trim()) return;
+
+    setPairingLoading(true);
+    setPairingError(null);
+    setPairingResult(null);
+
+    try {
+      // This calls POST /api/manikins/pair-request on the Spring Boot backend
+      const result = await requestManikinPairing(pairingDeviceId.trim());
+      setPairingResult(result);
+    }   catch (error) {
+      // If the backend returns an error, show it to the instructor
+      setPairingError(
+        error instanceof Error ? error.message : "Failed to generate pairing token."
+      );
+    } finally {
+      // Whether it succeeded or failed, stop showing the loading state
+      setPairingLoading(false);
+    }
+  }
 
   return (
-    <div style={styles.container} className={simTheater ? 'sim-theater' : ''}>
+    <div style={styles.container}>
       <header style={styles.header}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <div>
-            <h1 style={{ ...styles.title, color: simTheater ? "#EAF4FF" : styles.title.color }}>
-              Instructor Dashboard
-            </h1>
-            <p style={{ ...styles.subtitle, color: simTheater ? "#C6D7E5" : styles.subtitle.color }}>
+            <h1 style={styles.title}>Instructor Dashboard</h1>
+            <p style={styles.subtitle}>
               Multi-manikin live performance monitoring and control
             </p>
           </div>
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {currentUser ? (
               <>
-                <span style={{ padding: "6px 10px", borderRadius: "999px", background: simTheater ? "rgba(159,214,255,0.14)" : "#e2e8f0", color: simTheater ? "#D7F0FF" : "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+                <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
                   {currentUser.role}
                 </span>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      logout().finally(() => window.location.assign("/login"));
-                    }}
-                    style={{ color: simTheater ? "#EAF4FF" : undefined }}
-                    aria-label={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
-                    title={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
-                  >
-                    Logout
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => toggleSimTheater()}
-                    style={{ color: simTheater ? "#EAF4FF" : undefined }}
-                    aria-pressed={simTheater}
-                    title={simTheater ? 'Disable Sim Theater' : 'Enable Sim Theater'}
-                  >
-                    {simTheater ? 'Sim Theater: ON' : 'Sim Theater: OFF'}
-                  </Button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout().finally(() => window.location.assign("/login"));
+                  }}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Logout
+                </button>
               </>
             ) : null}
             {!embeddedInDesktop ? (
-              <Button variant="secondary" onClick={navigateToDesktopHome}>Back To Home</Button>
+              <button
+                type="button"
+                onClick={navigateToDesktopHome}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Back To Home
+              </button>
             ) : null}
           </div>
         </div>
       </header>
 
       <div style={styles.content}>
-        <Card className={hubStatusCardClass}>
+        <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <HubHeartbeat state={healthLoading ? 'checking' : health?.ok ? 'ok' : 'down'} size={20} />
-              Hub Status
-            </h2>
-            <HealthStatusBadge health={healthLoading ? null : health} simTheater={simTheater} />
+            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
+            <HealthStatusBadge health={healthLoading ? null : health} />
           </div>
           <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
             {healthLoading
@@ -904,15 +698,117 @@ export default function InstructorDashboard({
               Last update: {new Date(health.timestamp).toLocaleTimeString()}
             </p>
           )}
-        </Card>
+        </section>
+        <section style={styles.card}>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>
+            Pair New Manikin
+          </h2>
+          <p style={{ margin: "0 0 14px 0", color: "#64748b", fontSize: "0.9rem" }}>
+            Enter the Device ID printed on the manikin module, then click Generate.
+            A QR code will appear for the person setting up the manikin to scan.
+          </p>
 
+          {/* Input row: text box and button sit side by side */}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
+            <input
+              type="text"
+              placeholder="Device ID e.g. M01"
+              value={pairingDeviceId}
+              onChange={(e) => {
+                setPairingDeviceId(e.target.value);
+                // Clear any previous result or error as the instructor types
+                setPairingResult(null);
+                setPairingError(null);
+              }}
+              style={{
+                flex: 1,
+                minWidth: "180px",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <button
+              type="button"
+              disabled={pairingLoading || !pairingDeviceId.trim()}
+              onClick={handleRequestPairing}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "6px",
+                border: "1px solid #0f172a",
+                // Button goes grey when disabled (loading or empty input)
+                background: pairingLoading || !pairingDeviceId.trim() ? "#e2e8f0" : "#0f172a",
+                color: pairingLoading || !pairingDeviceId.trim() ? "#64748b" : "#ffffff",
+                fontWeight: 600,
+                cursor: pairingLoading || !pairingDeviceId.trim() ? "not-allowed" : "pointer",
+                fontSize: "0.9rem",
+              }}
+            >
+              {pairingLoading ? "Generating..." : "Generate Pairing QR"}
+            </button>
+          </div>
+
+          {/* Error message — only shown when something goes wrong */}
+          {pairingError ? (
+            <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.88rem" }}>
+              {pairingError}
+            </p>
+          ) : null}
+
+          {/* Success result — only shown after a successful backend response */}
+          {pairingResult ? (
+            <div style={{
+              padding: "14px",
+              borderRadius: "10px",
+              border: "1px solid #e2e8f0",
+              background: "#f8fafc",
+              display: "grid",
+              gap: "10px",
+              justifyItems: "center",
+            }}>
+              <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", color: "#0f172a" }}>
+                Scan to provision the manikin
+              </p>
+              {/* QR encodes the full pairing payload as JSON so the
+                  manikin's provisioning portal can read it in one scan */}
+              <QR
+                value={JSON.stringify(pairingResult)}
+                size={180}
+                bgColor="#ffffff"
+                fgColor="#0f172a"
+                level="M"
+              />
+              <p style={{ margin: 0, color: "#475569", fontSize: "0.82rem", textAlign: "center" }}>
+                Device: <strong>{pairingResult.deviceId}</strong>
+                {" · "}
+                Expires: {new Date(pairingResult.expiresAt).toLocaleTimeString()}
+              </p>
+              {/* Fallback for people who cannot scan a QR code */}
+              <details style={{ width: "100%", fontSize: "0.82rem", color: "#64748b" }}>
+                <summary style={{ cursor: "pointer" }}>
+                  Show raw token (manual entry fallback)
+                </summary>
+                <code style={{
+                  display: "block",
+                  marginTop: "6px",
+                  padding: "8px",
+                  background: "#e2e8f0",
+                  borderRadius: "4px",
+                  wordBreak: "break-all",
+                  fontSize: "0.78rem",
+                }}>
+                  {pairingResult.token}
+                </code>
+              </details>
+            </div>
+          ) : null}
+        </section>
         
 
-        <Card aria-labelledby="completed-sessions-title">
-          <h2 id="completed-sessions-title" className="card__title">
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 12h18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 3v18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            <span>Completed Session Summary</span>
-          </h2>
+        <section style={styles.card}>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Completed Session Summary</h2>
           {latestEndedSession ? (
             <div style={{ display: "grid", gap: "8px" }}>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Session: {latestEndedSession.sessionId}</p>
@@ -927,316 +823,141 @@ export default function InstructorDashboard({
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pauses: {latestEndedSession.summary.pausesCount}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Score: {latestEndedSession.summary.score}</p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {latestEndedSession.summary.latestFlags ?? "-"}</p>
-            </div>
-          ) : (
-            <div className="card card--dashed" aria-live="polite">
-              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <p style={{ marginTop: 8 }}>End a session to see the summary here.</p>
-            </div>
-          )}
-        </Card>
-
-        <Card aria-labelledby="session-timeline-title" className="session-timeline-card">
-          <div className="session-timeline-card__header">
-            <div>
-              <h2 id="session-timeline-title" className="card__title">
-                <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 7h16" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 17h16" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                <span>Session Timeline</span>
-              </h2>
-              <p className="session-timeline-card__copy">
-                End a session to populate the summary below. This placeholder shows where live progress markers and recent-session history will appear.
-              </p>
-            </div>
-            <Badge variant="status" className="status-badge--info">
-              Placeholder
-            </Badge>
-          </div>
-
-          <div className="session-timeline__canvas">
-            <div className="session-timeline__track-wrap">
-              <div className="session-timeline__track" aria-label="Session progress bar placeholder" role="group">
-                <div
-                  className="session-timeline__progress"
-                  style={{ width: `${Math.min(18 + recentSessions.length * 10, 100)}%` }}
-                />
-                {sessionTimelineMarkers.map((marker) => (
-                  <button
-                    key={marker.label}
-                    type="button"
-                    className={`session-timeline__marker ${marker.completed ? "session-timeline__marker--active" : ""}`}
-                    style={{ left: `${marker.position}%` }}
-                    draggable
-                    title={`${marker.label} marker`}
-                    aria-label={`${marker.label} marker placeholder`}
-                  >
-                    <span className="session-timeline__marker-dot" />
-                    <span className="session-timeline__marker-label">{marker.label}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="session-timeline__scale" aria-hidden="true">
-                <span>Start</span>
-                <span>Checkpoint</span>
-                <span>Wrap-up</span>
-              </div>
-            </div>
-
-            {showSessionTour ? (
-              <div className="session-timeline__tour" role="dialog" aria-modal="false" aria-label="Session timeline guided tour">
-                <div className="session-timeline__tour-card">
-                  <p className="session-timeline__tour-eyebrow">First-time tour</p>
-                  <p className="session-timeline__tour-title">This is a placeholder session timeline.</p>
-                  <p className="session-timeline__tour-copy">
-                    When you end a session, the summary card above and the recent-session history below will fill in automatically.
-                  </p>
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <Button variant="secondary" onClick={dismissSessionTour}>
-                      Got it
-                    </Button>
+                {currentUser && currentUser.role !== "TRAINEE" ? (
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <a href={getSessionJsonExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
+                      Download JSON
+                    </a>
+                    <a href={getSessionCsvExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
+                      Download CSV
+                    </a>
                   </div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="session-heatmap">
-              <div className="session-heatmap__header">
-                <div>
-                  <h3 className="session-heatmap__title">Recent Sessions Heatmap</h3>
-                  <p className="session-heatmap__copy">Grey squares become greener as more sessions complete on that day.</p>
-                </div>
-                <div className="session-heatmap__legend" aria-hidden="true">
-                  <span>Less</span>
-                  <span className="session-heatmap__swatch session-heatmap__swatch--0" />
-                  <span className="session-heatmap__swatch session-heatmap__swatch--1" />
-                  <span className="session-heatmap__swatch session-heatmap__swatch--2" />
-                  <span className="session-heatmap__swatch session-heatmap__swatch--3" />
-                  <span>More</span>
-                </div>
-              </div>
-
-              <div className="session-heatmap__grid" role="img" aria-label="Calendar heatmap of recent completed sessions">
-                {recentSessionHeatmap.map((day) => {
-                  const intensity = Math.min(day.count, 4);
-
-                  return (
-                    <button
-                      key={day.date}
-                      type="button"
-                      className={`session-heatmap__cell session-heatmap__cell--${intensity}`}
-                      title={`${day.date}: ${day.count} completed session${day.count === 1 ? "" : "s"}`}
-                      aria-label={`${day.date}: ${day.count} completed session${day.count === 1 ? "" : "s"}`}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Card aria-labelledby="inventory-title">
-          <div className="flex justify-between items-center" style={{ marginBottom: 12 }}>
-            <h2 id="inventory-title" className="card__title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <PlusPulse size={18} />
-              <span>Manikin inventory</span>
-            </h2>
-            <Badge variant="count" aria-hidden>
-              <CounterFlip value={inventoryItems.length} /> devices
-            </Badge>
-          </div>
-
-          {manikinsLoading ? (
-            <div style={{ display: "grid", gap: "10px" }}>
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>No manikins are registered yet.</p>
-            </div>
-          ) : inventoryItems.length === 0 ? (
-            <div className="card card--dashed" aria-live="polite">
-              <p style={{ marginTop: 8 }}>No manikins are registered yet.</p>
+                ) : null}
             </div>
           ) : (
-            <div style={{ display: "grid", gap: "12px" }}>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {(["paired", "pending", "online", "offline", "stale"] as const).map((status) => (
-                  <span key={status} style={{ ...inventoryBadgeStyle(status), display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 700 }}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}: {inventoryBuckets[status].length}
-                  </span>
-                ))}
-              </div>
-
-              <div style={{ display: "grid", gap: "10px" }}>
-                {inventoryItems.map((entry) => (
-                  <Card key={entry.deviceId}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-                      <div>
-                        <p style={{ margin: 0, fontWeight: 700, color: "#0f172a" }}>{entry.deviceId}</p>
-                        <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>
-                          {entry.ip ?? "No IP"} • {entry.fw ?? "No firmware"}
-                        </p>
-                      </div>
-                      <Badge variant="status" className={`status-badge--${getInventoryBadgeTone(entry.status)}`}>
-                        {entry.status}
-                      </Badge>
-                    </div>
-
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      State: {entry.rawStatus ?? entry.state ?? "unknown"} • Last seen: {formatInventoryLastSeen(entry.lastSeen)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Session: {entry.activeSessionId ?? "-"} • Trainee: {entry.activeTraineeId ?? "-"} • Scenario: {entry.activeSessionScenario ?? "-"}
-                    </p>
-                  </Card>
-                ))}
-              </div>
-            </div>
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>End a session to see the summary here.</p>
           )}
-        </Card>
+        </section>
 
-        <Card className="card" aria-labelledby="recent-sessions-title">
-          <h2 id="recent-sessions-title" className="card__title">
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7h18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 3v18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            <span>Recent Sessions</span>
-          </h2>
+        <section style={styles.card}>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Recent Sessions</h2>
           {recentSessionsLoading ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>No completed sessions yet.</p>
-            </div>
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading completed sessions...</p>
           ) : recentSessionsError ? (
-            <Alert variant="danger" title={recentSessionsError ? "Unable to load completed sessions" : "Recent Sessions"} detail={recentSessionsError} />
+            <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.92rem" }}>{recentSessionsError}</p>
           ) : recentSessions.length === 0 ? (
-            <div className="card card--dashed" aria-live="polite">
-              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <p style={{ marginTop: 8 }}>No completed sessions yet.</p>
-            </div>
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>No completed sessions yet.</p>
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
               {recentSessions.map((session) => (
-                <article
-                  key={session.sessionId}
-                  className="card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleViewDetails(session.sessionId)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleViewDetails(session.sessionId);
-                    }
-                  }}
-                  style={{ cursor: "pointer" }}
-                >
+                <article key={session.sessionId} style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "10px", background: "#ffffff" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
                     <div>
-                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{formatSummaryDateTime(session.startedAt)}</p>
-                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>Manikin {session.deviceId}</p>
+                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{session.deviceId}</p>
+                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>{session.sessionId}</p>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleViewDetails(session.sessionId)}
+                        style={{
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          border: "1px solid #cbd5e1",
+                          background: "#ffffff",
+                          color: "#0f172a",
+                          fontWeight: 600,
+                          fontSize: "0.85rem",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {expandedSessionId === session.sessionId ? "Hide Details" : "View Details"}
+                      </button>
+                      {currentUser && currentUser.role !== "TRAINEE" ? (
+                        <>
+                          <a href={getSessionJsonExportUrl(session.sessionId)} style={linkButtonStyle}>
+                            Download JSON
+                          </a>
+                          <a href={getSessionCsvExportUrl(session.sessionId)} style={linkButtonStyle}>
+                            Download CSV
+                          </a>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Duration {session.summary.durationSeconds}s
+                      Trainee {session.traineeId ?? "-"} | Started {formatSummaryDateTime(session.startedAt)} | Ended {formatSummaryDateTime(session.endedAt)}
                     </p>
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Started {formatSummaryDateTime(session.startedAt)} • Ended {formatSummaryDateTime(session.endedAt)}
+                      Duration {session.summary.durationSeconds}s | Score {session.summary.score} | Depth {formatMetric(session.summary.avgDepthMm, "mm")}
+                    </p>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
+                      Rate {formatMetric(session.summary.avgRateCpm, "cpm")} | Recoil {formatMetric(session.summary.recoilPct, "%")} | Pauses {session.summary.pausesCount}
                     </p>
                   </div>
+
+                  {expandedSessionId === session.sessionId ? (
+                    <div style={{ marginTop: "10px", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#f8fafc", display: "grid", gap: "4px" }}>
+                      {expandedSessionLoading ? (
+                        <p style={{ margin: 0, color: "#64748b", fontSize: "0.85rem" }}>Loading session details...</p>
+                      ) : expandedSessionError ? (
+                        <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{expandedSessionError}</p>
+                      ) : expandedSessionDetail ? (
+                        <>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Session ID: {expandedSessionDetail.sessionId}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Device ID: {expandedSessionDetail.deviceId}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Trainee ID: {expandedSessionDetail.traineeId ?? "-"}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Started At: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Ended At: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Pauses: {expandedSessionDetail.summary.pausesCount}</p>
+                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Score: {expandedSessionDetail.summary.score}</p>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </article>
               ))}
             </div>
           )}
-        </Card>
+        </section>
 
-        <div className="inventory-live-bridge" aria-hidden="false">
-          <span className="inventory-live-bridge__line" />
-          <span className="inventory-live-bridge__hint">
-            <span className="inventory-live-bridge__question" tabIndex={0} aria-label="Register a manikin to see it here">?</span>
-            <span className="inventory-live-bridge__tooltip">Register a manikin to see it here.</span>
-          </span>
-        </div>
-
-        <section className={`card ${liveManikinsCardClass} ${manikins.length > 0 && manikins.some((m) => isDataStale(m.lastSeen)) ? "card--stale" : ""}`}>
-          <div className="flex justify-between items-center" style={{ marginBottom: 12 }}>
-            <h2 className="card__title">{/* icon */}
-              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2v6" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 12h14" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 22v-6" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <span style={{ marginLeft: 6 }}>Live Manikins</span>
-            </h2>
-            <div className="flex items-center gap-8" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <label className="live-filter-toggle">
-                <input
-                  type="checkbox"
-                  checked={showOnlyLiveManikins}
-                  onChange={(event) => setShowOnlyLiveManikins(event.target.checked)}
-                />
-                <span className="live-filter-toggle__switch" aria-hidden="true" />
-                <span>Show only live manikins</span>
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className={manikinsStreamState === 'connected' ? 'status-badge status-badge--success' : 'status-badge status-badge--info'}>
-                  {manikinsStreamState === 'reconnecting' ? (
-                    <RadarManikin sweep size={18} />
-                  ) : (
-                    <span className={manikinsStreamState === 'connected' ? 'pulse-dot pulse-dot--green' : 'pulse-dot pulse-dot--red'} aria-hidden="true"></span>
-                  )}
-                  {manikinsStreamState === 'connected' ? 'Connected' : manikinsStreamState === 'reconnecting' ? 'Reconnecting' : 'Connecting'}
-                </span>
-              </div>
-            </div>
+        <section style={styles.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
+            <LiveStreamStatusBadge state={manikinsStreamState} />
           </div>
-
           {manikinsLoading ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-            </div>
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading live manikin data...</p>
           ) : null}
 
           {!manikinsLoading && manikinsError ? (
-            <Alert variant="danger">
-              <div>
-                <button
-                  type="button"
-                  className="button button--ghost button--small"
-                  onClick={() => setShowManikinDiagnostics((current) => !current)}
-                  aria-expanded={showManikinDiagnostics}
-                >
-                  {manikinsError.toLowerCase().includes("failed to fetch") ? "Failed to fetch" : "Unable to load live manikins"}
-                </button>
-                <p className="alert__detail">{`Unable to load live manikins. ${manikinsError}`}</p>
-                <div style={{ marginTop: 8 }}>
-                  <Button variant="secondary" onClick={() => retryLoadManikins()}>
-                    Retry
-                  </Button>
-                </div>
-                <div className={`network-diagnostics ${showManikinDiagnostics ? "network-diagnostics--open" : ""}`}>
-                  <div className="network-diagnostics__panel">
-                    <p className="network-diagnostics__title">Network diagnostic mock</p>
-                    <p className="network-diagnostics__line">Endpoint: {getLiveManikinsStreamUrl()}</p>
-                    <p className="network-diagnostics__line">Transport: EventSource / fallback polling</p>
-                    <p className="network-diagnostics__line">Last retry: waiting for reconnect window</p>
-                    <p className="network-diagnostics__line">Tip: check LAN connectivity and the streaming endpoint route.</p>
-                  </div>
-                </div>
-              </div>
-            </Alert>
+            <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.92rem" }}>
+              Unable to load live manikins. {manikinsError}
+            </p>
           ) : null}
 
-          {!manikinsLoading && !manikinsError && visibleManikins.length === 0 ? (
-            <div className="card card--dashed" aria-live="polite">
-              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <p style={{ marginTop: 8 }}>
-                {showOnlyLiveManikins
-                  ? "No live manikins are visible right now. Turn off the filter to see all devices."
-                  : "No manikins publishing yet. Start publishing to resq/manikins/<deviceId>/status, heartbeat, telemetry, events, or live."}
-              </p>
+          {!manikinsLoading && !manikinsError && manikins.length === 0 ? (
+            <div
+              style={{
+                padding: "20px",
+                borderRadius: "8px",
+                border: "1px dashed #cbd5e1",
+                background: "#f8fafc",
+                textAlign: "center",
+                color: "#64748b",
+              }}
+            >
+              No manikins publishing yet. Start publishing to resq/manikins/&lt;deviceId&gt;/status, heartbeat, telemetry, events, or live.
             </div>
           ) : null}
 
-          {!manikinsLoading && !manikinsError && visibleManikins.length > 0 ? (
+          {!manikinsLoading && !manikinsError && manikins.length > 0 ? (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px" }}>
-              {visibleManikins.map((manikin) => {
+              {manikins.map((manikin) => {
                 const activeSession = getEffectiveSession(manikin.deviceId, manikin);
                 const active = Boolean(activeSession?.sessionId);
                 const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
@@ -1321,8 +1042,8 @@ export default function InstructorDashboard({
 
                       {/* Mode Selection */}
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        <Button
-                          variant={sessionDrafts[manikin.deviceId]?.traineeMode === "select" ? "primary" : "secondary"}
+                        <button
+                          type="button"
                           onClick={() =>
                             setSessionDrafts((current) => ({
                               ...current,
@@ -1332,12 +1053,26 @@ export default function InstructorDashboard({
                               },
                             }))
                           }
-                          style={{ fontSize: "0.8rem" }}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                ? "#0f172a"
+                                : "#ffffff",
+                            color:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                ? "#ffffff"
+                                : "#334155",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                          }}
                         >
                           Select
-                        </Button>
-                        <Button
-                          variant={sessionDrafts[manikin.deviceId]?.traineeMode === "quick" ? "primary" : "secondary"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() =>
                             setSessionDrafts((current) => ({
                               ...current,
@@ -1347,12 +1082,26 @@ export default function InstructorDashboard({
                               },
                             }))
                           }
-                          style={{ fontSize: "0.8rem" }}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                ? "#0f172a"
+                                : "#ffffff",
+                            color:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                ? "#ffffff"
+                                : "#334155",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                          }}
                         >
                           Quick Add
-                        </Button>
-                        <Button
-                          variant={sessionDrafts[manikin.deviceId]?.traineeMode === "guest" ? "primary" : "secondary"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() =>
                             setSessionDrafts((current) => ({
                               ...current,
@@ -1362,15 +1111,29 @@ export default function InstructorDashboard({
                               },
                             }))
                           }
-                          style={{ fontSize: "0.8rem" }}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            background:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                ? "#0f172a"
+                                : "#ffffff",
+                            color:
+                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                ? "#ffffff"
+                                : "#334155",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                          }}
                         >
                           Guest
-                        </Button>
+                        </button>
                       </div>
 
                       {/* Select Mode UI */}
                       {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
-                        <Select
+                        <select
                           value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
                           onChange={(event) =>
                             setSessionDrafts((current) => ({
@@ -1381,6 +1144,13 @@ export default function InstructorDashboard({
                               },
                             }))
                           }
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            fontFamily: "inherit",
+                            fontSize: "0.85rem",
+                          }}
                         >
                           <option value="">-- Select a trainee --</option>
                           {traineesLoading && <option>Loading...</option>}
@@ -1390,13 +1160,13 @@ export default function InstructorDashboard({
                                 {trainee.displayName} ({trainee.traineeCode})
                               </option>
                             ))}
-                        </Select>
+                        </select>
                       )}
 
                       {/* Quick Add Mode UI */}
                       {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
                         <div style={{ display: "grid", gap: "6px" }}>
-                          <Input
+                          <input
                             type="text"
                             placeholder="Trainee Code"
                             value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
@@ -1409,8 +1179,15 @@ export default function InstructorDashboard({
                                 },
                               }))
                             }
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              fontFamily: "inherit",
+                              fontSize: "0.85rem",
+                            }}
                           />
-                          <Input
+                          <input
                             type="text"
                             placeholder="Display Name"
                             value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
@@ -1423,8 +1200,15 @@ export default function InstructorDashboard({
                                 },
                               }))
                             }
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              fontFamily: "inherit",
+                              fontSize: "0.85rem",
+                            }}
                           />
-                          <Input
+                          <input
                             type="text"
                             placeholder="Group (optional)"
                             value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
@@ -1437,6 +1221,13 @@ export default function InstructorDashboard({
                                 },
                               }))
                             }
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              fontFamily: "inherit",
+                              fontSize: "0.85rem",
+                            }}
                           />
                         </div>
                       )}
@@ -1452,21 +1243,39 @@ export default function InstructorDashboard({
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       {currentUser && currentUser.role !== "TRAINEE" ? (
                         !active ? (
-                        <Button
+                        <button
+                          type="button"
                           onClick={() => handleStartSession(manikin.deviceId)}
                           disabled={actionState !== "idle"}
-                          variant="primary"
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: "6px",
+                            border: "1px solid #0f172a",
+                            background: actionState !== "idle" ? "#e2e8f0" : "#0f172a",
+                            color: actionState !== "idle" ? "#64748b" : "#ffffff",
+                            cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                            fontWeight: 600,
+                          }}
                         >
                           Start Session
-                        </Button>
+                        </button>
                         ) : (
-                        <Button
+                        <button
+                          type="button"
                           onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
                           disabled={actionState !== "idle"}
-                          style={{ background: "#991b1b", borderColor: "#991b1b" }}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: "6px",
+                            border: "1px solid #991b1b",
+                            background: actionState !== "idle" ? "#e2e8f0" : "#991b1b",
+                            color: actionState !== "idle" ? "#64748b" : "#ffffff",
+                            cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                            fontWeight: 600,
+                          }}
                         >
                           End Session
-                        </Button>
+                        </button>
                         )
                       ) : (
                         <></>
@@ -1481,36 +1290,53 @@ export default function InstructorDashboard({
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Trainee: {activeSession!.traineeId ?? "-"}
                         </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
-                        </p>
-                        <div
-                          style={{
-                            marginTop: "4px",
-                            padding: "10px",
-                            borderRadius: "8px",
-                            border: "1px solid #dbe3ee",
-                            background: "#ffffff",
-                            display: "grid",
-                            justifyItems: "center",
-                            gap: "8px",
-                          }}
-                        >
-                          <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                            Student Dashboard QR
+                        {traineeLink ? (
+                          <>
+                            <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
+                              Trainee Link: {traineeLink}
+                            </p>
+                            <div
+                              style={{
+                                marginTop: "4px",
+                                padding: "10px",
+                                borderRadius: "8px",
+                                border: "1px solid #dbe3ee",
+                                background: "#ffffff",
+                                display: "grid",
+                                justifyItems: "center",
+                                gap: "8px",
+                              }}
+                            >
+                              <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
+                                Student Dashboard QR
+                              </p>
+                              <QR value={traineeLink} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+                              <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
+                                Scan from trainee phone to open the live trainee dashboard.
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#b45309" }}>
+                            QR unavailable. Set a LAN host/IP in Setup to generate a scannable trainee URL.
                           </p>
-                          <QR value={traineeLink ?? buildTraineeLandingUrl()} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
-                          <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
-                            Scan to open the trainee dashboard. The QR updates to the active session when one starts.
-                          </p>
-                        </div>
+                        )}
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <Button
+                          <button
+                            type="button"
                             onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
-                            variant="primary"
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #0f172a",
+                              background: "#0f172a",
+                              color: "#ffffff",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
                           >
                             Open Trainee Dashboard (In-App)
-                          </Button>
+                          </button>
                           {traineeLink ? (
                             <a href={traineeLink} style={linkButtonStyle}>
                               Open Trainee Link
@@ -1531,66 +1357,6 @@ export default function InstructorDashboard({
             </div>
           ) : null}
         </section>
-
-        {expandedSessionId ? (
-          <div
-            className="story-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="session-details-title"
-            onClick={() => {
-              setExpandedSessionId(null);
-              setExpandedSessionDetail(null);
-              setExpandedSessionError(null);
-              setExpandedSessionLoading(false);
-            }}
-          >
-            <div className="story-modal__panel" onClick={(event) => event.stopPropagation()}>
-              <h3 id="session-details-title" className="story-modal__title">
-                Session details
-              </h3>
-              {expandedSessionLoading ? (
-                <div style={{ display: "grid", gap: 8 }}>
-                  <Skeleton className="skeleton--shimmer" />
-                  <Skeleton className="skeleton--shimmer" />
-                  <Skeleton className="skeleton--shimmer" />
-                </div>
-              ) : expandedSessionError ? (
-                <p className="story-modal__copy" style={{ color: "#b91c1c" }}>
-                  {expandedSessionError}
-                </p>
-              ) : expandedSessionDetail ? (
-                <div style={{ display: "grid", gap: 6 }}>
-                  <p className="story-modal__copy">Manikin: {expandedSessionDetail.deviceId}</p>
-                  <p className="story-modal__copy">Trainee: {expandedSessionDetail.traineeId ?? "-"}</p>
-                  <p className="story-modal__copy">Started: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
-                  <p className="story-modal__copy">Ended: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
-                  <p className="story-modal__copy">Duration: {expandedSessionDetail.summary.durationSeconds}s</p>
-                  <p className="story-modal__copy">Score: {expandedSessionDetail.summary.score}</p>
-                  <p className="story-modal__copy">Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
-                  <p className="story-modal__copy">Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
-                  <p className="story-modal__copy">Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
-                  <p className="story-modal__copy">Pauses: {expandedSessionDetail.summary.pausesCount}</p>
-                </div>
-              ) : null}
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setExpandedSessionId(null);
-                    setExpandedSessionDetail(null);
-                    setExpandedSessionError(null);
-                    setExpandedSessionLoading(false);
-                  }}
-                >
-                  Close
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        
       </div>
     </div>
   );
@@ -1647,4 +1413,3 @@ const linkButtonStyle: React.CSSProperties = {
   fontWeight: 600,
   fontSize: "0.85rem",
 };
-
