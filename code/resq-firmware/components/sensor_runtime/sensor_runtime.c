@@ -359,14 +359,25 @@ static void sensor_task(void *arg)
             populate_metrics(&snap);
 
             if (snap.feedback != CPR_FEEDBACK_NONE) {
-                ESP_LOGI(
-                    TAG,
-                    "Compression %ld evaluated -> %s (depth=%.1fmm rate=%.1fcpm)",
-                    (long)snap.total_compressions,
-                    cpr_feedback_to_string(snap.feedback),
-                    snap.depth_mm,
-                    snap.rate_cpm
-                );
+                if (s_runtime_cfg.debug_raw_enabled) {
+                    ESP_LOGI(
+                        TAG,
+                        "Compression %ld evaluated -> %s (depth=%.1fmm rate=%.1fcpm)",
+                        (long)snap.total_compressions,
+                        cpr_feedback_to_string(snap.feedback),
+                        snap.depth_mm,
+                        snap.rate_cpm
+                    );
+                } else {
+                    ESP_LOGD(
+                        TAG,
+                        "Compression %ld evaluated -> %s (depth=%.1fmm rate=%.1fcpm)",
+                        (long)snap.total_compressions,
+                        cpr_feedback_to_string(snap.feedback),
+                        snap.depth_mm,
+                        snap.rate_cpm
+                    );
+                }
             }
         } else {
             /* keep previous filtered value, but do not update CPR logic this cycle */
