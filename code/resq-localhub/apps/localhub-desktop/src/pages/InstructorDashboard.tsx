@@ -26,6 +26,10 @@ import {
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
 import { requestManikinPairing } from "../lib/browserManikinsProvisionApi";
+import {
+  fetchManikinRegistry,
+  type ManikinRegistryEntry,
+} from "../lib/browserManikinRegistryApi";
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -219,6 +223,10 @@ export default function InstructorDashboard({
     token: string;
     expiresAt: string;
   } | null>(null);
+  // State for the Device Registry panel
+  const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
+  const [registryLoading, setRegistryLoading] = useState(true);
+  const [registryError, setRegistryError] = useState<string | null>(null);
   function applyManikinSnapshot(live: ManikinLiveSummary[]) {
     setManikins(live);
     setSessionDrafts((current) => {
@@ -277,6 +285,19 @@ export default function InstructorDashboard({
         setTraineesError(message);
       } finally {
         setTraineesLoading(false);
+      }
+    }
+    async function loadRegistry() {
+      try {
+        const entries = await fetchManikinRegistry();
+        setRegistry(entries);
+        setRegistryError(null);
+      } catch (error) {
+        setRegistryError(
+          error instanceof Error ? error.message : "Failed to load device registry."
+        );
+      } finally {
+        setRegistryLoading(false);
       }
     }
 
@@ -381,10 +402,12 @@ export default function InstructorDashboard({
     loadManikins();
     loadRecentSessions();
     loadTrainees();
+    loadRegistry();
     connectManikinStream();
 
     const healthInterval = setInterval(loadHealth, 5000);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
+    const registryInterval = setInterval(loadRegistry, 15000);
     
     return () => {
       cancelled = true;
@@ -397,6 +420,7 @@ export default function InstructorDashboard({
       stopFallbackPolling();
       clearInterval(healthInterval);
       clearInterval(recentSessionsInterval);
+      clearInterval(registryInterval);
     };
   }, []);
 
@@ -806,7 +830,130 @@ export default function InstructorDashboard({
           ) : null}
         </section>
         
+        <section style={styles.card}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "12px",
+          }}>
+            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>
+              Device Registry
+            </h2>
+            {/* Show a live count badge — only after loading is complete */}
+            {!registryLoading && !registryError ? (
+              <span style={{
+                padding: "4px 10px",
+                borderRadius: "999px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                background: "#dbeafe",
+                color: "#1d4ed8",
+              }}>
+                {registry.filter(m => m.online).length} / {registry.length} online
+              </span>
+            ) : null}
+          </div>
 
+          {registryLoading ? (
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>
+              Loading device registry...
+            </p>
+          ) : registryError ? (
+            <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.92rem" }}>
+              {registryError}
+            </p>
+          ) : registry.length === 0 ? (
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>
+              No devices in registry yet. Manikins appear here once they
+              connect and publish their first status message.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: "8px" }}>
+              {registry.map((manikin) => (
+                <div
+                  key={manikin.deviceId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 14px",
+                    borderRadius: "8px",
+                    border: "1px solid #e2e8f0",
+                    // Green tint when online, neutral when offline
+                    background: manikin.online ? "#f0fdf4" : "#f8fafc",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  {/* Left side: device identity */}
+                  <div style={{ display: "grid", gap: "2px" }}>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#0f172a" }}>
+                      {manikin.deviceId}
+                    </span>
+                    <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                      {manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}
+                    </span>
+                  </div>
+
+                  {/* Right side: status badges */}
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{
+                      padding: "3px 8px",
+                      borderRadius: "999px",
+                      fontSize: "0.76rem",
+                      fontWeight: 700,
+                      background: manikin.online ? "#dcfce7" : "#fee2e2",
+                      color: manikin.online ? "#166534" : "#991b1b",
+                    }}>
+                      {manikin.online ? "Online" : "Offline"}
+                    </span>
+
+                    {manikin.state ? (
+                      <span style={{
+                        padding: "3px 8px",
+                        borderRadius: "999px",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        background: "#e2e8f0",
+                        color: "#334155",
+                      }}>
+                        {manikin.state}
+                      </span>
+                    ) : null}
+
+                    {/* Color the signal strength badge based on quality:
+                        above -60 dBm = good, -60 to -75 = fair, below -75 = poor */}
+                    {manikin.rssi !== null ? (
+                      <span style={{
+                        padding: "3px 8px",
+                        borderRadius: "999px",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        background: manikin.rssi > -60 ? "#dcfce7"
+                          : manikin.rssi > -75 ? "#fef3c7"
+                          : "#fee2e2",
+                        color: manikin.rssi > -60 ? "#166534"
+                          : manikin.rssi > -75 ? "#92400e"
+                          : "#991b1b",
+                      }}>
+                        {manikin.rssi} dBm
+                      </span>
+                    ) : null}
+
+                    <span style={{ fontSize: "0.76rem", color: "#94a3b8" }}>
+                      {manikin.lastSeen
+                        ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}`
+                        : "Never seen"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        
         <section style={styles.card}>
           <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Completed Session Summary</h2>
           {latestEndedSession ? (
