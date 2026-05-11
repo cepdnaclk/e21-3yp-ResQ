@@ -14,7 +14,6 @@ class Handler(BaseHTTPRequestHandler):
         payload = {
             "ok": True,
             "device_id": "resq-node-01",
-            "manikin_id": "manikin-01",
             "mqtt_host": PC_IP,
             "mqtt_port": 1883
         }

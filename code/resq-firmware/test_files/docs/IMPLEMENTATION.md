@@ -137,17 +137,14 @@ Reports redact common secret fields:
 
 ## Result Status Meaning
 
-- `PASS` - the expected behavior was directly observed.
-- `WARN` - the firmware responded, but the behavior needs review or depends on current state.
-- `FAIL` - the expected behavior should be supported in the current context but was not observed, or unsafe/inconsistent behavior was observed.
-- `SKIP` - the test was not meaningful because a prerequisite was missing, the feature is intentionally unavailable, or interactive/destructive mode was not enabled.
 
 Examples:
 
-- If the broker is down, `TC-001` fails and later MQTT behavior tests are skipped with a broker prerequisite reason.
-- If the broker is up but the device never publishes status or heartbeat, `TC-002` fails and later behavior tests are skipped with a device-presence prerequisite reason.
-- If calibration is not ready, `session/start` can pass by returning a calibration/readiness NACK.
-- Heartbeat is allowed to include readiness and sensor health fields; it is not failed for being more detailed than a compact heartbeat.
+Heartbeat semantics have been tightened to reduce background traffic:
+
+- `heartbeat` = minimal periodic liveness (preferred: `{ "ok": true }`, acceptable: `{ "alive": true, "state": "IDLE" }`).
+- Do not include raw sensor values or large diagnostic blocks in periodic heartbeat.
+- Detailed health and sensor/debug information are available on-demand via `cmd/diag/health` and are published as `diagnostic_health` events on the `events` topic.
 
 ## Manual Publish Helper
 

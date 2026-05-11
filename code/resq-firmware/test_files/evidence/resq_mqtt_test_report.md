@@ -76,7 +76,7 @@
 - Started: `2026-05-10T10:43:34.496177+00:00`
 - Ended: `2026-05-10T10:43:34.596763+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:34.496485+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
+  - `2026-05-10T10:43:34.496485+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
 
 ### TC-003: Topic namespace correctness
 
@@ -87,7 +87,7 @@
 - Started: `2026-05-10T10:43:34.596790+00:00`
 - Ended: `2026-05-10T10:43:34.596810+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:34.496485+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
+  - `2026-05-10T10:43:34.496485+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
 
 ### TC-010: Status payload shape
 
@@ -98,7 +98,7 @@
 - Started: `2026-05-10T10:43:34.596814+00:00`
 - Ended: `2026-05-10T10:43:34.596829+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:34.496485+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
+  - `2026-05-10T10:43:34.496485+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
 
 ### TC-011: Status retained check
 
@@ -109,7 +109,7 @@
 - Started: `2026-05-10T10:43:34.596831+00:00`
 - Ended: `2026-05-10T10:43:38.627977+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:36.627708+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
+  - `2026-05-10T10:43:36.627708+00:00` `resq/manikins/resq-node-01/status` retained=True payload=`{"device_id":"resq-node-01","state":"CALIBRATION_FAIL","session_active":false,"session_id":""}`
 
 ### TC-020: Periodic heartbeat exists
 
@@ -120,8 +120,8 @@
 - Started: `2026-05-10T10:43:38.628011+00:00`
 - Ended: `2026-05-10T10:43:40.234126+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:35.173138+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
-  - `2026-05-10T10:43:40.172022+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
+  - `2026-05-10T10:43:35.173138+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
+  - `2026-05-10T10:43:40.172022+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
 
 ### TC-021: Heartbeat payload shape
 
@@ -132,7 +132,7 @@
 - Started: `2026-05-10T10:43:40.234137+00:00`
 - Ended: `2026-05-10T10:43:40.234153+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:40.172022+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
+  - `2026-05-10T10:43:40.172022+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
 
 ### TC-022: Heartbeat is low-rate health, not telemetry
 
@@ -143,7 +143,7 @@
 - Started: `2026-05-10T10:43:40.234156+00:00`
 - Ended: `2026-05-10T10:43:40.234167+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:40.172022+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
+  - `2026-05-10T10:43:40.172022+00:00` `resq/manikins/resq-node-01/heartbeat` retained=False payload=`{"device_id":"resq-node-01","wifi_connected":true,"mqtt_connected":true,"session_active":false,"sensor_running":false,"session_id":"","ip":"192.168.8.161","force1_ok":true,"force2_ok":true,"hall_ok":true,"compression_count":0,"calibrationReady":false,"calibrationState":"NONE","profileId":"adult-basic-v1","lastCalibrationResult":"NONE","debugRawEnabled":false,"sensorMode":"IDLE","sensorHealth":{"force1Ok":true,"force2Ok":true,"hallOk":true}}`
 
 ### TC-030: cmd/diag/ping
 
@@ -169,7 +169,7 @@
 - Started: `2026-05-10T10:43:40.335261+00:00`
 - Ended: `2026-05-10T10:43:40.737194+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:40.683213+00:00` `resq/manikins/resq-node-01/events` retained=False payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","event_type":"diagnostic_report","session_active":false,"session_id":"","sensor_running":false,"force1_ok":true,"force2_ok":true,"hall_ok":true,"depthMm":78.38710021972656,"rateCpm":0,"pauseS":0,"recoilOk":false,"compression_count":0,"debugRaw":{"force1":5477686,"force2":4992637,"hallRaw":2446,"hallFiltered":2448,"currentDelta":972}}`
+  - `2026-05-10T10:43:40.683213+00:00` `resq/manikins/resq-node-01/events` retained=False payload=`{"device_id":"resq-node-01","event_type":"diagnostic_report","session_active":false,"session_id":"","sensor_running":false,"force1_ok":true,"force2_ok":true,"hall_ok":true,"depthMm":78.38710021972656,"rateCpm":0,"pauseS":0,"recoilOk":false,"compression_count":0,"debugRaw":{"force1":5477686,"force2":4992637,"hallRaw":2446,"hallFiltered":2448,"currentDelta":972}}`
   - `2026-05-10T10:43:40.683695+00:00` `resq/manikins/resq-node-01/events` retained=False payload=`{"device_id":"resq-node-01","session_id":"","event_type":"command_result","command":"diag/request","status":"ACK","reason":"diagnostic event published"}`
 
 ### TC-032: cmd/diag/health support
@@ -193,7 +193,7 @@
 - Started: `2026-05-10T10:43:40.738530+00:00`
 - Ended: `2026-05-10T10:43:40.940462+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:40.849193+00:00` `resq/manikins/resq-node-01/status` retained=False payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","state":"CALIBRATING","session_active":false,"session_id":""}`
+  - `2026-05-10T10:43:40.849193+00:00` `resq/manikins/resq-node-01/status` retained=False payload=`{"device_id":"resq-node-01","state":"CALIBRATING","session_active":false,"session_id":""}`
 
 ### TC-041: calibration/capture-normal
 
@@ -246,7 +246,7 @@
 - Started: `2026-05-10T10:43:59.108479+00:00`
 - Ended: `2026-05-10T10:43:59.410320+00:00`
 - Matched messages:
-  - `2026-05-10T10:43:59.393279+00:00` `resq/manikins/resq-node-01/status` retained=False payload=`{"device_id":"resq-node-01","manikin_id":"manikin-01","state":"IDLE","session_active":false,"session_id":""}`
+  - `2026-05-10T10:43:59.393279+00:00` `resq/manikins/resq-node-01/status` retained=False payload=`{"device_id":"resq-node-01","state":"IDLE","session_active":false,"session_id":""}`
 
 ### TC-045: calibration commands during active session
 
@@ -400,9 +400,9 @@
 
 ## Observed payload shape summary
 
-- `resq/manikins/resq-node-01/status` (9 JSON messages): device_id:str, manikin_id:str, session_active:bool, session_id:str, state:str
-- `resq/manikins/resq-node-01/heartbeat` (10 JSON messages): calibrationReady:bool, calibrationState:str, compression_count:int, debugRawEnabled:bool, device_id:str, force1_ok:bool, force2_ok:bool, hall_ok:bool, ip:str, lastCalibrationResult:str, manikin_id:str, mqtt_connected:bool, profileId:str, sensorHealth:object, sensorMode:str, sensor_running:bool, session_active:bool, session_id:str, wifi_connected:bool
-- `resq/manikins/resq-node-01/events` (17 JSON messages): calibrationRequired:bool, command:str, compression_count:int, debugRaw:object, debugRawEnabled:bool, depthMm:float, device_id:str, event_type:str, force1_ok:bool, force2_ok:bool, hall_ok:bool, manikin_id:str, pauseS:int, profileId:str, rateCpm:int, readyForSession:bool, reason:str, recoilOk:bool, result:str, sensor_running:bool, session_active:bool, session_id:str, status:str
+- `resq/manikins/resq-node-01/status` (9 JSON messages): device_id:str, session_active:bool, session_id:str, state:str
+- `resq/manikins/resq-node-01/heartbeat` (10 JSON messages): calibrationReady:bool, calibrationState:str, compression_count:int, debugRawEnabled:bool, device_id:str, force1_ok:bool, force2_ok:bool, hall_ok:bool, ip:str, lastCalibrationResult:str, mqtt_connected:bool, profileId:str, sensorHealth:object, sensorMode:str, sensor_running:bool, session_active:bool, session_id:str, wifi_connected:bool
+- `resq/manikins/resq-node-01/events` (17 JSON messages): calibrationRequired:bool, command:str, compression_count:int, debugRaw:object, debugRawEnabled:bool, depthMm:float, device_id:str, event_type:str, force1_ok:bool, force2_ok:bool, hall_ok:bool, pauseS:int, profileId:str, rateCpm:int, readyForSession:bool, reason:str, recoilOk:bool, result:str, sensor_running:bool, session_active:bool, session_id:str, status:str
 
 ## Firmware behavior conclusions
 

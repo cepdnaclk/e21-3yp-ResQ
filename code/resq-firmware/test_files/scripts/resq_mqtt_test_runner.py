@@ -550,6 +550,11 @@ class ResQMqttTester:
             return {}
         return message.payload_json
 
+    def _payload_contains_manikin(self, payload: Dict[str, Any]) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        return ("manikin_id" in payload) or ("manikinId" in payload)
+
     def is_topic(self, suffix: str) -> Callable[[MqttMessage], bool]:
         expected = self.topic(suffix)
         return lambda message: message.topic == expected
@@ -764,6 +769,9 @@ class ResQMqttTester:
         if not payload:
             return self.finish(result, "FAIL", "No JSON status payload was observed", matched=[message] if message else None)
 
+        if self._payload_contains_manikin(payload):
+            return self.finish(result, "FAIL", "Status payload contains deprecated manikin_id/manikinId field", matched=[message])
+
         aliases = [
             ("device_id", "deviceId"),
             ("state",),
@@ -830,42 +838,21 @@ class ResQMqttTester:
         payload = self.payload(message)
         if not payload:
             return self.finish(result, "FAIL", "No JSON heartbeat payload was observed", matched=[message] if message else None)
+        if self._payload_contains_manikin(payload):
+            return self.finish(result, "FAIL", "Heartbeat payload contains deprecated manikin_id/manikinId field", [message])
 
-        required = [
-            "device_id",
-            "manikin_id",
-            "wifi_connected",
-            "mqtt_connected",
-            "session_active",
-            "sensor_running",
-            "session_id",
-            "ip",
-            "force1_ok",
-            "force2_ok",
-            "hall_ok",
-            "compression_count",
-        ]
-        optional = [
-            "calibrationReady",
-            "calibrationState",
-            "profileId",
-            "lastCalibrationResult",
-            "debugRawEnabled",
-            "sensorMode",
-            "sensorHealth",
-        ]
-        missing_required = [key for key in required if key not in payload]
-        missing_optional = [key for key in optional if key not in payload]
-        if missing_required:
-            return self.finish(result, "FAIL", f"Heartbeat missing required fields: {missing_required}", [message])
-        if missing_optional:
-            return self.finish(
-                result,
-                "WARN",
-                f"Heartbeat required fields are present; optional readiness/health fields missing: {missing_optional}",
-                [message],
-            )
-        return self.finish(result, "PASS", "Heartbeat contains required health fields and allowed readiness extensions", [message])
+        # New minimal heartbeat policy: accept a tiny liveliness object.
+        # Preferred: { "ok": true } ; acceptable: { "alive": true, "state": "IDLE" }
+        if "ok" not in payload and "alive" not in payload:
+            return self.finish(result, "FAIL", "Heartbeat missing minimal liveness field (ok|alive)", [message])
+
+        # Ensure top-level raw sensor fields are not present in heartbeat
+        debug_fields = {"force1", "force2", "hallRaw", "hallFiltered", "currentDelta", "force1Raw", "force2Raw", "hall_raw"}
+        top_debug = sorted(debug_fields.intersection(payload.keys()))
+        if top_debug:
+            return self.finish(result, "WARN", f"Heartbeat includes top-level debug/raw fields: {top_debug}", [message])
+
+        return self.finish(result, "PASS", "Heartbeat is minimal liveness payload (ok/alive) and contains no top-level raw fields", [message])
 
     def tc022_heartbeat_not_telemetry(self) -> TestResult:
         result = self.start_result("TC-022")
@@ -960,14 +947,56 @@ class ResQMqttTester:
         since = self.message_count()
         self.publish_json(suffix, payload)
         messages = self.wait_collect(
-            lambda item: self.is_command_result("diag/health")(item) or self.is_heartbeat(item),
+            lambda item: self.is_command_result("diag/health")(item)
+            or (
+                item.topic == self.events_topic
+                and isinstance(self.payload(item), dict)
+                and self.payload(item).get("event_type", "") in ("diagnostic_health", "health_report")
+            ),
             count=1,
             timeout=self.args.timeout,
             since=since,
         )
-        if messages:
-            return self.finish(result, "PASS", "Health diagnostic response was observed", messages, notes=notes)
-        return self.finish(result, "FAIL", "cmd/diag/health appears supported/subscribed but no response was observed", notes=notes)
+
+        if not messages:
+            return self.finish(result, "FAIL", "cmd/diag/health appears supported/subscribed but no response was observed", notes=notes)
+
+        # Prefer an explicit diagnostic event on the events topic
+        evt = next(
+            (m for m in messages if m.topic == self.events_topic and isinstance(self.payload(m), dict) and self.payload(m).get("event_type") in ("diagnostic_health", "health_report")),
+            None,
+        )
+
+        if evt:
+            body = self.payload(evt)
+            required = [
+                "event_type",
+                "device_id",
+                "wifi_connected",
+                "mqtt_connected",
+                "ip",
+                "session_active",
+                "sensor_running",
+                "session_id",
+                "force1_ok",
+                "force2_ok",
+                "hall_ok",
+                "compression_count",
+                "calibrationReady",
+                "calibrationState",
+                "profileId",
+                "lastCalibrationResult",
+                "debugRawEnabled",
+                "sensorMode",
+                "uptimeMs",
+            ]
+            missing = [k for k in required if k not in body]
+            if missing:
+                return self.finish(result, "FAIL", f"Diagnostic health event missing fields: {missing}", [evt], notes=notes)
+            return self.finish(result, "PASS", "Diagnostic health event observed on events topic", [evt], notes=notes)
+
+        # If only a command_result ACK was observed, treat as WARN (event preferred)
+        return self.finish(result, "WARN", "Only command_result ACK observed; diagnostic event not present", messages, notes=notes)
 
     def command_status_from(self, message: Optional[MqttMessage]) -> Tuple[str, str]:
         payload = self.payload(message)
@@ -1262,6 +1291,8 @@ class ResQMqttTester:
 
     def telemetry_shape_result(self, result: TestResult, message: MqttMessage, matched: List[MqttMessage]) -> TestResult:
         payload = self.payload(message)
+        if self._payload_contains_manikin(payload):
+            return self.finish(result, "FAIL", "Telemetry payload contains deprecated manikin_id/manikinId field", matched)
         expected = {"depthMm", "rateCpm", "recoilOk", "pauseS", "compressionCount", "handPlacement", "flags"}
         raw_fields = {"force1", "force2", "hallRaw", "hallFiltered", "currentDelta", "force1Raw", "force2Raw", "hall_raw"}
         present = expected.intersection(payload.keys())
