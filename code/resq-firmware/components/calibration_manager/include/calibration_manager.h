@@ -24,6 +24,7 @@ typedef enum {
 
 typedef struct {
     int32_t hall_baseline_actual;
+    int32_t hall_baseline_expected;
     int32_t hall_noise;
     int32_t force1_base_actual;
     int32_t force2_base_actual;
@@ -48,6 +49,7 @@ typedef struct {
 
 typedef struct {
     int32_t return_delta;
+    int32_t return_depth_mm;
     bool pass;
 } calibration_recoil_result_t;
 
@@ -64,6 +66,8 @@ typedef struct {
     calibration_pressure_result_t pressure;
     calibration_depth_result_t depth;
     calibration_recoil_result_t recoil;
+    bool normal_captured;
+    bool full_depth_captured;
 } calibration_report_t;
 
 esp_err_t calibration_manager_init(const device_config_t *cfg);

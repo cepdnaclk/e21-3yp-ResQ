@@ -14,7 +14,6 @@
 #define KEY_MQTT_HOST    "mqtt_host"
 #define KEY_MQTT_PORT    "mqtt_port"
 #define KEY_DEVICE_ID    "device_id"
-#define KEY_MANIKIN_ID   "manikin_id"
 #define KEY_AUTH_TOKEN   "auth_token"
 #define KEY_PROVISIONED  "prov"
 
@@ -251,7 +250,6 @@ esp_err_t config_store_load(device_config_t *cfg)
     load_str_or_empty(handle, KEY_REG_URL,     cfg->register_url, sizeof(cfg->register_url));
     load_str_or_empty(handle, KEY_MQTT_HOST,   cfg->mqtt_host,    sizeof(cfg->mqtt_host));
     load_str_or_empty(handle, KEY_DEVICE_ID,   cfg->device_id,    sizeof(cfg->device_id));
-    load_str_or_empty(handle, KEY_MANIKIN_ID,  cfg->manikin_id,   sizeof(cfg->manikin_id));
     load_str_or_empty(handle, KEY_AUTH_TOKEN,  cfg->auth_token,   sizeof(cfg->auth_token));
 
     uint16_t mqtt_port = 1883;
@@ -402,9 +400,6 @@ esp_err_t config_store_save(const device_config_t *cfg)
     if (err != ESP_OK) goto cleanup;
 
     err = save_str(handle, KEY_DEVICE_ID, cfg->device_id);
-    if (err != ESP_OK) goto cleanup;
-
-    err = save_str(handle, KEY_MANIKIN_ID, cfg->manikin_id);
     if (err != ESP_OK) goto cleanup;
 
     err = save_str(handle, KEY_AUTH_TOKEN, cfg->auth_token);

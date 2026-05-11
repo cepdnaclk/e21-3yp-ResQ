@@ -25,12 +25,11 @@ static const char *chip_model_string(esp_chip_model_t model)
     }
 }
 
-esp_err_t device_identity_init(const char *device_id, const char *manikin_id)
+esp_err_t device_identity_init(const char *device_id)
 {
     memset(&s_info, 0, sizeof(s_info));
 
     snprintf(s_info.device_id, sizeof(s_info.device_id), "%s", device_id ? device_id : "");
-    snprintf(s_info.manikin_id, sizeof(s_info.manikin_id), "%s", manikin_id ? manikin_id : "");
 
     snprintf(s_info.hardware_revision, sizeof(s_info.hardware_revision), "%s", "revA");
     snprintf(s_info.build_date, sizeof(s_info.build_date), "%s", __DATE__);

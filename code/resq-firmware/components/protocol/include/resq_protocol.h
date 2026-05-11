@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "sensor_runtime.h"
+#include "calibration_manager.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,7 +71,6 @@ char *resq_payload_status(
 
 char *resq_payload_heartbeat(
     const char *device_id,
-    const char *manikin_id,
     bool wifi_connected,
     bool mqtt_connected,
     bool session_active,
@@ -114,7 +114,6 @@ char *resq_payload_command_result(
 char *resq_payload_identity_event(
     const char *event_type,
     const char *device_id,
-    const char *manikin_id,
     const char *firmware_version,
     const char *hardware_revision,
     const char *build_date,
@@ -128,16 +127,13 @@ char *resq_payload_identity_event(
 
 esp_err_t resq_payload_calibration_report(
     const char *device_id,
-    const char *profile_id,
-    const char *result,
-    bool ready_for_session,
+    const calibration_report_t *report,
     char *out,
     size_t out_len
 );
 
 esp_err_t resq_payload_metric_telemetry(
     const char *device_id,
-    const char *manikin_id,
     const char *session_id,
     uint64_t ts_ms,
     float depth_mm,

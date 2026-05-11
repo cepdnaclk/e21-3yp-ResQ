@@ -186,7 +186,6 @@ static esp_err_t apply_provisioning_config(const device_config_t *cfg)
     ESP_LOGI(TAG, "  wifi_ssid   : %s", cfg->wifi_ssid);
     ESP_LOGI(TAG, "  register_url: %s", cfg->register_url);
     ESP_LOGI(TAG, "  device_id   : %s", cfg->device_id);
-    ESP_LOGI(TAG, "  manikin_id  : %s", cfg->manikin_id);
     ESP_LOGI(TAG, "  mqtt_host   : %s", cfg->mqtt_host);
     ESP_LOGI(TAG, "  mqtt_port   : %d", cfg->mqtt_port);
 
@@ -248,7 +247,6 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
     cJSON *server_url = cJSON_GetObjectItemCaseSensitive(root, "server_url");
     cJSON *auth_token = cJSON_GetObjectItemCaseSensitive(root, "auth_token");
     cJSON *device_id = cJSON_GetObjectItemCaseSensitive(root, "device_id");
-    cJSON *manikin_id = cJSON_GetObjectItemCaseSensitive(root, "manikin_id");
     cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(root, "mqtt_host");
     cJSON *mqtt_port = cJSON_GetObjectItemCaseSensitive(root, "mqtt_port");
 
@@ -276,9 +274,7 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
         snprintf(cfg.device_id, sizeof(cfg.device_id), "%s", device_id->valuestring);
     }
 
-    if (cJSON_IsString(manikin_id) && manikin_id->valuestring) {
-        snprintf(cfg.manikin_id, sizeof(cfg.manikin_id), "%s", manikin_id->valuestring);
-    }
+    /* Ignore manikin_id if present in provisioning payload; firmware now uses device_id only */
 
     if (cJSON_IsString(mqtt_host) && mqtt_host->valuestring) {
         snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", mqtt_host->valuestring);
@@ -328,7 +324,7 @@ static esp_err_t provision_get_handler(httpd_req_t *req)
 
     char temp[512] = {0};
 
-    /* Required keys: ssid, password, server_url, auth_token, device_id, manikin_id, mqtt_host, mqtt_port */
+    /* Required keys: ssid, password, server_url, auth_token, device_id, mqtt_host, mqtt_port */
     if (httpd_query_key_value(query, "ssid", temp, sizeof(temp)) != ESP_OK) goto bad_req;
     url_decode_inplace(temp);
     if (strlen(temp) >= sizeof(cfg.wifi_ssid)) goto bad_req;
@@ -354,10 +350,7 @@ static esp_err_t provision_get_handler(httpd_req_t *req)
     if (strlen(temp) >= sizeof(cfg.device_id)) goto bad_req;
     safe_copy(cfg.device_id, sizeof(cfg.device_id), temp);
 
-    if (httpd_query_key_value(query, "manikin_id", temp, sizeof(temp)) != ESP_OK) goto bad_req;
-    url_decode_inplace(temp);
-    if (strlen(temp) >= sizeof(cfg.manikin_id)) goto bad_req;
-    safe_copy(cfg.manikin_id, sizeof(cfg.manikin_id), temp);
+    /* manikin_id is optional and ignored by firmware; do not require or store it */
 
     if (httpd_query_key_value(query, "mqtt_host", temp, sizeof(temp)) != ESP_OK) goto bad_req;
     url_decode_inplace(temp);
@@ -388,11 +381,10 @@ static esp_err_t provision_get_handler(httpd_req_t *req)
              "<h1>ResQ provisioning received</h1>"
              "<p>Wi-Fi SSID: %s</p>"
              "<p>Device ID: %s</p>"
-             "<p>Manikin ID: %s</p>"
              "<p>MQTT: %s:%d</p>"
              "<p>Device will now connect/reboot.</p>"
              "</body></html>",
-             cfg.wifi_ssid, cfg.device_id, cfg.manikin_id, cfg.mqtt_host, cfg.mqtt_port);
+             cfg.wifi_ssid, cfg.device_id, cfg.mqtt_host, cfg.mqtt_port);
 
     httpd_resp_set_type(req, "text/html");
     httpd_resp_sendstr(req, reply);

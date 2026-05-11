@@ -8,6 +8,8 @@ idf_component_register(
         app_config
         board_config
         freertos
+        event_publisher
     PRIV_REQUIRES
         esp_timer
+        runtime
 )

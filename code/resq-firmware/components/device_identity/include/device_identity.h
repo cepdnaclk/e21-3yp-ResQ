@@ -8,7 +8,6 @@ extern "C" {
 
 typedef struct {
     char device_id[32];
-    char manikin_id[32];
 
     char firmware_version[32];
     char hardware_revision[32];
@@ -23,7 +22,7 @@ typedef struct {
     int  reset_reason;
 } device_identity_info_t;
 
-esp_err_t device_identity_init(const char *device_id, const char *manikin_id);
+esp_err_t device_identity_init(const char *device_id);
 esp_err_t device_identity_get(device_identity_info_t *out);
 
 #ifdef __cplusplus

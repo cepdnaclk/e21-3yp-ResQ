@@ -35,7 +35,6 @@ char *resq_payload_status(
 
 char *resq_payload_heartbeat(
     const char *device_id,
-    const char *manikin_id,
     bool wifi_connected,
     bool mqtt_connected,
     bool session_active,
@@ -54,37 +53,23 @@ char *resq_payload_heartbeat(
     const char *sensor_mode
 )
 {
+    /*
+     * Heartbeat is intentionally minimal to reduce background traffic.
+     * Keep the function signature for compatibility but only return a
+     * small liveness object. Optionally include a state string if the
+     * caller provided a sensor_mode string.
+     */
     cJSON *root = cJSON_CreateObject();
     if (!root) {
         return NULL;
     }
 
-    cJSON_AddStringToObject(root, "device_id", safe_str(device_id));
-    cJSON_AddStringToObject(root, "manikin_id", safe_str(manikin_id));
-    cJSON_AddBoolToObject(root, "wifi_connected", wifi_connected);
-    cJSON_AddBoolToObject(root, "mqtt_connected", mqtt_connected);
-    cJSON_AddBoolToObject(root, "session_active", session_active);
-    cJSON_AddBoolToObject(root, "sensor_running", sensor_running);
-    cJSON_AddStringToObject(root, "session_id", safe_str(session_id));
-    cJSON_AddStringToObject(root, "ip", safe_str(ip));
+    /* Preferred minimal payload: { "alive": true } */
+    cJSON_AddBoolToObject(root, "alive", true);
 
-    cJSON_AddBoolToObject(root, "force1_ok", force1_ok);
-    cJSON_AddBoolToObject(root, "force2_ok", force2_ok);
-    cJSON_AddBoolToObject(root, "hall_ok", hall_ok);
-    cJSON_AddNumberToObject(root, "compression_count", compression_count);
-
-    cJSON_AddBoolToObject(root, "calibrationReady", calibration_ready);
-    cJSON_AddStringToObject(root, "calibrationState", safe_str(calibration_state));
-    cJSON_AddStringToObject(root, "profileId", safe_str(profile_id));
-    cJSON_AddStringToObject(root, "lastCalibrationResult", safe_str(last_calibration_result));
-    cJSON_AddBoolToObject(root, "debugRawEnabled", debug_raw_enabled);
-    cJSON_AddStringToObject(root, "sensorMode", safe_str(sensor_mode));
-
-    cJSON *sensor_health = cJSON_AddObjectToObject(root, "sensorHealth");
-    if (sensor_health != NULL) {
-        cJSON_AddBoolToObject(sensor_health, "force1Ok", force1_ok);
-        cJSON_AddBoolToObject(sensor_health, "force2Ok", force2_ok);
-        cJSON_AddBoolToObject(sensor_health, "hallOk", hall_ok);
+    /* Slightly richer payload allowed: include state if provided */
+    if (sensor_mode != NULL && sensor_mode[0] != '\0') {
+        cJSON_AddStringToObject(root, "state", safe_str(sensor_mode));
     }
 
     char *payload = cJSON_PrintUnformatted(root);
@@ -174,7 +159,6 @@ char *resq_payload_command_result(
 char *resq_payload_identity_event(
     const char *event_type,
     const char *device_id,
-    const char *manikin_id,
     const char *firmware_version,
     const char *hardware_revision,
     const char *build_date,
@@ -193,7 +177,6 @@ char *resq_payload_identity_event(
 
     cJSON_AddStringToObject(root, "event_type", safe_str(event_type));
     cJSON_AddStringToObject(root, "device_id", safe_str(device_id));
-    cJSON_AddStringToObject(root, "manikin_id", safe_str(manikin_id));
     cJSON_AddStringToObject(root, "firmware_version", safe_str(firmware_version));
     cJSON_AddStringToObject(root, "hardware_revision", safe_str(hardware_revision));
     cJSON_AddStringToObject(root, "build_date", safe_str(build_date));
@@ -236,7 +219,6 @@ esp_err_t resq_build_topic(
 
 esp_err_t resq_payload_metric_telemetry(
     const char *device_id,
-    const char *manikin_id,
     const char *session_id,
     uint64_t ts_ms,
     float depth_mm,
@@ -251,7 +233,7 @@ esp_err_t resq_payload_metric_telemetry(
     char *out,
     size_t out_len
 ) {
-    if (!device_id || !manikin_id || !session_id || !out || out_len == 0) {
+    if (!device_id || !session_id || !out || out_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -260,7 +242,6 @@ esp_err_t resq_payload_metric_telemetry(
         out_len,
         "{"
             "\"deviceId\":\"%s\","
-            "\"manikinId\":\"%s\","
             "\"sessionId\":\"%s\","
             "\"tsMs\":%llu,"
             "\"depthMm\":%.1f,"
@@ -272,7 +253,6 @@ esp_err_t resq_payload_metric_telemetry(
             "\"flags\":%s"
         "}",
         device_id,
-        manikin_id,
         session_id,
         (unsigned long long)ts_ms,
         depth_mm,
@@ -317,35 +297,106 @@ esp_err_t resq_payload_metric_telemetry(
 
 esp_err_t resq_payload_calibration_report(
     const char *device_id,
-    const char *profile_id,
-    const char *result,
-    bool ready_for_session,
+    const calibration_report_t *report,
     char *out,
     size_t out_len
 ) {
-    if (!device_id || !profile_id || !result || !out || out_len == 0) {
+    if (!device_id || !report || !out || out_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    int written = snprintf(
-        out,
-        out_len,
-        "{"
-            "\"event_type\":\"calibration_report\","
-            "\"device_id\":\"%s\","
-            "\"profileId\":\"%s\","
-            "\"result\":\"%s\","
-            "\"readyForSession\":%s"
-        "}",
-        device_id,
-        profile_id,
-        result,
-        ready_for_session ? "true" : "false"
-    );
-
-    if (written < 0 || written >= (int)out_len) {
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
         return ESP_ERR_NO_MEM;
     }
 
+    cJSON_AddStringToObject(root, "event_type", "calibration_report");
+    cJSON_AddStringToObject(root, "device_id", safe_str(device_id));
+    cJSON_AddStringToObject(root, "profileId", safe_str(report->profile_id));
+    cJSON_AddStringToObject(root, "result", calibration_manager_result_to_string(report->result));
+    cJSON_AddBoolToObject(root, "readyForSession", report->ready_for_session);
+
+    cJSON *normal = cJSON_AddObjectToObject(root, "normalPosition");
+    if (normal != NULL) {
+        cJSON_AddNumberToObject(normal, "hallBaselineExpected", report->normal.hall_baseline_expected);
+        cJSON_AddNumberToObject(normal, "hallBaselineActual", report->normal.hall_baseline_actual);
+        cJSON_AddNumberToObject(normal, "hallNoise", report->normal.hall_noise);
+        cJSON_AddBoolToObject(normal, "pass", report->normal.pass);
+    }
+
+    cJSON *base = cJSON_AddObjectToObject(root, "baseReferencePressure");
+    if (base != NULL) {
+        cJSON_AddNumberToObject(base, "force1Expected", report->pressure.force1_expected);
+        cJSON_AddNumberToObject(base, "force1Actual", report->pressure.force1_actual);
+        cJSON_AddNumberToObject(base, "force2Expected", report->pressure.force2_expected);
+        cJSON_AddNumberToObject(base, "force2Actual", report->pressure.force2_actual);
+        cJSON_AddNumberToObject(base, "imbalancePct", report->pressure.imbalance_pct);
+        cJSON_AddBoolToObject(base, "pass", report->pressure.pass);
+    }
+
+    cJSON *full = cJSON_AddObjectToObject(root, "fullCompressionDepth");
+    if (full != NULL) {
+        cJSON_AddNumberToObject(full, "targetDepthMm", report->depth.target_depth_mm);
+        cJSON_AddNumberToObject(full, "peakHallDelta", report->depth.peak_hall_delta);
+        cJSON_AddNumberToObject(full, "estimatedDepthMm", report->depth.estimated_depth_mm);
+        cJSON_AddBoolToObject(full, "pass", report->depth.pass);
+    }
+
+    cJSON *recoil = cJSON_AddObjectToObject(root, "recoil");
+    if (recoil != NULL) {
+        cJSON_AddNumberToObject(recoil, "returnDepthMm", report->recoil.return_depth_mm);
+        cJSON_AddNumberToObject(recoil, "returnDelta", report->recoil.return_delta);
+        cJSON_AddBoolToObject(recoil, "pass", report->recoil.pass);
+    }
+
+    cJSON *faults = cJSON_AddArrayToObject(root, "faults");
+    cJSON *warnings = cJSON_AddArrayToObject(root, "warnings");
+
+    if (!report->normal.pass) {
+        cJSON_AddItemToArray(faults, cJSON_CreateString("normal_position_failed"));
+    }
+
+    if (!report->pressure.pass) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "pressure_check_failed (imbalance=%.1f)", report->pressure.imbalance_pct);
+        cJSON_AddItemToArray(faults, cJSON_CreateString(buf));
+    }
+
+    if (!report->depth.pass) {
+        cJSON_AddItemToArray(faults, cJSON_CreateString("depth_check_failed"));
+    }
+
+    if (!report->recoil.pass) {
+        cJSON_AddItemToArray(faults, cJSON_CreateString("recoil_check_failed"));
+    }
+
+    if (report->pressure.force1_expected == 0 && report->pressure.force2_expected == 0) {
+        cJSON_AddItemToArray(warnings, cJSON_CreateString("base_force_reference_missing"));
+    }
+
+    if (!report->normal_captured) {
+        cJSON_AddItemToArray(warnings, cJSON_CreateString("normal_capture_missing"));
+    }
+
+    if (!report->full_depth_captured) {
+        cJSON_AddItemToArray(warnings, cJSON_CreateString("full_depth_capture_missing"));
+    }
+
+    char *s = cJSON_PrintUnformatted(root);
+    if (s == NULL) {
+        cJSON_Delete(root);
+        return ESP_ERR_NO_MEM;
+    }
+
+    if ((size_t)strlen(s) >= out_len) {
+        cJSON_free(s);
+        cJSON_Delete(root);
+        return ESP_ERR_NO_MEM;
+    }
+
+    strncpy(out, s, out_len - 1);
+    out[out_len - 1] = '\0';
+    cJSON_free(s);
+    cJSON_Delete(root);
     return ESP_OK;
 }

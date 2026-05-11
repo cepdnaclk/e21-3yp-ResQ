@@ -216,6 +216,14 @@ esp_err_t calibration_manager_init(const device_config_t *cfg)
     s_report.result = CAL_RESULT_NONE;
     s_report.ready_for_session = false;
 
+    /* populate expected/reference values from config so reports include them */
+    s_report.normal.hall_baseline_expected = s_cfg.hall_baseline;
+    s_report.pressure.force1_expected = s_cfg.force1_base_reference;
+    s_report.pressure.force2_expected = s_cfg.force2_base_reference;
+    s_report.depth.target_depth_mm = s_cfg.full_depth_target_mm;
+    s_report.normal_captured = false;
+    s_report.full_depth_captured = false;
+
     xSemaphoreGive(s_cal_mutex);
 
     ESP_LOGI(TAG, "initialized with profile=%s", s_report.profile_id);
@@ -248,6 +256,14 @@ esp_err_t calibration_manager_apply_config(const device_config_t *cfg)
      */
     s_report.result = CAL_RESULT_NONE;
     s_report.ready_for_session = false;
+
+    /* refresh expected values and clear captured flags */
+    s_report.normal.hall_baseline_expected = s_cfg.hall_baseline;
+    s_report.pressure.force1_expected = s_cfg.force1_base_reference;
+    s_report.pressure.force2_expected = s_cfg.force2_base_reference;
+    s_report.depth.target_depth_mm = s_cfg.full_depth_target_mm;
+    s_report.normal_captured = false;
+    s_report.full_depth_captured = false;
 
     xSemaphoreGive(s_cal_mutex);
 
@@ -284,6 +300,14 @@ esp_err_t calibration_manager_start(const char *profile_id)
     s_report.ready_for_session = false;
     s_report.started_at_ms = now_ms();
 
+    /* ensure expected/reference fields are present for reporting */
+    s_report.normal.hall_baseline_expected = s_cfg.hall_baseline;
+    s_report.pressure.force1_expected = s_cfg.force1_base_reference;
+    s_report.pressure.force2_expected = s_cfg.force2_base_reference;
+    s_report.depth.target_depth_mm = s_cfg.full_depth_target_mm;
+    s_report.normal_captured = false;
+    s_report.full_depth_captured = false;
+
     xSemaphoreGive(s_cal_mutex);
 
     ESP_LOGI(TAG, "calibration started, profile=%s", s_report.profile_id);
@@ -309,27 +333,38 @@ esp_err_t calibration_manager_capture_normal(void)
     xSemaphoreTake(s_cal_mutex, portMAX_DELAY);
 
     s_report.normal.hall_baseline_actual = window.hall_avg;
+    s_report.normal.hall_baseline_expected = s_cfg.hall_baseline;
     s_report.normal.hall_noise = abs_i32(window.hall_max - window.hall_min);
 
     s_report.normal.force1_base_actual = window.force1_avg;
     s_report.normal.force2_base_actual = window.force2_avg;
 
-    bool force1_ok =
-        abs_pct_diff_i32(
+    /* If configured base references are not set (zero), treat the force checks as passed
+     * for the purpose of allowing an initial calibration to succeed; this is surfaced
+     * into warnings in the generated report instead of hard failing.
+     */
+    bool force1_ok = true;
+    bool force2_ok = true;
+
+    if (s_cfg.force1_base_reference != 0) {
+        force1_ok = abs_pct_diff_i32(
             s_cfg.force1_base_reference,
             window.force1_avg
         ) <= (float)s_cfg.force_base_tolerance_pct;
+    }
 
-    bool force2_ok =
-        abs_pct_diff_i32(
+    if (s_cfg.force2_base_reference != 0) {
+        force2_ok = abs_pct_diff_i32(
             s_cfg.force2_base_reference,
             window.force2_avg
         ) <= (float)s_cfg.force_base_tolerance_pct;
+    }
 
     bool hall_stable =
         s_report.normal.hall_noise <= s_cfg.normal_hall_tolerance;
 
     s_report.normal.pass = force1_ok && force2_ok && hall_stable;
+    s_report.normal_captured = true;
 
     xSemaphoreGive(s_cal_mutex);
 
@@ -413,6 +448,19 @@ esp_err_t calibration_manager_capture_full_depth(void)
     s_report.pressure.imbalance_pct = imbalance;
     s_report.pressure.pass =
         imbalance <= (float)s_cfg.max_pressure_imbalance_pct;
+
+    /* recoil return depth in mm (approx) */
+    s_report.recoil.return_delta = window.current_delta_avg;
+    if (s_cfg.full_depth_hall_delta > 0) {
+        float mm_per_delta = (float)s_cfg.full_depth_target_mm / (float)s_cfg.full_depth_hall_delta;
+        s_report.recoil.return_depth_mm = (int32_t)(fabsf((float)window.current_delta_avg) * mm_per_delta);
+    } else {
+        s_report.recoil.return_depth_mm = 0;
+    }
+    s_report.recoil.pass =
+        abs_i32(window.current_delta_avg) <= s_cfg.recoil_return_threshold_delta;
+
+    s_report.full_depth_captured = true;
 
     /*
      * MVP recoil check:

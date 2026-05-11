@@ -14,6 +14,10 @@
 #include "cpr_logic.h"
 #include "hall_sensor.h"
 #include "hx710.h"
+#include "event_publisher.h"
+#include "cJSON.h"
+#include "resq_protocol.h"
+#include "session_manager.h"
 
 /* =========================================================
  * Hardware pin mapping
@@ -340,6 +344,16 @@ static void sensor_task(void *arg)
                 s_last_compression_ts_ms = snap.ts_ms;
                 snap.depth_mm = delta_to_depth_mm(s_cpr_state.last_peak_delta);
                 snap.rate_cpm = s_last_rate_cpm;
+
+                /* Publish compression feedback event immediately (do not rely on telemetry polling) */
+                char session_id[64] = {0};
+                session_manager_get_session_id(session_id, sizeof(session_id));
+
+                char *evt = resq_payload_feedback_event(s_runtime_cfg.device_id, session_id, &snap);
+                if (evt != NULL) {
+                    event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, evt, 1, 0);
+                    cJSON_free(evt);
+                }
             }
 
             populate_metrics(&snap);
