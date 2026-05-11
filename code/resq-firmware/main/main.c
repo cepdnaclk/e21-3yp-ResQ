@@ -357,6 +357,16 @@ void app_main(void)
     ESP_LOGI(TAG, "Device is now idle and waiting for session commands");
     ESP_LOGI(TAG, "Sensors will NOT run until session/start is received");
 
+    /* Track top-level device state so we only log on transitions. */
+    enum {
+        DEVICE_ST_UNKNOWN = -1,
+        DEVICE_ST_SESSION_ACTIVE = 0,
+        DEVICE_ST_ONLINE_IDLE = 1,
+        DEVICE_ST_WIFI_CONNECTING = 2
+    };
+
+    int s_last_device_state = DEVICE_ST_UNKNOWN;
+
     while (1) {
         device_action_t action = device_control_get_pending_action();
 
@@ -381,21 +391,36 @@ void app_main(void)
             esp_restart();
         }
 
+        /* Determine the current top-level state */
+        int cur_state;
         if (session_manager_is_active()) {
-            status_indicator_set(INDICATOR_STATE_SESSION_ACTIVE);
-            char session_id[64] = {0};
-            session_manager_get_session_id(session_id, sizeof(session_id));
-            ESP_LOGI(TAG, "Session active: %s", session_id);
+            cur_state = DEVICE_ST_SESSION_ACTIVE;
         } else if (wifi_manager_is_connected() && mqtt_manager_is_connected()) {
-            if (main_loop_may_set_idle_indicator(status_indicator_get())) {
-                status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
-            }
-            ESP_LOGI(TAG, "Idle - waiting for Local Hub commands");
+            cur_state = DEVICE_ST_ONLINE_IDLE;
         } else {
-            if (main_loop_may_set_idle_indicator(status_indicator_get())) {
-                status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
+            cur_state = DEVICE_ST_WIFI_CONNECTING;
+        }
+
+        /* Only log / set indicators when the observed state changes */
+        if (cur_state != s_last_device_state) {
+            if (cur_state == DEVICE_ST_SESSION_ACTIVE) {
+                status_indicator_set(INDICATOR_STATE_SESSION_ACTIVE);
+                char session_id[64] = {0};
+                session_manager_get_session_id(session_id, sizeof(session_id));
+                ESP_LOGI(TAG, "Session active: %s", session_id);
+            } else if (cur_state == DEVICE_ST_ONLINE_IDLE) {
+                if (main_loop_may_set_idle_indicator(status_indicator_get())) {
+                    status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
+                }
+                ESP_LOGI(TAG, "Idle - waiting for Local Hub commands");
+            } else {
+                if (main_loop_may_set_idle_indicator(status_indicator_get())) {
+                    status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
+                }
+                ESP_LOGW(TAG, "Waiting for connectivity recovery");
             }
-            ESP_LOGW(TAG, "Waiting for connectivity recovery");
+
+            s_last_device_state = cur_state;
         }
 
         vTaskDelay(pdMS_TO_TICKS(3000));

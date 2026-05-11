@@ -3,6 +3,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_log.h"
 
 #include "board_config.h"
 
@@ -18,6 +19,26 @@
  */
 static volatile indicator_state_t s_state = INDICATOR_STATE_OFF;
 static TaskHandle_t s_task_handle = NULL;
+
+static const char *TAG = "status_indicator";
+
+static const char *indicator_state_to_string(indicator_state_t s)
+{
+    switch (s) {
+    case INDICATOR_STATE_OFF: return "OFF";
+    case INDICATOR_STATE_PROVISIONING: return "PROVISIONING";
+    case INDICATOR_STATE_WIFI_CONNECTING: return "WIFI_CONNECTING";
+    case INDICATOR_STATE_ONLINE_IDLE: return "ONLINE_IDLE";
+    case INDICATOR_STATE_CALIBRATING: return "CALIBRATING";
+    case INDICATOR_STATE_READY_FOR_SESSION: return "READY_FOR_SESSION";
+    case INDICATOR_STATE_CALIBRATION_FAIL: return "CALIBRATION_FAIL";
+    case INDICATOR_STATE_SESSION_ACTIVE: return "SESSION_ACTIVE";
+    case INDICATOR_STATE_SESSION_INTERRUPTED: return "SESSION_INTERRUPTED";
+    case INDICATOR_STATE_FAULT: return "FAULT";
+    case INDICATOR_STATE_RESETTING: return "RESETTING";
+    default: return "UNKNOWN";
+    }
+}
 
 static void led_on(void)
 {
@@ -232,6 +253,14 @@ esp_err_t status_indicator_start(void)
 
 void status_indicator_set(indicator_state_t state)
 {
+    if (state == s_state) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Indicator state changed: %s -> %s",
+             indicator_state_to_string(s_state),
+             indicator_state_to_string(state));
+
     s_state = state;
 }
 
