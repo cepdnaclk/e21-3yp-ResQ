@@ -26,6 +26,12 @@ static const char *TAG = "health_monitor";
 static TaskHandle_t s_task_handle = NULL;
 static device_config_t s_cfg;
 
+/* Track last observed link states to avoid noisy repeated logs */
+static bool s_prev_wifi_ok = false;
+static bool s_prev_wifi_ok_valid = false;
+static bool s_prev_mqtt_ok = false;
+static bool s_prev_mqtt_ok_valid = false;
+
 static const char *sensor_mode_to_string(sensor_mode_t mode)
 {
     switch (mode) {
@@ -97,15 +103,43 @@ static void health_task(void *arg)
     while (1) {
         TickType_t now = xTaskGetTickCount();
 
-        if (!wifi_manager_is_connected()) {
+        bool wifi_ok = wifi_manager_is_connected();
+        bool mqtt_ok = event_publisher_is_connected();
+
+        /* Log link state transitions only when they change */
+        if (!s_prev_wifi_ok_valid || wifi_ok != s_prev_wifi_ok) {
+            if (s_prev_wifi_ok_valid) {
+                if (wifi_ok) {
+                    ESP_LOGI(TAG, "Wi-Fi recovered");
+                } else {
+                    ESP_LOGW(TAG, "Wi-Fi lost");
+                }
+            }
+            s_prev_wifi_ok = wifi_ok;
+            s_prev_wifi_ok_valid = true;
+        }
+
+        if (!s_prev_mqtt_ok_valid || mqtt_ok != s_prev_mqtt_ok) {
+            if (s_prev_mqtt_ok_valid) {
+                if (mqtt_ok) {
+                    ESP_LOGI(TAG, "MQTT recovered");
+                } else {
+                    ESP_LOGW(TAG, "MQTT lost");
+                }
+            }
+            s_prev_mqtt_ok = mqtt_ok;
+            s_prev_mqtt_ok_valid = true;
+        }
+
+        /* Try reconnecting periodically but avoid noisy "retrying" messages */
+        if (!wifi_ok) {
             if ((now - last_wifi_retry) >= pdMS_TO_TICKS(WIFI_RETRY_PERIOD_MS)) {
                 last_wifi_retry = now;
-                ESP_LOGW(TAG, "Wi-Fi disconnected, retrying...");
                 esp_err_t err = wifi_manager_reconnect_last(pdMS_TO_TICKS(15000));
                 if (err == ESP_OK) {
                     ESP_LOGI(TAG, "Wi-Fi reconnect succeeded");
                 } else {
-                    ESP_LOGW(TAG, "Wi-Fi reconnect failed: %s", esp_err_to_name(err));
+                    ESP_LOGD(TAG, "Wi-Fi reconnect failed: %s", esp_err_to_name(err));
                 }
             }
         }
