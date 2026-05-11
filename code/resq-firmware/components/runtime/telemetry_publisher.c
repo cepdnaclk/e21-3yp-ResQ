@@ -97,7 +97,6 @@ static void publish_telemetry_packet(const sensor_snapshot_t *snap)
     char payload[768];
     esp_err_t err = resq_payload_metric_telemetry(
         s_cfg.device_id,
-        s_cfg.manikin_id,
         session_id,
         snap->ts_ms,
         snap->depth_mm,
@@ -120,28 +119,11 @@ static void publish_telemetry_packet(const sensor_snapshot_t *snap)
     }
 }
 
-static void publish_feedback_event(const sensor_snapshot_t *snap)
-{
-    char session_id[64] = {0};
-    session_manager_get_session_id(session_id, sizeof(session_id));
-
-    char *payload = resq_payload_feedback_event(
-        s_cfg.device_id,
-        session_id,
-        snap
-    );
-
-    if (payload) {
-        event_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, payload, 1, 0);
-        cJSON_free(payload);
-    }
-}
+/* feedback events are published directly from sensor_runtime; do not publish here */
 
 static void telemetry_task(void *arg)
 {
     (void)arg;
-
-    int last_event_count = -1;
 
     while (1) {
         if (event_publisher_is_connected() &&
@@ -152,14 +134,10 @@ static void telemetry_task(void *arg)
             if (sensor_runtime_get_latest(&snap) == ESP_OK) {
                 publish_telemetry_packet(&snap);
 
-                if (snap.feedback != CPR_FEEDBACK_NONE &&
-                    snap.total_compressions != last_event_count) {
-                    publish_feedback_event(&snap);
-                    last_event_count = snap.total_compressions;
-                }
+                /* compression feedback events are emitted by sensor_runtime now */
             }
         } else {
-            last_event_count = -1;
+            /* reset any local event tracking state */
         }
 
         vTaskDelay(pdMS_TO_TICKS(TELEMETRY_PERIOD_MS));

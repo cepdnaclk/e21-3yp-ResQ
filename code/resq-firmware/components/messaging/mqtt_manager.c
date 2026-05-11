@@ -249,6 +249,7 @@ static void mqtt_event_handler(
             mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_SESSION_STOP, 1);
             mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DIAG_PING, 1);
             mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DIAG_REQUEST, 1);
+            mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DIAG_HEALTH, 1);
             mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DEVICE_RESET, 1);
             mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_DEVICE_UNPAIR, 1);
             mqtt_subscribe_suffix(s_cfg.device_id, RESQ_SUFFIX_CMD_CONFIG_UPDATE, 1);

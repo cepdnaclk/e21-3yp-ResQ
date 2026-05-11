@@ -28,7 +28,7 @@ typedef struct {
     int  mqtt_port;
 
     char device_id[CONFIG_STR_SMALL];
-    char manikin_id[CONFIG_STR_SMALL];
+    
 
     char auth_token[CONFIG_STR_MEDIUM];
 

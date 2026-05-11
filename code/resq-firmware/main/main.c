@@ -203,10 +203,6 @@ void app_main(void)
         snprintf(cfg.device_id, sizeof(cfg.device_id), "%s", reg.assigned_device_id);
     }
 
-    if (registration_ok && reg.assigned_manikin_id[0] != '\0') {
-        snprintf(cfg.manikin_id, sizeof(cfg.manikin_id), "%s", reg.assigned_manikin_id);
-    }
-
     if (registration_ok && reg.mqtt_host[0] != '\0') {
         snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", reg.mqtt_host);
     }
@@ -238,14 +234,14 @@ void app_main(void)
     /* -------------------------------------------------
      * Initialize device identity using final assigned IDs
      * ------------------------------------------------- */
-    ESP_ERROR_CHECK(device_identity_init(cfg.device_id, cfg.manikin_id));
+    ESP_ERROR_CHECK(device_identity_init(cfg.device_id));
 
     device_identity_info_t ident;
     ESP_ERROR_CHECK(device_identity_get(&ident));
 
     ESP_LOGI(TAG, "Device identity initialized");
     ESP_LOGI(TAG, "  device_id        : %s", ident.device_id);
-    ESP_LOGI(TAG, "  manikin_id       : %s", ident.manikin_id);
+    
     ESP_LOGI(TAG, "  firmware_version : %s", ident.firmware_version);
     ESP_LOGI(TAG, "  hardware_revision: %s", ident.hardware_revision);
     ESP_LOGI(TAG, "  chip_model       : %s", ident.chip_model);
@@ -280,7 +276,6 @@ void app_main(void)
     char *identity_payload = resq_payload_identity_event(
         "device_identity",
         ident.device_id,
-        ident.manikin_id,
         ident.firmware_version,
         ident.hardware_revision,
         ident.build_date,

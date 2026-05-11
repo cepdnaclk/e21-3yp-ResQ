@@ -81,7 +81,6 @@ static void publish_device_state(const char *state)
     current_session_id(session_id, sizeof(session_id));
 
     cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
     cJSON_AddStringToObject(root, "state", state);
     cJSON_AddBoolToObject(root, "session_active", session_manager_is_active());
     cJSON_AddStringToObject(root, "session_id", session_id);
@@ -144,7 +143,6 @@ static void publish_calibration_bypass_warning(const char *profile_id)
     }
 
     cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
     cJSON_AddStringToObject(root, "event_type", "calibration_bypassed");
     cJSON_AddStringToObject(root, "profileId", profile_id != NULL ? profile_id : "");
     cJSON_AddStringToObject(root, "message", "Calibration readiness was bypassed by device config");
@@ -166,7 +164,6 @@ static void publish_config_updated_event(void)
     }
 
     cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
     cJSON_AddStringToObject(root, "event_type", "config_updated");
     cJSON_AddBoolToObject(root, "calibrationRequired", s_cfg.calibration_required);
     cJSON_AddBoolToObject(root, "debugRawEnabled", s_cfg.debug_raw_enabled);
@@ -200,9 +197,7 @@ static void publish_calibration_report_event(void)
 
     esp_err_t err = resq_payload_calibration_report(
         s_cfg.device_id,
-        report.profile_id,
-        calibration_manager_result_to_string(report.result),
-        report.ready_for_session,
+        &report,
         payload,
         sizeof(payload)
     );
@@ -387,7 +382,6 @@ static esp_err_t handle_diag_request(const char *payload)
     current_session_id(session_id, sizeof(session_id));
 
     cJSON_AddStringToObject(root, "device_id", s_cfg.device_id);
-    cJSON_AddStringToObject(root, "manikin_id", s_cfg.manikin_id);
     cJSON_AddStringToObject(root, "event_type", "diagnostic_report");
     cJSON_AddBoolToObject(root, "session_active", session_manager_is_active());
     cJSON_AddStringToObject(root, "session_id", session_id);
@@ -429,9 +423,20 @@ static esp_err_t handle_diag_request(const char *payload)
 
 static esp_err_t handle_diag_health(const char *payload)
 {
-    (void)payload;
+    bool include_debug_raw = false;
 
-    esp_err_t err = health_monitor_publish_now();
+    if (payload != NULL) {
+        cJSON *root = cJSON_Parse(payload);
+        if (root != NULL) {
+            cJSON *inc = cJSON_GetObjectItemCaseSensitive(root, "includeDebugRaw");
+            if (cJSON_IsBool(inc) && cJSON_IsTrue(inc)) {
+                include_debug_raw = true;
+            }
+            cJSON_Delete(root);
+        }
+    }
+
+    esp_err_t err = health_monitor_publish_now(include_debug_raw);
     if (err == ESP_OK) {
         publish_command_result("diag/health", "ACK", "health published");
         ESP_LOGI(TAG, "diag/health handled");
@@ -762,6 +767,24 @@ static esp_err_t handle_calibration_capture_normal(const char *payload)
 {
     (void)payload;
 
+    if (session_manager_is_active()) {
+        publish_command_result(
+            "calibration/capture-normal",
+            "NACK",
+            "session active"
+        );
+        return ESP_OK;
+    }
+
+    if (calibration_manager_get_result() != CAL_RESULT_RUNNING) {
+        publish_command_result(
+            "calibration/capture-normal",
+            "NACK",
+            "calibration not started"
+        );
+        return ESP_OK;
+    }
+
     if (!sensor_runtime_is_running()) {
         publish_command_result(
             "calibration/capture-normal",
@@ -796,6 +819,35 @@ static esp_err_t handle_calibration_capture_full_depth(const char *payload)
 {
     (void)payload;
 
+    if (session_manager_is_active()) {
+        publish_command_result(
+            "calibration/capture-full-depth",
+            "NACK",
+            "session active"
+        );
+        return ESP_OK;
+    }
+
+    if (calibration_manager_get_result() != CAL_RESULT_RUNNING) {
+        publish_command_result(
+            "calibration/capture-full-depth",
+            "NACK",
+            "calibration not started"
+        );
+        return ESP_OK;
+    }
+
+    calibration_report_t rep = {0};
+    calibration_manager_get_report_copy(&rep);
+    if (!rep.normal_captured) {
+        publish_command_result(
+            "calibration/capture-full-depth",
+            "NACK",
+            "normal capture missing"
+        );
+        return ESP_OK;
+    }
+
     if (!sensor_runtime_is_running()) {
         publish_command_result(
             "calibration/capture-full-depth",
@@ -829,6 +881,43 @@ static esp_err_t handle_calibration_capture_full_depth(const char *payload)
 static esp_err_t handle_calibration_validate(const char *payload)
 {
     (void)payload;
+
+    if (session_manager_is_active()) {
+        publish_command_result(
+            "calibration/validate",
+            "NACK",
+            "session active"
+        );
+        return ESP_OK;
+    }
+
+    calibration_report_t rep = {0};
+    if (!calibration_manager_get_report_copy(&rep)) {
+        publish_command_result(
+            "calibration/validate",
+            "NACK",
+            "calibration not started"
+        );
+        return ESP_OK;
+    }
+
+    if (!rep.normal_captured) {
+        publish_command_result(
+            "calibration/validate",
+            "NACK",
+            "normal capture missing"
+        );
+        return ESP_OK;
+    }
+
+    if (!rep.full_depth_captured) {
+        publish_command_result(
+            "calibration/validate",
+            "NACK",
+            "full-depth capture missing"
+        );
+        return ESP_OK;
+    }
 
     esp_err_t err = calibration_manager_validate();
 
@@ -880,6 +969,15 @@ static esp_err_t handle_calibration_validate(const char *payload)
 static esp_err_t handle_calibration_cancel(const char *payload)
 {
     (void)payload;
+
+    if (session_manager_is_active()) {
+        publish_command_result(
+            "calibration/cancel",
+            "NACK",
+            "session active"
+        );
+        return ESP_OK;
+    }
 
     esp_err_t err = calibration_manager_cancel();
 

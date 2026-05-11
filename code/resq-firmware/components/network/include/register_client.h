@@ -13,7 +13,6 @@ typedef struct {
     bool ok;
 
     char assigned_device_id[32];
-    char assigned_manikin_id[32];
 
     char mqtt_host[64];
     int  mqtt_port;

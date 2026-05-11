@@ -9,7 +9,7 @@ extern "C" {
 
 esp_err_t health_monitor_init(const device_config_t *cfg);
 esp_err_t health_monitor_start(void);
-esp_err_t health_monitor_publish_now(void);
+esp_err_t health_monitor_publish_now(bool include_debug_raw);
 
 #ifdef __cplusplus
 }

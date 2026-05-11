@@ -74,7 +74,6 @@ esp_err_t register_client_send(const device_config_t *cfg, register_result_t *ou
     }
 
     cJSON_AddStringToObject(root, "device_id", cfg->device_id);
-    cJSON_AddStringToObject(root, "manikin_id", cfg->manikin_id);
     cJSON_AddStringToObject(root, "auth_token", cfg->auth_token);
     cJSON_AddStringToObject(root, "mac", mac_str);
     cJSON_AddStringToObject(root, "firmware_version", "resq-fw-v0.1");
@@ -139,16 +138,11 @@ esp_err_t register_client_send(const device_config_t *cfg, register_result_t *ou
     }
 
     cJSON *device_id = cJSON_GetObjectItemCaseSensitive(resp, "device_id");
-    cJSON *manikin_id = cJSON_GetObjectItemCaseSensitive(resp, "manikin_id");
     cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(resp, "mqtt_host");
     cJSON *mqtt_port = cJSON_GetObjectItemCaseSensitive(resp, "mqtt_port");
 
     if (cJSON_IsString(device_id) && device_id->valuestring) {
         snprintf(out->assigned_device_id, sizeof(out->assigned_device_id), "%s", device_id->valuestring);
-    }
-
-    if (cJSON_IsString(manikin_id) && manikin_id->valuestring) {
-        snprintf(out->assigned_manikin_id, sizeof(out->assigned_manikin_id), "%s", manikin_id->valuestring);
     }
 
     if (cJSON_IsString(mqtt_host) && mqtt_host->valuestring) {
@@ -163,7 +157,7 @@ esp_err_t register_client_send(const device_config_t *cfg, register_result_t *ou
 
     ESP_LOGI(TAG, "Registration accepted");
     ESP_LOGI(TAG, "  assigned device_id : %s", out->assigned_device_id);
-    ESP_LOGI(TAG, "  assigned manikin_id: %s", out->assigned_manikin_id);
+    /* Backend may include manikin_id in responses; firmware ignores it */
     ESP_LOGI(TAG, "  mqtt_host          : %s", out->mqtt_host);
     ESP_LOGI(TAG, "  mqtt_port          : %d", out->mqtt_port);
 
