@@ -80,3 +80,11 @@ Desktop.ini
 docs/*.local.md 
 
 test_files/test-evidence/*
+
+# Local test stack env and provisioning artifacts (developer-local, do not commit secrets)
+# The real .env used by the test stack should be kept out of the repo.
+scripts/resq-firmware-test-stack.env
+test_files/scripts/resq-firmware-test-stack.env
+test_files/evidence/provision_payload.json
+test_files/evidence/provision_qr.png
+test_files/evidence/provision_info.md

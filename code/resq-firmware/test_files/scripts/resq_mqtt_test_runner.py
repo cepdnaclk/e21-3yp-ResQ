@@ -35,186 +35,69 @@ DEFAULT_PROFILE = "adult-basic-v1"
 
 
 TEST_CASES: List[Dict[str, str]] = [
-    {
-        "id": "TC-001",
-        "name": "MQTT broker reachable",
-        "purpose": "Verify the test runner can connect to the configured MQTT broker.",
-        "expected": "MQTT connection succeeds.",
-    },
-    {
-        "id": "TC-002",
-        "name": "Device publishes status or heartbeat",
-        "purpose": "Verify the target device is visible on the broker.",
-        "expected": "A status or heartbeat message appears within the timeout.",
-    },
-    {
-        "id": "TC-003",
-        "name": "Topic namespace correctness",
-        "purpose": "Check observed device topics use the canonical ResQ namespace.",
-        "expected": "Observed target-device topics start with resq/manikins/<device_id>/.",
-    },
-    {
-        "id": "TC-010",
-        "name": "Status payload shape",
-        "purpose": "Validate the minimum status schema used by local hub integrations.",
-        "expected": "Status includes device_id/deviceId, state, session_active/sessionActive, and session_id/sessionId.",
-    },
-    {
-        "id": "TC-011",
-        "name": "Status retained check",
-        "purpose": "Verify a reconnecting observer can obtain the latest status quickly.",
-        "expected": "A retained status arrives quickly, or live status appears later as WARN.",
-    },
-    {
-        "id": "TC-020",
-        "name": "Periodic heartbeat exists",
-        "purpose": "Verify the firmware publishes low-rate heartbeat health updates.",
-        "expected": "At least two heartbeat messages arrive within a reasonable time.",
-    },
-    {
-        "id": "TC-021",
-        "name": "Heartbeat payload shape",
-        "purpose": "Validate the heartbeat health/readiness schema.",
-        "expected": "Heartbeat includes required health fields; readiness and sensor health extensions are allowed.",
-    },
-    {
-        "id": "TC-022",
-        "name": "Heartbeat is low-rate health, not telemetry",
-        "purpose": "Confirm heartbeat is not being used as the live metric stream.",
-        "expected": "Heartbeat does not carry continuous compression metrics as its primary payload.",
-    },
-    {
-        "id": "TC-030",
-        "name": "cmd/diag/ping",
-        "purpose": "Verify the diagnostic ping command returns an event response.",
-        "expected": "A command_result or diagnostic event is published on events.",
-    },
-    {
-        "id": "TC-031",
-        "name": "cmd/diag/request",
-        "purpose": "Verify diagnostic report requests produce a diagnostic event.",
-        "expected": "A diagnostic_report event appears; command_result-only ACK is WARN.",
-    },
-    {
-        "id": "TC-032",
-        "name": "cmd/diag/health support",
-        "purpose": "Check whether the health diagnostic command is implemented and subscribed.",
-        "expected": "If supported and subscribed, command returns a response; unsupported commands are SKIP.",
-    },
-    {
-        "id": "TC-040",
-        "name": "calibration/start",
-        "purpose": "Verify calibration start command behavior without assuming calibration can complete.",
-        "expected": "ACK/status CALIBRATING, or NACK/WARN for valid current-state constraints.",
-    },
-    {
-        "id": "TC-041",
-        "name": "calibration/capture-normal",
-        "purpose": "Verify normal calibration capture command response.",
-        "expected": "A command_result ACK/NACK response appears.",
-    },
-    {
-        "id": "TC-042",
-        "name": "calibration/capture-full-depth",
-        "purpose": "Verify full-depth calibration capture when a user can perform the action.",
-        "expected": "Interactive mode only; command_result ACK/NACK response appears.",
-    },
-    {
-        "id": "TC-043",
-        "name": "calibration/validate",
-        "purpose": "Verify calibration validation emits command/report evidence.",
-        "expected": "A calibration_report with result and readyForSession, or command_result-only WARN.",
-    },
-    {
-        "id": "TC-044",
-        "name": "calibration/cancel",
-        "purpose": "Verify calibration cancel returns the firmware to a safe state.",
-        "expected": "A command_result and/or status transition appears.",
-    },
-    {
-        "id": "TC-045",
-        "name": "calibration commands during active session",
-        "purpose": "Verify active sessions reject calibration start.",
-        "expected": "Interactive/session-enabled mode only; calibration/start is rejected while active.",
-    },
-    {
-        "id": "TC-050",
-        "name": "session/start without known readiness",
-        "purpose": "Validate session start behavior against current calibration readiness.",
-        "expected": "NACK when calibration is not ready, or ACK/session active when readiness allows it.",
-    },
-    {
-        "id": "TC-051",
-        "name": "session/stop",
-        "purpose": "Verify stop command behavior for active or inactive sessions.",
-        "expected": "ACK/status IDLE or READY, or NACK/WARN when no session is active.",
-    },
-    {
-        "id": "TC-052",
-        "name": "profile mismatch",
-        "purpose": "Verify a ready calibration profile is not accepted for a mismatched session profile.",
-        "expected": "NACK for mismatched profile when adult-basic-v1 readiness is established.",
-    },
-    {
-        "id": "TC-060",
-        "name": "Telemetry only during active session",
-        "purpose": "Verify telemetry is not continuously published while idle.",
-        "expected": "No continuous telemetry appears while session_active is false.",
-    },
-    {
-        "id": "TC-061",
-        "name": "Metric-first telemetry shape",
-        "purpose": "Verify active-session telemetry is metric-first instead of raw-heavy.",
-        "expected": "Telemetry includes depthMm, rateCpm, recoilOk, pauseS, compressionCount, handPlacement, and flags.",
-    },
-    {
-        "id": "TC-062",
-        "name": "debugRaw policy",
-        "purpose": "Verify raw readings stay inside debugRaw when present.",
-        "expected": "Raw values appear only under debugRaw; debugRawEnabled controls debugRaw presence.",
-    },
-    {
-        "id": "TC-063",
-        "name": "Telemetry non-retained check",
-        "purpose": "Verify reconnecting observers do not receive stale retained telemetry.",
-        "expected": "Old retained telemetry does not arrive immediately.",
-    },
-    {
-        "id": "TC-070",
-        "name": "Events topic receives command_result",
-        "purpose": "Verify a simple command publishes command_result on events.",
-        "expected": "cmd/diag/ping produces command_result on events.",
-    },
-    {
-        "id": "TC-071",
-        "name": "Calibration report event shape",
-        "purpose": "Inspect calibration_report event shape when validation produces one.",
-        "expected": "event_type, device_id, profileId, result, and readyForSession exist.",
-    },
-    {
-        "id": "TC-072",
-        "name": "Compression feedback event",
-        "purpose": "Verify compression feedback events during an interactive active session.",
-        "expected": "Interactive mode only; compression_feedback or equivalent event appears.",
-    },
-    {
-        "id": "TC-080",
-        "name": "config/debug update",
-        "purpose": "Verify debugRaw config update command produces an explicit response.",
-        "expected": "ACK/NACK command_result with a clear reason when rejected.",
-    },
-    {
-        "id": "TC-090",
-        "name": "device/reset",
-        "purpose": "Verify reset command behavior only when explicitly allowed.",
-        "expected": "Interactive destructive mode only; reset event/status or disconnect/reboot occurs.",
-    },
-    {
-        "id": "TC-091",
-        "name": "device/unpair",
-        "purpose": "Verify unpair command behavior only when explicitly allowed.",
-        "expected": "Interactive destructive mode only; unpair/reset/provisioning behavior occurs.",
-    },
+    # Category A — Broker and device visibility
+    {"id": "TC-001", "category": "A", "name": "MQTT broker reachable", "purpose": "Verify the test runner can connect to the configured MQTT broker.", "expected": "MQTT connection succeeds."},
+    {"id": "TC-002", "category": "A", "name": "Device publishes status or heartbeat", "purpose": "Verify the target device is visible on the broker.", "expected": "A status or heartbeat message appears within the timeout."},
+    {"id": "TC-003", "category": "A", "name": "Canonical namespace", "purpose": "Check observed device topics use the canonical ResQ namespace.", "expected": "Observed target-device topics start with resq/manikins/<device_id>/"},
+    {"id": "TC-004", "category": "A", "name": "No unexpected legacy topic namespace", "purpose": "Detect known legacy or unexpected topic namespaces and warn if present.", "expected": "Warn if legacy topics appear; pass if only canonical topics are observed."},
+
+    # Category B — Status topic
+    {"id": "TC-010", "category": "B", "name": "Status retained", "purpose": "Reconnect an observer to verify retained status behavior.", "expected": "Retained status is delivered quickly to a reconnecting client."},
+    {"id": "TC-011", "category": "B", "name": "Status payload shape", "purpose": "Validate minimum status fields are present.", "expected": "Includes device_id/deviceId, state, session_active/sessionActive, session_id/sessionId."},
+    {"id": "TC-012", "category": "B", "name": "Status is state-focused", "purpose": "Ensure status does not include raw sensor/debug blocks.", "expected": "Status contains only state/readiness fields; no top-level raw sensor data."},
+
+    # Category C — Minimal heartbeat
+    {"id": "TC-020", "category": "C", "name": "Periodic heartbeat exists", "purpose": "Verify firmware publishes heartbeat messages periodically.", "expected": "At least two heartbeat messages arrive within expected window."},
+    {"id": "TC-021", "category": "C", "name": "Minimal heartbeat shape", "purpose": "Validate minimal heartbeat payload (ok|alive).", "expected": "Heartbeat contains minimal liveness indicator and no large raw blocks."},
+    {"id": "TC-022", "category": "C", "name": "Heartbeat does not carry detailed health", "purpose": "Heartbeat must not transport detailed diagnostic fields.", "expected": "Detailed sensor/diagnostic fields are absent from heartbeat."},
+    {"id": "TC-023", "category": "C", "name": "Heartbeat is not retained", "purpose": "Ensure heartbeat messages are not retained for reconnecting clients.", "expected": "No retained heartbeat appears when reconnecting."},
+
+    # Category D — Diagnostic commands
+    {"id": "TC-030", "category": "D", "name": "cmd/diag/ping", "purpose": "Verify diagnostic ping command returns an event response.", "expected": "command_result or ping response event on events."},
+    {"id": "TC-031", "category": "D", "name": "cmd/diag/request", "purpose": "Verify diagnostic report requests produce a diagnostic event.", "expected": "diagnostic_report event or ACK (ACK-only is WARN)."},
+    {"id": "TC-032", "category": "D", "name": "cmd/diag/health (no debugRaw)", "purpose": "Request diagnostic health without debugRaw and validate response.", "expected": "diagnostic_health or health_report event with expected fields."},
+    {"id": "TC-033", "category": "D", "name": "cmd/diag/health (with debugRaw)", "purpose": "Request diagnostic health with debugRaw and validate debugRaw appears only inside diagnostic event.", "expected": "debugRaw appears inside diagnostic event when requested; not top-level."},
+
+    # Category E — Calibration commands
+    {"id": "TC-040", "category": "E", "name": "calibration/start", "purpose": "Verify calibration start command behavior.", "expected": "ACK/status CALIBRATING or NACK with reason."},
+    {"id": "TC-041", "category": "E", "name": "calibration/capture-normal", "purpose": "Verify normal calibration capture command response.", "expected": "ACK or NACK command_result."},
+    {"id": "TC-042", "category": "E", "name": "calibration/capture-full-depth", "purpose": "Verify full-depth calibration capture (interactive).", "expected": "Interactive; ACK/NACK response."},
+    {"id": "TC-043", "category": "E", "name": "calibration/validate", "purpose": "Verify calibration validation emits calibration_report.", "expected": "calibration_report with result and readyForSession."},
+    {"id": "TC-044", "category": "E", "name": "calibration/cancel", "purpose": "Verify calibration cancel behavior.", "expected": "command_result or safe status appears."},
+    {"id": "TC-045", "category": "E", "name": "calibration commands during active session", "purpose": "Verify active sessions reject calibration start.", "expected": "NACK while session active."},
+
+    # Category F — Session commands
+    {"id": "TC-050", "category": "F", "name": "session/start", "purpose": "Session start with current readiness.", "expected": "NACK if calibration not ready, or ACK+SESSION_ACTIVE when ready."},
+    {"id": "TC-051", "category": "F", "name": "session/stop", "purpose": "Verify session/stop behavior.", "expected": "ACK and IDLE/READY status, or NACK if no active session."},
+    {"id": "TC-052", "category": "F", "name": "profile mismatch", "purpose": "Verify mismatched profile start is rejected.", "expected": "NACK for mismatched profile."},
+    {"id": "TC-053", "category": "F", "name": "session/start while calibration running", "purpose": "Ensure active calibration prevents session start.", "expected": "NACK while calibration running."},
+
+    # Category G — Telemetry
+    {"id": "TC-060", "category": "G", "name": "No telemetry while idle", "purpose": "Ensure no telemetry is published while idle.", "expected": "No telemetry while session_active=false."},
+    {"id": "TC-061", "category": "G", "name": "Metric-first telemetry shape", "purpose": "Verify metric-first telemetry fields are present.", "expected": "Telemetry contains depthMm, rateCpm, recoilOk, pauseS, compressionCount, handPlacement, flags."},
+    {"id": "TC-062", "category": "G", "name": "No top-level raw fields in telemetry", "purpose": "Ensure raw values are not top-level in telemetry.", "expected": "Raw values appear only under debugRaw."},
+    {"id": "TC-063", "category": "G", "name": "Telemetry non-retained", "purpose": "Verify telemetry is not retained.", "expected": "No retained telemetry delivered on reconnect."},
+    {"id": "TC-064", "category": "G", "name": "debugRaw policy in telemetry", "purpose": "When debug is enabled, raw fields appear only under debugRaw.", "expected": "Raw values are inside debugRaw only when enabled."},
+
+    # Category H — Events
+    {"id": "TC-070", "category": "H", "name": "command_result event", "purpose": "Verify command_result appears on events after ping.", "expected": "command_result event observed."},
+    {"id": "TC-071", "category": "H", "name": "diagnostic_health event shape", "purpose": "Validate diagnostic_health event shape.", "expected": "diagnostic_health/health_report contains expected fields."},
+    {"id": "TC-072", "category": "H", "name": "compression feedback event", "purpose": "Compression feedback during interactive sessions.", "expected": "compression_feedback event observed during session."},
+    {"id": "TC-073", "category": "H", "name": "calibration_report event shape", "purpose": "Validate calibration_report when present.", "expected": "calibration_report contains required fields."},
+    {"id": "TC-074", "category": "H", "name": "event topic is not retained", "purpose": "Ensure events are not retained and do not leak stale command results.", "expected": "No stale retained events delivered on reconnect."},
+
+    # Category I — Config/debug command
+    {"id": "TC-080", "category": "I", "name": "config/update debugRaw", "purpose": "Toggle debugRaw and validate response.", "expected": "ACK/NACK response appears."},
+    {"id": "TC-081", "category": "I", "name": "config/update calibration profile", "purpose": "Update calibration profile via config/update.", "expected": "ACK/NACK with clear reason or acceptance."},
+
+    # Category J — Destructive commands
+    {"id": "TC-090", "category": "J", "name": "device/reset", "purpose": "Reset the device (destructive; interactive).", "expected": "Reset behavior observed when explicitly allowed."},
+    {"id": "TC-091", "category": "J", "name": "device/unpair", "purpose": "Unpair device (destructive; interactive).", "expected": "Unpair/provisioning behavior observed when allowed."},
+
+    # Category K — New feature regression checks
+    {"id": "TC-100", "category": "K", "name": "Device identity field policy", "purpose": "Validate device identity field naming policy.", "expected": "Consistent device id usage (device_id or deviceId)."},
+    {"id": "TC-101", "category": "K", "name": "Minimal background traffic", "purpose": "Ensure background MQTT traffic is minimal while idle.", "expected": "Only heartbeat and occasional status; no telemetry flood."},
+    {"id": "TC-102", "category": "K", "name": "Log-cleanup runtime proxy", "purpose": "Infer MQTT flooding or repeated stale events instead of log inspection.", "expected": "No repeated status changes or events without action."},
 ]
 
 TEST_META = {item["id"]: item for item in TEST_CASES}
@@ -234,6 +117,7 @@ class MqttMessage:
 class TestResult:
     test_id: str
     name: str
+    category: str
     purpose: str
     command_topic: Optional[str] = None
     command_payload: Optional[Any] = None
@@ -381,12 +265,13 @@ class ResQMqttTester:
         return suffix[4:] if suffix.startswith("cmd/") else suffix
 
     def start_result(self, test_id: str) -> TestResult:
-        meta = TEST_META[test_id]
+        meta = TEST_META.get(test_id, {})
         return TestResult(
             test_id=test_id,
-            name=meta["name"],
-            purpose=meta["purpose"],
-            expected_behavior=meta["expected"],
+            name=meta.get("name", test_id),
+            category=meta.get("category", ""),
+            purpose=meta.get("purpose", ""),
+            expected_behavior=meta.get("expected", ""),
             started_at=now_iso(),
         )
 
@@ -762,8 +647,22 @@ class ResQMqttTester:
         topics = sorted({item.topic for item in device_related})
         return self.finish(result, "PASS", f"All observed device topics use canonical namespace: {topics}", device_related[:5])
 
+    def tc004_legacy_namespace(self) -> TestResult:
+        """TC-004: Warn if legacy or unexpected resq namespaces are present."""
+        result = self.start_result("TC-004")
+        messages = self.snapshot(0)
+        legacy = []
+        for m in messages:
+            if m.topic.startswith("resq/") and not m.topic.startswith(f"{self.base_topic}/"):
+                legacy.append(m)
+        if legacy:
+            topics = sorted({m.topic for m in legacy})
+            return self.finish(result, "WARN", f"Observed legacy/non-canonical resq topics: {topics}", legacy[:5])
+        return self.finish(result, "PASS", "Only canonical resq/manikins topics were observed")
+
     def tc010_status_payload_shape(self) -> TestResult:
-        result = self.start_result("TC-010")
+        # This test validates status payload shape — map to TC-011 per test catalogue
+        result = self.start_result("TC-011")
         message = self.latest_message(self.is_status) or self.wait_for(self.is_status, timeout=self.args.timeout)
         payload = self.payload(message)
         if not payload:
@@ -796,8 +695,43 @@ class ResQMqttTester:
             return self.finish(result, "WARN", "Status has mixed snake/camel naming but required aliases are usable", [message])
         return self.finish(result, "PASS", "Status payload contains required fields", [message])
 
+    def tc012_status_is_state_focused(self) -> TestResult:
+        result = self.start_result("TC-012")
+        message = self.latest_message(self.is_status) or self.wait_for(self.is_status, timeout=self.args.timeout)
+        payload = self.payload(message)
+        if not payload:
+            return self.finish(result, "FAIL", "No JSON status payload was observed", matched=[message] if message else None)
+
+        # Fail if raw sensor/debug fields are present at top-level in status
+        top_raw = {
+            "force1",
+            "force2",
+            "hallRaw",
+            "hallFiltered",
+            "currentDelta",
+            "force1Raw",
+            "force2Raw",
+            "hall_raw",
+            "sensorHealth",
+            "debugRaw",
+        }
+        present = sorted(set(payload.keys()).intersection(top_raw))
+        if present:
+            if self.args.allow_legacy_fields:
+                return self.finish(result, "WARN", f"Status includes top-level raw/debug fields but legacy allowed: {present}", [message])
+            return self.finish(result, "FAIL", f"Status includes top-level raw/debug fields: {present}", [message])
+
+        # Warn but pass if non-harmful extra fields exist
+        allowed_warn = {"ip", "calibrationReady", "profileId", "compression_count"}
+        warns = sorted(set(payload.keys()).intersection(allowed_warn))
+        if warns:
+            return self.finish(result, "WARN", f"Status includes extra non-critical fields: {warns}", [message])
+
+        return self.finish(result, "PASS", "Status is focused on state/readiness and contains no top-level raw fields", [message])
+
     def tc011_status_retained(self) -> TestResult:
-        result = self.start_result("TC-011")
+        # This test verifies retained status behavior — map to TC-010 per test catalogue
+        result = self.start_result("TC-010")
         ok, quick_messages, error = self.collect_with_temp_client(self.status_topic, timeout=min(2.0, self.args.timeout))
         if not ok:
             return self.finish(result, "FAIL", f"Temporary MQTT client failed: {error}")
@@ -850,6 +784,10 @@ class ResQMqttTester:
         debug_fields = {"force1", "force2", "hallRaw", "hallFiltered", "currentDelta", "force1Raw", "force2Raw", "hall_raw"}
         top_debug = sorted(debug_fields.intersection(payload.keys()))
         if top_debug:
+            if self.args.allow_legacy_fields:
+                return self.finish(result, "WARN", f"Heartbeat includes top-level debug/raw fields but legacy allowed: {top_debug}", [message])
+            if getattr(self.args, "expect_minimal_heartbeat", False):
+                return self.finish(result, "FAIL", f"Heartbeat includes top-level debug/raw fields: {top_debug}", [message])
             return self.finish(result, "WARN", f"Heartbeat includes top-level debug/raw fields: {top_debug}", [message])
 
         return self.finish(result, "PASS", "Heartbeat is minimal liveness payload (ok/alive) and contains no top-level raw fields", [message])
@@ -877,6 +815,18 @@ class ResQMqttTester:
             "Heartbeat is low-rate health/readiness; readiness and sensorHealth fields are accepted",
             [message],
         )
+
+    def tc023_heartbeat_not_retained(self) -> TestResult:
+        result = self.start_result("TC-023")
+        ok, messages, error = self.collect_with_temp_client(self.heartbeat_topic, timeout=min(2.0, self.args.timeout))
+        if not ok:
+            return self.finish(result, "FAIL", f"Temporary MQTT client failed: {error}")
+        retained = [item for item in messages if item.retained]
+        if retained:
+            return self.finish(result, "FAIL", "Retained heartbeat arrived for a reconnecting client", retained)
+        if messages:
+            return self.finish(result, "PASS", "Live non-retained heartbeat arrived for a reconnecting client", messages)
+        return self.finish(result, "WARN", "No heartbeat observed by temporary reconnect probe")
 
     def run_diag_command(self, test_id: str, suffix: str, payload: Dict[str, Any]) -> TestResult:
         result = self.start_result(test_id)
@@ -998,6 +948,39 @@ class ResQMqttTester:
         # If only a command_result ACK was observed, treat as WARN (event preferred)
         return self.finish(result, "WARN", "Only command_result ACK observed; diagnostic event not present", messages, notes=notes)
 
+    def tc033_diag_health_with_debug(self) -> TestResult:
+        result = self.start_result("TC-033")
+        suffix = "cmd/diag/health"
+        payload = {"commandId": "HEALTH-DEBUG-001", "includeDebugRaw": True}
+        result.command_topic = self.topic(suffix)
+        result.command_payload = payload
+        since = self.message_count()
+        self.publish_json(suffix, payload)
+        messages = self.wait_collect(
+            lambda item: (
+                item.topic == self.events_topic
+                and isinstance(self.payload(item), dict)
+                and self.payload(item).get("event_type", "") in ("diagnostic_health", "health_report")
+            )
+            or self.is_command_result("diag/health")(item),
+            count=1,
+            timeout=self.args.timeout,
+            since=since,
+        )
+        if not messages:
+            return self.finish(result, "FAIL", "No diagnostic health response observed for includeDebugRaw request")
+        evt = next(
+            (m for m in messages if m.topic == self.events_topic and isinstance(self.payload(m), dict) and self.payload(m).get("event_type") in ("diagnostic_health", "health_report")),
+            None,
+        )
+        if not evt:
+            return self.finish(result, "WARN", "Only command_result observed; diagnostic event not present", messages)
+        body = self.payload(evt)
+        if "debugRaw" in body and isinstance(body.get("debugRaw"), dict):
+            return self.finish(result, "PASS", "debugRaw included inside diagnostic event as requested", [evt])
+        # Firmware may not support debugRaw in responses; mark as WARN rather than FAIL
+        return self.finish(result, "WARN", "Diagnostic event observed but debugRaw not included despite request", [evt])
+
     def command_status_from(self, message: Optional[MqttMessage]) -> Tuple[str, str]:
         payload = self.payload(message)
         return str(payload.get("status", "")).upper(), str(payload.get("reason", ""))
@@ -1011,7 +994,7 @@ class ResQMqttTester:
             return self.skip("TC-040", "Calibration tests skipped by --skip-calibration")
         result = self.start_result("TC-040")
         suffix = "cmd/calibration/start"
-        payload = self.load_payload_file("calibration-start.json", {"profileId": DEFAULT_PROFILE, "commandId": "CAL-START-001"})
+        payload = self.load_payload_file("calibration-start.json", {"profileId": self.args.calibration_profile, "commandId": "CAL-START-001"})
         result.command_topic = self.topic(suffix)
         result.command_payload = payload
         since = self.message_count()
@@ -1038,7 +1021,7 @@ class ResQMqttTester:
         suffix = "cmd/calibration/capture-normal"
         payload = self.load_payload_file(
             "calibration-capture-normal.json",
-            {"profileId": DEFAULT_PROFILE, "commandId": "CAL-CAP-NORM-001", "windowMs": 3000},
+            {"profileId": self.args.calibration_profile, "commandId": "CAL-CAP-NORM-001", "windowMs": 3000},
         )
         result.command_topic = self.topic(suffix)
         result.command_payload = payload
@@ -1062,7 +1045,7 @@ class ResQMqttTester:
         suffix = "cmd/calibration/capture-full-depth"
         payload = self.load_payload_file(
             "calibration-capture-full-depth.json",
-            {"profileId": DEFAULT_PROFILE, "commandId": "CAL-CAP-FULL-001", "windowMs": 3000},
+            {"profileId": self.args.calibration_profile, "commandId": "CAL-CAP-FULL-001", "windowMs": 3000},
         )
         result.command_topic = self.topic(suffix)
         result.command_payload = payload
@@ -1082,7 +1065,7 @@ class ResQMqttTester:
         self.calibration_validate_ran = True
         result = self.start_result("TC-043")
         suffix = "cmd/calibration/validate"
-        payload = self.load_payload_file("calibration-validate.json", {"profileId": DEFAULT_PROFILE, "commandId": "CAL-VALID-001"})
+        payload = self.load_payload_file("calibration-validate.json", {"profileId": self.args.calibration_profile, "commandId": "CAL-VALID-001"})
         result.command_topic = self.topic(suffix)
         result.command_payload = payload
         since = self.message_count()
@@ -1110,7 +1093,7 @@ class ResQMqttTester:
             return self.skip("TC-044", "Calibration tests skipped by --skip-calibration")
         result = self.start_result("TC-044")
         suffix = "cmd/calibration/cancel"
-        payload = {"profileId": DEFAULT_PROFILE, "commandId": "CAL-CANCEL-001"}
+        payload = {"profileId": self.args.calibration_profile, "commandId": "CAL-CANCEL-001"}
         result.command_topic = self.topic(suffix)
         result.command_payload = payload
         since = self.message_count()
@@ -1156,9 +1139,10 @@ class ResQMqttTester:
             return self.finish(result, "FAIL", "calibration/start was accepted or calibration status appeared during active session", matched)
         return self.finish(result, "FAIL", "No calibration/start rejection response was observed during active session")
 
-    def start_session_for_test(self, session_id: str, profile_id: str = DEFAULT_PROFILE) -> bool:
+    def start_session_for_test(self, session_id: str, profile_id: Optional[str] = None) -> bool:
         suffix = "cmd/session/start"
-        payload = {"sessionId": session_id, "profileId": profile_id, "commandId": f"START-{session_id}"}
+        profile = profile_id or getattr(self.args, "calibration_profile", DEFAULT_PROFILE)
+        payload = {"sessionId": session_id, "profileId": profile, "commandId": f"START-{session_id}"}
         since = self.message_count()
         self.publish_json(suffix, payload)
         command_result, status_message = self.wait_for_command_or_status(
@@ -1481,6 +1465,64 @@ class ResQMqttTester:
             return self.finish(result, "PASS", "Unpair command response, provisioning/reset status, or disconnect was observed", messages)
         return self.finish(result, "SKIP", "Unpair was confirmed but no unpair/provisioning evidence was observed")
 
+    def tc100_device_identity_policy(self) -> TestResult:
+        result = self.start_result("TC-100")
+        msgs = self.snapshot(0)
+        seen_device_id = False
+        seen_deviceId = False
+        seen_manikin = False
+        for m in msgs:
+            p = self.payload(m)
+            if isinstance(p, dict):
+                if "device_id" in p:
+                    seen_device_id = True
+                if "deviceId" in p:
+                    seen_deviceId = True
+                if "manikin_id" in p or "manikinId" in p:
+                    seen_manikin = True
+        if not (seen_device_id or seen_deviceId or seen_manikin):
+            return self.finish(result, "WARN", "No device identity fields observed in recent messages; cannot evaluate policy")
+        if seen_manikin and (seen_device_id or seen_deviceId):
+            return self.finish(result, "WARN", "Both manikin and device identity fields observed; check for duplication or naming policy mismatch")
+        if seen_device_id and not seen_deviceId:
+            return self.finish(result, "PASS", "device_id used consistently in observed messages")
+        if seen_deviceId and not seen_device_id:
+            return self.finish(result, "PASS", "deviceId used consistently in observed messages")
+        return self.finish(result, "WARN", "Both device_id and deviceId were observed; mixed naming detected")
+
+    def tc101_minimal_background_traffic(self) -> TestResult:
+        result = self.start_result("TC-101")
+        observation = min(30.0, max(5.0, self.args.timeout * 3.0))
+        start = self.message_count()
+        end_at = time.monotonic() + observation
+        while time.monotonic() < end_at:
+            time.sleep(0.5)
+        delta = self.message_count() - start
+        msgs = self.snapshot(start)
+        telemetry_count = sum(1 for m in msgs if self.is_telemetry(m))
+        heartbeat_count = sum(1 for m in msgs if self.is_heartbeat(m))
+        status_count = sum(1 for m in msgs if self.is_status(m))
+        event_count = sum(1 for m in msgs if m.topic == self.events_topic)
+        if telemetry_count > 0:
+            return self.finish(result, "FAIL", f"Telemetry appeared during idle observation: {telemetry_count} messages", msgs[:5])
+        if heartbeat_count < 1:
+            return self.finish(result, "WARN", "No heartbeats observed during background observation", msgs[:5])
+        if delta > 20:
+            return self.finish(result, "WARN", f"High background traffic observed ({delta} messages in {observation}s)", msgs[:10])
+        return self.finish(result, "PASS", f"Background traffic acceptable (heartbeats={heartbeat_count}, status={status_count}, events={event_count})", msgs[:10])
+
+    def tc102_log_cleanup_runtime_proxy(self) -> TestResult:
+        result = self.start_result("TC-102")
+        statuses = [m for m in self.snapshot(0) if self.is_status(m)]
+        if len(statuses) < 2:
+            return self.finish(result, "PASS", "No repeated status messages observed")
+        recent = statuses[-10:]
+        payloads = [json.dumps(self.payload(m), sort_keys=True) for m in recent]
+        repeats = sum(1 for i in range(1, len(payloads)) if payloads[i] == payloads[i - 1])
+        if repeats > 5:
+            return self.finish(result, "WARN", "Repeated identical status messages observed; possible MQTT flooding", recent[:5])
+        return self.finish(result, "PASS", "No evidence of MQTT flooding inferred from status messages", recent[-3:])
+
     def message_to_report_dict(self, message: MqttMessage) -> Dict[str, Any]:
         redacted_json = redact_any(message.payload_json)
         return {
@@ -1495,6 +1537,7 @@ class ResQMqttTester:
     def result_to_dict(self, result: TestResult) -> Dict[str, Any]:
         return {
             "test_id": result.test_id,
+            "category": result.category,
             "name": result.name,
             "purpose": result.purpose,
             "command_topic": result.command_topic,
@@ -1701,34 +1744,62 @@ class ResQMqttTester:
                 return self.complete()
 
             for method in [
+                # Namespace and visibility
                 self.tc003_topic_namespace,
+                self.tc004_legacy_namespace,
+
+                # Status checks
                 self.tc010_status_payload_shape,
                 self.tc011_status_retained,
+                self.tc012_status_is_state_focused,
+
+                # Heartbeat checks
                 self.tc020_periodic_heartbeat,
                 self.tc021_heartbeat_shape,
                 self.tc022_heartbeat_not_telemetry,
+                self.tc023_heartbeat_not_retained,
+
+                # Diagnostics
                 self.tc030_diag_ping,
                 self.tc031_diag_request,
                 self.tc032_diag_health,
+                self.tc033_diag_health_with_debug,
+
+                # Calibration
                 self.tc040_calibration_start,
                 self.tc041_calibration_capture_normal,
                 self.tc042_calibration_capture_full_depth,
                 self.tc043_calibration_validate,
                 self.tc044_calibration_cancel,
                 self.tc045_calibration_during_session,
+
+                # Session
                 self.tc050_session_start,
                 self.tc051_session_stop,
                 self.tc052_profile_mismatch,
+
+                # Telemetry
                 self.tc060_telemetry_idle_policy,
                 self.tc061_metric_first_telemetry,
                 self.tc062_debug_raw_policy,
                 self.tc063_telemetry_non_retained,
+
+                # Events
                 self.tc070_command_result_event,
                 self.tc071_calibration_report_shape,
                 self.tc072_compression_feedback_event,
+
+                # Config/debug
                 self.tc080_config_debug_update,
+
+                # Destructive (skipped by default)
                 self.tc090_device_reset,
                 self.tc091_device_unpair,
+
+                # Regression / feature checks
+                self.tc100_device_identity_policy,
+                self.tc101_minimal_background_traffic,
+                self.tc102_log_cleanup_runtime_proxy,
             ]:
                 self.results.append(method())
         finally:
@@ -1753,6 +1824,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--timeout", default=10.0, type=float, help="Per-test MQTT wait timeout in seconds (default: 10)")
     parser.add_argument("--evidence-dir", default=DEFAULT_EVIDENCE_DIR, help=f"Evidence output directory (default: {DEFAULT_EVIDENCE_DIR})")
     parser.add_argument("--interactive", action="store_true", help="Enable hardware/user-assisted tests")
+    parser.add_argument("--require-active-session", action="store_true", help="Require an active session for session-dependent tests")
+    parser.add_argument("--expect-minimal-heartbeat", action="store_true", help="Treat non-minimal heartbeat payloads as stricter failures")
+    parser.add_argument("--expect-device-id-only", action="store_true", help="Expect only device identity fields in status payloads (strict)")
+    parser.add_argument("--allow-legacy-fields", action="store_true", help="Relax checks for legacy fields in status/heartbeat payloads")
+    parser.add_argument("--include-debug-raw", action="store_true", help="When present, tests may expect debugRaw in telemetry/diagnostic responses")
+    parser.add_argument("--calibration-profile", default=DEFAULT_PROFILE, help=f"Calibration profile id to use (default: {DEFAULT_PROFILE})")
     parser.add_argument(
         "--skip-destructive",
         default=True,
