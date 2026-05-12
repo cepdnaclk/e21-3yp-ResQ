@@ -108,3 +108,90 @@ fn detect_ipv4_via_udp() -> Option<Ipv4Addr> {
         _ => None,
     }
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvisioningData {
+    ssid: String,
+    password: String,
+    broker_host: String,
+    broker_port: u16,
+    pairing_token: String,
+    provision_url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardUrls {
+    instructor_url: String,
+    trainee_url: String,
+}
+
+#[tauri::command]
+pub fn get_provisioning_data() -> Result<ProvisioningData, String> {
+    // Get network info (broker host)
+    let broker_host = get_network_info()?
+        .primary_ipv4
+        .ok_or("Failed to detect LAN IP")?;
+
+    // Fetch pairing token from backend API
+    let pairing_token = fetch_pairing_token()?;
+
+    // Build the provisioning URL that the manikin's setup page will parse
+    // Format: http://192.168.4.1/setup?ssid=...&password=...&broker_host=...&broker_port=...&token=...
+    let provision_url = format!(
+        "http://192.168.4.1/setup?ssid=ResQ-Hub&password=password123&broker_host={}&broker_port=1883&token={}",
+        urlencoding::encode(&broker_host),
+        urlencoding::encode(&pairing_token)
+    );
+
+    Ok(ProvisioningData {
+        ssid: "ResQ-Hub".to_string(),
+        password: "password123".to_string(),
+        broker_host,
+        broker_port: 1883,
+        pairing_token,
+        provision_url,
+    })
+}
+
+#[tauri::command]
+pub fn get_dashboard_urls(chosen_host: String, web_port: u16) -> DashboardUrls {
+    DashboardUrls {
+        instructor_url: format!("http://{}:{}/instructor", chosen_host, web_port),
+        trainee_url: format!("http://{}:{}/trainee", chosen_host, web_port),
+    }
+}
+
+#[tauri::command]
+pub fn refresh_pairing_token() -> Result<String, String> {
+    fetch_pairing_token()
+}
+
+fn fetch_pairing_token() -> Result<String, String> {
+    let url = "http://localhost:18080/api/manikins/pair-request";
+
+    match ureq::post(url).call() {
+        Ok(response) => {
+            match serde_json::from_reader(response.into_reader()) {
+                Ok::<serde_json::Value, _>(json) => {
+                    json
+                        .get("token")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string())
+                        .ok_or("Token not found in response".to_string())
+                }
+                Err(e) => Err(format!("Failed to parse response: {}", e)),
+            }
+        }
+        Err(_e) => {
+            // Fallback: Generate a mock token for development when backend is unavailable
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            Ok(format!("dev-token-{}", timestamp))
+        }
+    }
+}

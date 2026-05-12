@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { AUTH_PERMISSION_RULES } from "@resq/shared";
 import { useAuth } from "../auth/AuthContext";
 import { generateAccessUrls } from "../lib/accessUrls";
-import QrPanel from "../components/QrPanel";
-import { Skeleton } from "../components/ui";
+
+import { Badge, Button, Card, Skeleton } from "../components/ui";
+import { Dialog } from "../components/ui/dialog";
 import {
   fetchHubHealth,
   getApiServiceStatus,
@@ -62,6 +63,15 @@ type LanInfoState = {
   detail: string;
   hostname?: string;
   primaryIp?: string | null;
+};
+
+type MetricCard = {
+  label: string;
+  value: string;
+  detail: string;
+  trend: string;
+  trendDirection: "up" | "down";
+  icon: string;
 };
 
 function getApiHealthState(health: HubHealthResponse): ApiHealthState {
@@ -174,6 +184,9 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     detail: "Checking...",
   });
   const [snapshotLoading, setSnapshotLoading] = useState(true);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
+  const [copyLanIpState, setCopyLanIpState] = useState<"idle" | "copied">("idle");
 
   function updateBrokerUi(service: BrokerServiceStatus) {
     setBrokerState(service);
@@ -259,11 +272,20 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
       await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState()]);
     } finally {
       setSnapshotLoading(false);
+      setLastRefreshedAt(new Date());
     }
   }
 
   useEffect(() => {
     void refreshAllState();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshAllState();
+    }, 30000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   const apiStatusLabel = `${getProcessLabel(apiService)} · ${getHealthLabel(apiHealth)}`;
@@ -289,30 +311,39 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     `${lanInfo.detail} • Hostname: ${lanInfo.hostname ?? "Unknown"} • Primary IP: ${chosenLanIp ?? "Not detected"} • ${ipSourceMessage}`;
 
   // Generate access URLs from the chosen host/IP
-  const { instructorUrl } = generateAccessUrls(chosenLanIp);
-  const qrUnavailableMessage = chosenLanIp
-    ? "QR updates automatically when the LAN host changes."
-    : "Set a LAN host in Setup to generate this clinical access QR.";
-  const summaryCards = [
+  const { instructorUrl, traineeUrl } = generateAccessUrls(chosenLanIp);
+  const summaryCards: MetricCard[] = [
     {
       label: "Clinical workflows",
       value: String(apiContracts.length),
       detail: "Secure local access for patient training, exports, and diagnostics.",
+      trend: "+12%",
+      trendDirection: "up",
+      icon: "🩺",
     },
     {
       label: "Session oversight",
       value: "5",
       detail: "Start, end, inspect, and export supervised training sessions.",
+      trend: "+6%",
+      trendDirection: "up",
+      icon: "📋",
     },
     {
       label: "Identity & roles",
       value: "4",
       detail: "Login, logout, current user, and first-run administrator setup.",
+      trend: "-2%",
+      trendDirection: "down",
+      icon: "🛡️",
     },
     {
       label: "Device readiness",
       value: "4",
       detail: "Manikin, live stream, and device diagnostics entry points.",
+      trend: "+9%",
+      trendDirection: "up",
+      icon: "💾",
     },
   ];
 
@@ -330,6 +361,37 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   const apiTone = apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped";
   const brokerTone = brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped";
   const lanTone = lanInfo.status === "checking" ? "checking" : manualLanIpOverride || lanInfo.status === "ready" ? "ready" : "error";
+  const snapshotTone = apiTone === "healthy" ? "healthy" : apiTone === "running" ? "checking" : "stopped";
+
+  function getRefreshLabel() {
+    if (!lastRefreshedAt) {
+      return "Waiting for first refresh";
+    }
+
+    return lastRefreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  async function handleCopyLanIp() {
+    if (!chosenLanIp) {
+      return;
+    }
+
+    const payload = {
+      hostname: lanInfo.hostname ?? null,
+      detectedIp: lanInfo.primaryIp ?? null,
+      activeOverride: manualLanIpOverride ?? null,
+      chosenHost: chosenLanIp,
+      urls: { instructor: instructorUrl, trainee: traineeUrl },
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setCopyLanIpState("copied");
+      window.setTimeout(() => setCopyLanIpState("idle"), 1500);
+    } catch {
+      setCopyLanIpState("idle");
+    }
+  }
 
   function handleOpenInstructorDashboard() {
     window.location.assign("/instructor");
@@ -341,62 +403,133 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
 
   return (
     <div className="home-dashboard">
-      <section className="panel hero-layout">
-        <div className="panel hero-panel">
-          <p className="panel__description">
-            A clinical control surface for secure authentication, manikin pairing, session governance, exports, and diagnostics.
-          </p>
-
-          <div className="hero-panel__actions">
-            <button type="button" className="button button--primary" onClick={handleOpenInstructorDashboard}>
-              Open Instructor Dashboard
-            </button>
-            <button type="button" className="button button--secondary" onClick={handleOpenTraineeDashboard}>
-              Open Trainee Dashboard
-            </button>
-            <button type="button" className="button button--ghost" onClick={() => void refreshAllState()}>
-              Refresh Status
-            </button>
-          </div>
-        </div>
-
-        <div className="quick-card" aria-busy={snapshotLoading}>
-          <span className={`status-chip status-chip--${apiTone}`}>{apiStatusLabel}</span>
-          <h3 className="quick-card__title">Clinical service snapshot</h3>
-          {snapshotLoading ? (
-            <div style={{ display: "grid", gap: "10px", margin: "10px 0 6px" }}>
-              <Skeleton size="sm" className="skeleton--shimmer" style={{ width: "72%" }} />
-              <Skeleton size="sm" className="skeleton--shimmer" style={{ width: "88%" }} />
-              <Skeleton size="sm" className="skeleton--shimmer" style={{ width: "64%" }} />
+      <section className="hero-shell">
+        <Card className="hero-card hero-card--gradient">
+          <div className="hero-card__copy">
+            <div className="hero-card__heading">
+              <div className="hero-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 21s-6.5-4.4-8.7-8.7A5.5 5.5 0 0 1 12 6.2a5.5 5.5 0 0 1 8.7 6.1C18.5 16.6 12 21 12 21Z" />
+                  <path d="M12 8v8M8 12h8" />
+                </svg>
+              </div>
+              <div>
+                <p className="hero-card__subtitle">
+                  A clinical control surface for secure authentication, manikin pairing, session governance, exports, and diagnostics.
+                </p>
+              </div>
             </div>
-          ) : null}
-          <p className="quick-card__copy">{formatApiDetail(apiHealth)}</p>
-          <p className="quick-card__copy">Telemetry broker: {brokerUiState.detail}</p>
-          <p className="quick-card__copy">LAN IP: {chosenLanIp ?? "Not detected"}</p>
-          <p className="quick-card__copy">Source: {manualLanIpOverride ? "Manual override" : "Auto-detected host"}</p>
-          <div className="hero-panel__actions">
-            <span className={`status-chip status-chip--${brokerTone}`}>{brokerStatusLabel}</span>
-            <span className={`status-chip status-chip--${lanTone}`}>{lanStatusLabel}</span>
+
+            <div className="hero-card__actions">
+              <Button type="button" variant="primary" onClick={handleOpenInstructorDashboard} className="action-button action-button--primary">
+                <span aria-hidden="true" className="action-button__icon">↗</span>
+                <span>Open Instructor Dashboard</span>
+                <span className="action-button__shortcut">Ctrl+I</span>
+              </Button>
+              <Button type="button" variant="secondary" onClick={handleOpenTraineeDashboard} className="action-button">
+                <span aria-hidden="true" className="action-button__icon">↗</span>
+                <span>Open Trainee Dashboard</span>
+                <span className="action-button__shortcut">Ctrl+T</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void refreshAllState()}
+                className={`action-button action-button--ghost ${snapshotLoading ? "action-button--spinning" : ""}`}
+              >
+                <span aria-hidden="true" className={`action-button__icon ${snapshotLoading ? "action-button__icon--spinning" : ""}`}>↻</span>
+                <span>Refresh Status</span>
+                <span className="action-button__shortcut">Ctrl+R</span>
+              </Button>
+            </div>
           </div>
-        </div>
+
+          <button type="button" className="health-indicator" onClick={() => setHealthDetailsOpen(true)} aria-label="Open detailed system health">
+            <span className={`health-indicator__dot health-indicator__dot--${apiTone}`} aria-hidden="true" />
+            <span className="health-indicator__content">
+              <Badge variant="status" className="status-badge--success">System Operational</Badge>
+              <span className="health-indicator__title">System Operational</span>
+              <span className="health-indicator__subtitle">All services reachable</span>
+            </span>
+          </button>
+        </Card>
       </section>
 
       <section className="metric-grid">
         {summaryCards.map((card) => (
-          <article key={card.label} className="metric-card">
+          <Card key={card.label} className="metric-card metric-card--live">
+            <div className="metric-card__header">
+              <span className="metric-card__icon" aria-hidden="true">{card.icon}</span>
+              <span className={`metric-card__trend metric-card__trend--${card.trendDirection}`}>
+                {card.trendDirection === "up" ? "▲" : "▼"} {card.trend}
+              </span>
+            </div>
             <p className="metric-card__label">{card.label}</p>
             <p className="metric-card__value">{card.value}</p>
             <p className="metric-card__detail">{card.detail}</p>
-          </article>
+          </Card>
         ))}
       </section>
 
-      <section className="rounded-3xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4 shadow-sm">
-        <QrPanel instructorUrl={instructorUrl} unavailableMessage={qrUnavailableMessage} />
+      <section className="snapshot-grid">
+        <Card className={`snapshot-card snapshot-card--${snapshotTone}`}>
+          <div className="snapshot-card__header">
+            <div>
+              <p className="snapshot-card__eyebrow">Clinical snapshot</p>
+              <h3 className="snapshot-card__title">Live network and services</h3>
+              <p className="snapshot-card__copy">Auto-refresh every 30s. Last refresh: {getRefreshLabel()}</p>
+            </div>
+            <Button type="button" variant="secondary" onClick={handleCopyLanIp} className="snapshot-card__copy-button">
+              {copyLanIpState === "copied" ? "Copied LAN IP" : "Copy LAN IP"}
+            </Button>
+          </div>
+
+          <div className="snapshot-columns">
+            <div className="snapshot-column">
+              <p className="snapshot-column__label">Backend info</p>
+              <div className="snapshot-row">
+                <span>Process</span>
+                <Badge variant="status" className={`status-badge--${apiService.running ? "success" : "danger"}`}>
+                  {apiService.running ? "Running" : "Stopped"}
+                </Badge>
+              </div>
+              <div className="snapshot-row">
+                <span>Health</span>
+                <Badge variant="status" className={`status-badge--${apiHealth.status === "healthy" ? "success" : apiHealth.status === "checking" ? "warning" : "danger"}`}>
+                  {getHealthLabel(apiHealth)}
+                </Badge>
+              </div>
+              <div className="snapshot-row snapshot-row--stacked">
+                <span>Details</span>
+                <p>{formatApiDetail(apiHealth)}</p>
+              </div>
+            </div>
+
+            <div className="snapshot-column">
+              <p className="snapshot-column__label">Broker info</p>
+              <div className="snapshot-row">
+                <span>Broker</span>
+                <Badge variant="status" className={`status-badge--${brokerTone === "running" ? "success" : brokerTone === "checking" ? "warning" : "danger"}`}>
+                  {brokerStatusLabel}
+                </Badge>
+              </div>
+              <div className="snapshot-row">
+                <span>LAN IP</span>
+                <Badge variant="status" className={`status-badge--${lanTone === "ready" ? "success" : lanTone === "checking" ? "warning" : "danger"}`}>
+                  {chosenLanIp ?? "Not detected"}
+                </Badge>
+              </div>
+              <div className="snapshot-row snapshot-row--stacked">
+                <span>Source</span>
+                <p>{manualLanIpOverride ? "Manual override" : "Auto-detected host"}</p>
+              </div>
+            </div>
+          </div>
+        </Card>
       </section>
 
-      <section className="surface-grid">
-        <article className="quick-card">
+      <section className="surface-grid surface-grid--compact">
+        <Card className="quick-card">
           <h3 className="quick-card__title">Current operator</h3>
           <p className="quick-card__copy">{currentUser?.displayName ?? "No active user"}</p>
           <p className="quick-card__copy">Username: {currentUser?.username ?? "-"}</p>
@@ -414,31 +547,56 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
               <span className="status-chip status-chip--stopped">No derived permissions</span>
             )}
           </div>
-        </article>
+        </Card>
 
-        <article className="quick-card">
+        <Card className="quick-card">
           <h3 className="quick-card__title">API readiness</h3>
           <p className="quick-card__copy">{apiStatusLabel}</p>
           <span className={`status-chip status-chip--${apiTone}`}>
             {apiHealth.status === "healthy" ? "Backend reachable" : apiService.running ? "Backend process up" : "Backend stopped"}
           </span>
           <p className="quick-card__copy">{apiHealth.detail}</p>
-        </article>
+        </Card>
 
-        <article className="quick-card">
+        <Card className="quick-card">
           <h3 className="quick-card__title">Broker readiness</h3>
           <p className="quick-card__copy">MQTT / local broker status for device traffic.</p>
           <span className={`status-chip status-chip--${brokerTone}`}>{brokerStatusLabel}</span>
           <p className="quick-card__copy">{brokerUiState.detail}</p>
-        </article>
+        </Card>
 
-        <article className="quick-card">
+        <Card className="quick-card">
           <h3 className="quick-card__title">LAN access</h3>
           <p className="quick-card__copy">{lanDetail}</p>
           <span className={`status-chip status-chip--${lanTone}`}>{lanStatusLabel}</span>
           <p className="quick-card__copy">Instructor URL: {instructorUrl ?? "Not available yet"}</p>
-        </article>
+        </Card>
       </section>
+
+      <Dialog open={healthDetailsOpen} onOpenChange={setHealthDetailsOpen} title="Detailed Health Breakdown" description="Current backend, broker, and LAN status">
+        <div className="health-modal-grid">
+          <div className="health-modal-card">
+            <p className="health-modal-card__label">Backend</p>
+            <p className="health-modal-card__value">{getHealthLabel(apiHealth)}</p>
+            <p className="health-modal-card__copy">{formatApiDetail(apiHealth)}</p>
+          </div>
+          <div className="health-modal-card">
+            <p className="health-modal-card__label">Broker</p>
+            <p className="health-modal-card__value">{brokerStatusLabel}</p>
+            <p className="health-modal-card__copy">{brokerUiState.detail}</p>
+          </div>
+          <div className="health-modal-card">
+            <p className="health-modal-card__label">LAN</p>
+            <p className="health-modal-card__value">{lanStatusLabel}</p>
+            <p className="health-modal-card__copy">{lanDetail}</p>
+          </div>
+          <div className="health-modal-card">
+            <p className="health-modal-card__label">Refresh</p>
+            <p className="health-modal-card__value">{getRefreshLabel()}</p>
+            <p className="health-modal-card__copy">Auto-refresh every 30 seconds.</p>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

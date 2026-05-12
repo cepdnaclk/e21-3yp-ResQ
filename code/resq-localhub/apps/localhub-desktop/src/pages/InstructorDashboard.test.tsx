@@ -28,10 +28,6 @@ vi.mock("../lib/browserSessionsApi", () => ({
   getSessionJsonExportUrl: vi.fn((sessionId: string) => `http://localhost:18080/api/export/sessions/${sessionId}.json`),
 }));
 
-vi.mock("qrcode.react", () => ({
-  QRCodeSVG: () => <div data-testid="mock-qr-code" />,
-}));
-
 class MockEventSource {
   onopen: ((event: Event) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;

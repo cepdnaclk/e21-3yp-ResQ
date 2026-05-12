@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
-const QR = QRCodeSVG as any;
 import { useAuth } from "../auth/AuthContext";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
@@ -664,6 +662,7 @@ export default function InstructorDashboard({
                 <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
                   {currentUser.role}
                 </span>
+<<<<<<< HEAD
                 <button
                   type="button"
                   onClick={() => {
@@ -681,6 +680,22 @@ export default function InstructorDashboard({
                 >
                   Logout
                 </button>
+=======
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      logout().finally(() => window.location.assign("/login"));
+                    }}
+                    style={{ color: simTheater ? "#EAF4FF" : undefined }}
+                    aria-label={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
+                    title={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
+                  >
+                    Logout
+                  </Button>
+                  {/* Sim Theater toggle removed */}
+                </div>
+>>>>>>> e558667 (More_modifications)
               </>
             ) : null}
             {!embeddedInDesktop ? (
@@ -1437,37 +1452,17 @@ export default function InstructorDashboard({
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Trainee: {activeSession!.traineeId ?? "-"}
                         </p>
-                        {traineeLink ? (
-                          <>
-                            <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                              Trainee Link: {traineeLink}
-                            </p>
-                            <div
-                              style={{
-                                marginTop: "4px",
-                                padding: "10px",
-                                borderRadius: "8px",
-                                border: "1px solid #dbe3ee",
-                                background: "#ffffff",
-                                display: "grid",
-                                justifyItems: "center",
-                                gap: "8px",
-                              }}
-                            >
-                              <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                                Student Dashboard QR
-                              </p>
-                              <QR value={traineeLink} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
-                              <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
-                                Scan from trainee phone to open the live trainee dashboard.
-                              </p>
-                            </div>
-                          </>
-                        ) : (
-                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#b45309" }}>
-                            QR unavailable. Set a LAN host/IP in Setup to generate a scannable trainee URL.
-                          </p>
-                        )}
+<<<<<<< HEAD
+                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
+                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
+                        </p>
+                        {/* QR removed: Trainee dashboard QR omitted */}
+=======
+                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
+                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
+                        </p>
+                        {/* QR removed: Trainee dashboard QR omitted */}
+>>>>>>> e558667 (More_modifications)
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button
                             type="button"
