@@ -101,6 +101,16 @@ bool config_store_is_provisioned(void);
 
 bool config_store_calibration_values_valid(const device_config_t *cfg);
 
+/**
+ * @brief Clear only provisioning-related configuration from NVS.
+ *
+ * This removes stored Wi-Fi SSID/password and clears provisioning-related
+ * network fields (register URL, MQTT host/port) while preserving device
+ * identity and calibration/runtime tuning values. It also sets the
+ * provisioned flag to false and commits changes.
+ */
+esp_err_t config_store_clear_wifi_provisioning(void);
+
 #ifdef __cplusplus
 }
 #endif

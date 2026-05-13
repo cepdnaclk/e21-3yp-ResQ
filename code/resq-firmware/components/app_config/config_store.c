@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdint.h>
 
+#include "esp_log.h"
+
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -58,6 +60,8 @@
 
 #define DEFAULT_CALIBRATION_REQUIRED        true
 #define DEFAULT_DEBUG_RAW_ENABLED           false
+
+static const char *TAG = "config_store";
 
 
 static esp_err_t save_str(nvs_handle_t handle, const char *key, const char *value)
@@ -490,6 +494,65 @@ esp_err_t config_store_clear(void)
 
     nvs_close(handle);
     return err;
+}
+
+esp_err_t config_store_clear_wifi_provisioning(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(CONFIG_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to open NVS namespace for clearing provisioning: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    esp_err_t local_err = ESP_OK;
+    esp_err_t e = nvs_erase_key(handle, KEY_WIFI_SSID);
+    if (e != ESP_OK && e != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Failed to erase wifi_ssid: %s", esp_err_to_name(e));
+        local_err = e;
+    }
+
+    e = nvs_erase_key(handle, KEY_WIFI_PASS);
+    if (e != ESP_OK && e != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Failed to erase wifi_pass: %s", esp_err_to_name(e));
+        local_err = (local_err == ESP_OK) ? e : local_err;
+    }
+
+    e = nvs_erase_key(handle, KEY_REG_URL);
+    if (e != ESP_OK && e != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Failed to erase reg_url: %s", esp_err_to_name(e));
+        local_err = (local_err == ESP_OK) ? e : local_err;
+    }
+
+    e = nvs_erase_key(handle, KEY_MQTT_HOST);
+    if (e != ESP_OK && e != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Failed to erase mqtt_host: %s", esp_err_to_name(e));
+        local_err = (local_err == ESP_OK) ? e : local_err;
+    }
+
+    e = nvs_erase_key(handle, KEY_MQTT_PORT);
+    if (e != ESP_OK && e != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Failed to erase mqtt_port: %s", esp_err_to_name(e));
+        local_err = (local_err == ESP_OK) ? e : local_err;
+    }
+
+    /* Mark device as not provisioned */
+    e = nvs_set_u8(handle, KEY_PROVISIONED, 0);
+    if (e != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set provisioned flag to false: %s", esp_err_to_name(e));
+        local_err = (local_err == ESP_OK) ? e : local_err;
+    }
+
+    esp_err_t commit_err = nvs_commit(handle);
+    if (commit_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to commit cleared provisioning data: %s", esp_err_to_name(commit_err));
+        if (local_err == ESP_OK) local_err = commit_err;
+    } else {
+        ESP_LOGI(TAG, "Cleared Wi-Fi provisioning data (ssid, password, reg_url, mqtt host/port) and set provisioned=false");
+    }
+
+    nvs_close(handle);
+    return local_err;
 }
 
 bool config_store_is_provisioned(void)
