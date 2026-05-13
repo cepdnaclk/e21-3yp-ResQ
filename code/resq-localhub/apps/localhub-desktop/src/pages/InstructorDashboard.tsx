@@ -834,6 +834,7 @@ export default function InstructorDashboard({
                 <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
                   {currentUser.role}
                 </span>
+<<<<<<< HEAD
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <Button
                     variant="ghost"
@@ -845,6 +846,25 @@ export default function InstructorDashboard({
                     Logout
                   </Button>
                 </div>
+=======
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout().finally(() => window.location.assign("/login"));
+                  }}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Logout
+                </button>
+>>>>>>> fe21a35f11b356403c72e78dea33f296a370528f
               </>
             ) : null}
             {!embeddedInDesktop ? (
@@ -1455,6 +1475,7 @@ export default function InstructorDashboard({
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
                           Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
                         </p>
+<<<<<<< HEAD
                         <div
                           style={{
                             marginTop: "4px",
@@ -1475,6 +1496,9 @@ export default function InstructorDashboard({
                             Scan to open the trainee dashboard. The QR updates to the active session when one starts.
                           </p>
                         </div>
+=======
+                        {/* QR removed: Trainee dashboard QR omitted */}
+>>>>>>> fe21a35f11b356403c72e78dea33f296a370528f
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <Button
                             onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
