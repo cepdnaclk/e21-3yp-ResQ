@@ -31,7 +31,6 @@ import {
 } from "../lib/browserSessionsApi";
 
 const SESSION_TOUR_KEY = "resq-session-tour-seen";
-const SIM_THEATER_KEY = "resq-sim-theater";
 
 type HeatmapDay = {
   date: string;
@@ -45,7 +44,7 @@ type HeatmapDay = {
  * in any browser on the LAN without depending on Tauri APIs.
  */
 
-function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHealthResponse | null; simTheater?: boolean }) {
+function HealthStatusBadge({ health }: { health: BrowserHealthResponse | null }) {
   if (!health) {
     return (
       <span style={{
@@ -54,8 +53,8 @@ function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHeal
         borderRadius: "999px",
         fontSize: "0.8rem",
         fontWeight: 600,
-        background: simTheater ? "rgba(159,214,255,0.12)" : "#e2e8f0",
-        color: simTheater ? "#D7F0FF" : "#334155",
+        background: "#e2e8f0",
+        color: "#334155",
       }}>
         Checking...
       </span>
@@ -70,8 +69,8 @@ function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHeal
         borderRadius: "999px",
         fontSize: "0.8rem",
         fontWeight: 600,
-        background: simTheater ? "rgba(34,197,94,0.18)" : "#dcfce7",
-        color: simTheater ? "#B9FFD0" : "#166534",
+        background: "#dcfce7",
+        color: "#166534",
       }}>
         Healthy
       </span>
@@ -85,8 +84,8 @@ function HealthStatusBadge({ health, simTheater = false }: { health: BrowserHeal
       borderRadius: "999px",
       fontSize: "0.8rem",
       fontWeight: 600,
-      background: simTheater ? "rgba(220,38,38,0.16)" : "#fee2e2",
-      color: simTheater ? "#FFB6B6" : "#991b1b",
+      background: "#fee2e2",
+      color: "#991b1b",
     }}>
       Unreachable
     </span>
@@ -240,7 +239,6 @@ export default function InstructorDashboard({
   const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
   const [showSessionTour, setShowSessionTour] = useState(false);
-  const [simTheater, setSimTheater] = useState(false);
   const [showOnlyLiveManikins, setShowOnlyLiveManikins] = useState(true);
   const [showManikinDiagnostics, setShowManikinDiagnostics] = useState(false);
 
@@ -508,23 +506,7 @@ export default function InstructorDashboard({
     setShowSessionTour(window.localStorage.getItem(SESSION_TOUR_KEY) !== "true");
   }, []);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const val = window.localStorage.getItem(SIM_THEATER_KEY);
-      setSimTheater(val === "true");
-    } catch {
-      setSimTheater(false);
-    }
-  }, []);
-
-  function toggleSimTheater() {
-    setSimTheater((v) => {
-      const next = !v;
-      try { if (typeof window !== 'undefined') window.localStorage.setItem(SIM_THEATER_KEY, next ? 'true' : 'false'); } catch {}
-      return next;
-    });
-  }
+  // Sim Theater feature removed; no-op stubs eliminated.
 
   useEffect(() => {
     if (!manikinsError) {
@@ -835,21 +817,21 @@ export default function InstructorDashboard({
   }
 
   return (
-    <div style={styles.container} className={simTheater ? 'sim-theater' : ''}>
+    <div style={styles.container}>
       <header style={styles.header}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <div>
-            <h1 style={{ ...styles.title, color: simTheater ? "#EAF4FF" : styles.title.color }}>
+            <h1 style={{ ...styles.title, color: styles.title.color }}>
               Instructor Dashboard
             </h1>
-            <p style={{ ...styles.subtitle, color: simTheater ? "#C6D7E5" : styles.subtitle.color }}>
+            <p style={{ ...styles.subtitle, color: styles.subtitle.color }}>
               Multi-manikin live performance monitoring and control
             </p>
           </div>
             <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {currentUser ? (
               <>
-                <span style={{ padding: "6px 10px", borderRadius: "999px", background: simTheater ? "rgba(159,214,255,0.14)" : "#e2e8f0", color: simTheater ? "#D7F0FF" : "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+                <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
                   {currentUser.role}
                 </span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -858,20 +840,9 @@ export default function InstructorDashboard({
                     onClick={() => {
                       logout().finally(() => window.location.assign("/login"));
                     }}
-                    style={{ color: simTheater ? "#EAF4FF" : undefined }}
-                    aria-label={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
-                    title={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
+                    aria-label="Logout"
                   >
                     Logout
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => toggleSimTheater()}
-                    style={{ color: simTheater ? "#EAF4FF" : undefined }}
-                    aria-pressed={simTheater}
-                    title={simTheater ? 'Disable Sim Theater' : 'Enable Sim Theater'}
-                  >
-                    {simTheater ? 'Sim Theater: ON' : 'Sim Theater: OFF'}
                   </Button>
                 </div>
               </>
@@ -890,7 +861,7 @@ export default function InstructorDashboard({
               <HubHeartbeat state={healthLoading ? 'checking' : health?.ok ? 'ok' : 'down'} size={20} />
               Hub Status
             </h2>
-            <HealthStatusBadge health={healthLoading ? null : health} simTheater={simTheater} />
+            <HealthStatusBadge health={healthLoading ? null : health} />
           </div>
           <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
             {healthLoading

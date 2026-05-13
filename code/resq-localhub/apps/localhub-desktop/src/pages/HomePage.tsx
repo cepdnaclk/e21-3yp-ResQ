@@ -266,6 +266,29 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
     void refreshAllState();
   }, []);
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      // Alt+I for Instructor Dashboard
+      if (event.altKey && (event.key.toLowerCase() === "i" || event.code === "KeyI")) {
+        event.preventDefault();
+        handleOpenInstructorDashboard();
+      }
+      // Alt+T for Trainee Dashboard
+      if (event.altKey && (event.key.toLowerCase() === "t" || event.code === "KeyT")) {
+        event.preventDefault();
+        handleOpenTraineeDashboard();
+      }
+      // Alt+R for Refresh Status
+      if (event.altKey && (event.key.toLowerCase() === "r" || event.code === "KeyR")) {
+        event.preventDefault();
+        void refreshAllState();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleOpenInstructorDashboard, handleOpenTraineeDashboard, refreshAllState]);
+
   const apiStatusLabel = `${getProcessLabel(apiService)} · ${getHealthLabel(apiHealth)}`;
   const brokerStatusLabel =
     brokerUiState.status === "checking"
@@ -348,14 +371,17 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
           </p>
 
           <div className="hero-panel__actions">
-            <button type="button" className="button button--primary" onClick={handleOpenInstructorDashboard}>
-              Open Instructor Dashboard
+            <button type="button" className="button button--primary" onClick={handleOpenInstructorDashboard} title="Keyboard shortcut: Alt+I">
+              <span>Open Instructor Dashboard</span>
+              <span className="button__shortcut">Alt+I</span>
             </button>
-            <button type="button" className="button button--secondary" onClick={handleOpenTraineeDashboard}>
-              Open Trainee Dashboard
+            <button type="button" className="button button--secondary" onClick={handleOpenTraineeDashboard} title="Keyboard shortcut: Alt+T">
+              <span>Open Trainee Dashboard</span>
+              <span className="button__shortcut">Alt+T</span>
             </button>
-            <button type="button" className="button button--ghost" onClick={() => void refreshAllState()}>
-              Refresh Status
+            <button type="button" className="button button--ghost" onClick={() => void refreshAllState()} title="Keyboard shortcut: Alt+R">
+              <span>Refresh Status</span>
+              <span className="button__shortcut">Alt+R</span>
             </button>
           </div>
         </div>
