@@ -124,14 +124,45 @@ void app_main(void)
     }
 
     /* -------------------------------------------------
-     * Connect to Local Hub Wi-Fi
+     * Connect to Local Hub Wi-Fi with retry policy
      * ------------------------------------------------- */
     ESP_ERROR_CHECK(wifi_manager_init());
-    ESP_ERROR_CHECK(wifi_manager_connect_sta(
-        cfg.wifi_ssid,
-        cfg.wifi_pass,
-        pdMS_TO_TICKS(30000)
-    ));
+
+#define WIFI_BOOT_MAX_RETRIES 3
+#define WIFI_BOOT_RETRY_DELAY_MS 30000
+
+    {
+        esp_err_t werr = ESP_ERR_TIMEOUT;
+        for (int attempt = 1; attempt <= WIFI_BOOT_MAX_RETRIES; ++attempt) {
+            status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
+            ESP_LOGI(TAG, "Wi-Fi connect attempt %d/%d", attempt, WIFI_BOOT_MAX_RETRIES);
+
+            werr = wifi_manager_connect_sta(
+                cfg.wifi_ssid,
+                cfg.wifi_pass,
+                pdMS_TO_TICKS(30000)
+            );
+
+            if (werr == ESP_OK) {
+                break;
+            }
+
+            if (attempt < WIFI_BOOT_MAX_RETRIES) {
+                ESP_LOGW(TAG, "Wi-Fi connect failed; retrying in %d seconds", WIFI_BOOT_RETRY_DELAY_MS / 1000);
+                vTaskDelay(pdMS_TO_TICKS(WIFI_BOOT_RETRY_DELAY_MS));
+            } else {
+                ESP_LOGW(TAG, "Wi-Fi failed after %d attempts; clearing saved Wi-Fi config and returning to provisioning", WIFI_BOOT_MAX_RETRIES);
+                esp_err_t clear_err = config_store_clear_wifi_provisioning();
+                if (clear_err != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to clear provisioning data: %s", esp_err_to_name(clear_err));
+                }
+                status_indicator_set(INDICATOR_STATE_PROVISIONING);
+                /* brief delay to allow logs to flush */
+                vTaskDelay(pdMS_TO_TICKS(500));
+                esp_restart();
+            }
+        }
+    }
 
     /* -------------------------------------------------
      * Register device with backend

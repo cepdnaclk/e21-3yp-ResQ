@@ -1,7 +1,7 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 
-PC_IP = "192.168.8.187"
+PC_IP = "10.91.94.45"
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
