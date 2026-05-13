@@ -662,7 +662,6 @@ export default function InstructorDashboard({
                 <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
                   {currentUser.role}
                 </span>
-<<<<<<< HEAD
                 <button
                   type="button"
                   onClick={() => {
@@ -680,22 +679,6 @@ export default function InstructorDashboard({
                 >
                   Logout
                 </button>
-=======
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      logout().finally(() => window.location.assign("/login"));
-                    }}
-                    style={{ color: simTheater ? "#EAF4FF" : undefined }}
-                    aria-label={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
-                    title={simTheater ? 'Exit Sim Theater' : 'Enter Sim Theater'}
-                  >
-                    Logout
-                  </Button>
-                  {/* Sim Theater toggle removed */}
-                </div>
->>>>>>> e558667 (More_modifications)
               </>
             ) : null}
             {!embeddedInDesktop ? (
@@ -1452,17 +1435,10 @@ export default function InstructorDashboard({
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Trainee: {activeSession!.traineeId ?? "-"}
                         </p>
-<<<<<<< HEAD
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
                           Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
                         </p>
                         {/* QR removed: Trainee dashboard QR omitted */}
-=======
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
-                        </p>
-                        {/* QR removed: Trainee dashboard QR omitted */}
->>>>>>> e558667 (More_modifications)
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button
                             type="button"
