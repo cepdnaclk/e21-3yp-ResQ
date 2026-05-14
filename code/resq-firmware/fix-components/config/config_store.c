@@ -391,6 +391,7 @@ esp_err_t config_store_clear_network(void)
     nvs_erase_key(handle, NVS_KEY_REGISTER_URL);
     nvs_erase_key(handle, NVS_KEY_MQTT_HOST);
     nvs_erase_key(handle, NVS_KEY_MQTT_PORT);
+    nvs_erase_key(handle, NVS_KEY_DEVICE_ID);
     nvs_erase_key(handle, NVS_KEY_PROVISIONED);
 
     err = nvs_commit(handle);
