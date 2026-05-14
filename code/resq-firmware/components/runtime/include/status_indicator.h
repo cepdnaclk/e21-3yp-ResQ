@@ -1,33 +1,45 @@
-#pragma once
+#ifndef STATUS_INDICATOR_H
+#define STATUS_INDICATOR_H
 
 #include "esp_err.h"
+#include "states.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum {
-    INDICATOR_STATE_OFF = 0,
-    INDICATOR_STATE_PROVISIONING,
-    INDICATOR_STATE_WIFI_CONNECTING,
-    INDICATOR_STATE_ONLINE_IDLE,
-
-    INDICATOR_STATE_CALIBRATING,
-    INDICATOR_STATE_READY_FOR_SESSION,
-    INDICATOR_STATE_CALIBRATION_FAIL,
-
-    INDICATOR_STATE_SESSION_ACTIVE,
-    INDICATOR_STATE_SESSION_INTERRUPTED,
-
-    INDICATOR_STATE_FAULT,
-    INDICATOR_STATE_RESETTING
-} indicator_state_t;
-
+/**
+ * @brief Initialize LED and buzzer GPIO pins.
+ */
 esp_err_t status_indicator_init(void);
+
+/**
+ * @brief Start the status indicator background task.
+ */
 esp_err_t status_indicator_start(void);
-void status_indicator_set(indicator_state_t state);
-indicator_state_t status_indicator_get(void);
+
+/**
+ * @brief Stop the status indicator task.
+ */
+void status_indicator_stop(void);
+
+/**
+ * @brief Set the current firmware state indication pattern.
+ */
+void status_indicator_set_state(resq_state_t state);
+
+/**
+ * @brief Get the currently indicated firmware state.
+ */
+resq_state_t status_indicator_get_state(void);
+
+/**
+ * @brief Optional short buzzer beep for important events.
+ */
+void status_indicator_beep_once(void);
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* STATUS_INDICATOR_H */
