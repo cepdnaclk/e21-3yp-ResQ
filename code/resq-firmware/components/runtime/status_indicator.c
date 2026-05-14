@@ -1,219 +1,233 @@
 #include "status_indicator.h"
 
-#include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_log.h"
+#include <stdbool.h>
 
 #include "board_config.h"
 
-#define STATUS_LED_GPIO BOARD_STATUS_LED_GPIO
-#define BUZZER_GPIO     BOARD_BUZZER_GPIO
+#include "driver/gpio.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-#define INDICATOR_TASK_STACK_SIZE 2048
-#define INDICATOR_TASK_PRIORITY      2
+/* Blink intervals for LED patterns (in RTOS ticks). */
+#define LED_BLINK_SLOW_TICKS      pdMS_TO_TICKS(1500)
+#define LED_BLINK_MEDIUM_TICKS    pdMS_TO_TICKS(700)
+#define LED_BLINK_FAST_TICKS      pdMS_TO_TICKS(150)
 
-/*
- * This is written by other tasks and read by indicator_task.
- * volatile is enough for this simple state flag.
+/* Task stack size and priority for the status indicator task. */
+#define STATUS_TASK_STACK_SIZE    2048
+#define STATUS_TASK_PRIORITY      1
+
+/* LED pattern types used by the state and activity LEDs.
+ * OFF/ON are static levels; BLINK_* toggles the LED at the given pace.
  */
-static volatile indicator_state_t s_state = INDICATOR_STATE_OFF;
-static TaskHandle_t s_task_handle = NULL;
+typedef enum
+{
+    LED_PATTERN_OFF = 0,
+    LED_PATTERN_ON,
+    LED_PATTERN_BLINK_SLOW,
+    LED_PATTERN_BLINK_MEDIUM,
+    LED_PATTERN_BLINK_FAST
+} led_pattern_t;
+
+/* Pattern pair for a device state: `state_led` and `activity_led`. */
+typedef struct
+{
+    led_pattern_t state_led;
+    led_pattern_t activity_led;
+} status_led_pattern_t;
 
 static const char *TAG = "status_indicator";
 
-static const char *indicator_state_to_string(indicator_state_t s)
+/* FreeRTOS task handle for the status indicator task. */
+static TaskHandle_t s_status_task_handle = NULL;
+
+/* Current device state shown by the LEDs. Volatile because it may be
+ * updated from different execution contexts (e.g., other tasks).
+ */
+static volatile resq_state_t s_current_state = RESQ_STATE_BOOT;
+
+/* When true the status indicator task main loop runs; setting this false
+ * signals the task to perform cleanup and exit.
+ */
+static volatile bool s_task_running = false;
+
+/* Convert a blink pattern to a FreeRTOS tick delay used by vTaskDelay.
+ * For non-blinking patterns a default short delay is returned so the task
+ * loop still yields occasionally.
+ */
+static TickType_t get_pattern_delay(led_pattern_t pattern)
 {
-    switch (s) {
-    case INDICATOR_STATE_OFF: return "OFF";
-    case INDICATOR_STATE_PROVISIONING: return "PROVISIONING";
-    case INDICATOR_STATE_WIFI_CONNECTING: return "WIFI_CONNECTING";
-    case INDICATOR_STATE_ONLINE_IDLE: return "ONLINE_IDLE";
-    case INDICATOR_STATE_CALIBRATING: return "CALIBRATING";
-    case INDICATOR_STATE_READY_FOR_SESSION: return "READY_FOR_SESSION";
-    case INDICATOR_STATE_CALIBRATION_FAIL: return "CALIBRATION_FAIL";
-    case INDICATOR_STATE_SESSION_ACTIVE: return "SESSION_ACTIVE";
-    case INDICATOR_STATE_SESSION_INTERRUPTED: return "SESSION_INTERRUPTED";
-    case INDICATOR_STATE_FAULT: return "FAULT";
-    case INDICATOR_STATE_RESETTING: return "RESETTING";
-    default: return "UNKNOWN";
+    switch (pattern)
+    {
+    case LED_PATTERN_BLINK_SLOW:
+        return LED_BLINK_SLOW_TICKS;
+
+    case LED_PATTERN_BLINK_MEDIUM:
+        return LED_BLINK_MEDIUM_TICKS;
+
+    case LED_PATTERN_BLINK_FAST:
+        return LED_BLINK_FAST_TICKS;
+
+    default:
+        return pdMS_TO_TICKS(250);
     }
 }
 
-static void led_on(void)
+/* Map a high-level `resq_state_t` to the desired LED patterns.
+ * Returns a `status_led_pattern_t` containing the pattern for `state_led`
+ * and `activity_led`.
+ */
+static status_led_pattern_t get_state_pattern(resq_state_t state)
 {
-    gpio_set_level(STATUS_LED_GPIO, 1);
+    switch (state)
+    {
+    case RESQ_STATE_BOOT:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_SLOW, LED_PATTERN_OFF};
+
+    case RESQ_STATE_CONFIG_CHECK:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_SLOW, LED_PATTERN_BLINK_FAST};
+
+    case RESQ_STATE_PROVISIONING:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_MEDIUM, LED_PATTERN_BLINK_MEDIUM};
+
+    case RESQ_STATE_FLUSH_CONFIG:
+        return (status_led_pattern_t){LED_PATTERN_OFF, LED_PATTERN_BLINK_FAST};
+
+    case RESQ_STATE_WIFI_CONNECTING:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_SLOW, LED_PATTERN_BLINK_SLOW};
+
+    case RESQ_STATE_BACKEND_REGISTERING:
+        return (status_led_pattern_t){LED_PATTERN_ON, LED_PATTERN_BLINK_SLOW};
+
+    case RESQ_STATE_MQTT_CONNECTING:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_SLOW, LED_PATTERN_ON};
+
+    case RESQ_STATE_PAIRED_IDLE:
+        return (status_led_pattern_t){LED_PATTERN_ON, LED_PATTERN_OFF};
+
+    case RESQ_STATE_CALIBRATING:
+        return (status_led_pattern_t){LED_PATTERN_ON, LED_PATTERN_BLINK_MEDIUM};
+
+    case RESQ_STATE_CALIBRATION_FAIL:
+        return (status_led_pattern_t){LED_PATTERN_ON, LED_PATTERN_BLINK_FAST};
+
+    case RESQ_STATE_READY_FOR_SESSION:
+        return (status_led_pattern_t){LED_PATTERN_OFF, LED_PATTERN_ON};
+
+    case RESQ_STATE_SESSION_ACTIVE:
+        return (status_led_pattern_t){LED_PATTERN_ON, LED_PATTERN_ON};
+
+    case RESQ_STATE_SESSION_INTERRUPTED:
+        return (status_led_pattern_t){LED_PATTERN_ON, LED_PATTERN_BLINK_FAST};
+
+    case RESQ_STATE_ERROR:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_FAST, LED_PATTERN_BLINK_FAST};
+
+    case RESQ_STATE_RESETTING:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_FAST, LED_PATTERN_OFF};
+
+    case RESQ_STATE_TURN_OFF:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_SLOW, LED_PATTERN_BLINK_SLOW};
+
+    default:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_FAST, LED_PATTERN_BLINK_FAST};
+    }
 }
 
-static void led_off(void)
+/* Apply a static (non-blinking) pattern to the specified GPIO.
+ * Sets the GPIO level high for LED_PATTERN_ON and low for LED_PATTERN_OFF.
+ */
+static void apply_static_pattern(gpio_num_t gpio, led_pattern_t pattern)
 {
-    gpio_set_level(STATUS_LED_GPIO, 0);
+    if (pattern == LED_PATTERN_ON)
+    {
+        gpio_set_level(gpio, 1);
+    }
+    else if (pattern == LED_PATTERN_OFF)
+    {
+        gpio_set_level(gpio, 0);
+    }
 }
 
-static void buzzer_on(void)
+/* Check whether a pattern represents a blinking behavior. */
+static bool is_blink_pattern(led_pattern_t pattern)
 {
-    gpio_set_level(BUZZER_GPIO, 1);
+    return pattern == LED_PATTERN_BLINK_SLOW ||
+           pattern == LED_PATTERN_BLINK_MEDIUM ||
+           pattern == LED_PATTERN_BLINK_FAST;
 }
 
-static void buzzer_off(void)
+/* FreeRTOS task that controls the state and activity LEDs (and buzzer).
+ *
+ * Behavior:
+ * - Reads the current `s_current_state` and computes the two LED patterns.
+ * - Applies static levels for ON/OFF patterns and toggles `blink_level` for
+ *   blink patterns.
+ * - Sleeps for the shortest active blink interval so a faster LED keeps its
+ *   timing when paired with a slower one.
+ * - When `s_task_running` becomes false the task turns hardware off, clears
+ *   its handle and deletes itself.
+ */
+static void status_indicator_task(void *arg)
 {
-    gpio_set_level(BUZZER_GPIO, 0);
-}
+    bool blink_level = false;
 
-static void indicator_task(void *arg)
-{
-    (void)arg;
+    while (s_task_running)
+    {
+        status_led_pattern_t pattern = get_state_pattern(s_current_state);
 
-    while (1) {
-        switch (s_state) {
-            case INDICATOR_STATE_OFF:
-                led_off();
-                buzzer_off();
-                vTaskDelay(pdMS_TO_TICKS(300));
-                break;
+        apply_static_pattern(BOARD_STATE_LED, pattern.state_led);
+        apply_static_pattern(BOARD_ACTIVITY_LED, pattern.activity_led);
 
-            case INDICATOR_STATE_PROVISIONING:
-                buzzer_off();
-
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(500));
-
-                led_off();
-                vTaskDelay(pdMS_TO_TICKS(500));
-                break;
-
-            case INDICATOR_STATE_WIFI_CONNECTING:
-                buzzer_off();
-
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(150));
-
-                led_off();
-                vTaskDelay(pdMS_TO_TICKS(150));
-                break;
-
-            case INDICATOR_STATE_ONLINE_IDLE:
-                /*
-                 * Device is connected and waiting.
-                 */
-                buzzer_off();
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(300));
-                break;
-
-            case INDICATOR_STATE_CALIBRATING:
-                /*
-                 * Pre-session calibration is running.
-                 * Pattern: medium blink.
-                 */
-                buzzer_off();
-
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(250));
-
-                led_off();
-                vTaskDelay(pdMS_TO_TICKS(250));
-                break;
-
-            case INDICATOR_STATE_READY_FOR_SESSION:
-                /*
-                 * Calibration passed.
-                 * Pattern: solid LED, no buzzer.
-                 */
-                buzzer_off();
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(300));
-                break;
-
-            case INDICATOR_STATE_CALIBRATION_FAIL:
-                /*
-                 * Calibration failed.
-                 * Pattern: slow warning blink + short buzzer pulse.
-                 */
-                led_on();
-                buzzer_on();
-                vTaskDelay(pdMS_TO_TICKS(120));
-
-                buzzer_off();
-                vTaskDelay(pdMS_TO_TICKS(180));
-
-                led_off();
-                vTaskDelay(pdMS_TO_TICKS(700));
-                break;
-
-            case INDICATOR_STATE_SESSION_ACTIVE:
-                /*
-                 * Real CPR session is active.
-                 * Pattern: fast/regular blink.
-                 */
-                buzzer_off();
-
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(250));
-
-                led_off();
-                vTaskDelay(pdMS_TO_TICKS(250));
-                break;
-
-            case INDICATOR_STATE_SESSION_INTERRUPTED:
-                /*
-                 * Session was interrupted by Wi-Fi/MQTT/sensor issue.
-                 * Pattern: slower blink, no buzzer.
-                 */
-                buzzer_off();
-
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(700));
-
-                led_off();
-                vTaskDelay(pdMS_TO_TICKS(700));
-                break;
-
-            case INDICATOR_STATE_FAULT:
-                /*
-                 * Hard fault.
-                 * Pattern: double pulse with buzzer.
-                 */
-                led_on();
-                buzzer_on();
-                vTaskDelay(pdMS_TO_TICKS(100));
-
-                led_off();
-                buzzer_off();
-                vTaskDelay(pdMS_TO_TICKS(100));
-
-                led_on();
-                buzzer_on();
-                vTaskDelay(pdMS_TO_TICKS(100));
-
-                led_off();
-                buzzer_off();
-                vTaskDelay(pdMS_TO_TICKS(600));
-                break;
-
-            case INDICATOR_STATE_RESETTING:
-                buzzer_off();
-
-                led_on();
-                vTaskDelay(pdMS_TO_TICKS(70));
-
-                led_off();
-                vTaskDelay(pdMS_TO_TICKS(70));
-                break;
-
-            default:
-                led_off();
-                buzzer_off();
-                vTaskDelay(pdMS_TO_TICKS(300));
-                break;
+        if (is_blink_pattern(pattern.state_led))
+        {
+            gpio_set_level(BOARD_STATE_LED, blink_level);
         }
+
+        if (is_blink_pattern(pattern.activity_led))
+        {
+            gpio_set_level(BOARD_ACTIVITY_LED, blink_level);
+        }
+
+        TickType_t delay_ticks = pdMS_TO_TICKS(250);
+
+        if (is_blink_pattern(pattern.state_led))
+        {
+            delay_ticks = get_pattern_delay(pattern.state_led);
+        }
+
+        if (is_blink_pattern(pattern.activity_led))
+        {
+            TickType_t activity_delay = get_pattern_delay(pattern.activity_led);
+            if (activity_delay < delay_ticks)
+            {
+                delay_ticks = activity_delay;
+            }
+        }
+
+        blink_level = !blink_level;
+        vTaskDelay(delay_ticks);
     }
+
+    gpio_set_level(BOARD_STATE_LED, 0);
+    gpio_set_level(BOARD_ACTIVITY_LED, 0);
+    gpio_set_level(BOARD_BUZZER_GPIO, 0);
+
+    s_status_task_handle = NULL;
+    vTaskDelete(NULL);
 }
 
+/* Configure GPIOs for the state LED, activity LED and buzzer.
+ * Leaves outputs in the OFF state and sets the initial state to
+ * `RESQ_STATE_BOOT`.
+ */
 esp_err_t status_indicator_init(void)
 {
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << STATUS_LED_GPIO) | (1ULL << BUZZER_GPIO),
+        .pin_bit_mask = (1ULL << BOARD_STATE_LED) |
+                        (1ULL << BOARD_ACTIVITY_LED) |
+                        (1ULL << BOARD_BUZZER_GPIO),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -221,50 +235,75 @@ esp_err_t status_indicator_init(void)
     };
 
     esp_err_t err = gpio_config(&io_conf);
-    if (err != ESP_OK) {
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to configure status indicator GPIOs");
         return err;
     }
 
-    led_off();
-    buzzer_off();
+    gpio_set_level(BOARD_STATE_LED, 0);
+    gpio_set_level(BOARD_ACTIVITY_LED, 0);
+    gpio_set_level(BOARD_BUZZER_GPIO, 0);
 
-    s_state = INDICATOR_STATE_OFF;
+    s_current_state = RESQ_STATE_BOOT;
 
     return ESP_OK;
 }
 
+/* Create and start the status indicator FreeRTOS task if needed. */
 esp_err_t status_indicator_start(void)
 {
-    if (s_task_handle != NULL) {
+    if (s_status_task_handle != NULL)
+    {
         return ESP_OK;
     }
 
-    BaseType_t ok = xTaskCreate(
-        indicator_task,
-        "indicator_task",
-        INDICATOR_TASK_STACK_SIZE,
+    s_task_running = true;
+
+    BaseType_t result = xTaskCreate(
+        status_indicator_task,
+        "status_indicator",
+        STATUS_TASK_STACK_SIZE,
         NULL,
-        INDICATOR_TASK_PRIORITY,
-        &s_task_handle
-    );
+        STATUS_TASK_PRIORITY,
+        &s_status_task_handle);
 
-    return (ok == pdPASS) ? ESP_OK : ESP_FAIL;
-}
-
-void status_indicator_set(indicator_state_t state)
-{
-    if (state == s_state) {
-        return;
+    if (result != pdPASS)
+    {
+        s_task_running = false;
+        return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Indicator state changed: %s -> %s",
-             indicator_state_to_string(s_state),
-             indicator_state_to_string(state));
-
-    s_state = state;
+    return ESP_OK;
 }
 
-indicator_state_t status_indicator_get(void)
+/* Signal the background task to stop. The task will cleanup and delete
+ * itself; this function returns immediately.
+ */
+void status_indicator_stop(void)
 {
-    return s_state;
+    s_task_running = false;
+}
+
+/* Update the current state shown by the LEDs. This is non-blocking and
+ * can be called from other tasks.
+ */
+void status_indicator_set_state(resq_state_t state)
+{
+    s_current_state = state;
+    ESP_LOGI(TAG, "State indicator changed to %s", resq_state_to_string(state));
+}
+
+/* Return the currently configured `resq_state_t`. */
+resq_state_t status_indicator_get_state(void)
+{
+    return s_current_state;
+}
+
+/* Produce a single short beep on the buzzer (blocking for ~100ms). */
+void status_indicator_beep_once(void)
+{
+    gpio_set_level(BOARD_BUZZER_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    gpio_set_level(BOARD_BUZZER_GPIO, 0);
 }

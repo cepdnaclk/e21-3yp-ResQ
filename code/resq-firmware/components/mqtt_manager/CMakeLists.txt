@@ -1,15 +1,15 @@
 idf_component_register(
     SRCS
-        "calibration_manager.c"
+        "mqtt_manager.c"
 
     INCLUDE_DIRS
         "include"
 
     REQUIRES
+        mqtt
+        cjson
         config
+        esp_timer
         runtime
-        hx710
-        hall_sensor
-        driver
         freertos
 )

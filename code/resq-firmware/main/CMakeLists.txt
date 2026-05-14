@@ -1,16 +1,16 @@
 idf_component_register(
-    SRCS "main.c"
-    INCLUDE_DIRS "."
+    SRCS
+        "main.c"
+
+    INCLUDE_DIRS
+        "."
+
     REQUIRES
-        sensor_runtime
-        app_config
-        provisioning
-        network
-        messaging
-        event_publisher
-        protocol
+        config
         runtime
-        device_identity
-        board_config
-        calibration_manager
+        provisioning_manager
+        wifi_manager
+        backend_register_client
+        mqtt_manager
+        freertos
 )

@@ -1,15 +1,13 @@
 idf_component_register(
     SRCS
-        "calibration_manager.c"
+        "backend_register_client.c"
 
     INCLUDE_DIRS
         "include"
 
     REQUIRES
+        esp_http_client
+        cjson
         config
-        runtime
-        hx710
-        hall_sensor
-        driver
         freertos
 )
