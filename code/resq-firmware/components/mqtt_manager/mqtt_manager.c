@@ -10,6 +10,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/queue.h"
 #include "mqtt_client.h"
 #include "esp_system.h"
 
@@ -30,6 +31,7 @@ static const char *TAG = "mqtt_manager";
 static esp_mqtt_client_handle_t s_client = NULL;
 static bool s_connected = false;
 static EventGroupHandle_t s_mqtt_events = NULL;
+static QueueHandle_t s_command_queue = NULL;
 
 static char s_device_id[RESQ_DEVICE_ID_MAX_LEN + 1] = {0};
 static char s_topic_cmd_wildcard[MQTT_MANAGER_TOPIC_MAX_LEN];
@@ -94,26 +96,72 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             ESP_LOGW(TAG, "MQTT disconnected");
             break;
 
-        case MQTT_EVENT_DATA: {
-            char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-            if (event->topic_len <= 0 || event->topic_len >= (int)sizeof(topic)) {
-                ESP_LOGW(TAG, "Dropping MQTT message with invalid topic");
+        case MQTT_EVENT_DATA:
+        {
+            if (event->topic_len <= 0) {
+                ESP_LOGW(TAG, "Dropping MQTT message with empty topic");
                 break;
             }
 
-            memcpy(topic, event->topic, event->topic_len);
-            topic[event->topic_len] = '\0';
+            resq_mqtt_command_t command = {0};
 
-            char payload[512];
-            int copy_len = event->data_len < (int)sizeof(payload) - 1 ? event->data_len : (int)sizeof(payload) - 1;
-            if (copy_len > 0) {
-                memcpy(payload, event->data, copy_len);
-                payload[copy_len] = '\0';
-            } else {
-                payload[0] = '\0';
+            /*
+            * MQTT event topic/data are not null-terminated.
+            * So we copy them into fixed-size buffers and add '\0'.
+            */
+            int topic_copy_len = event->topic_len;
+
+            if (topic_copy_len >= MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN) {
+                ESP_LOGW(TAG, "MQTT topic too long. Truncating.");
+                topic_copy_len = MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN - 1;
             }
 
-            ESP_LOGI(TAG, "MQTT message received topic=%s payload=%s", topic, payload);
+            memcpy(command.topic, event->topic, topic_copy_len);
+            command.topic[topic_copy_len] = '\0';
+
+            int payload_copy_len = event->data_len;
+
+            if (payload_copy_len < 0) {
+                payload_copy_len = 0;
+            }
+
+            if (payload_copy_len >= MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN) {
+                ESP_LOGW(TAG, "MQTT payload too long. Truncating.");
+                payload_copy_len = MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN - 1;
+            }
+
+            if (payload_copy_len > 0) {
+                memcpy(command.payload, event->data, payload_copy_len);
+            }
+
+            command.payload[payload_copy_len] = '\0';
+            command.payload_len = payload_copy_len;
+
+            ESP_LOGI(TAG,
+                    "MQTT message received topic=%s payload=%s",
+                    command.topic,
+                    command.payload);
+
+            /*
+            * Only command topics should enter the firmware command queue.
+            * Published topics like status, heartbeat, telemetry, debug, and events
+            * should not be processed as commands.
+            */
+            if (strstr(command.topic, "/cmd/") != NULL) {
+                if (s_command_queue == NULL) {
+                    ESP_LOGW(TAG, "Command queue not initialized. Command dropped.");
+                    break;
+                }
+
+                BaseType_t ok = xQueueSend(s_command_queue,
+                                        &command,
+                                        0);
+
+                if (ok != pdTRUE) {
+                    ESP_LOGW(TAG, "MQTT command queue full. Command dropped.");
+                }
+            }
+
             break;
         }
 
@@ -134,6 +182,14 @@ esp_err_t mqtt_manager_init(void)
     if (s_mqtt_events == NULL) {
         s_mqtt_events = xEventGroupCreate();
         if (s_mqtt_events == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    if (s_command_queue == NULL) {
+        s_command_queue = xQueueCreate(MQTT_MANAGER_COMMAND_QUEUE_LEN,
+                                       sizeof(resq_mqtt_command_t));
+        if (s_command_queue == NULL) {
             return ESP_ERR_NO_MEM;
         }
     }
@@ -418,4 +474,26 @@ esp_err_t mqtt_manager_publish_debug_json(const char *json_payload)
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
     build_topic_for_suffix(s_device_id, RESQ_TOPIC_DEBUG, topic, sizeof(topic));
     return publish_to_topic(topic, json_payload, 0, 0);
+}
+
+esp_err_t mqtt_manager_wait_for_command(resq_mqtt_command_t *command,
+                                        TickType_t timeout_ticks)
+{
+    if (command == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (s_command_queue == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    BaseType_t ok = xQueueReceive(s_command_queue,
+                                  command,
+                                  timeout_ticks);
+
+    if (ok == pdTRUE) {
+        return ESP_OK;
+    }
+
+    return ESP_ERR_TIMEOUT;
 }

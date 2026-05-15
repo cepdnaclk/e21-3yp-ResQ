@@ -23,6 +23,7 @@ build/
 *.a
 *.out
 *.exe 
+dependencies.lock
 
 # ESP-IDF specific build outputs
 *.bin
