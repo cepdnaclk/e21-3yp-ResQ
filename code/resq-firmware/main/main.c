@@ -26,6 +26,11 @@
 #include "paired_idle_manager.h"
 #include "calibration_state_manager.h"
 #include "calibration_manager.h"
+#include "session_manager.h"
+#include "cpr_metrics.h"
+#include "buzzer_manager.h"
+#include "telemetry_publisher.h"
+#include "session_active_manager.h"
 
 /* =========================================================
  * Main firmware configuration
@@ -75,6 +80,7 @@ static resq_state_t run_paired_idle_state(void);
 static resq_state_t run_ready_for_session_state(void);
 static resq_state_t run_calibration_fail_state(void);
 static resq_state_t run_error_state(void);
+static resq_state_t run_session_interrupted_state(void);
 
 /* =========================================================
  * Small helpers
@@ -205,6 +211,37 @@ static esp_err_t initialize_components_once(void)
         ESP_LOGE(TAG,
                  "calibration_manager_init failed: %s",
                  esp_err_to_name(err));
+        return err;
+    }
+
+    /* Initialize new session-related managers */
+    err = session_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "session_manager_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = cpr_metrics_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "cpr_metrics_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = buzzer_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "buzzer_manager_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = telemetry_publisher_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "telemetry_publisher_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = session_active_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "session_active_manager_init failed: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -659,6 +696,28 @@ static resq_state_t run_ready_for_session_state(void)
                                    g_ip);
 }
 
+static resq_state_t run_session_interrupted_state(void)
+{
+    status_indicator_set_state(RESQ_STATE_SESSION_INTERRUPTED);
+
+    if (mqtt_manager_is_connected()) {
+        mqtt_manager_publish_status(RESQ_STATE_SESSION_INTERRUPTED,
+                                    &g_network_cfg,
+                                    &g_calibration_cfg,
+                                    false,
+                                    "",
+                                    g_ip);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    if (g_calibration_cfg.calibrated) {
+        return RESQ_STATE_READY_FOR_SESSION;
+    }
+
+    return RESQ_STATE_PAIRED_IDLE;
+}
+
 static resq_state_t run_error_state(void)
 {
     return error_manager_run(&g_network_cfg,
@@ -738,6 +797,16 @@ void app_main(void)
             next_state = calibration_state_manager_run(&g_network_cfg,
                                                       &g_calibration_cfg,
                                                       g_ip);
+            break;
+
+        case RESQ_STATE_SESSION_ACTIVE:
+            next_state = session_active_manager_run(&g_network_cfg,
+                                                    &g_calibration_cfg,
+                                                    g_ip);
+            break;
+
+        case RESQ_STATE_SESSION_INTERRUPTED:
+            next_state = run_session_interrupted_state();
             break;
 
         case RESQ_STATE_CALIBRATION_FAIL:

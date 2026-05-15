@@ -21,6 +21,7 @@
 #include "wifi_manager.h"
 #include "runtime_helpers.h"
 #include "calibration_manager.h"
+#include "session_active_manager.h"
 
 static const char *TAG = "paired_idle";
 
@@ -199,6 +200,72 @@ exit:
     return result;
 }
 
+
+static esp_err_t paired_idle_parse_session_start(const char *payload,
+                                                 char *out_command_id,
+                                                 size_t command_id_len,
+                                                 char *out_session_id,
+                                                 size_t session_id_len,
+                                                 char *out_profile_id,
+                                                 size_t profile_id_len)
+{
+    if (payload == NULL || out_session_id == NULL) return ESP_ERR_INVALID_ARG;
+
+    cJSON *root = cJSON_Parse(payload);
+    if (root == NULL) return ESP_FAIL;
+
+    esp_err_t result = ESP_OK;
+
+    cJSON *command_id = cJSON_GetObjectItemCaseSensitive(root, "command_id");
+    cJSON *event_type = cJSON_GetObjectItemCaseSensitive(root, "event_type");
+    cJSON *session_id = cJSON_GetObjectItemCaseSensitive(root, "session_id");
+    cJSON *sessionId = cJSON_GetObjectItemCaseSensitive(root, "sessionId");
+    cJSON *profile_id = cJSON_GetObjectItemCaseSensitive(root, "profile_id");
+
+    if (event_type != NULL && cJSON_IsString(event_type) && event_type->valuestring != NULL) {
+        if (strcmp(event_type->valuestring, "session_start") != 0) {
+            result = ESP_ERR_INVALID_ARG;
+            goto exit;
+        }
+    }
+
+    const char *sid = NULL;
+    if (cJSON_IsString(session_id) && session_id->valuestring != NULL) sid = session_id->valuestring;
+    if (sid == NULL && cJSON_IsString(sessionId) && sessionId->valuestring != NULL) sid = sessionId->valuestring;
+
+    if (sid == NULL) {
+        result = ESP_ERR_INVALID_ARG;
+        goto exit;
+    }
+
+    if (out_session_id && session_id_len > 0) {
+        strncpy(out_session_id, sid, session_id_len - 1);
+        out_session_id[session_id_len - 1] = '\0';
+    }
+
+    if (out_command_id != NULL && command_id_len > 0) {
+        if (cJSON_IsString(command_id) && command_id->valuestring) {
+            strncpy(out_command_id, command_id->valuestring, command_id_len - 1);
+            out_command_id[command_id_len - 1] = '\0';
+        } else {
+            out_command_id[0] = '\0';
+        }
+    }
+
+    if (out_profile_id != NULL && profile_id_len > 0) {
+        if (cJSON_IsString(profile_id) && profile_id->valuestring) {
+            strncpy(out_profile_id, profile_id->valuestring, profile_id_len - 1);
+            out_profile_id[profile_id_len - 1] = '\0';
+        } else {
+            out_profile_id[0] = '\0';
+        }
+    }
+
+exit:
+    cJSON_Delete(root);
+    return result;
+}
+
 esp_err_t paired_idle_manager_init(void)
 {
     if (s_initialized) {
@@ -331,19 +398,53 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         }
 
         if (strcmp(command_suffix, "cmd/session/start") == 0) {
+            char command_id[128] = {0};
+            char session_id[128] = {0};
+            char profile_id[128] = {0};
+
+            esp_err_t parse_err = paired_idle_parse_session_start(command.payload,
+                                                                  command_id,
+                                                                  sizeof(command_id),
+                                                                  session_id,
+                                                                  sizeof(session_id),
+                                                                  profile_id,
+                                                                  sizeof(profile_id));
+
+            if (parse_err != ESP_OK) {
+                runtime_helpers_publish_command_result(network_config,
+                                                       visible_state,
+                                                       "cmd/session/start",
+                                                       "NACK",
+                                                       "invalid_session_start_payload");
+                runtime_helpers_publish_error_event(network_config,
+                                                    visible_state,
+                                                    "INVALID_SESSION_START_PAYLOAD",
+                                                    "invalid_session_start_payload");
+                continue;
+            }
+
             if (!calibration_config->calibrated) {
                 runtime_helpers_publish_command_result(network_config,
                                                        visible_state,
                                                        "cmd/session/start",
                                                        "NACK",
                                                        "calibration_not_ready");
-            } else {
-                runtime_helpers_publish_command_result(network_config,
-                                                       visible_state,
-                                                       "cmd/session/start",
-                                                       "NACK",
-                                                       "session_start_not_implemented_yet");
+                continue;
             }
+
+            /* attempt to start active session */
+            resq_state_t start_state = session_active_manager_start(network_config,
+                                                                    calibration_config,
+                                                                    ip_address,
+                                                                    session_id,
+                                                                    profile_id,
+                                                                    command_id[0] ? command_id : NULL);
+
+            if (start_state == RESQ_STATE_SESSION_ACTIVE) {
+                return RESQ_STATE_SESSION_ACTIVE;
+            }
+
+            /* otherwise stay in current visible state */
             continue;
         }
 
