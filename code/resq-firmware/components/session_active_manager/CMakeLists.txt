@@ -1,31 +1,24 @@
 idf_component_register(
     SRCS
-        "main.c"
+        "session_active_manager.c"
 
     INCLUDE_DIRS
-        "."
+        "include"
 
     REQUIRES
         config
         runtime
-        error_manager
         runtime_helpers
-        provisioning_manager
-        wifi_manager
-        backend_register_client
         mqtt_manager
         session_manager
         cpr_metrics
         telemetry_publisher
         buzzer_manager
-        session_active_manager
-        paired_idle_manager
         calibration_manager
-        calibration_state_manager
-        nvs_flash
-        esp_event
-        esp_netif
-        esp_wifi
+        hx710
+        hall_sensor
+        wifi_manager
         esp_timer
         freertos
+        cjson
 )

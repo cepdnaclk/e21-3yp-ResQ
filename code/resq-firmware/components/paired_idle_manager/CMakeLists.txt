@@ -10,6 +10,7 @@ idf_component_register(
         runtime
         runtime_helpers
         calibration_manager
+        session_active_manager
         mqtt_manager
         wifi_manager
         hx710
