@@ -4,6 +4,12 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "nvs_flash.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -13,8 +19,13 @@
 #include "provisioning_manager.h"
 #include "resq_config_types.h"
 #include "status_indicator.h"
+#include "error_manager.h"
 #include "states.h"
 #include "wifi_manager.h"
+#include "runtime_helpers.h"
+#include "paired_idle_manager.h"
+#include "calibration_state_manager.h"
+#include "calibration_manager.h"
 
 /* =========================================================
  * Main firmware configuration
@@ -36,6 +47,8 @@ static const char *TAG = "resq_main";
 static network_config_t g_network_cfg;
 static calibration_config_t g_calibration_cfg;
 
+static backend_registration_result_t s_backend_result;
+
 static volatile resq_state_t g_current_state = RESQ_STATE_BOOT;
 static bool g_has_entered_state = false;
 
@@ -48,6 +61,20 @@ static char g_session_id[64] = {0};
 static char g_ip[16] = {0};
 
 static TaskHandle_t g_heartbeat_task_handle = NULL;
+
+/* Forward declarations for state handlers used by app_main() */
+static esp_err_t initialize_components_once(void);
+static resq_state_t run_boot_state(void);
+static resq_state_t run_config_check_state(void);
+static resq_state_t run_provisioning_state(void);
+static resq_state_t run_flush_config_state(void);
+static resq_state_t run_wifi_connecting_state(void);
+static resq_state_t run_backend_registering_state(void);
+static resq_state_t run_mqtt_connecting_state(void);
+static resq_state_t run_paired_idle_state(void);
+static resq_state_t run_ready_for_session_state(void);
+static resq_state_t run_calibration_fail_state(void);
+static resq_state_t run_error_state(void);
 
 /* =========================================================
  * Small helpers
@@ -160,6 +187,23 @@ static esp_err_t initialize_components_once(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
                  "mqtt_manager_init failed: %s",
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    /* Initialize managers that run during PAIRED_IDLE / calibration */
+    err = paired_idle_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "paired_idle_manager_init failed: %s",
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    err = calibration_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "calibration_manager_init failed: %s",
                  esp_err_to_name(err));
         return err;
     }
@@ -281,11 +325,10 @@ static resq_state_t run_boot_state(void)
     runtime_clear_session_values();
 
     ESP_LOGI(TAG,
-             "BOOT loaded config: provisioned=%s calibrated=%s device_mac=%s device_id=%s",
+             "BOOT loaded config: provisioned=%s calibrated=%s backend_base_url=%s",
              g_network_cfg.provisioned ? "true" : "false",
              g_calibration_cfg.calibrated ? "true" : "false",
-             g_network_cfg.device_mac,
-             g_network_cfg.device_id);
+             g_network_cfg.backend_base_url);
 
     return RESQ_STATE_CONFIG_CHECK;
 }
@@ -368,11 +411,9 @@ static resq_state_t run_provisioning_state(void)
     }
 
     ESP_LOGI(TAG,
-             "Provisioning complete. SSID=%s MQTT=%s:%ld register_url=%s",
+             "Provisioning complete. SSID=%s backend_base_url=%s",
              g_network_cfg.wifi_ssid,
-             g_network_cfg.mqtt_host,
-             (long)g_network_cfg.mqtt_port,
-             g_network_cfg.register_url);
+             g_network_cfg.backend_base_url);
 
     return RESQ_STATE_WIFI_CONNECTING;
 }
@@ -458,7 +499,9 @@ static resq_state_t run_wifi_connecting_state(void)
  */
 static resq_state_t run_backend_registering_state(void)
 {
-    esp_err_t err = backend_register_client_register(&g_network_cfg);
+    backend_registration_result_t result = {0};
+
+    esp_err_t err = backend_register_client_register(&g_network_cfg, &result);
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
@@ -468,26 +511,19 @@ static resq_state_t run_backend_registering_state(void)
         return RESQ_STATE_ERROR;
     }
 
-    if (g_network_cfg.device_id[0] == '\0') {
+    if (result.device_id[0] == '\0') {
         ESP_LOGE(TAG, "Backend registration succeeded but device_id is empty");
         return RESQ_STATE_ERROR;
     }
 
-    err = config_store_save_network(&g_network_cfg);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG,
-                 "Failed to save backend-updated config: %s",
-                 esp_err_to_name(err));
-
-        return RESQ_STATE_ERROR;
-    }
+    /* Keep backend/device identifiers in RAM only — do not persist them. */
+    memcpy(&s_backend_result, &result, sizeof(s_backend_result));
 
     ESP_LOGI(TAG,
-             "Backend registration complete. device_id=%s mqtt=%s:%ld",
-             g_network_cfg.device_id,
-             g_network_cfg.mqtt_host,
-             (long)g_network_cfg.mqtt_port);
+             "Backend registration complete. device_id=%s mqtt=%s:%d",
+             s_backend_result.device_id,
+             s_backend_result.mqtt_host,
+             (int)s_backend_result.mqtt_port);
 
     return RESQ_STATE_MQTT_CONNECTING;
 }
@@ -502,13 +538,20 @@ static resq_state_t run_backend_registering_state(void)
  */
 static resq_state_t run_mqtt_connecting_state(void)
 {
-    esp_err_t err = mqtt_manager_start(&g_network_cfg);
+    ESP_LOGI(TAG, "Entering MQTT_CONNECTING state");
+    status_indicator_set_state(RESQ_STATE_MQTT_CONNECTING);
 
+    esp_err_t err = mqtt_manager_start(s_backend_result.device_id,
+                                       s_backend_result.mqtt_host,
+                                       s_backend_result.mqtt_port);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
-                 "MQTT connection failed: %s",
+                 "MQTT start failed: %s",
                  esp_err_to_name(err));
-
+        runtime_helpers_publish_error_event(&g_network_cfg,
+                                            RESQ_STATE_MQTT_CONNECTING,
+                                            "MQTT_START_FAILED",
+                                            "failed to start MQTT manager");
         return RESQ_STATE_ERROR;
     }
 
@@ -532,9 +575,7 @@ static resq_state_t run_mqtt_connecting_state(void)
                  esp_err_to_name(err));
     }
 
-    /*
-     * First heartbeat immediately after MQTT connection.
-     */
+    /* First heartbeat immediately after MQTT connection. */
     mqtt_manager_publish_heartbeat(
         &g_network_cfg,
         &g_calibration_cfg,
@@ -555,36 +596,74 @@ static resq_state_t run_mqtt_connecting_state(void)
 
 static resq_state_t run_paired_idle_state(void)
 {
-    /*
-     * Future:
-     * - wait for cmd/calibration/start
-     * - wait for cmd/device/reset
-     * - wait for cmd/device/unpair
-     */
-    vTaskDelay(pdMS_TO_TICKS(IDLE_LOOP_DELAY_MS));
+    ESP_LOGI(TAG, "Entering PAIRED_IDLE state");
+
+    status_indicator_set_state(RESQ_STATE_PAIRED_IDLE);
+
+    if (mqtt_manager_is_connected()) {
+        mqtt_manager_publish_status(RESQ_STATE_PAIRED_IDLE,
+                                    &g_network_cfg,
+                                    &g_calibration_cfg,
+                                    false,
+                                    "",
+                                    g_ip);
+    }
+
+    return paired_idle_manager_run(&g_network_cfg,
+                                   &g_calibration_cfg,
+                                   g_ip);
+}
+
+static resq_state_t run_calibration_fail_state(void)
+{
+    ESP_LOGW(TAG, "Entering CALIBRATION_FAIL state");
+
+    status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
+
+    if (mqtt_manager_is_connected()) {
+        mqtt_manager_publish_status(RESQ_STATE_CALIBRATION_FAIL,
+                                    &g_network_cfg,
+                                    &g_calibration_cfg,
+                                    false,
+                                    "",
+                                    g_ip);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
     return RESQ_STATE_PAIRED_IDLE;
 }
 
 static resq_state_t run_ready_for_session_state(void)
 {
+    ESP_LOGI(TAG, "Entering READY_FOR_SESSION state");
+
+    status_indicator_set_state(RESQ_STATE_READY_FOR_SESSION);
+
+    if (mqtt_manager_is_connected()) {
+        mqtt_manager_publish_status(RESQ_STATE_READY_FOR_SESSION,
+                                    &g_network_cfg,
+                                    &g_calibration_cfg,
+                                    false,
+                                    "",
+                                    g_ip);
+    }
+
     /*
-     * Future:
-     * - wait for cmd/session/start
-     * - allow session only if calibrated == true
+     * SESSION_ACTIVE is not fully implemented in this folder yet.
+     * Reuse the idle command wait loop, but it will show READY_FOR_SESSION
+     * when calibration_config.calibrated is true.
      */
-    vTaskDelay(pdMS_TO_TICKS(IDLE_LOOP_DELAY_MS));
-    return RESQ_STATE_READY_FOR_SESSION;
+    return paired_idle_manager_run(&g_network_cfg,
+                                   &g_calibration_cfg,
+                                   g_ip);
 }
 
 static resq_state_t run_error_state(void)
 {
-    /*
-     * Future:
-     * - support reset command
-     * - support watchdog/recovery
-     */
-    vTaskDelay(pdMS_TO_TICKS(IDLE_LOOP_DELAY_MS));
-    return RESQ_STATE_ERROR;
+    return error_manager_run(&g_network_cfg,
+                             &g_calibration_cfg,
+                             g_ip);
 }
 
 /* =========================================================
@@ -594,10 +673,27 @@ static resq_state_t run_error_state(void)
 void app_main(void)
 {
     /*
-     * Start status indicator first so BOOT/ERROR can be shown visually.
+     * Initialize ESP-IDF base subsystems used by components.
      */
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
+    }
+
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "esp_event_loop_create_default: %s", esp_err_to_name(err));
+    }
+
+    /* Start status indicator so BOOT/ERROR are visible immediately. */
     ESP_ERROR_CHECK(status_indicator_init());
     ESP_ERROR_CHECK(status_indicator_start());
+
+    /* Initialize error manager (button) early so ERROR state can use it. */
+    err = error_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "error_manager_init failed: %s", esp_err_to_name(err));
+    }
 
     enter_state(RESQ_STATE_BOOT);
 
@@ -636,6 +732,16 @@ void app_main(void)
 
         case RESQ_STATE_PAIRED_IDLE:
             next_state = run_paired_idle_state();
+            break;
+
+        case RESQ_STATE_CALIBRATING:
+            next_state = calibration_state_manager_run(&g_network_cfg,
+                                                      &g_calibration_cfg,
+                                                      g_ip);
+            break;
+
+        case RESQ_STATE_CALIBRATION_FAIL:
+            next_state = run_calibration_fail_state();
             break;
 
         case RESQ_STATE_READY_FOR_SESSION:
