@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-05-15T16:08:20",
+  "host_ip": "192.168.8.187",
+  "backend_url": "http://192.168.8.187:18080/api/devices/register",
+  "mqtt": {
+    "host": "192.168.8.187",
+    "port": 1883,
+    "topic_style": "short"
+  },
+  "selected_device_id": "resq-node-925da4",
+  "results": [
+    {
+      "name": "preflight_services",
+      "status": "PASS",
+      "message": "Backend and MQTT broker are reachable",
+      "details": {}
+    },
+    {
+      "name": "device_discovery",
+      "status": "PASS",
+      "message": "Discovered device: resq-node-925da4",
+      "details": {}
+    },
+    {
+      "name": "boot_to_idle",
+      "status": "FAIL",
+      "message": "No status state observed before timeout",
+      "details": {}
+    },
+    {
+      "name": "known_state_names",
+      "status": "PASS",
+      "message": "All observed state names are recognized",
+      "details": {
+        "observed_states": []
+      }
+    },
+    {
+      "name": "topic_hygiene",
+      "status": "PASS",
+      "message": "Topic namespace matches selected style",
+      "details": {
+        "short_seen": false,
+        "canonical_seen": false
+      }
+    },
+    {
+      "name": "cmd_debug",
+      "status": "WARN",
+      "message": "Debug payload received but missing expected raw fields",
+      "details": {
+        "missing": [
+          "hall_raw",
+          "pressure_0_raw",
+          "pressure_1_raw",
+          "pressure_2_raw"
+        ],
+        "payload": {
+          "command_id": "cmd-debug-1778841475438",
+          "event_type": "debug_req",
+          "issued_at_ms": 1778841475438
+        }
+      }
+    },
+    {
+      "name": "invalid_calibration_payload",
+      "status": "WARN",
+      "message": "No explicit NACK/error seen for invalid calibration payload",
+      "details": {}
+    },
+    {
+      "name": "valid_calibration_start",
+      "status": "FAIL",
+      "message": "No CALIBRATING/status/progress/result observed after valid calibration command",
+      "details": {}
+    }
+  ],
+  "devices": [
+    {
+      "device_id": "resq-node-925da4",
+      "device_mac": "50:78:7D:92:5D:A4",
+      "register_count": 1,
+      "first_seen_ms": 1778841385105,
+      "last_seen_ms": 1778841488460,
+      "last_state": "",
+      "observed_states": [],
+      "status_count": 0,
+      "heartbeat_count": 0,
+      "event_count": 0,
+      "calibration_progress_count": 0,
+      "calibration_result_count": 0,
+      "error_count": 0,
+      "debug_count": 0,
+      "telemetry_count": 0,
+      "raw_topics": [
+        "resq/resq-node-925da4/cmd/debug",
+        "resq/resq-node-925da4/cmd/calibration/start"
+      ]
+    }
+  ],
+  "counts": {
+    "pass": 4,
+    "warn": 2,
+    "fail": 2,
+    "skip": 0
+  }
+}
