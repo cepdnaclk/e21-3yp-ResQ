@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "resq_config_types.h"
 #include "states.h"
+#include "freertos/FreeRTOS.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +14,20 @@ extern "C" {
 
 #define MQTT_MANAGER_TOPIC_MAX_LEN      160
 #define MQTT_MANAGER_URI_MAX_LEN        160
+
+#define MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN     160
+#define MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN   512
+#define MQTT_MANAGER_COMMAND_QUEUE_LEN         8
+
+typedef struct
+{
+    char topic[MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN];
+    char payload[MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN];
+    int payload_len;
+} resq_mqtt_command_t;
+
+esp_err_t mqtt_manager_wait_for_command(resq_mqtt_command_t *command,
+                                        TickType_t timeout_ticks);
 
 esp_err_t mqtt_manager_init(void);
 
