@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 
 #include "mqtt_manager.h"
+#include "config_store.h"
 
 static const char *TAG = "runtime_helpers";
 
@@ -17,16 +18,16 @@ static int64_t runtime_helpers_now_ms(void)
 
 const char *runtime_helpers_get_device_id(const network_config_t *config)
 {
-    if (config == NULL) {
-        return "unknown";
+    (void)config;
+
+    const char *did = mqtt_manager_get_device_id();
+    if (did && did[0] != '\0') {
+        return did;
     }
 
-    if (config->device_id[0] != '\0') {
-        return config->device_id;
-    }
-
-    if (config->device_mac[0] != '\0') {
-        return config->device_mac;
+    static char macbuf[RESQ_DEVICE_MAC_MAX_LEN] = {0};
+    if (config_store_get_device_mac(macbuf, sizeof(macbuf)) == ESP_OK && macbuf[0] != '\0') {
+        return macbuf;
     }
 
     return "unknown";
@@ -83,7 +84,7 @@ esp_err_t runtime_helpers_publish_error_event(const network_config_t *network_co
         return ESP_ERR_INVALID_STATE;
     }
 
-    return mqtt_manager_publish_event_json(payload);
+    return mqtt_manager_publish_topic_json("events/error", payload);
 }
 
 esp_err_t runtime_helpers_publish_command_result(const network_config_t *network_config,

@@ -31,7 +31,9 @@ esp_err_t mqtt_manager_wait_for_command(resq_mqtt_command_t *command,
 
 esp_err_t mqtt_manager_init(void);
 
-esp_err_t mqtt_manager_start(const network_config_t *config);
+esp_err_t mqtt_manager_start(const char *device_id,
+                            const char *mqtt_host,
+                            int mqtt_port);
 
 esp_err_t mqtt_manager_stop(void);
 
@@ -62,6 +64,9 @@ esp_err_t mqtt_manager_publish_event_json(const char *json_payload);
 esp_err_t mqtt_manager_publish_telemetry_json(const char *json_payload);
 
 esp_err_t mqtt_manager_publish_debug_json(const char *json_payload);
+
+esp_err_t mqtt_manager_publish_topic_json(const char *suffix,
+                                          const char *json_payload);
 
 #ifdef __cplusplus
 }
