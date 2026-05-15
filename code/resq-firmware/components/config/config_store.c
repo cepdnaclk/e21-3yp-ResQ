@@ -14,12 +14,14 @@
 #define NVS_KEY_WIFI_PASS      "wifi_pass"
 
 #define NVS_KEY_REGISTER_URL   "reg_url"
+#define NVS_KEY_BACKEND_BASE_URL "backend_url"
 
-#define NVS_KEY_MQTT_HOST      "mqtt_host"
-#define NVS_KEY_MQTT_PORT      "mqtt_port"
+#define NVS_KEY_MQTT_HOST      "mqtt_host" /* legacy */
+#define NVS_KEY_MQTT_PORT      "mqtt_port" /* legacy */
+#define NVS_KEY_BACKEND_REGISTERED "backend_reg" /* legacy */
 
-#define NVS_KEY_DEVICE_MAC     "dev_mac"
-#define NVS_KEY_DEVICE_ID      "dev_id"
+#define NVS_KEY_DEVICE_MAC     "dev_mac" /* legacy */
+#define NVS_KEY_DEVICE_ID      "dev_id" /* legacy */
 
 #define NVS_KEY_PROVISIONED    "provisioned"
 
@@ -106,21 +108,6 @@ esp_err_t config_store_get_device_mac(char *buffer, size_t buffer_len)
 }
 
 /**
- * @brief Apply hardware MAC to network config.
- *
- * This should be called before validating/saving network config.
- */
-esp_err_t config_store_apply_device_mac(network_config_t *config)
-{
-    if (config == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    return config_store_get_device_mac(config->device_mac,
-                                       sizeof(config->device_mac));
-}
-
-/**
  * @brief Read string from NVS safely.
  */
 static esp_err_t nvs_get_string_safe(nvs_handle_t handle,
@@ -144,23 +131,6 @@ static esp_err_t nvs_get_string_safe(nvs_handle_t handle,
 }
 
 /**
- * @brief Save the hardware MAC to NVS.
- *
- * This is separate because device_mac should survive normal network clear.
- */
-static esp_err_t config_store_save_device_mac(nvs_handle_t handle,
-                                              const network_config_t *config)
-{
-    if (config == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    return nvs_set_str(handle,
-                       NVS_KEY_DEVICE_MAC,
-                       config->device_mac);
-}
-
-/**
  * @brief Load network config from NVS.
  */
 esp_err_t config_store_load_network(network_config_t *config)
@@ -170,11 +140,6 @@ esp_err_t config_store_load_network(network_config_t *config)
     }
 
     network_config_set_defaults(config);
-
-    esp_err_t mac_err = config_store_apply_device_mac(config);
-    if (mac_err != ESP_OK) {
-        return mac_err;
-    }
 
     nvs_handle_t handle;
     esp_err_t err = config_store_open(NVS_READONLY, &handle);
@@ -197,24 +162,19 @@ esp_err_t config_store_load_network(network_config_t *config)
                         config->wifi_pass,
                         sizeof(config->wifi_pass));
 
+    /* Try new backend_base_url key first; fall back to legacy register_url */
     nvs_get_string_safe(handle,
-                        NVS_KEY_REGISTER_URL,
-                        config->register_url,
-                        sizeof(config->register_url));
+                        NVS_KEY_BACKEND_BASE_URL,
+                        config->backend_base_url,
+                        sizeof(config->backend_base_url));
 
-    nvs_get_string_safe(handle,
-                        NVS_KEY_MQTT_HOST,
-                        config->mqtt_host,
-                        sizeof(config->mqtt_host));
+    if (config->backend_base_url[0] == '\0') {
+        nvs_get_string_safe(handle,
+                            NVS_KEY_REGISTER_URL,
+                            config->backend_base_url,
+                            sizeof(config->backend_base_url));
+    }
 
-    nvs_get_i32(handle,
-                NVS_KEY_MQTT_PORT,
-                &config->mqtt_port);
-
-    nvs_get_string_safe(handle,
-                        NVS_KEY_DEVICE_ID,
-                        config->device_id,
-                        sizeof(config->device_id));
 
     uint8_t provisioned = 0;
 
@@ -237,14 +197,8 @@ esp_err_t config_store_save_network(network_config_t *config)
     if (config == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    esp_err_t err = config_store_apply_device_mac(config);
-    if (err != ESP_OK) {
-        return err;
-    }
-
     nvs_handle_t handle;
-    err = config_store_open(NVS_READWRITE, &handle);
+    esp_err_t err = config_store_open(NVS_READWRITE, &handle);
     if (err != ESP_OK) {
         return err;
     }
@@ -255,20 +209,15 @@ esp_err_t config_store_save_network(network_config_t *config)
     err = nvs_set_str(handle, NVS_KEY_WIFI_PASS, config->wifi_pass);
     if (err != ESP_OK) goto exit;
 
-    err = nvs_set_str(handle, NVS_KEY_REGISTER_URL, config->register_url);
+    err = nvs_set_str(handle, NVS_KEY_BACKEND_BASE_URL, config->backend_base_url);
     if (err != ESP_OK) goto exit;
 
-    err = nvs_set_str(handle, NVS_KEY_MQTT_HOST, config->mqtt_host);
-    if (err != ESP_OK) goto exit;
-
-    err = nvs_set_i32(handle, NVS_KEY_MQTT_PORT, config->mqtt_port);
-    if (err != ESP_OK) goto exit;
-
-    err = nvs_set_str(handle, NVS_KEY_DEVICE_ID, config->device_id);
-    if (err != ESP_OK) goto exit;
-
-    err = config_store_save_device_mac(handle, config);
-    if (err != ESP_OK) goto exit;
+    /* Erase legacy keys to avoid stale backend-derived values */
+    nvs_erase_key(handle, NVS_KEY_MQTT_HOST);
+    nvs_erase_key(handle, NVS_KEY_MQTT_PORT);
+    nvs_erase_key(handle, NVS_KEY_BACKEND_REGISTERED);
+    nvs_erase_key(handle, NVS_KEY_DEVICE_ID);
+    nvs_erase_key(handle, NVS_KEY_REGISTER_URL);
 
     err = nvs_set_u8(handle,
                      NVS_KEY_PROVISIONED,
@@ -388,8 +337,10 @@ esp_err_t config_store_clear_network(void)
     nvs_erase_key(handle, NVS_KEY_WIFI_SSID);
     nvs_erase_key(handle, NVS_KEY_WIFI_PASS);
     nvs_erase_key(handle, NVS_KEY_REGISTER_URL);
+    nvs_erase_key(handle, NVS_KEY_BACKEND_BASE_URL);
     nvs_erase_key(handle, NVS_KEY_MQTT_HOST);
     nvs_erase_key(handle, NVS_KEY_MQTT_PORT);
+    nvs_erase_key(handle, NVS_KEY_BACKEND_REGISTERED);
     /* Do NOT erase device MAC here. Keep device_id handling as-is. */
     nvs_erase_key(handle, NVS_KEY_DEVICE_ID);
     nvs_erase_key(handle, NVS_KEY_PROVISIONED);

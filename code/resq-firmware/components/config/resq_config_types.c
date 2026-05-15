@@ -46,26 +46,13 @@ bool network_config_validate(network_config_t *config)
     if (config->wifi_ssid[0] == '\0') {
         valid = false;
     }
-
-    if (config->register_url[0] == '\0') {
+    if (config->backend_base_url[0] == '\0') {
         valid = false;
     }
 
-    if (config->mqtt_host[0] == '\0') {
-        valid = false;
-    }
-
-    if (config->mqtt_port <= 0 || config->mqtt_port > 65535) {
-        valid = false;
-    }
-
-    /*
-     * device_mac must already be filled from ESP hardware MAC
-     * before validation.
+    /* Backend/device MAC are runtime values and are not required
+     * for validation of the persisted network configuration.
      */
-    if (config->device_mac[0] == '\0') {
-        valid = false;
-    }
 
     config->provisioned = valid;
 

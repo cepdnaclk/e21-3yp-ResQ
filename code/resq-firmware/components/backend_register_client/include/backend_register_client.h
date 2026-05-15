@@ -3,6 +3,7 @@
 
 #include "esp_err.h"
 #include "resq_config_types.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,11 +14,17 @@ extern "C" {
 
 esp_err_t backend_register_client_init(void);
 
+typedef struct {
+	char device_id[RESQ_DEVICE_ID_MAX_LEN];
+	char mqtt_host[RESQ_MQTT_HOST_MAX_LEN];
+	uint16_t mqtt_port;
+} backend_registration_result_t;
+
 /**
  * @brief Register ESP device with LocalHub backend.
  *
  * Uses:
- * - config->register_url
+ * - config->backend_base_url (will POST to base + "/api/devices/register")
  * - config->device_mac
  *
  * Sends (JSON request):
@@ -34,7 +41,15 @@ esp_err_t backend_register_client_init(void);
  * - mqtt_host
  * - mqtt_port
  */
-esp_err_t backend_register_client_register(network_config_t *config);
+/**
+ * @brief Register ESP device with LocalHub backend.
+ *
+ * Performs registration using only runtime values from `config` (e.g. backend_base_url)
+ * and the hardware MAC read at runtime. The function returns backend-assigned
+ * identifiers in `out_result` but DOES NOT persist them.
+ */
+esp_err_t backend_register_client_register(const network_config_t *config,
+										   backend_registration_result_t *out_result);
 
 #ifdef __cplusplus
 }

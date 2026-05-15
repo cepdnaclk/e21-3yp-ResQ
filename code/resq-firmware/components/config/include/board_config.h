@@ -26,4 +26,4 @@
  * Factory reset button
  * ========================================================= */
 #define BUTTON_1                GPIO_NUM_9
-// #define BUTTON_2                GPIO_NUM_10  // TODO: assign actual free GPIO later
+#define BUTTON_2                GPIO_NUM_1  

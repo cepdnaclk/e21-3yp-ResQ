@@ -259,20 +259,9 @@ static esp_err_t parse_json_payload(const char *body,
     }
 
     err = json_get_string(root,
-                          "register_url",
-                          config->register_url,
-                          sizeof(config->register_url));
-    if (err != ESP_OK) goto exit;
-
-    err = json_get_string(root,
-                          "mqtt_host",
-                          config->mqtt_host,
-                          sizeof(config->mqtt_host));
-    if (err != ESP_OK) goto exit;
-
-    err = json_get_int(root,
-                       "mqtt_port",
-                       &config->mqtt_port);
+                          "backend_base_url",
+                          config->backend_base_url,
+                          sizeof(config->backend_base_url));
     if (err != ESP_OK) goto exit;
 
 exit:
@@ -312,23 +301,9 @@ static esp_err_t parse_form_payload(const char *body,
     }
 
     ok &= form_get_value(body,
-                         "register_url",
-                         config->register_url,
-                         sizeof(config->register_url));
-
-    ok &= form_get_value(body,
-                         "mqtt_host",
-                         config->mqtt_host,
-                         sizeof(config->mqtt_host));
-
-    if (form_get_value(body,
-                       "mqtt_port",
-                       temp,
-                       sizeof(temp))) {
-        config->mqtt_port = atoi(temp);
-    } else {
-        ok = false;
-    }
+                         "backend_base_url",
+                         config->backend_base_url,
+                         sizeof(config->backend_base_url));
 
     return ok ? ESP_OK : ESP_ERR_INVALID_ARG;
 }
@@ -491,12 +466,8 @@ static esp_err_t root_get_handler(httpd_req_t *req)
         "<input id='wifi_ssid' name='wifi_ssid' required>"
         "<label for='wifi_pass'>Wi-Fi Password</label>"
         "<input id='wifi_pass' name='wifi_pass' type='password'>"
-        "<label for='register_url'>Register URL</label>"
-        "<input id='register_url' name='register_url' placeholder='http://192.168.8.100:18080/api/devices/register' required>"
-        "<label for='mqtt_host'>MQTT Host</label>"
-        "<input id='mqtt_host' name='mqtt_host' placeholder='192.168.8.100' required>"
-        "<label for='mqtt_port'>MQTT Port</label>"
-        "<input id='mqtt_port' name='mqtt_port' type='number' placeholder='1883' required>"
+        "<label for='backend_base_url'>Backend Base URL</label>"
+        "<input id='backend_base_url' name='backend_base_url' placeholder='http://192.168.8.100:18080' required>"
         "<button id='submitBtn' type='submit'>Save Configuration</button>"
         "</form>"
         "<div id='message'></div>"
@@ -514,7 +485,7 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
         "  function applyQueryParams(){"
         "    const params = new URLSearchParams(window.location.search);"
-        "    const fields = ['wifi_ssid','wifi_pass','register_url','mqtt_host','mqtt_port'];"
+        "    const fields = ['wifi_ssid','wifi_pass','backend_base_url'];"
         "    let filled = 0;"
         "    fields.forEach(function(id){"
         "      const value = params.get(id);"
@@ -538,9 +509,7 @@ static esp_err_t root_get_handler(httpd_req_t *req)
         "    const payload = {"
         "      wifi_ssid: document.getElementById('wifi_ssid').value.trim(),"
         "      wifi_pass: document.getElementById('wifi_pass').value,"
-        "      register_url: document.getElementById('register_url').value.trim(),"
-        "      mqtt_host: document.getElementById('mqtt_host').value.trim(),"
-        "      mqtt_port: Number(document.getElementById('mqtt_port').value)"
+        "      backend_base_url: document.getElementById('backend_base_url').value.trim()"
         "    };"
 
         "    try{"
@@ -624,9 +593,7 @@ static esp_err_t status_get_handler(httpd_req_t *req)
  * {
  *   "wifi_ssid": "ResQ-Lab",
  *   "wifi_pass": "password",
- *   "register_url": "http://192.168.8.100:18080/api/devices/register",
- *   "mqtt_host": "192.168.8.100",
- *   "mqtt_port": 1883
+ *   "backend_base_url": "http://192.168.8.100:18080"
  * }
  */
 static esp_err_t provision_post_handler(httpd_req_t *req)
@@ -664,21 +631,7 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
                                   "{\"ok\":false,\"error\":\"invalid_payload\"}");
     }
 
-    /*
-     * Always use real ESP hardware MAC.
-     * Never trust MAC from HTTP payload.
-     */
-    err = config_store_apply_device_mac(&config);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG,
-                 "Failed to apply device MAC: %s",
-                 esp_err_to_name(err));
-
-        return send_json_response(req,
-                                  500,
-                                  "{\"ok\":false,\"error\":\"mac_read_failed\"}");
-    }
+    /* device_mac is read at runtime when needed. */
 
     /*
      * Validation also sets config.provisioned true/false.
@@ -1030,17 +983,9 @@ esp_err_t provisioning_manager_start(void)
     network_config_set_defaults(&s_latest_network_config);
     network_config_set_defaults(&s_pending_network_config);
 
-    esp_err_t err = config_store_apply_device_mac(&s_latest_network_config);
+    /* device_mac is not stored in the config; hardware MAC will be read at runtime. */
 
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG,
-                 "Failed to apply hardware MAC: %s",
-                 esp_err_to_name(err));
-
-        return err;
-    }
-
-    err = start_softap();
+    esp_err_t err = start_softap();
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
