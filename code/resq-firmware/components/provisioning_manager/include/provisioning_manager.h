@@ -24,9 +24,7 @@ esp_err_t provisioning_manager_init(void);
  * The portal receives:
  * - wifi_ssid
  * - wifi_pass
- * - register_url
- * - mqtt_host
- * - mqtt_port
+ * - backend_base_url
  *
  * device_mac is NOT accepted from the request.
  * It is always filled from ESP hardware MAC.

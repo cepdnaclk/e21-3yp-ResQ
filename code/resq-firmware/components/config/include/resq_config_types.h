@@ -17,7 +17,7 @@ extern "C" {
 
 #define RESQ_WIFI_SSID_MAX_LEN        32
 #define RESQ_WIFI_PASS_MAX_LEN        64
-#define RESQ_REGISTER_URL_MAX_LEN     128
+#define RESQ_BACKEND_BASE_URL_MAX_LEN 128
 #define RESQ_MQTT_HOST_MAX_LEN        64
 #define RESQ_DEVICE_MAC_MAX_LEN       18
 #define RESQ_DEVICE_ID_MAX_LEN        32
@@ -41,13 +41,7 @@ typedef struct
     char wifi_ssid[RESQ_WIFI_SSID_MAX_LEN];
     char wifi_pass[RESQ_WIFI_PASS_MAX_LEN];
 
-    char register_url[RESQ_REGISTER_URL_MAX_LEN];
-
-    char mqtt_host[RESQ_MQTT_HOST_MAX_LEN];
-    int32_t mqtt_port;
-
-    char device_mac[RESQ_DEVICE_MAC_MAX_LEN];
-    char device_id[RESQ_DEVICE_ID_MAX_LEN];
+    char backend_base_url[RESQ_BACKEND_BASE_URL_MAX_LEN];
 
     bool provisioned;
 

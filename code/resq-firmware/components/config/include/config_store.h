@@ -25,24 +25,15 @@ esp_err_t config_store_init(void);
  */
 esp_err_t config_store_get_device_mac(char *buffer, size_t buffer_len);
 
-/**
- * @brief Read ESP hardware MAC and place it into network_config_t.
- *
- * This prevents mobile provisioning from spoofing or changing device_mac.
- */
-esp_err_t config_store_apply_device_mac(network_config_t *config);
+
 
 /**
  * @brief Load network config from NVS.
- *
- * This also refreshes config->device_mac from ESP hardware MAC.
  */
 esp_err_t config_store_load_network(network_config_t *config);
 
 /**
  * @brief Save network config to NVS.
- *
- * This also overwrites config->device_mac with ESP hardware MAC before saving.
  */
 esp_err_t config_store_save_network(network_config_t *config);
 
@@ -56,11 +47,9 @@ esp_err_t config_store_load_calibration(calibration_config_t *config);
  */
 esp_err_t config_store_save_calibration(const calibration_config_t *config);
 
+
 /**
  * @brief Clear only network/provisioning values.
- *
- * Important:
- * This does NOT erase device_mac.
  */
 esp_err_t config_store_clear_network(void);
 
