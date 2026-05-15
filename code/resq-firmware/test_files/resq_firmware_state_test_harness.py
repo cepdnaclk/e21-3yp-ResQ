@@ -112,6 +112,24 @@ try:
 except ImportError:
     mqtt = None
 
+# Optional QR dependency
+try:
+    import qrcode
+except Exception:
+    qrcode = None
+
+
+def create_mqtt_client(client_id: str):
+    """Create a paho-mqtt Client preferring Callback API v2 when available."""
+    if mqtt is None:
+        raise RuntimeError("Missing Python package paho-mqtt. Install it with: pip install paho-mqtt")
+
+    try:
+        # Try the simple positional form that some paho versions accept
+        return mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+    except Exception:
+        # Fall back to the classic constructor
+        return mqtt.Client(client_id=client_id)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -567,9 +585,33 @@ class BrokerProcess:
 
         return None
 
-    def start_or_reuse(self) -> None:
-        if port_is_open("127.0.0.1", self.mqtt_port):
-            log("MQTT", f"broker already reachable on localhost:{self.mqtt_port}; reusing it")
+    def start_or_reuse(self, host_ip: str) -> None:
+        # Check both localhost and LAN IP to avoid a silent reuse when the
+        # broker is only bound to localhost (which prevents ESP devices on the
+        # LAN from reaching the broker).
+        localhost_open = port_is_open("127.0.0.1", self.mqtt_port)
+        lan_open = False
+        try:
+            lan_open = port_is_open(host_ip, self.mqtt_port)
+        except Exception:
+            lan_open = False
+
+        if localhost_open and lan_open:
+            log(
+                "MQTT",
+                f"broker already reachable on localhost:{self.mqtt_port} and {host_ip}:{self.mqtt_port}; reusing it",
+            )
+            return
+
+        if localhost_open and not lan_open:
+            log(
+                "MQTT",
+                f"Existing broker detected on localhost:{self.mqtt_port} but not reachable on {host_ip}:{self.mqtt_port}. This usually means Mosquitto is bound only to localhost or Windows Firewall blocks inbound traffic.",
+            )
+            return
+
+        if lan_open and not localhost_open:
+            log("MQTT", f"broker already reachable on {host_ip}:{self.mqtt_port}; reusing it")
             return
 
         exe = self._find_mosquitto()
@@ -660,15 +702,16 @@ class BrokerProcess:
 # ---------------------------------------------------------------------------
 
 class MqttMonitor:
-    def __init__(self, ctx: HarnessContext) -> None:
+    def __init__(self, ctx: HarnessContext, mqtt_monitor_host: Optional[str] = None) -> None:
         if mqtt is None:
             raise RuntimeError(
                 "Missing Python package paho-mqtt. Install it with: pip install paho-mqtt"
             )
 
         self.ctx = ctx
+        self.monitor_host = (mqtt_monitor_host or ctx.host_ip)
         client_id = f"resq-test-harness-{os.getpid()}"
-        self.client = mqtt.Client(client_id=client_id)
+        self.client = create_mqtt_client(client_id)
         self.ctx.mqtt_client = self.client
         self.connected = threading.Event()
 
@@ -677,7 +720,10 @@ class MqttMonitor:
         self.client.on_message = self._on_message
 
     def start(self) -> None:
-        self.client.connect(self.ctx.host_ip, self.ctx.mqtt_port, keepalive=30)
+        # Connect the Python monitor to the configured monitor host. This can
+        # differ from the device-facing host IP (ctx.host_ip) for cases where
+        # Mosquitto listens only on localhost.
+        self.client.connect(self.monitor_host, self.ctx.mqtt_port, keepalive=30)
         self.client.loop_start()
         if not self.connected.wait(timeout=10):
             raise RuntimeError("MQTT monitor could not connect to broker")
@@ -718,7 +764,16 @@ class MqttMonitor:
 
         return subs
 
-    def _on_connect(self, client: Any, userdata: Any, flags: dict, rc: int) -> None:
+    def _on_connect(self, client: Any, userdata: Any, flags: dict, *args) -> None:
+        # Support both Callback API v1 and v2 where the reason code may be
+        # provided as an extra positional arg.
+        rc = 0
+        if args:
+            try:
+                rc = int(args[0])
+            except Exception:
+                rc = 0
+
         if rc == 0:
             log("MQTT", "monitor connected")
             for topic in self._subscriptions():
@@ -728,7 +783,14 @@ class MqttMonitor:
         else:
             log("MQTT", f"monitor connection failed rc={rc}")
 
-    def _on_disconnect(self, client: Any, userdata: Any, rc: int) -> None:
+    def _on_disconnect(self, client: Any, userdata: Any, *args) -> None:
+        rc = 0
+        if args:
+            try:
+                rc = int(args[0])
+            except Exception:
+                rc = 0
+
         log("MQTT", f"monitor disconnected rc={rc}")
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
@@ -1066,6 +1128,47 @@ def print_provisioning_values_with_wifi(ctx: HarnessContext, wifi_ssid: str, wif
     print(f"mqtt_port     = {ctx.mqtt_port}")
     print("=" * 78)
     print()
+
+
+def build_provisioning_autofill_url(ctx: HarnessContext, wifi_ssid: str, wifi_pass: str, esp_url: str) -> str:
+    params = {
+        "wifi_ssid": wifi_ssid or "",
+        "wifi_pass": wifi_pass or "",
+        "register_url": ctx.backend_register_url(),
+        "mqtt_host": ctx.host_ip,
+        "mqtt_port": str(ctx.mqtt_port),
+    }
+    return esp_url.rstrip("/") + "/?" + urllib.parse.urlencode(params)
+
+
+def generate_qr_file(url: str, output_path: str) -> None:
+    if qrcode is None:
+        log("QR", "qrcode package not installed. Install with: pip install qrcode[pil]")
+        log("QR", f"Provisioning autofill URL: {url}")
+        return
+
+    try:
+        img = qrcode.make(url)
+        img.save(output_path)
+        log("QR", f"Provisioning QR saved to: {output_path}")
+        log("QR", f"Provisioning autofill URL: {url}")
+    except Exception as exc:
+        log("QR", f"Failed to generate QR image: {exc}")
+        log("QR", f"Provisioning autofill URL: {url}")
+
+
+def open_file(path: str) -> None:
+    """Open a file using the platform default viewer."""
+    if sys.platform.startswith("win"):
+        os.startfile(path)
+        return
+
+    if sys.platform == "darwin":
+        subprocess.run(["open", path], check=False)
+        return
+
+    # Linux / other
+    subprocess.run(["xdg-open", path], check=False)
     print("Expected device path:")
     print("  1. Submit provisioning form")
     print("  2. Browser sends /provision and /provision/ack")
@@ -1108,6 +1211,25 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not start Mosquitto; assume an MQTT broker is already running.",
     )
+
+    parser.add_argument(
+        "--mqtt-monitor-host",
+        default="",
+        help="Host for Python MQTT monitor (default: use host-ip).",
+    )
+
+    parser.add_argument(
+        "--allow-local-monitor-fallback",
+        action="store_true",
+        help=(
+            "If LAN IP is not reachable but localhost is, allow the Python monitor to "
+            "connect to localhost:1883. Warn that the ESP still needs the broker reachable on LAN IP."
+        ),
+    )
+
+    parser.add_argument("--qr-output", default="provisioning_qr.png", help="Output path for provisioning QR image.")
+    parser.add_argument("--esp-provision-url", default="http://192.168.4.1/", help="ESP provisioning page base URL.")
+    parser.add_argument("--open-qr", action="store_true", help="Open the generated QR image after creation.")
 
     return parser.parse_args()
 
@@ -1165,14 +1287,56 @@ def main() -> int:
         else:
             print_provisioning_values(ctx)
 
+        # Build provisioning autofill URL and optionally generate QR image
+        try:
+            provision_url = build_provisioning_autofill_url(ctx, args.wifi_ssid, args.wifi_pass, args.esp_provision_url)
+            generate_qr_file(provision_url, args.qr_output)
+            if not args.wifi_ssid:
+                log("QR", "QR generated with empty Wi-Fi fields because --wifi-ssid was not provided.")
+            log("QR", "WARNING: This QR contains the Wi-Fi password. Use only for local testing and do not commit/share the QR image.")
+            if args.open_qr:
+                try:
+                    open_file(args.qr_output)
+                except Exception as e:
+                    log("QR", f"Could not open QR image: {e}")
+        except Exception as e:
+            log("QR", f"QR generation skipped: {e}")
+
         if not args.no_broker:
-            broker.start_or_reuse()
+            broker.start_or_reuse(ctx.host_ip)
         else:
             log("MQTT", "skipping broker start because --no-broker was provided")
 
         backend.start()
 
-        monitor = MqttMonitor(ctx)
+        # Preflight: check MQTT reachability and choose monitor host
+        lan_reachable = port_is_open(ctx.host_ip, args.mqtt_port)
+        localhost_reachable = port_is_open("127.0.0.1", args.mqtt_port)
+
+        log("MQTT", f"MQTT broker device host: {ctx.host_ip}:{ctx.mqtt_port}")
+
+        # Determine monitor host preference
+        monitor_host = args.mqtt_monitor_host.strip() or None
+
+        if monitor_host:
+            log("MQTT", f"MQTT monitor host: {monitor_host}:{ctx.mqtt_port} (overridden by --mqtt-monitor-host)")
+        else:
+            if lan_reachable:
+                monitor_host = ctx.host_ip
+                log("MQTT", f"MQTT monitor host: {monitor_host}:{ctx.mqtt_port}")
+            elif localhost_reachable:
+                if args.allow_local_monitor_fallback:
+                    monitor_host = "127.0.0.1"
+                    log("WARN", "Broker is reachable on localhost but not on LAN IP. The Python monitor can continue, but the ESP may fail to connect unless Mosquitto listens on 0.0.0.0 and firewall allows port 1883.")
+                    log("MQTT", f"MQTT monitor host: {monitor_host}:{ctx.mqtt_port}")
+                else:
+                    raise RuntimeError(
+                        f"Broker is reachable on localhost:{args.mqtt_port} but not on {ctx.host_ip}:{args.mqtt_port}. Stop the existing broker or configure Mosquitto with 'listener {args.mqtt_port} 0.0.0.0' and allow Windows Firewall inbound TCP {args.mqtt_port}."
+                    )
+            else:
+                raise RuntimeError("No MQTT broker reachable on localhost or LAN IP. Start a broker or allow this harness to start one.")
+
+        monitor = MqttMonitor(ctx, mqtt_monitor_host=monitor_host)
         monitor.start()
 
         console = CommandConsole(ctx, monitor)
