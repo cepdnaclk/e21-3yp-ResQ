@@ -47,7 +47,9 @@ esp_err_t calibration_manager_init(void);
  * - bladder_1_full_press
  * - bladder_2_full_press
  */
-esp_err_t calibration_manager_start(const calibration_config_t *host_params);
+esp_err_t calibration_manager_start(const network_config_t *network_config,
+									const calibration_config_t *host_params,
+									const char *command_id);
 
 /**
  * @brief Cancel active calibration.
@@ -68,6 +70,13 @@ bool calibration_manager_is_ready(void);
  * @brief Copy latest calibration config.
  */
 esp_err_t calibration_manager_get_config(calibration_config_t *out_config);
+
+/**
+ * @brief Get the command_id associated with the currently running calibration.
+ *
+ * Returns empty string if no calibration in progress.
+ */
+const char *calibration_manager_get_command_id(void);
 
 #ifdef __cplusplus
 }

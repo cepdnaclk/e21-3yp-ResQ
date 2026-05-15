@@ -5,6 +5,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -15,6 +16,8 @@
 #include "hx710.h"
 #include "status_indicator.h"
 #include "states.h"
+#include "runtime_helpers.h"
+#include "mqtt_manager.h"
 
 /* Calibration manager configuration */
 #define CALIBRATION_TASK_STACK_SIZE             4096
@@ -32,12 +35,50 @@ static calibration_config_t s_calibration_config;
 
 static hall_sensor_t s_hall_sensor;
 
+static network_config_t s_network_config;
+
+/* current command id for the running calibration */
+static char s_command_id[64] = {0};
+
 static bool s_initialized = false;
 static bool s_running = false;
 
 /* =========================================================
  * Small internal helper functions
  * ========================================================= */
+
+ /**
+ * @brief Publish calibration progress event with step and message.
+ */
+static void publish_calibration_progress(const network_config_t *network_config,
+                                         const char *step,
+                                         const char *message)
+{
+    char payload[512];
+
+    int written = snprintf(payload,
+                           sizeof(payload),
+                           "{"
+                           "\"event_type\":\"calibration_progress\"," 
+                           "\"device_id\":\"%s\"," 
+                           "\"step\":\"%s\"," 
+                           "\"message\":\"%s\"," 
+                           "\"state\":\"CALIBRATING\"," 
+                           "\"ts_ms\":%lld"
+                           "}",
+                           runtime_helpers_get_device_id(network_config),
+                           step != NULL ? step : "",
+                           message != NULL ? message : "",
+                           (long long)esp_timer_get_time() / 1000);
+
+    if (written <= 0 || written >= (int)sizeof(payload)) {
+        return;
+    }
+
+    if (mqtt_manager_is_connected()) {
+        mqtt_manager_publish_topic_json("events/calibration/progress", payload);
+    }
+}
 
 /**
  * @brief Return absolute difference between two int32_t values.
@@ -285,9 +326,9 @@ static void calibration_manager_fail(const char *reason)
     ESP_LOGE(TAG, "Calibration failed: %s", reason);
 
     s_calibration_config.calibrated = false;
-    s_running = false;
 
     status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
+    publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", reason);
 }
 
 /**
@@ -305,8 +346,6 @@ static esp_err_t calibration_manager_save_success(void)
         calibration_manager_fail("failed to save calibration config");
         return err;
     }
-
-    s_running = false;
 
     status_indicator_set_state(RESQ_STATE_READY_FOR_SESSION);
 
@@ -340,6 +379,8 @@ static void calibration_manager_task(void *arg)
 
     status_indicator_set_state(RESQ_STATE_CALIBRATING);
 
+    publish_calibration_progress(&s_network_config, "CALIBRATION_STARTED", "Calibration started");
+
     int32_t matched_ref_pressure = 0;
     int32_t matched_bladder_1_pressure = 0;
     int32_t matched_bladder_2_pressure = 0;
@@ -347,7 +388,7 @@ static void calibration_manager_task(void *arg)
     /* -----------------------------------------------------
      * Step 1: Match pressure sensor 0 with ref_pressure
      * ----------------------------------------------------- */
-
+    publish_calibration_progress(&s_network_config, "WAITING_REF_PRESSURE", "Apply reference pressure");
     esp_err_t err = calibration_wait_for_pressure_target(
         "pressure_sensor_0",
         BOARD_HX710_0_SCK,
@@ -357,9 +398,12 @@ static void calibration_manager_task(void *arg)
         &matched_ref_pressure);
 
     if (err != ESP_OK) {
+        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "ref pressure target not matched");
         calibration_manager_fail("ref pressure sensor did not match ref_pressure");
         goto task_exit;
     }
+
+    publish_calibration_progress(&s_network_config, "REF_PRESSURE_MATCHED", "Reference pressure matched");
 
     /*
      * ref_pressure is target from LocalHub.
@@ -371,6 +415,8 @@ static void calibration_manager_task(void *arg)
      * Step 2: Match pressure sensor 1 with bladder_1_pressure
      * ----------------------------------------------------- */
 
+    publish_calibration_progress(&s_network_config, "WAITING_BLADDER_1_PRESSURE", "Apply bladder 1 target pressure");
+
     err = calibration_wait_for_pressure_target(
         "pressure_sensor_1",
         BOARD_HX710_1_SCK,
@@ -380,13 +426,18 @@ static void calibration_manager_task(void *arg)
         &matched_bladder_1_pressure);
 
     if (err != ESP_OK) {
+        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "bladder 1 target not matched");
         calibration_manager_fail("Left bladder pressure sensor did not match bladder_1_pressure");
         goto task_exit;
     }
 
+    publish_calibration_progress(&s_network_config, "BLADDER_1_PRESSURE_MATCHED", "Bladder 1 pressure matched");
+
     /* -----------------------------------------------------
      * Step 3: Match pressure sensor 2 with bladder_2_pressure
      * ----------------------------------------------------- */
+
+    publish_calibration_progress(&s_network_config, "WAITING_BLADDER_2_PRESSURE", "Apply bladder 2 target pressure");
 
     err = calibration_wait_for_pressure_target(
         "pressure_sensor_2",
@@ -397,9 +448,12 @@ static void calibration_manager_task(void *arg)
         &matched_bladder_2_pressure);
 
     if (err != ESP_OK) {
+        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "bladder 2 target not matched");
         calibration_manager_fail("Right bladder pressure sensor did not match bladder_2_pressure");
         goto task_exit;
     }
+
+    publish_calibration_progress(&s_network_config, "BLADDER_2_PRESSURE_MATCHED", "Bladder 2 pressure matched");
 
     /*
      * Store the matched baseline bladder pressure values.
@@ -417,6 +471,7 @@ static void calibration_manager_task(void *arg)
 
     err = calibration_read_hall_average(&hall_baseline);
     if (err != ESP_OK) {
+        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "failed to read hall baseline");
         calibration_manager_fail("failed to read hall baseline");
         goto task_exit;
     }
@@ -426,6 +481,8 @@ static void calibration_manager_task(void *arg)
     ESP_LOGI(TAG,
              "Hall baseline captured: %ld",
              (long)s_calibration_config.hall_baseline);
+
+    publish_calibration_progress(&s_network_config, "HALL_BASELINE_CAPTURED", "Hall baseline captured");
 
     /* -----------------------------------------------------
      * Step 5: Calculate expected full-press Hall value
@@ -444,6 +501,8 @@ static void calibration_manager_task(void *arg)
              (long)s_calibration_config.hall_delta,
              (long)s_calibration_config.hall_full_press);
 
+    publish_calibration_progress(&s_network_config, "WAITING_FULL_PRESS", "Compress the chest to full depth");
+
     /* -----------------------------------------------------
      * Step 6: Wait for instructor compression until Hall matches
      * ----------------------------------------------------- */
@@ -456,6 +515,7 @@ static void calibration_manager_task(void *arg)
         &matched_hall_full_press);
 
     if (err != ESP_OK) {
+        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "hall sensor did not reach full press target");
         calibration_manager_fail("hall sensor did not reach full press target");
         goto task_exit;
     }
@@ -465,6 +525,8 @@ static void calibration_manager_task(void *arg)
      * This is more realistic than storing only the calculated target.
      */
     s_calibration_config.hall_full_press = matched_hall_full_press;
+
+    publish_calibration_progress(&s_network_config, "FULL_PRESS_CAPTURED", "Full press captured");
 
     /* -----------------------------------------------------
      * Step 7: Capture full-compression pressure sensor values
@@ -503,6 +565,8 @@ static void calibration_manager_task(void *arg)
     if (err != ESP_OK) {
         goto task_exit;
     }
+
+    publish_calibration_progress(&s_network_config, "CALIBRATION_SAVED", "Calibration saved");
 
 task_exit:
     ESP_LOGI(TAG, "Calibration task ended");
@@ -586,13 +650,16 @@ esp_err_t calibration_manager_init(void)
     return ESP_OK;
 }
 
-esp_err_t calibration_manager_start(const calibration_config_t *host_params)
+esp_err_t calibration_manager_start(const network_config_t *network_config,
+                                    const calibration_config_t *host_params,
+                                    const char *command_id)
 {
+
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (host_params == NULL) {
+    if (network_config == NULL || host_params == NULL || command_id == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -627,6 +694,11 @@ esp_err_t calibration_manager_start(const calibration_config_t *host_params)
     s_calibration_config.bladder_2_pressure = host_params->bladder_2_pressure;
     s_calibration_config.hall_delta = host_params->hall_delta;
     s_calibration_config.calibrated = false;
+
+    /* copy network config and command id into static state for progress publishing */
+    memcpy(&s_network_config, network_config, sizeof(network_config_t));
+    strncpy(s_command_id, command_id, sizeof(s_command_id) - 1);
+    s_command_id[sizeof(s_command_id) - 1] = '\0';
 
     s_running = true;
 
@@ -672,7 +744,7 @@ esp_err_t calibration_manager_cancel(void)
 
 bool calibration_manager_is_running(void)
 {
-    return s_running;
+    return s_calibration_task_handle != NULL;
 }
 
 bool calibration_manager_is_ready(void)
@@ -691,4 +763,9 @@ esp_err_t calibration_manager_get_config(calibration_config_t *out_config)
            sizeof(calibration_config_t));
 
     return ESP_OK;
+}
+
+const char *calibration_manager_get_command_id(void)
+{
+    return s_command_id;
 }

@@ -12,4 +12,7 @@ idf_component_register(
         hall_sensor
         driver
         freertos
+        mqtt_manager
+        runtime_helpers
+        esp_timer
 )
