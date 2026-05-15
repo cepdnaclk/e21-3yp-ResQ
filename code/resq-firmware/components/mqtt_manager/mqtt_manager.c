@@ -13,6 +13,7 @@
 #include "freertos/queue.h"
 #include "mqtt_client.h"
 #include "esp_system.h"
+#include "config_store.h"
 
 static const char *TAG = "mqtt_manager";
 
@@ -51,14 +52,16 @@ static esp_err_t publish_to_topic(const char *topic, const char *payload, int qo
     return ESP_OK;
 }
 
-static const char *select_device_id(const network_config_t *config)
+static const char *select_device_id_runtime(void)
 {
-    if (config && config->device_id[0] != '\0') {
-        return config->device_id;
+    if (s_device_id[0] != '\0') {
+        return s_device_id;
     }
 
-    if (config && config->device_mac[0] != '\0') {
-        return config->device_mac;
+    /* Fall back to hardware MAC if device_id not set */
+    static char macbuf[RESQ_DEVICE_MAC_MAX_LEN] = {0};
+    if (config_store_get_device_mac(macbuf, sizeof(macbuf)) == ESP_OK && macbuf[0] != '\0') {
+        return macbuf;
     }
 
     return "unknown";
@@ -200,26 +203,28 @@ esp_err_t mqtt_manager_init(void)
     return ESP_OK;
 }
 
-esp_err_t mqtt_manager_start(const network_config_t *config)
+esp_err_t mqtt_manager_start(const char *device_id,
+                            const char *mqtt_host,
+                            int mqtt_port)
 {
-    if (config == NULL) {
+    if (mqtt_host == NULL || mqtt_host[0] == '\0' || mqtt_port <= 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (config->mqtt_host[0] == '\0' || config->mqtt_port <= 0) {
-        return ESP_ERR_INVALID_STATE;
+    /* Set runtime device id (may be empty) */
+    if (device_id != NULL) {
+        snprintf(s_device_id, sizeof(s_device_id), "%s", device_id);
+    } else {
+        s_device_id[0] = '\0';
     }
-
-    const char *device_id = select_device_id(config);
-    snprintf(s_device_id, sizeof(s_device_id), "%s", device_id);
 
     snprintf(s_topic_cmd_wildcard, sizeof(s_topic_cmd_wildcard), "%s/%s/%s",
              RESQ_MQTT_ROOT_TOPIC,
-             s_device_id,
+             select_device_id_runtime(),
              RESQ_TOPIC_CMD_WILDCARD);
 
     char uri[MQTT_MANAGER_URI_MAX_LEN];
-    snprintf(uri, sizeof(uri), "mqtt://%s:%" PRId32, config->mqtt_host, config->mqtt_port);
+    snprintf(uri, sizeof(uri), "mqtt://%s:%d", mqtt_host, mqtt_port);
 
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = uri,
@@ -344,7 +349,7 @@ esp_err_t mqtt_manager_publish_status(resq_state_t state,
     cJSON *root = cJSON_CreateObject();
     if (!root) return ESP_ERR_NO_MEM;
 
-    cJSON_AddStringToObject(root, "device_id", select_device_id(network_config));
+    cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
     cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
     cJSON_AddBoolToObject(root, "session_active", session_active);
     cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
@@ -379,8 +384,13 @@ esp_err_t mqtt_manager_publish_identity_event(const network_config_t *network_co
     if (!root) return ESP_ERR_NO_MEM;
 
     cJSON_AddStringToObject(root, "event_type", "device_identity");
-    cJSON_AddStringToObject(root, "device_id", select_device_id(network_config));
-    cJSON_AddStringToObject(root, "device_mac", network_config->device_mac);
+    cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
+    char mac[RESQ_DEVICE_MAC_MAX_LEN] = {0};
+    if (config_store_get_device_mac(mac, sizeof(mac)) == ESP_OK) {
+        cJSON_AddStringToObject(root, "device_mac", mac);
+    } else {
+        cJSON_AddStringToObject(root, "device_mac", "");
+    }
     cJSON_AddStringToObject(root, "firmware_version", "0.1.0");
 
     int64_t ts_ms = esp_timer_get_time() / 1000;
@@ -414,14 +424,14 @@ esp_err_t mqtt_manager_publish_heartbeat(const network_config_t *network_config,
     cJSON *root = cJSON_CreateObject();
     if (!root) return ESP_ERR_NO_MEM;
 
-    cJSON_AddStringToObject(root, "device_id", select_device_id(network_config));
+    cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
     cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
 
     bool wifi_connected = (ip && ip[0] != '\0');
     cJSON_AddBoolToObject(root, "wifi_connected", wifi_connected);
     cJSON_AddBoolToObject(root, "mqtt_connected", s_connected);
 
-    bool backend_registered = (network_config->device_id[0] != '\0');
+    bool backend_registered = (s_device_id[0] != '\0');
     cJSON_AddBoolToObject(root, "backend_registered", backend_registered);
 
     cJSON_AddBoolToObject(root, "session_active", session_active);
@@ -476,6 +486,23 @@ esp_err_t mqtt_manager_publish_debug_json(const char *json_payload)
     return publish_to_topic(topic, json_payload, 0, 0);
 }
 
+esp_err_t mqtt_manager_publish_topic_json(const char *suffix,
+                                          const char *json_payload)
+{
+    if (suffix == NULL || json_payload == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!s_connected) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
+    build_topic_for_suffix(s_device_id, suffix, topic, sizeof(topic));
+
+    return publish_to_topic(topic, json_payload, 1, 0);
+}
+
 esp_err_t mqtt_manager_wait_for_command(resq_mqtt_command_t *command,
                                         TickType_t timeout_ticks)
 {
@@ -492,6 +519,9 @@ esp_err_t mqtt_manager_wait_for_command(resq_mqtt_command_t *command,
                                   timeout_ticks);
 
     if (ok == pdTRUE) {
+        ESP_LOGI(TAG, "Dequeued MQTT command topic=%s payload=%s",
+                 command->topic,
+                 command->payload);
         return ESP_OK;
     }
 
