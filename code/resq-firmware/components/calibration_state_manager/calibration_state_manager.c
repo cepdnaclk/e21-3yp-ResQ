@@ -13,6 +13,7 @@
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
 #include "status_indicator.h"
+#include "error_manager.h"
 
 static const char *TAG = "calibration_state_manager";
 
@@ -128,11 +129,7 @@ resq_state_t calibration_state_manager_run(network_config_t *network_config,
             ESP_LOGE(TAG, "MQTT disconnected during calibration");
             calibration_manager_cancel();
 
-            runtime_helpers_publish_error_event(network_config,
-                                                RESQ_STATE_CALIBRATING,
-                                                "MQTT_DISCONNECTED_DURING_CALIBRATION",
-                                                "MQTT disconnected during calibration");
-
+            error_manager_set_error(FW_ERROR_MQTT_DISCONNECTED_UNRECOVERABLE);
             return RESQ_STATE_ERROR;
         }
     }

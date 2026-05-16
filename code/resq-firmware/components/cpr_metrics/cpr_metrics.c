@@ -9,8 +9,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
-static const char *TAG = "cpr_metrics";
-
 /* thresholds */
 #define COMPRESSION_START_THRESHOLD 0.15f
 #define FULL_PRESS_THRESHOLD 0.85f

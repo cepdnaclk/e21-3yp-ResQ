@@ -337,6 +337,7 @@ static resq_state_t run_boot_state(void)
 {
     esp_err_t err = initialize_components_once();
     if (err != ESP_OK) {
+        error_manager_set_error(FW_ERROR_NVS_INIT_FAILED);
         return RESQ_STATE_ERROR;
     }
 
@@ -516,7 +517,8 @@ static resq_state_t run_wifi_connecting_state(void)
                  "Wi-Fi connection failed: %s",
                  esp_err_to_name(err));
 
-        return RESQ_STATE_FLUSH_CONFIG;
+        error_manager_set_error(FW_ERROR_WIFI_CONNECT_FAILED);
+        return RESQ_STATE_ERROR;
     }
 
     err = wifi_manager_get_ip(g_ip, sizeof(g_ip));
@@ -551,12 +553,13 @@ static resq_state_t run_backend_registering_state(void)
         ESP_LOGE(TAG,
                  "Backend registration failed: %s",
                  esp_err_to_name(err));
-
+        error_manager_set_error(FW_ERROR_BACKEND_REGISTER_FAILED);
         return RESQ_STATE_ERROR;
     }
 
     if (result.device_id[0] == '\0') {
         ESP_LOGE(TAG, "Backend registration succeeded but device_id is empty");
+        error_manager_set_error(FW_ERROR_BACKEND_INVALID_RESPONSE);
         return RESQ_STATE_ERROR;
     }
 
@@ -592,10 +595,7 @@ static resq_state_t run_mqtt_connecting_state(void)
         ESP_LOGE(TAG,
                  "MQTT start failed: %s",
                  esp_err_to_name(err));
-        runtime_helpers_publish_error_event(&g_network_cfg,
-                                            RESQ_STATE_MQTT_CONNECTING,
-                                            "MQTT_START_FAILED",
-                                            "failed to start MQTT manager");
+        error_manager_set_error(FW_ERROR_MQTT_CONNECT_FAILED);
         return RESQ_STATE_ERROR;
     }
 
@@ -812,8 +812,12 @@ void app_main(void)
             break;
 
         case RESQ_STATE_ERROR:
-        default:
             next_state = run_error_state();
+            break;
+
+        default:
+            error_manager_set_error(FW_ERROR_UNSUPPORTED_STATE);
+            next_state = RESQ_STATE_ERROR;
             break;
         }
 
