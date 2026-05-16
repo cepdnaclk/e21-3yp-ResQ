@@ -307,7 +307,95 @@ function WaitingSessionStory() {
     </section>
   );
 }
+// Generates a realistic-looking fake CPR telemetry reading.
+// Used when no real hardware session is available so the UI can be
+// demonstrated and tested without a physical manikin.
+function generateDummySessionData(): SessionLiveView {
+  // CPR depth should be 50-60mm for an adult. We simulate natural
+  // variation by oscillating around the target with some randomness.
+  const depthMm = 50 + Math.sin(Date.now() / 800) * 8 + (Math.random() - 0.5) * 4;
 
+  // Rate should be 100-120 compressions per minute.
+  const rateCpm = 110 + Math.sin(Date.now() / 1200) * 10 + (Math.random() - 0.5) * 5;
+
+  // Recoil is OK most of the time but occasionally fails to simulate realistic feedback.
+  const recoilOk = Math.random() > 0.15;
+
+  // Pause time — should be near zero during active compressions.
+  const pauseS = Math.random() > 0.8 ? Math.random() * 2 : 0.1;
+
+  // Simulate two force sensors on the chest.
+  const force1 = 800 + Math.random() * 200;
+  const force2 = 780 + Math.random() * 220;
+  const sum = force1 + force2;
+  const absDiff = Math.abs(force1 - force2);
+  const pressureBalancePct = sum > 0 ? 100 - (absDiff * 100) / sum : null;
+
+  return {
+    sessionId: "DEMO-SESSION-001",
+    deviceId: "M01-DEMO",
+    traineeId: "demo-trainee",
+    active: true,
+    startedAt: new Date(Date.now() - 60000).toISOString(), // started 1 minute ago
+    scenario: "Adult Basic Life Support",
+    notes: "Demo mode — no hardware connected",
+    lastSeen: new Date().toISOString(),
+    state: "SESSION_ACTIVE",
+    online: true,
+    ip: "192.168.1.40",
+    fw: "0.3.0",
+    rssi: -58,
+    battery: 87,
+    sessionActive: true,
+    latestDepthMm: depthMm,
+    latestRateCpm: rateCpm,
+    latestRecoilOk: recoilOk,
+    latestPauseS: pauseS,
+    latestFlags: depthMm < 50 ? "DEPTH_LOW" : depthMm > 60 ? "DEPTH_HIGH" : "DEPTH_OK",
+    lastEventType: "COMPRESSION",
+    latestForce1: force1,
+    latestForce2: force2,
+    pressureBalancePct: pressureBalancePct,
+    pressureSkewed: pressureBalancePct !== null && pressureBalancePct < 88,
+  };
+}
+// Produces a simple human-readable coaching cue based on the latest
+// session metrics. Returns the most important cue to show the trainee.
+function getCoachingCue(session: SessionLiveView): {
+  message: string;
+  tone: "good" | "warn" | "critical";
+  } {
+
+    if (session.latestPauseS !== null && session.latestPauseS > 3) {
+      return { message: "Keep going — don't pause!", tone: "critical" };
+    }
+
+    if (session.latestDepthMm !== null && session.latestDepthMm < 45) {
+      return { message: "Push harder — aim for 5–6 cm depth", tone: "critical" };
+    }
+
+    if (session.latestDepthMm !== null && session.latestDepthMm > 63) {
+      return { message: "Ease up slightly — depth is too deep", tone: "warn" };
+    }
+
+    if (session.latestRateCpm !== null && session.latestRateCpm < 95) {
+      return { message: "Speed up — target 100–120 per minute", tone: "warn" };
+    }
+
+    if (session.latestRateCpm !== null && session.latestRateCpm > 125) {
+      return { message: "Slow down — you're going too fast", tone: "warn" };
+    }
+
+    if (session.latestRecoilOk === false) {
+      return { message: "Release fully — let the chest rise completely", tone: "warn" };
+    }
+
+    if (session.pressureSkewed === true) {
+      return { message: "Reposition hands — pressure is uneven", tone: "warn" };
+    }
+
+    return { message: "Great technique — keep it up!", tone: "good" };
+  }
 export default function TraineeDashboard({
   embeddedInDesktop = false,
   initialSessionId = null,
@@ -322,6 +410,21 @@ export default function TraineeDashboard({
   const [streamState, setStreamState] = useState<LiveStreamState>("connecting");
   const [streamMessage, setStreamMessage] = useState<string | null>(null);
   const [sensorHistory, setSensorHistory] = useState<SensorPoint[]>([]);
+  // Demo mode: when true, feeds dummy data into the dashboard so the
+  // UI can be visualised without a real hardware session.
+  const [demoMode, setDemoMode] = useState(false);
+  const [demoSession, setDemoSession] = useState<SessionLiveView | null>(null);
+
+  // Mobile detection for responsive layout
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640);
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth < 640);
+    }
+  window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     if (initialSessionId && initialSessionId.trim().length > 0) {
@@ -360,6 +463,43 @@ export default function TraineeDashboard({
       setStreamMessage(null);
       return;
     }
+  
+  // When demo mode is on, generate a new fake reading every 800ms
+// to simulate live telemetry coming in from the manikin.
+useEffect(() => {
+  if (!demoMode) {
+    setDemoSession(null);
+    return;
+  }
+
+  // Generate the first reading immediately so the screen isn't blank
+  setDemoSession(generateDummySessionData());
+
+  const interval = setInterval(() => {
+    const newReading = generateDummySessionData();
+    setDemoSession(newReading);
+
+    // Also feed the demo reading into the sensor history so
+    // the sparkline charts animate with rolling data.
+    setSensorHistory((previous) => [
+      ...previous,
+      {
+        ts: Date.now(),
+        depthMm: newReading.latestDepthMm,
+        rateCpm: newReading.latestRateCpm,
+        pauseS: newReading.latestPauseS,
+        recoilOk: newReading.latestRecoilOk,
+        force1: newReading.latestForce1,
+        force2: newReading.latestForce2,
+        pressureBalancePct: newReading.pressureBalancePct,
+        pressureSkewed: newReading.pressureSkewed,
+        flags: newReading.latestFlags,
+      },
+    ].slice(-MAX_SENSOR_POINTS));
+  }, 800);
+
+  return () => clearInterval(interval);
+}, [demoMode]);
 
     const activeSessionId = sessionId;
 
@@ -533,7 +673,11 @@ export default function TraineeDashboard({
   function navigateToDesktopHome() {
     window.location.assign("/");
   }
-
+  // When demo mode is active, use the generated demo session instead
+  // of the real session from the backend.
+  const displaySession = demoMode ? demoSession : session;
+  const displaySessionLoading = demoMode ? false : sessionLoading;
+  const displaySessionError = demoMode ? null : sessionError;
   const depthSeries = sensorHistory.map((point) => point.depthMm);
   const rateSeries = sensorHistory.map((point) => point.rateCpm);
   const pauseSeries = sensorHistory.map((point) => point.pauseS);
@@ -617,6 +761,28 @@ export default function TraineeDashboard({
               >
                 Back To Home
               </button>
+              {/* Demo mode toggle — visible always so anyone can preview
+              the dashboard without needing a real session */}
+              <button
+                type="button"
+                onClick={() => {
+                  setDemoMode((current) => !current);
+                  // Clear sensor history when toggling so charts start fresh
+                  setSensorHistory([]);
+                }}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: "6px",
+                  border: `1px solid ${demoMode ? "#16a34a" : "#cbd5e1"}`,
+                  background: demoMode ? "#dcfce7" : "#ffffff",
+                  color: demoMode ? "#166534" : "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "0.9rem",
+                }}
+              >
+                {demoMode ? "Demo ON — click to stop" : "Try Demo Mode"}
+              </button>
             </div>
           ) : null}
         </div>
@@ -647,25 +813,25 @@ export default function TraineeDashboard({
         </section>
 
         {/* Session Details Card - Only when sessionId exists and loading or session data available */}
-        {sessionId && (sessionLoading || !sessionError) && (
+        {sessionId && (displaySessionLoading || !displaySessionError) && (
           <section style={styles.card}>
             <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Session Details</h2>
-            {sessionLoading ? (
+            {displaySessionLoading ? (
               <div style={{ background: "#f1f5f9", borderRadius: "8px", padding: "12px", minHeight: "80px", display: "flex", alignItems: "center", color: "#64748b" }}>
                 Loading session details...
               </div>
-            ) : session ? (
+            ) : displaySession ? (
               <div style={{ display: "grid", gap: "8px" }}>
                 <div>
                   <p style={{ margin: "0 0 4px 0", fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>SCENARIO</p>
                   <p style={{ margin: 0, fontSize: "0.95rem", fontWeight: 500, color: "#0f172a" }}>
-                    {session.scenario || "No scenario assigned"}
+                    {displaySession.scenario || "No scenario assigned"}
                   </p>
                 </div>
                 <div>
                   <p style={{ margin: "0 0 4px 0", fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>MANIKIN</p>
                   <p style={{ margin: 0, fontSize: "0.95rem", fontWeight: 500, color: "#0f172a" }}>
-                    {session.deviceId}
+                    {displaySession.deviceId}
                   </p>
                 </div>
               </div>
@@ -674,6 +840,36 @@ export default function TraineeDashboard({
         )}
 
         {/* Live Vitals Card - Only when sessionId exists */}
+        {/* Coaching cue — the most important feedback shown prominently */}
+        {displaySession ? (() => {
+          const cue = getCoachingCue(displaySession);
+          const cueColors = {
+            good: { background: "#dcfce7", color: "#166534", border: "#bbf7d0" },
+            warn: { background: "#fef3c7", color: "#92400e", border: "#fde68a" },
+            critical: { background: "#fee2e2", color: "#991b1b", border: "#fecaca" },
+          };
+          const colors = cueColors[cue.tone];
+          return (
+            <div style={{
+              padding: "12px 16px",
+              borderRadius: "8px",
+              border: `1px solid ${colors.border}`,
+              background: colors.background,
+              marginBottom: "12px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}>
+              <span style={{
+                fontSize: isMobile ? "1.1rem" : "0.95rem",
+                fontWeight: 700,
+                color: colors.color,
+              }}>
+                {cue.message}
+              </span>
+            </div>
+          );
+        })() : null}
         {sessionId && (
           <>
             {sessionError ? (

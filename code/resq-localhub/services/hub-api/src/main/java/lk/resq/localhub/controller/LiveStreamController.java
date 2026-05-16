@@ -59,17 +59,46 @@ public class LiveStreamController {
     }
 
     @GetMapping(path = "/sessions/live/{sessionId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseEntity<SseEmitter> streamSessionLive(HttpServletRequest request, @PathVariable String sessionId) {
+    public ResponseEntity<SseEmitter> streamSessionLive(
+            HttpServletRequest request,
+            @PathVariable String sessionId
+    ) {
         try {
-            // TODO: allow TRAINEE to subscribe to their own session when ownership is implemented.
-            authService.requireRole(request, UserRole.INSTRUCTOR);
-            SessionLiveView initialPayload = activeSessionService.getSessionLiveView(sessionId).orElse(null);
+            // Any authenticated user can attempt to subscribe, but we then
+            // enforce ownership rules for TRAINEE role below.
+            // This allows trainees to view their own live session via QR code.
+            var actor = authService.requireAuth(request);
+
+            // If the actor is a TRAINEE, verify the session actually belongs
+            // to them before allowing the subscription. An INSTRUCTOR or ADMIN
+            // can subscribe to any session for monitoring purposes.
+            if (actor.role() == UserRole.TRAINEE) {
+                var sessionView = activeSessionService.getSessionLiveView(sessionId);
+
+                // If the session doesn't exist, let the emitter handle it gracefully
+                // rather than returning 404 — the frontend is already designed to
+                // show "session no longer active" when it receives a null payload.
+                if (sessionView.isPresent()) {
+                    String traineeId = sessionView.get().traineeId();
+                    if (traineeId == null || !traineeId.equalsIgnoreCase(actor.username())) {
+                        authService.audit(actor.id(), "ACCESS_DENIED", "stream",
+                            "session_live", Map.of("sessionId", sessionId));
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                    }
+                }
+            }
+
+            SessionLiveView initialPayload =
+                activeSessionService.getSessionLiveView(sessionId).orElse(null);
             SseEmitter emitter = liveStreamService.subscribeSession(sessionId, initialPayload);
             return ResponseEntity.ok(emitter);
+
         } catch (ForbiddenException e) {
             authService.maybeAuth(request).ifPresentOrElse(
-                    user -> authService.audit(user.id(), "ACCESS_DENIED", "stream", "session_live", Map.of("sessionId", sessionId)),
-                    () -> authService.audit(null, "ACCESS_DENIED", "stream", "session_live", Map.of("sessionId", sessionId))
+                user -> authService.audit(user.id(), "ACCESS_DENIED", "stream",
+                    "session_live", Map.of("sessionId", sessionId)),
+                () -> authService.audit(null, "ACCESS_DENIED", "stream",
+                    "session_live", Map.of("sessionId", sessionId))
             );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
