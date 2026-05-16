@@ -19,4 +19,5 @@ idf_component_register(
         esp_timer
         freertos
         error_manager
+        system_button_manager
 )

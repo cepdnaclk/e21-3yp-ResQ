@@ -14,6 +14,7 @@
 #include "runtime_helpers.h"
 #include "status_indicator.h"
 #include "error_manager.h"
+#include "system_button_manager.h"
 
 static const char *TAG = "calibration_state_manager";
 
@@ -83,6 +84,16 @@ resq_state_t calibration_state_manager_run(network_config_t *network_config,
     }
 
     while (calibration_manager_is_running()) {
+        system_button_action_t action = system_button_manager_poll(RESQ_STATE_CALIBRATING);
+        if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+            ESP_LOGW(TAG, "System button requested TURN_OFF during calibration");
+            return RESQ_STATE_TURN_OFF;
+        }
+
+        if (action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+            ESP_LOGW(TAG, "System button requested FACTORY_RESET during calibration");
+            return RESQ_STATE_RESETTING;
+        }
         resq_mqtt_command_t command;
 
         if (mqtt_manager_wait_for_command(&command, pdMS_TO_TICKS(250)) == ESP_OK) {

@@ -23,6 +23,7 @@
 #include "error_manager.h"
 #include "calibration_manager.h"
 #include "session_active_manager.h"
+#include "system_button_manager.h"
 
 static const char *TAG = "paired_idle";
 
@@ -185,6 +186,16 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                 ip_address);
 
     while (true) {
+        system_button_action_t action = system_button_manager_poll(visible_state);
+        if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+            ESP_LOGW(TAG, "System button requested TURN_OFF in paired idle");
+            return RESQ_STATE_TURN_OFF;
+        }
+
+        if (action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+            ESP_LOGW(TAG, "System button requested FACTORY_RESET in paired idle");
+            return RESQ_STATE_RESETTING;
+        }
         visible_state = calibration_config->calibrated
             ? RESQ_STATE_READY_FOR_SESSION
             : RESQ_STATE_PAIRED_IDLE;
