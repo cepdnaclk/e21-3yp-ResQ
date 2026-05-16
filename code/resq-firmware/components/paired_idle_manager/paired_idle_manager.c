@@ -33,67 +33,7 @@ static int64_t now_ms(void)
 }
 
 
-static esp_err_t paired_idle_handle_debug(const network_config_t *network_config)
-{
-    int32_t pressure_0_raw = hx710_read(BOARD_HX710_0_SCK,
-                                        BOARD_HX710_0_DOUT);
-
-    if (pressure_0_raw == HX710_ERROR_TIMEOUT) {
-        return ESP_FAIL;
-    }
-
-    int32_t pressure_1_raw = hx710_read(BOARD_HX710_1_SCK,
-                                        BOARD_HX710_1_DOUT);
-
-    if (pressure_1_raw == HX710_ERROR_TIMEOUT) {
-        return ESP_FAIL;
-    }
-
-    int32_t pressure_2_raw = hx710_read(BOARD_HX710_2_SCK,
-                                        BOARD_HX710_2_DOUT);
-
-    if (pressure_2_raw == HX710_ERROR_TIMEOUT) {
-        return ESP_FAIL;
-    }
-
-    int hall_raw = 0;
-
-    hall_sensor_t local_hall = {0};
-    esp_err_t hall_err = hall_sensor_init(&local_hall, BOARD_HALL_ADC_CHAN);
-    if (hall_err != ESP_OK) {
-        return hall_err;
-    }
-
-    hall_err = hall_sensor_read_raw(&local_hall, &hall_raw);
-    if (hall_err != ESP_OK) {
-        return hall_err;
-    }
-
-    char payload[384];
-
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"device_id\":\"%s\","
-                           "\"pressure_0_raw\":%ld,"
-                           "\"pressure_1_raw\":%ld,"
-                           "\"pressure_2_raw\":%ld,"
-                           "\"hall_raw\":%d,"
-                           "\"ts_ms\":%lld"
-                           "}",
-                           runtime_helpers_get_device_id(network_config),
-                           (long)pressure_0_raw,
-                           (long)pressure_1_raw,
-                           (long)pressure_2_raw,
-                           hall_raw,
-                           (long long)now_ms());
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    return mqtt_manager_publish_debug_json(payload);
-}
+/* debug snapshot publishing moved to runtime_helpers_publish_debug_snapshot() */
 
 
 static void paired_idle_publish_calibration_result(const network_config_t *network_config,
@@ -101,31 +41,29 @@ static void paired_idle_publish_calibration_result(const network_config_t *netwo
                                                    const char *command_id,
                                                    const char *status,
                                                    const char *result,
-                                                   bool ready_for_session,
-                                                   const char *message)
+                                                   calibration_reason_id_t reason_id,
+                                                   calibration_action_id_t action_id)
 {
     char payload[512];
 
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
-                           "\"event_type\":\"calibration_result\","
-                           "\"device_id\":\"%s\","
-                           "\"command_id\":\"%s\","
-                           "\"status\":\"%s\","
-                           "\"result\":\"%s\","
-                           "\"readyForSession\":%s,"
-                           "\"state\":\"%s\","
-                           "\"message\":\"%s\","
+                           "\"event_type\":\"calibration_result\"," 
+                           "\"command_id\":\"%s\"," 
+                           "\"status\":\"%s\"," 
+                           "\"result\":\"%s\"," 
+                           "\"reason_id\":%d," 
+                           "\"state\":\"%s\"," 
+                           "\"action_id\":%d," 
                            "\"ts_ms\":%lld"
                            "}",
-                           runtime_helpers_get_device_id(network_config),
                            command_id != NULL ? command_id : "",
                            status != NULL ? status : "",
                            result != NULL ? result : "",
-                           ready_for_session ? "true" : "false",
+                           (int)reason_id,
                            resq_state_to_string(state),
-                           message != NULL ? message : "",
+                           (int)action_id,
                            (long long)now_ms());
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
@@ -138,67 +76,7 @@ static void paired_idle_publish_calibration_result(const network_config_t *netwo
     }
 }
 
-static esp_err_t paired_idle_parse_calibration_start(const char *payload,
-                                                    calibration_config_t *calibration_config,
-                                                    char *out_command_id,
-                                                    size_t out_command_id_len)
-{
-    if (payload == NULL || calibration_config == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    cJSON *root = cJSON_Parse(payload);
-    if (root == NULL) {
-        return ESP_FAIL;
-    }
-
-    esp_err_t result = ESP_OK;
-
-    cJSON *command_id = cJSON_GetObjectItemCaseSensitive(root, "command_id");
-    cJSON *event_type = cJSON_GetObjectItemCaseSensitive(root, "event_type");
-    cJSON *hall_delta = cJSON_GetObjectItemCaseSensitive(root, "hall_delta");
-    cJSON *ref_pressure = cJSON_GetObjectItemCaseSensitive(root, "ref_pressure");
-    cJSON *bladder_1_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_1_pressure");
-    cJSON *bladder_2_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_2_pressure");
-
-    if (!cJSON_IsString(command_id) || command_id->valuestring == NULL ||
-        !cJSON_IsString(event_type) || event_type->valuestring == NULL ||
-        strcmp(event_type->valuestring, "calibration_start") != 0 ||
-        !cJSON_IsNumber(hall_delta) ||
-        !cJSON_IsNumber(ref_pressure) ||
-        !cJSON_IsNumber(bladder_1_pressure) ||
-        !cJSON_IsNumber(bladder_2_pressure)) {
-        result = ESP_ERR_INVALID_ARG;
-        goto exit;
-    }
-
-    /* validate numeric values > 0 */
-    if (hall_delta->valuedouble <= 0 || ref_pressure->valuedouble <= 0 ||
-        bladder_1_pressure->valuedouble <= 0 || bladder_2_pressure->valuedouble <= 0) {
-        result = ESP_ERR_INVALID_ARG;
-        goto exit;
-    }
-
-    if (out_command_id != NULL && out_command_id_len > 0) {
-        strncpy(out_command_id, command_id->valuestring, out_command_id_len - 1);
-        out_command_id[out_command_id_len - 1] = '\0';
-    }
-
-    calibration_config->hall_delta = (int32_t)hall_delta->valuedouble;
-    calibration_config->ref_pressure = (int32_t)ref_pressure->valuedouble;
-    calibration_config->bladder_1_pressure = (int32_t)bladder_1_pressure->valuedouble;
-    calibration_config->bladder_2_pressure = (int32_t)bladder_2_pressure->valuedouble;
-
-    /*
-     * Starting calibration invalidates previous result.
-     * The CALIBRATING state will capture final values and set calibrated=true only on pass.
-     */
-    calibration_config->calibrated = false;
-
-exit:
-    cJSON_Delete(root);
-    return result;
-}
+/* calibration_start parsing moved to calibration_manager_parse_start_payload() */
 
 
 static esp_err_t paired_idle_parse_session_start(const char *payload,
@@ -362,14 +240,15 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                  resq_state_to_string(visible_state));
 
         if (strcmp(command_suffix, "cmd/debug") == 0) {
-            esp_err_t debug_err = paired_idle_handle_debug(network_config);
+            esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
 
             if (debug_err != ESP_OK) {
-                runtime_helpers_publish_error_event(network_config,
-                                                    visible_state,
-                                                    "DEBUG_READ_FAILED",
-                                                    "Failed to read or publish debug raw values");
-                return RESQ_STATE_ERROR;
+                runtime_helpers_publish_command_result(network_config,
+                                                       visible_state,
+                                                       "cmd/debug",
+                                                       "NACK",
+                                                       "debug_read_failed");
+                continue;
             }
 
             runtime_helpers_publish_command_result(network_config,
@@ -388,12 +267,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                                    "no_active_calibration");
 
             paired_idle_publish_calibration_result(network_config,
-                                                   visible_state,
+                                                   RESQ_STATE_PAIRED_IDLE,
                                                    "cmd-005",
                                                    "ACK",
                                                    "CANCELLED",
-                                                   calibration_config->calibrated,
-                                                   "no_active_calibration");
+                                                   CAL_REASON_CALIBRATION_CANCELLED,
+                                                   CAL_ACTION_MOVE_TO_PAIRED_IDLE_DROP_TEMP);
             continue;
         }
 
@@ -450,10 +329,13 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
         if (strcmp(command_suffix, "cmd/calibration/start") == 0) {
             char command_id[128] = {0};
-            esp_err_t parse_err = paired_idle_parse_calibration_start(command.payload,
-                                                                     calibration_config,
-                                                                     command_id,
-                                                                     sizeof(command_id));
+            calibration_reason_id_t parse_reason = CAL_REASON_NONE;
+
+            esp_err_t parse_err = calibration_manager_parse_start_payload(command.payload,
+                                                                           calibration_config,
+                                                                           command_id,
+                                                                           sizeof(command_id),
+                                                                           &parse_reason);
 
             if (parse_err != ESP_OK) {
                 runtime_helpers_publish_command_result(network_config,
@@ -462,18 +344,28 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                                        "NACK",
                                                        "invalid_calibration_payload");
 
-                paired_idle_publish_calibration_result(network_config,
-                                                       visible_state,
-                                                       command_id[0] != '\0' ? command_id : "cmd-003",
-                                                       "NACK",
-                                                       "FAIL",
-                                                       false,
-                                                       "invalid_calibration_payload");
+                calibration_manager_publish_progress_event(parse_reason,
+                                                           visible_state,
+                                                           CAL_ACTION_SEND_VALID_PAYLOAD);
 
                 runtime_helpers_publish_error_event(network_config,
                                                     visible_state,
                                                     "INVALID_CALIBRATION_PAYLOAD",
                                                     "invalid_calibration_payload");
+                continue;
+            }
+
+            /* If calibration is already running, NACK and publish progress */
+            if (calibration_manager_is_running()) {
+                runtime_helpers_publish_command_result(network_config,
+                                                       visible_state,
+                                                       "cmd/calibration/start",
+                                                       "NACK",
+                                                       "calibration_already_running");
+
+                calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_ALREADY_RUNNING,
+                                                           RESQ_STATE_CALIBRATING,
+                                                           CAL_ACTION_WAIT_OR_CANCEL);
                 continue;
             }
 
@@ -486,16 +378,16 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                                    "moving_to_calibrating");
 
             paired_idle_publish_calibration_result(network_config,
-                                                   visible_state,
-                                                   command_id,
+                                                   RESQ_STATE_CALIBRATING,
+                                                   command_id[0] != '\0' ? command_id : "cmd-003",
                                                    "ACK",
                                                    "STARTED",
-                                                   false,
-                                                   "moving_to_calibrating");
+                                                   CAL_REASON_NONE,
+                                                   CAL_ACTION_NONE);
 
             esp_err_t start_err = calibration_manager_start(network_config,
                                                             calibration_config,
-                                                            command_id);
+                                                            command_id[0] != '\0' ? command_id : "cmd-003");
 
             if (start_err != ESP_OK) {
                 runtime_helpers_publish_command_result(network_config,
@@ -509,8 +401,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                                        command_id,
                                                        "NACK",
                                                        "FAIL",
-                                                       false,
-                                                       "calibration_start_failed");
+                                                       CAL_REASON_NONE,
+                                                       CAL_ACTION_NONE);
                 continue;
             }
 

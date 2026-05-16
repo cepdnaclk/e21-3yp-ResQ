@@ -8,6 +8,10 @@
 
 #include "mqtt_manager.h"
 #include "config_store.h"
+#include "board_config.h"
+#include "hx710.h"
+#include "hall_sensor.h"
+#include "esp_timer.h"
 
 static const char *TAG = "runtime_helpers";
 
@@ -122,4 +126,64 @@ esp_err_t runtime_helpers_publish_command_result(const network_config_t *network
     }
 
     return mqtt_manager_publish_event_json(payload);
+}
+
+esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config)
+{
+    if (network_config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int32_t pressure_0_raw = hx710_read(BOARD_HX710_0_SCK, BOARD_HX710_0_DOUT);
+    if (pressure_0_raw == HX710_ERROR_TIMEOUT) {
+        return ESP_FAIL;
+    }
+
+    int32_t pressure_1_raw = hx710_read(BOARD_HX710_1_SCK, BOARD_HX710_1_DOUT);
+    if (pressure_1_raw == HX710_ERROR_TIMEOUT) {
+        return ESP_FAIL;
+    }
+
+    int32_t pressure_2_raw = hx710_read(BOARD_HX710_2_SCK, BOARD_HX710_2_DOUT);
+    if (pressure_2_raw == HX710_ERROR_TIMEOUT) {
+        return ESP_FAIL;
+    }
+
+    int hall_raw = 0;
+    hall_sensor_t local_hall = {0};
+
+    esp_err_t hall_err = hall_sensor_init(&local_hall, BOARD_HALL_ADC_CHAN);
+    if (hall_err != ESP_OK) {
+        return hall_err;
+    }
+
+    hall_err = hall_sensor_read_raw(&local_hall, &hall_raw);
+    if (hall_err != ESP_OK) {
+        return hall_err;
+    }
+
+    char payload[384];
+
+    int written = snprintf(payload,
+                           sizeof(payload),
+                           "{"
+                           "\"device_id\":\"%s\"," 
+                           "\"pressure_0_raw\":%ld," 
+                           "\"pressure_1_raw\":%ld," 
+                           "\"pressure_2_raw\":%ld," 
+                           "\"hall_raw\":%d," 
+                           "\"ts_ms\":%lld"
+                           "}",
+                           runtime_helpers_get_device_id(network_config),
+                           (long)pressure_0_raw,
+                           (long)pressure_1_raw,
+                           (long)pressure_2_raw,
+                           hall_raw,
+                           (long long)(esp_timer_get_time() / 1000));
+
+    if (written <= 0 || written >= (int)sizeof(payload)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    return mqtt_manager_publish_debug_json(payload);
 }

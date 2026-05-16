@@ -5,6 +5,8 @@
 
 #include "esp_err.h"
 #include "resq_config_types.h"
+#include "calibration_codes.h"
+#include "states.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,6 +79,31 @@ esp_err_t calibration_manager_get_config(calibration_config_t *out_config);
  * Returns empty string if no calibration in progress.
  */
 const char *calibration_manager_get_command_id(void);
+
+/* New APIs for calibration failure handling and retry */
+calibration_reason_id_t calibration_manager_get_last_failure_reason(void);
+
+calibration_action_id_t calibration_manager_get_last_failure_action(void);
+
+esp_err_t calibration_manager_get_last_host_params(calibration_config_t *out_config);
+
+esp_err_t calibration_manager_drop_temporary_values(void);
+
+esp_err_t calibration_manager_retry_last(network_config_t *network_config);
+
+esp_err_t calibration_manager_publish_progress_event(calibration_reason_id_t reason_id,
+													 resq_state_t state,
+													 calibration_action_id_t action_id);
+
+/* Parse a calibration_start payload into a calibration_config_t.
+ * Returns ESP_OK on success and fills out_config and out_command_id.
+ * On failure returns an esp_err_t and sets out_reason (if provided) to the numeric reason.
+ */
+esp_err_t calibration_manager_parse_start_payload(const char *payload,
+												  calibration_config_t *out_config,
+												  char *out_command_id,
+												  size_t out_command_id_len,
+												  calibration_reason_id_t *out_reason);
 
 #ifdef __cplusplus
 }

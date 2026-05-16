@@ -9,4 +9,7 @@ idf_component_register(
         config
         mqtt_manager
         esp_timer
+        hx710
+        hall_sensor
+        esp_driver_gpio
 )

@@ -48,6 +48,11 @@ esp_err_t runtime_helpers_publish_command_result(const network_config_t *network
                                                  const char *status,
                                                  const char *reason);
 
+/**
+ * @brief Publish a debug snapshot (raw sensor readings) to debug topic.
+ */
+esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config);
+
 #ifdef __cplusplus
 }
 #endif
