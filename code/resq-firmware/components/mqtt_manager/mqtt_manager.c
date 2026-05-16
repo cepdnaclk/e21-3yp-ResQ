@@ -371,6 +371,48 @@ esp_err_t mqtt_manager_publish_status(resq_state_t state,
     return ret;
 }
 
+esp_err_t mqtt_manager_publish_error_status(resq_state_t state,
+                                            const network_config_t *network_config,
+                                            const calibration_config_t *calibration_config,
+                                            bool session_active,
+                                            const char *session_id,
+                                            const char *ip,
+                                            int last_error_id)
+{
+    if (!s_connected || network_config == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
+    build_topic_for_suffix(s_device_id, RESQ_TOPIC_STATUS, topic, sizeof(topic));
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return ESP_ERR_NO_MEM;
+
+    cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
+    cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
+    cJSON_AddBoolToObject(root, "session_active", session_active);
+    cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
+
+    bool calibrated = (calibration_config && calibration_config->calibrated);
+    cJSON_AddBoolToObject(root, "calibrated", calibrated);
+
+    cJSON_AddNumberToObject(root, "last_error_id", last_error_id);
+
+    cJSON_AddStringToObject(root, "ip", ip ? ip : "");
+
+    int64_t ts_ms = esp_timer_get_time() / 1000;
+    cJSON_AddNumberToObject(root, "ts_ms", ts_ms);
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!payload) return ESP_ERR_NO_MEM;
+
+    esp_err_t ret = publish_to_topic(topic, payload, 1, 1);
+    cJSON_free(payload);
+    return ret;
+}
+
 esp_err_t mqtt_manager_publish_identity_event(const network_config_t *network_config)
 {
     if (!s_connected || network_config == NULL) {

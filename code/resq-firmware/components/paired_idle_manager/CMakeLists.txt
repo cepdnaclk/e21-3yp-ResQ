@@ -18,4 +18,5 @@ idf_component_register(
         cjson
         esp_timer
         freertos
+        error_manager
 )

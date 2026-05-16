@@ -20,6 +20,7 @@
 #include "status_indicator.h"
 #include "wifi_manager.h"
 #include "runtime_helpers.h"
+#include "error_manager.h"
 #include "calibration_manager.h"
 #include "session_active_manager.h"
 
@@ -189,18 +190,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
             : RESQ_STATE_PAIRED_IDLE;
 
         if (!wifi_manager_is_connected()) {
-            runtime_helpers_publish_error_event(network_config,
-                                                visible_state,
-                                                "WIFI_DISCONNECTED",
-                                                "Wi-Fi disconnected while waiting for command");
+            error_manager_set_error(FW_ERROR_WIFI_DISCONNECTED_UNRECOVERABLE);
             return RESQ_STATE_ERROR;
         }
 
         if (!mqtt_manager_is_connected()) {
-            runtime_helpers_publish_error_event(network_config,
-                                                visible_state,
-                                                "MQTT_DISCONNECTED",
-                                                "MQTT disconnected while waiting for command");
+            error_manager_set_error(FW_ERROR_MQTT_DISCONNECTED_UNRECOVERABLE);
             return RESQ_STATE_ERROR;
         }
 
@@ -213,10 +208,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         }
 
         if (wait_err != ESP_OK) {
-            runtime_helpers_publish_error_event(network_config,
-                                                visible_state,
-                                                "COMMAND_WAIT_FAILED",
-                                                "Failed while waiting for MQTT command");
+            /* Non-timeout error while waiting for commands - treat as MQTT failure */
+            error_manager_set_error(FW_ERROR_MQTT_SUBSCRIBE_FAILED);
             return RESQ_STATE_ERROR;
         }
 

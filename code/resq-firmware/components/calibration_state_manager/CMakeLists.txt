@@ -12,5 +12,6 @@ idf_component_register(
         runtime_helpers
         runtime
         esp_timer
+        error_manager
         freertos
 )

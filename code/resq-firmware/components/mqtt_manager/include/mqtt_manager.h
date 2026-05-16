@@ -48,6 +48,14 @@ esp_err_t mqtt_manager_publish_status(resq_state_t state,
                                       const char *session_id,
                                       const char *ip);
 
+esp_err_t mqtt_manager_publish_error_status(resq_state_t state,
+                                            const network_config_t *network_config,
+                                            const calibration_config_t *calibration_config,
+                                            bool session_active,
+                                            const char *session_id,
+                                            const char *ip,
+                                            int last_error_id);
+
 esp_err_t mqtt_manager_publish_identity_event(const network_config_t *network_config);
 
 esp_err_t mqtt_manager_publish_heartbeat(const network_config_t *network_config,

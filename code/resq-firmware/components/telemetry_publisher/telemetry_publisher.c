@@ -14,8 +14,6 @@
 #include "cpr_metrics.h"
 #include "runtime_helpers.h"
 
-static const char *TAG = "telemetry_pub";
-
 static TaskHandle_t s_task = NULL;
 static SemaphoreHandle_t s_mutex = NULL;
 static volatile bool s_running = false;
