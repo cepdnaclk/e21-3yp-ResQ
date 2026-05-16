@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS
-        "error_manager.c"
+        "calibration_fail_manager.c"
 
     INCLUDE_DIRS
         "include"
@@ -10,6 +10,8 @@ idf_component_register(
         runtime
         runtime_helpers
         mqtt_manager
+        calibration_manager
+        wifi_manager
         esp_driver_gpio
         freertos
 )

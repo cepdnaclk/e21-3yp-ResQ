@@ -18,6 +18,8 @@
 #include "states.h"
 #include "runtime_helpers.h"
 #include "mqtt_manager.h"
+#include "calibration_codes.h"
+#include "cJSON.h"
 
 /* Calibration manager configuration */
 #define CALIBRATION_TASK_STACK_SIZE             4096
@@ -42,36 +44,37 @@ static char s_command_id[64] = {0};
 
 static bool s_initialized = false;
 static bool s_running = false;
+static calibration_reason_id_t s_last_failure_reason = CAL_REASON_NONE;
+static calibration_action_id_t s_last_failure_action = CAL_ACTION_NONE;
+static calibration_config_t s_last_host_params;
+static bool s_has_last_host_params = false;
 
 /* =========================================================
  * Small internal helper functions
  * ========================================================= */
 
- /**
- * @brief Publish calibration progress event with step and message.
- */
-static void publish_calibration_progress(const network_config_t *network_config,
-                                         const char *step,
-                                         const char *message)
+static void publish_calibration_progress(calibration_reason_id_t reason_id,
+                                         resq_state_t state,
+                                         calibration_action_id_t action_id)
 {
-    char payload[512];
+    char payload[256];
 
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
-                           "\"event_type\":\"calibration_progress\"," 
-                           "\"device_id\":\"%s\"," 
-                           "\"step\":\"%s\"," 
-                           "\"message\":\"%s\"," 
-                           "\"state\":\"CALIBRATING\"," 
+                           "\"event_type\":\"calibration_progress\","
+                           "\"reason_id\":%d,"
+                           "\"state\":\"%s\","
+                           "\"action_id\":%d,"
                            "\"ts_ms\":%lld"
                            "}",
-                           runtime_helpers_get_device_id(network_config),
-                           step != NULL ? step : "",
-                           message != NULL ? message : "",
-                           (long long)esp_timer_get_time() / 1000);
+                           (int)reason_id,
+                           resq_state_to_string(state),
+                           (int)action_id,
+                           (long long)(esp_timer_get_time() / 1000));
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
+        ESP_LOGE(TAG, "Calibration progress payload too large");
         return;
     }
 
@@ -321,14 +324,25 @@ static esp_err_t calibration_wait_for_hall_target(int32_t target_value,
 /**
  * @brief Mark calibration as failed and update indicator.
  */
-static void calibration_manager_fail(const char *reason)
+static void calibration_manager_fail(calibration_reason_id_t reason_id)
 {
-    ESP_LOGE(TAG, "Calibration failed: %s", reason);
+    s_last_failure_reason = reason_id;
+    s_last_failure_action = calibration_codes_default_action_for_reason(reason_id);
+
+    ESP_LOGE(TAG,
+             "Calibration failed reason_id=%d reason=%s action_id=%d action=%s",
+             (int)s_last_failure_reason,
+             calibration_codes_reason_to_string(s_last_failure_reason),
+             (int)s_last_failure_action,
+             calibration_codes_action_to_string(s_last_failure_action));
 
     s_calibration_config.calibrated = false;
 
     status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
-    publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", reason);
+
+    publish_calibration_progress(s_last_failure_reason,
+                                 RESQ_STATE_CALIBRATION_FAIL,
+                                 s_last_failure_action);
 }
 
 /**
@@ -337,13 +351,13 @@ static void calibration_manager_fail(const char *reason)
 static esp_err_t calibration_manager_save_success(void)
 {
     if (!calibration_config_validate(&s_calibration_config)) {
-        calibration_manager_fail("calibration config validation failed");
+        calibration_manager_fail(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE);
         return ESP_ERR_INVALID_STATE;
     }
 
     esp_err_t err = config_store_save_calibration(&s_calibration_config);
     if (err != ESP_OK) {
-        calibration_manager_fail("failed to save calibration config");
+        calibration_manager_fail(CAL_REASON_NVS_SAVE_FAILED);
         return err;
     }
 
@@ -379,7 +393,9 @@ static void calibration_manager_task(void *arg)
 
     status_indicator_set_state(RESQ_STATE_CALIBRATING);
 
-    publish_calibration_progress(&s_network_config, "CALIBRATION_STARTED", "Calibration started");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     int32_t matched_ref_pressure = 0;
     int32_t matched_bladder_1_pressure = 0;
@@ -388,7 +404,9 @@ static void calibration_manager_task(void *arg)
     /* -----------------------------------------------------
      * Step 1: Match pressure sensor 0 with ref_pressure
      * ----------------------------------------------------- */
-    publish_calibration_progress(&s_network_config, "WAITING_REF_PRESSURE", "Apply reference pressure");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
     esp_err_t err = calibration_wait_for_pressure_target(
         "pressure_sensor_0",
         BOARD_HX710_0_SCK,
@@ -398,12 +416,13 @@ static void calibration_manager_task(void *arg)
         &matched_ref_pressure);
 
     if (err != ESP_OK) {
-        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "ref pressure target not matched");
-        calibration_manager_fail("ref pressure sensor did not match ref_pressure");
+        calibration_manager_fail(CAL_REASON_REF_PRESSURE_TIMEOUT);
         goto task_exit;
     }
 
-    publish_calibration_progress(&s_network_config, "REF_PRESSURE_MATCHED", "Reference pressure matched");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     /*
      * ref_pressure is target from LocalHub.
@@ -415,7 +434,9 @@ static void calibration_manager_task(void *arg)
      * Step 2: Match pressure sensor 1 with bladder_1_pressure
      * ----------------------------------------------------- */
 
-    publish_calibration_progress(&s_network_config, "WAITING_BLADDER_1_PRESSURE", "Apply bladder 1 target pressure");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     err = calibration_wait_for_pressure_target(
         "pressure_sensor_1",
@@ -426,18 +447,21 @@ static void calibration_manager_task(void *arg)
         &matched_bladder_1_pressure);
 
     if (err != ESP_OK) {
-        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "bladder 1 target not matched");
-        calibration_manager_fail("Left bladder pressure sensor did not match bladder_1_pressure");
+        calibration_manager_fail(CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
         goto task_exit;
     }
 
-    publish_calibration_progress(&s_network_config, "BLADDER_1_PRESSURE_MATCHED", "Bladder 1 pressure matched");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     /* -----------------------------------------------------
      * Step 3: Match pressure sensor 2 with bladder_2_pressure
      * ----------------------------------------------------- */
 
-    publish_calibration_progress(&s_network_config, "WAITING_BLADDER_2_PRESSURE", "Apply bladder 2 target pressure");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     err = calibration_wait_for_pressure_target(
         "pressure_sensor_2",
@@ -448,12 +472,13 @@ static void calibration_manager_task(void *arg)
         &matched_bladder_2_pressure);
 
     if (err != ESP_OK) {
-        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "bladder 2 target not matched");
-        calibration_manager_fail("Right bladder pressure sensor did not match bladder_2_pressure");
+        calibration_manager_fail(CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
         goto task_exit;
     }
 
-    publish_calibration_progress(&s_network_config, "BLADDER_2_PRESSURE_MATCHED", "Bladder 2 pressure matched");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     /*
      * Store the matched baseline bladder pressure values.
@@ -471,8 +496,7 @@ static void calibration_manager_task(void *arg)
 
     err = calibration_read_hall_average(&hall_baseline);
     if (err != ESP_OK) {
-        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "failed to read hall baseline");
-        calibration_manager_fail("failed to read hall baseline");
+        calibration_manager_fail(CAL_REASON_HALL_BASELINE_READ_FAILED);
         goto task_exit;
     }
 
@@ -482,7 +506,9 @@ static void calibration_manager_task(void *arg)
              "Hall baseline captured: %ld",
              (long)s_calibration_config.hall_baseline);
 
-    publish_calibration_progress(&s_network_config, "HALL_BASELINE_CAPTURED", "Hall baseline captured");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     /* -----------------------------------------------------
      * Step 5: Calculate expected full-press Hall value
@@ -501,7 +527,9 @@ static void calibration_manager_task(void *arg)
              (long)s_calibration_config.hall_delta,
              (long)s_calibration_config.hall_full_press);
 
-    publish_calibration_progress(&s_network_config, "WAITING_FULL_PRESS", "Compress the chest to full depth");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     /* -----------------------------------------------------
      * Step 6: Wait for instructor compression until Hall matches
@@ -515,8 +543,7 @@ static void calibration_manager_task(void *arg)
         &matched_hall_full_press);
 
     if (err != ESP_OK) {
-        publish_calibration_progress(&s_network_config, "CALIBRATION_FAILED", "hall sensor did not reach full press target");
-        calibration_manager_fail("hall sensor did not reach full press target");
+        calibration_manager_fail(CAL_REASON_HALL_FULL_PRESS_TIMEOUT);
         goto task_exit;
     }
 
@@ -526,7 +553,9 @@ static void calibration_manager_task(void *arg)
      */
     s_calibration_config.hall_full_press = matched_hall_full_press;
 
-    publish_calibration_progress(&s_network_config, "FULL_PRESS_CAPTURED", "Full press captured");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
     /* -----------------------------------------------------
      * Step 7: Capture full-compression pressure sensor values
@@ -538,7 +567,7 @@ static void calibration_manager_task(void *arg)
         &s_calibration_config.bladder_1_full_press);
 
     if (err != ESP_OK) {
-        calibration_manager_fail("failed to read bladder 1 full press");
+        calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
         goto task_exit;
     }
 
@@ -548,7 +577,7 @@ static void calibration_manager_task(void *arg)
         &s_calibration_config.bladder_2_full_press);
 
     if (err != ESP_OK) {
-        calibration_manager_fail("failed to read bladder 2 full press");
+        calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
         goto task_exit;
     }
 
@@ -566,7 +595,9 @@ static void calibration_manager_task(void *arg)
         goto task_exit;
     }
 
-    publish_calibration_progress(&s_network_config, "CALIBRATION_SAVED", "Calibration saved");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE);
 
 task_exit:
     ESP_LOGI(TAG, "Calibration task ended");
@@ -695,6 +726,12 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     s_calibration_config.hall_delta = host_params->hall_delta;
     s_calibration_config.calibrated = false;
 
+    /* save host params so BUTTON_1 retry can reuse them */
+    memcpy(&s_last_host_params, host_params, sizeof(s_last_host_params));
+    s_has_last_host_params = true;
+    s_last_failure_reason = CAL_REASON_NONE;
+    s_last_failure_action = CAL_ACTION_NONE;
+
     /* copy network config and command id into static state for progress publishing */
     memcpy(&s_network_config, network_config, sizeof(network_config_t));
     strncpy(s_command_id, command_id, sizeof(s_command_id) - 1);
@@ -768,4 +805,151 @@ esp_err_t calibration_manager_get_config(calibration_config_t *out_config)
 const char *calibration_manager_get_command_id(void)
 {
     return s_command_id;
+}
+
+calibration_reason_id_t calibration_manager_get_last_failure_reason(void)
+{
+    return s_last_failure_reason;
+}
+
+calibration_action_id_t calibration_manager_get_last_failure_action(void)
+{
+    return s_last_failure_action;
+}
+
+esp_err_t calibration_manager_get_last_host_params(calibration_config_t *out_config)
+{
+    if (out_config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!s_has_last_host_params) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    memcpy(out_config, &s_last_host_params, sizeof(calibration_config_t));
+    return ESP_OK;
+}
+
+esp_err_t calibration_manager_drop_temporary_values(void)
+{
+    esp_err_t err = config_store_load_calibration(&s_calibration_config);
+    if (err != ESP_OK) {
+        calibration_config_set_defaults(&s_calibration_config);
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t calibration_manager_retry_last(network_config_t *network_config)
+{
+    if (network_config == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!s_has_last_host_params) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (s_running || s_calibration_task_handle != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const char *cmd_id = s_command_id[0] ? s_command_id : "button/retry";
+
+    return calibration_manager_start(network_config, &s_last_host_params, cmd_id);
+}
+
+esp_err_t calibration_manager_publish_progress_event(calibration_reason_id_t reason_id,
+                                                     resq_state_t state,
+                                                     calibration_action_id_t action_id)
+{
+    publish_calibration_progress(reason_id, state, action_id);
+    return ESP_OK;
+}
+
+esp_err_t calibration_manager_parse_start_payload(const char *payload,
+                                                  calibration_config_t *out_config,
+                                                  char *out_command_id,
+                                                  size_t out_command_id_len,
+                                                  calibration_reason_id_t *out_reason)
+{
+    if (out_reason != NULL) {
+        *out_reason = CAL_REASON_NONE;
+    }
+
+    if (payload == NULL || out_config == NULL) {
+        if (out_reason != NULL) {
+            *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+        }
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (out_command_id != NULL && out_command_id_len > 0) {
+        out_command_id[0] = '\0';
+    }
+
+    cJSON *root = cJSON_Parse(payload);
+    if (root == NULL) {
+        if (out_reason != NULL) {
+            *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+        }
+        return ESP_FAIL;
+    }
+
+    esp_err_t result = ESP_OK;
+
+    cJSON *command_id = cJSON_GetObjectItemCaseSensitive(root, "command_id");
+    cJSON *event_type = cJSON_GetObjectItemCaseSensitive(root, "event_type");
+    cJSON *hall_delta = cJSON_GetObjectItemCaseSensitive(root, "hall_delta");
+    cJSON *ref_pressure = cJSON_GetObjectItemCaseSensitive(root, "ref_pressure");
+    cJSON *bladder_1_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_1_pressure");
+    cJSON *bladder_2_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_2_pressure");
+
+    if (!cJSON_IsString(command_id) || command_id->valuestring == NULL ||
+        !cJSON_IsString(event_type) || event_type->valuestring == NULL ||
+        strcmp(event_type->valuestring, "calibration_start") != 0 ||
+        !cJSON_IsNumber(hall_delta) ||
+        !cJSON_IsNumber(ref_pressure) ||
+        !cJSON_IsNumber(bladder_1_pressure) ||
+        !cJSON_IsNumber(bladder_2_pressure)) {
+        if (out_reason != NULL) {
+            *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+        }
+        result = ESP_ERR_INVALID_ARG;
+        goto exit;
+    }
+
+    if (hall_delta->valuedouble <= 0) {
+        if (out_reason != NULL) {
+            *out_reason = CAL_REASON_INVALID_HALL_DELTA;
+        }
+        result = ESP_ERR_INVALID_ARG;
+        goto exit;
+    }
+
+    if (ref_pressure->valuedouble <= 0 ||
+        bladder_1_pressure->valuedouble <= 0 ||
+        bladder_2_pressure->valuedouble <= 0) {
+        if (out_reason != NULL) {
+            *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+        }
+        result = ESP_ERR_INVALID_ARG;
+        goto exit;
+    }
+
+    if (out_command_id != NULL && out_command_id_len > 0) {
+        strncpy(out_command_id, command_id->valuestring, out_command_id_len - 1);
+        out_command_id[out_command_id_len - 1] = '\0';
+    }
+
+    out_config->hall_delta = (int32_t)hall_delta->valuedouble;
+    out_config->ref_pressure = (int32_t)ref_pressure->valuedouble;
+    out_config->bladder_1_pressure = (int32_t)bladder_1_pressure->valuedouble;
+    out_config->bladder_2_pressure = (int32_t)bladder_2_pressure->valuedouble;
+    out_config->calibrated = false;
+
+exit:
+    cJSON_Delete(root);
+    return result;
 }

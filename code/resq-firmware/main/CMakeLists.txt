@@ -21,6 +21,7 @@ idf_component_register(
         session_active_manager
         paired_idle_manager
         calibration_manager
+        calibration_fail_manager
         calibration_state_manager
         nvs_flash
         esp_event

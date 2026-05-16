@@ -21,37 +21,34 @@ static int64_t now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
-static void publish_calibration_result(const network_config_t *network_config,
-                                       const char *command_id,
+static void publish_calibration_result(const char *command_id,
                                        const char *status,
                                        const char *result,
-                                       bool ready_for_session,
+                                       calibration_reason_id_t reason_id,
                                        resq_state_t state,
-                                       const char *message)
+                                       calibration_action_id_t action_id)
 {
-    char payload[768];
+    char payload[320];
 
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
                            "\"event_type\":\"calibration_result\"," 
-                           "\"device_id\":\"%s\"," 
                            "\"command_id\":\"%s\"," 
                            "\"status\":\"%s\"," 
                            "\"result\":\"%s\"," 
-                           "\"readyForSession\":%s," 
+                           "\"reason_id\":%d," 
                            "\"state\":\"%s\"," 
-                           "\"message\":\"%s\"," 
+                           "\"action_id\":%d," 
                            "\"ts_ms\":%lld"
                            "}",
-                           runtime_helpers_get_device_id(network_config),
                            command_id != NULL ? command_id : "",
                            status != NULL ? status : "",
                            result != NULL ? result : "",
-                           ready_for_session ? "true" : "false",
+                           (int)reason_id,
                            resq_state_to_string(state),
-                           message != NULL ? message : "",
-                           now_ms());
+                           (int)action_id,
+                           (long long)now_ms());
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
         ESP_LOGE(TAG, "Calibration result payload too large");
@@ -101,13 +98,12 @@ resq_state_t calibration_state_manager_run(network_config_t *network_config,
                                                        "ACK",
                                                        "calibration_cancelled");
 
-                publish_calibration_result(network_config,
-                                           calibration_manager_get_command_id(),
+                publish_calibration_result(calibration_manager_get_command_id(),
                                            "ACK",
                                            "CANCELLED",
-                                           false,
+                                           CAL_REASON_CALIBRATION_CANCELLED,
                                            RESQ_STATE_PAIRED_IDLE,
-                                           "calibration_cancelled");
+                                           CAL_ACTION_MOVE_TO_PAIRED_IDLE_DROP_TEMP);
 
                 status_indicator_set_state(RESQ_STATE_PAIRED_IDLE);
 
@@ -145,18 +141,17 @@ resq_state_t calibration_state_manager_run(network_config_t *network_config,
 
     const char *cmd_id = calibration_manager_get_command_id();
 
-    if (calibration_manager_is_ready()) {
+        if (calibration_manager_is_ready()) {
         ESP_LOGI(TAG, "Calibration completed successfully");
 
         status_indicator_set_state(RESQ_STATE_READY_FOR_SESSION);
 
-        publish_calibration_result(network_config,
-                                   cmd_id,
+        publish_calibration_result(cmd_id,
                                    "ACK",
                                    "PASS",
-                                   true,
+                                   CAL_REASON_NONE,
                                    RESQ_STATE_READY_FOR_SESSION,
-                                   "calibration_saved");
+                                   CAL_ACTION_NONE);
 
         if (mqtt_manager_is_connected()) {
             mqtt_manager_publish_status(RESQ_STATE_READY_FOR_SESSION,
@@ -174,13 +169,12 @@ resq_state_t calibration_state_manager_run(network_config_t *network_config,
 
     status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
 
-    publish_calibration_result(network_config,
-                               cmd_id,
+    publish_calibration_result(cmd_id,
                                "NACK",
                                "FAIL",
-                               false,
+                               calibration_manager_get_last_failure_reason(),
                                RESQ_STATE_CALIBRATION_FAIL,
-                               "calibration_failed");
+                               calibration_manager_get_last_failure_action());
 
     if (mqtt_manager_is_connected()) {
         mqtt_manager_publish_status(RESQ_STATE_CALIBRATION_FAIL,

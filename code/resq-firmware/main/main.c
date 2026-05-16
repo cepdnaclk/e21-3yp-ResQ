@@ -26,6 +26,7 @@
 #include "paired_idle_manager.h"
 #include "calibration_state_manager.h"
 #include "calibration_manager.h"
+#include "calibration_fail_manager.h"
 #include "session_manager.h"
 #include "cpr_metrics.h"
 #include "buzzer_manager.h"
@@ -211,6 +212,12 @@ static esp_err_t initialize_components_once(void)
         ESP_LOGE(TAG,
                  "calibration_manager_init failed: %s",
                  esp_err_to_name(err));
+        return err;
+    }
+
+    err = calibration_fail_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "calibration_fail_manager_init failed: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -653,22 +660,9 @@ static resq_state_t run_paired_idle_state(void)
 
 static resq_state_t run_calibration_fail_state(void)
 {
-    ESP_LOGW(TAG, "Entering CALIBRATION_FAIL state");
-
-    status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
-
-    if (mqtt_manager_is_connected()) {
-        mqtt_manager_publish_status(RESQ_STATE_CALIBRATION_FAIL,
-                                    &g_network_cfg,
-                                    &g_calibration_cfg,
-                                    false,
-                                    "",
-                                    g_ip);
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    return RESQ_STATE_PAIRED_IDLE;
+    return calibration_fail_manager_run(&g_network_cfg,
+                                        &g_calibration_cfg,
+                                        g_ip);
 }
 
 static resq_state_t run_ready_for_session_state(void)
