@@ -23,6 +23,7 @@
 #include "hall_sensor.h"
 #include "wifi_manager.h"
 #include "board_config.h"
+#include "system_button_manager.h"
 
 static const char *TAG = "session_active_mgr";
 
@@ -173,6 +174,24 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
 
     /* command loop */
     while (true) {
+        system_button_action_t action = system_button_manager_poll(RESQ_STATE_SESSION_ACTIVE);
+        if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+            ESP_LOGW(TAG, "System button requested TURN_OFF during session");
+            buzzer_manager_stop();
+            telemetry_publisher_stop();
+            s_sensor_task_run = false;
+            session_manager_stop(NULL);
+            return RESQ_STATE_TURN_OFF;
+        }
+
+        if (action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+            ESP_LOGW(TAG, "System button requested FACTORY_RESET during session");
+            buzzer_manager_stop();
+            telemetry_publisher_stop();
+            s_sensor_task_run = false;
+            session_manager_stop(NULL);
+            return RESQ_STATE_RESETTING;
+        }
         if (!wifi_manager_is_connected() || !mqtt_manager_is_connected()) {
             ESP_LOGW(TAG, "Connectivity lost during session");
             buzzer_manager_stop();

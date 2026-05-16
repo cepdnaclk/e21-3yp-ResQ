@@ -32,6 +32,7 @@
 #include "buzzer_manager.h"
 #include "telemetry_publisher.h"
 #include "session_active_manager.h"
+#include "system_button_manager.h"
 
 /* =========================================================
  * Main firmware configuration
@@ -82,6 +83,8 @@ static resq_state_t run_ready_for_session_state(void);
 static resq_state_t run_calibration_fail_state(void);
 static resq_state_t run_error_state(void);
 static resq_state_t run_session_interrupted_state(void);
+static resq_state_t run_resetting_state(void);
+static resq_state_t run_turn_off_state(void);
 
 /* =========================================================
  * Small helpers
@@ -243,6 +246,12 @@ static esp_err_t initialize_components_once(void)
     err = telemetry_publisher_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "telemetry_publisher_init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = system_button_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "system_button_manager_init failed: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -719,6 +728,123 @@ static resq_state_t run_error_state(void)
                              g_ip);
 }
 
+static resq_state_t run_resetting_state(void)
+{
+    ESP_LOGW(TAG, "Entering RESETTING state: factory reset and reboot");
+
+    status_indicator_set_state(RESQ_STATE_RESETTING);
+
+    /*
+     * Stop active runtime components first.
+     */
+    buzzer_manager_stop();
+    telemetry_publisher_stop();
+
+    if (session_manager_is_active()) {
+        const char *session_id = session_manager_get_session_id();
+        if (session_id != NULL && session_id[0] != '\0') {
+            session_manager_stop(session_id);
+        }
+    }
+
+    calibration_manager_cancel();
+
+    /*
+     * Publish status before MQTT becomes unavailable.
+     */
+    if (mqtt_manager_is_connected()) {
+        mqtt_manager_publish_status(RESQ_STATE_RESETTING,
+                                    &g_network_cfg,
+                                    &g_calibration_cfg,
+                                    false,
+                                    "",
+                                    g_ip);
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
+
+    /*
+     * Clear persistent configuration.
+     * This should clear Wi-Fi/backend/calibration.
+     * It should not need to clear MQTT host/port because those must not be stored.
+     */
+    esp_err_t err = config_store_clear_all();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "config_store_clear_all failed: %s", esp_err_to_name(err));
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    esp_restart();
+
+    return RESQ_STATE_RESETTING;
+}
+
+static resq_state_t run_turn_off_state(void)
+{
+    ESP_LOGW(TAG, "Entering TURN_OFF state: safe shutdown");
+
+    status_indicator_set_state(RESQ_STATE_TURN_OFF);
+
+    /*
+     * Stop active runtime components.
+     */
+    buzzer_manager_stop();
+    telemetry_publisher_stop();
+
+    if (session_manager_is_active()) {
+        const char *session_id = session_manager_get_session_id();
+        if (session_id != NULL && session_id[0] != '\0') {
+            session_manager_stop(session_id);
+        }
+    }
+
+    /*
+     * Cancel active calibration, but do not save temporary calibration values.
+     */
+    calibration_manager_cancel();
+
+    /*
+     * Save only valid persistent values.
+     * Do not store MQTT host/port/username/password.
+     */
+    config_store_save_network(&g_network_cfg);
+
+    if (g_calibration_cfg.calibrated) {
+        config_store_save_calibration(&g_calibration_cfg);
+    }
+
+    if (mqtt_manager_is_connected()) {
+        mqtt_manager_publish_status(RESQ_STATE_TURN_OFF,
+                                    &g_network_cfg,
+                                    &g_calibration_cfg,
+                                    false,
+                                    "",
+                                    g_ip);
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
+
+    /*
+     * If hardware has a power latch/load switch GPIO, cut power here.
+     * Example:
+     *
+     * gpio_set_level(BOARD_POWER_HOLD_GPIO, 0);
+     *
+     * Only add this if BOARD_POWER_HOLD_GPIO exists and hardware supports it.
+     */
+
+    ESP_LOGW(TAG, "System is now in soft-off state");
+
+    while (true) {
+        /*
+         * Soft-off loop.
+         * Later this can be replaced by esp_deep_sleep_start() if wake source is configured.
+         */
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    return RESQ_STATE_TURN_OFF;
+}
+
 /* =========================================================
  * Main entry point
  * ========================================================= */
@@ -783,6 +909,14 @@ void app_main(void)
             next_state = run_mqtt_connecting_state();
             break;
 
+        case RESQ_STATE_RESETTING:
+            next_state = run_resetting_state();
+            break;
+
+        case RESQ_STATE_TURN_OFF:
+            next_state = run_turn_off_state();
+            break;
+
         case RESQ_STATE_PAIRED_IDLE:
             next_state = run_paired_idle_state();
             break;
@@ -819,6 +953,14 @@ void app_main(void)
             error_manager_set_error(FW_ERROR_UNSUPPORTED_STATE);
             next_state = RESQ_STATE_ERROR;
             break;
+        }
+
+        /* Poll global system buttons using the current state to decide actions */
+        system_button_action_t button_action = system_button_manager_poll(g_current_state);
+        if (button_action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+            next_state = RESQ_STATE_TURN_OFF;
+        } else if (button_action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+            next_state = RESQ_STATE_RESETTING;
         }
 
         if (next_state != g_current_state) {

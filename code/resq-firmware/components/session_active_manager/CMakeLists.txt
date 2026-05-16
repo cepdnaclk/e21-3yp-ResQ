@@ -21,4 +21,5 @@ idf_component_register(
         esp_timer
         freertos
         cjson
+        system_button_manager
 )
