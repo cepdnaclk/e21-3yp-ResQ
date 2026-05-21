@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-15T16:08:20",
+  "generated_at": "2026-05-16T18:43:42",
   "host_ip": "192.168.8.187",
   "backend_url": "http://192.168.8.187:18080/api/devices/register",
   "mqtt": {
@@ -45,34 +45,128 @@
       }
     },
     {
-      "name": "cmd_debug",
+      "name": "status_schema",
       "status": "WARN",
-      "message": "Debug payload received but missing expected raw fields",
+      "message": "No status payload observed yet",
+      "details": {}
+    },
+    {
+      "name": "heartbeat_schema",
+      "status": "WARN",
+      "message": "No heartbeat observed yet",
+      "details": {}
+    },
+    {
+      "name": "cmd_debug",
+      "status": "FAIL",
+      "message": "No debug payload received after cmd/debug",
       "details": {
-        "missing": [
-          "hall_raw",
-          "pressure_0_raw",
-          "pressure_1_raw",
-          "pressure_2_raw"
-        ],
-        "payload": {
-          "command_id": "cmd-debug-1778841475438",
-          "event_type": "debug_req",
-          "issued_at_ms": 1778841475438
-        }
+        "timeout_s": 12.0
       }
+    },
+    {
+      "name": "unknown_command_nack",
+      "status": "WARN",
+      "message": "No explicit NACK/error for unknown command",
+      "details": {}
+    },
+    {
+      "name": "invalid_json_command",
+      "status": "WARN",
+      "message": "No explicit response observed for invalid JSON command",
+      "details": {}
+    },
+    {
+      "name": "calibration_cancel_while_idle",
+      "status": "WARN",
+      "message": "No response to cancel while idle; acceptable only if firmware intentionally ignores it",
+      "details": {}
     },
     {
       "name": "invalid_calibration_payload",
       "status": "WARN",
-      "message": "No explicit NACK/error seen for invalid calibration payload",
+      "message": "No explicit NACK/progress seen for invalid calibration payload",
       "details": {}
     },
     {
-      "name": "valid_calibration_start",
-      "status": "FAIL",
-      "message": "No CALIBRATING/status/progress/result observed after valid calibration command",
+      "name": "calibration_payload_edge_cases",
+      "status": "WARN",
+      "message": "Some invalid calibration payload cases were not clearly rejected with expected numeric IDs",
+      "details": {
+        "passed": 0,
+        "failures": [
+          {
+            "case": "zero_hall_delta",
+            "reason": "no response"
+          },
+          {
+            "case": "negative_ref_pressure",
+            "reason": "no response"
+          },
+          {
+            "case": "zero_bladder_1",
+            "reason": "no response"
+          },
+          {
+            "case": "zero_bladder_2",
+            "reason": "no response"
+          },
+          {
+            "case": "wrong_event_type",
+            "reason": "no response"
+          }
+        ]
+      }
+    },
+    {
+      "name": "session_start_gate",
+      "status": "WARN",
+      "message": "No session start response observed; session handler may not be implemented yet",
       "details": {}
+    },
+    {
+      "name": "valid_calibration_flow",
+      "status": "SKIP",
+      "message": "Skipped; pass --run-calibration to test automatic calibration",
+      "details": {}
+    },
+    {
+      "name": "active_session_flow",
+      "status": "SKIP",
+      "message": "Skipped; pass --run-session to verify SESSION_ACTIVE telemetry/stop",
+      "details": {}
+    },
+    {
+      "name": "system_commands",
+      "status": "SKIP",
+      "message": "Skipped reset/turn-off MQTT command tests; pass --test-system-commands to enable",
+      "details": {}
+    },
+    {
+      "name": "observed_calibration_minimal_contract",
+      "status": "SKIP",
+      "message": "No calibration progress/result payloads observed",
+      "details": {}
+    },
+    {
+      "name": "observed_error_minimal_contract",
+      "status": "SKIP",
+      "message": "No firmware_error payloads observed",
+      "details": {}
+    },
+    {
+      "name": "command_echo_filter",
+      "status": "PASS",
+      "message": "Command topics were observed but ignored as firmware replies",
+      "details": {
+        "command_topics": [
+          "resq/resq-node-925da4/cmd/calibration/start",
+          "resq/resq-node-925da4/cmd/calibration/start",
+          "resq/resq-node-925da4/cmd/calibration/start",
+          "resq/resq-node-925da4/cmd/calibration/start",
+          "resq/resq-node-925da4/cmd/session/start"
+        ]
+      }
     }
   ],
   "devices": [
@@ -80,8 +174,8 @@
       "device_id": "resq-node-925da4",
       "device_mac": "50:78:7D:92:5D:A4",
       "register_count": 1,
-      "first_seen_ms": 1778841385105,
-      "last_seen_ms": 1778841488460,
+      "first_seen_ms": 1778936994993,
+      "last_seen_ms": 1778937210789,
       "last_state": "",
       "observed_states": [],
       "status_count": 0,
@@ -94,14 +188,17 @@
       "telemetry_count": 0,
       "raw_topics": [
         "resq/resq-node-925da4/cmd/debug",
-        "resq/resq-node-925da4/cmd/calibration/start"
+        "resq/resq-node-925da4/cmd/unknown/test",
+        "resq/resq-node-925da4/cmd/calibration/start",
+        "resq/resq-node-925da4/cmd/calibration/cancel",
+        "resq/resq-node-925da4/cmd/session/start"
       ]
     }
   ],
   "counts": {
-    "pass": 4,
-    "warn": 2,
+    "pass": 5,
+    "warn": 8,
     "fail": 2,
-    "skip": 0
+    "skip": 5
   }
 }
