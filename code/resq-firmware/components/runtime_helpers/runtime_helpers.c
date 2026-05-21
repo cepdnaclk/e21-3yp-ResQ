@@ -134,18 +134,20 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
         return ESP_ERR_INVALID_ARG;
     }
 
-    int32_t pressure_0_raw = hx710_read(BOARD_HX710_0_SCK, BOARD_HX710_0_DOUT);
-    if (pressure_0_raw == HX710_ERROR_TIMEOUT) {
-        return ESP_FAIL;
-    }
+    int32_t pressure_0_raw = 0;
+    int32_t pressure_1_raw = 0;
+    int32_t pressure_2_raw = 0;
 
-    int32_t pressure_1_raw = hx710_read(BOARD_HX710_1_SCK, BOARD_HX710_1_DOUT);
-    if (pressure_1_raw == HX710_ERROR_TIMEOUT) {
-        return ESP_FAIL;
-    }
+    esp_err_t perr = hx710_read_3_shared_sck(
+        BOARD_HX710_SHARED_SCK,
+        BOARD_HX710_0_DOUT,
+        BOARD_HX710_1_DOUT,
+        BOARD_HX710_2_DOUT,
+        &pressure_0_raw,
+        &pressure_1_raw,
+        &pressure_2_raw);
 
-    int32_t pressure_2_raw = hx710_read(BOARD_HX710_2_SCK, BOARD_HX710_2_DOUT);
-    if (pressure_2_raw == HX710_ERROR_TIMEOUT) {
+    if (perr != ESP_OK) {
         return ESP_FAIL;
     }
 
