@@ -8,22 +8,26 @@ Purpose
 This script creates a local test environment and runs automated checks against
 ResQ firmware over HTTP registration + MQTT.
 
-It is designed for the current ResQ firmware architecture:
+It is designed for the updated ResQ firmware architecture:
 
     BOOT -> CONFIG_CHECK -> PROVISIONING -> WIFI_CONNECTING
     -> BACKEND_REGISTERING -> MQTT_CONNECTING -> PAIRED_IDLE
     -> CALIBRATING -> READY_FOR_SESSION / CALIBRATION_FAIL
+    -> SESSION_ACTIVE -> READY_FOR_SESSION
+    -> RESETTING / TURN_OFF through system commands or long button press
 
 It checks:
 - mock backend registration
 - MQTT connectivity
 - firmware status/heartbeat/event publishing
 - debug command/reply
-- invalid calibration payload handling
+- minimal numeric calibration progress/result payloads
+- invalid calibration payload handling using reason_id/action_id
 - automatic calibration start handling
-- calibration progress/result topics
 - optional calibration cancel handling
-- optional session start readiness gate
+- optional active session telemetry and stop flow
+- optional system reset/turn-off command checks
+- minimal numeric firmware error payloads
 - topic namespace hygiene
 - final pass/warn/fail report
 
@@ -137,6 +141,71 @@ CALIBRATION_PROGRESS_STEPS = {
     "CALIBRATION_SAVED",
     "CALIBRATION_FAILED",
 }
+
+# Updated firmware contract: calibration progress/result payloads are minimal and
+# use numeric reason/action IDs. LocalHub maps IDs to UI text.
+CAL_REASON = {
+    "NONE": 0,
+    "INVALID_CALIBRATION_PAYLOAD": 100,
+    "CALIBRATION_ALREADY_RUNNING": 101,
+    "INVALID_HALL_DELTA": 102,
+    "REF_PRESSURE_TIMEOUT": 200,
+    "BLADDER_1_PRESSURE_TIMEOUT": 201,
+    "BLADDER_2_PRESSURE_TIMEOUT": 202,
+    "HALL_BASELINE_READ_FAILED": 203,
+    "HALL_FULL_PRESS_TIMEOUT": 204,
+    "FULL_PRESS_PRESSURE_READ_FAILED": 205,
+    "PRESSURE_IMBALANCE_TOO_HIGH": 206,
+    "CALIBRATION_VALUES_OUT_OF_RANGE": 207,
+    "SENSOR_STUCK_OR_NOISE": 208,
+    "NVS_SAVE_FAILED": 300,
+    "MQTT_DISCONNECTED_DURING_CALIBRATION": 400,
+    "WIFI_DISCONNECTED_DURING_CALIBRATION": 401,
+    "CALIBRATION_CANCELLED": 900,
+}
+
+CAL_ACTION = {
+    "NONE": 0,
+    "SEND_VALID_PAYLOAD": 1,
+    "WAIT_OR_CANCEL": 2,
+    "BUTTON_1_RETRY_BUTTON_2_IDLE": 3,
+    "CHECK_SENSOR_AND_RETRY": 4,
+    "BUTTON_1_CONTINUE_BUTTON_2_IDLE": 5,
+    "MOVE_TO_PAIRED_IDLE_DROP_TEMP": 6,
+    "STAY_CURRENT_STATE": 7,
+    "MOVE_TO_ERROR": 8,
+}
+
+FW_ERROR_REASON_RANGES = [
+    range(1000, 1003),
+    range(1100, 1104),
+    range(1200, 1203),
+    range(1300, 1303),
+    range(1400, 1404),
+    range(1500, 1505),
+    range(1600, 1604),
+    range(1700, 1704),
+    range(1800, 1801),
+]
+
+FW_ACTION_IDS = set(range(0, 11))
+
+MINIMAL_CALIBRATION_FORBIDDEN_FIELDS = {
+    "device_id",
+    "reason_code",
+    "message",
+    "action_code",
+    "readyForSession",
+    "step",
+}
+
+MINIMAL_ERROR_FORBIDDEN_FIELDS = {
+    "device_id",
+    "reason_code",
+    "message",
+    "action_code",
+}
+
 
 REGISTER_PATHS = {
     "/register",
@@ -780,9 +849,19 @@ class FirmwareTestRunner:
         else:
             self.add("valid_calibration_flow", "SKIP", "Skipped; pass --run-calibration to test automatic calibration")
 
-        if self.args.test_session_start and not self.args.edge_tests:
+        if self.args.run_session:
+            self.test_active_session_flow()
+        elif self.args.test_session_start and not self.args.edge_tests:
             self.test_session_start_gate()
+        else:
+            self.add("active_session_flow", "SKIP", "Skipped; pass --run-session to verify SESSION_ACTIVE telemetry/stop")
 
+        if self.args.test_system_commands:
+            self.test_system_command_contract()
+        else:
+            self.add("system_commands", "SKIP", "Skipped reset/turn-off MQTT command tests; pass --test-system-commands to enable")
+
+        self.test_observed_minimal_payload_contracts()
         self.test_no_command_echo_misclassified()
         self.write_report()
         return self.results
@@ -832,6 +911,65 @@ class FirmwareTestRunner:
 
     def _is_command_topic(self, msg: MqttMessage) -> bool:
         return self._topic_suffix(msg).startswith("cmd/")
+
+    def _forbidden_fields(self, payload: Dict[str, Any], forbidden: set[str]) -> List[str]:
+        return sorted(k for k in forbidden if k in payload)
+
+    def _is_minimal_calibration_progress(self, msg: MqttMessage) -> bool:
+        if not self._is_device_msg(msg):
+            return False
+        if self._topic_suffix(msg) != "events/calibration/progress":
+            return False
+        payload = msg.payload_json
+        return (
+            payload.get("event_type") == "calibration_progress"
+            and isinstance(payload.get("reason_id"), int)
+            and isinstance(payload.get("action_id"), int)
+            and isinstance(payload.get("state"), str)
+            and isinstance(payload.get("ts_ms"), int)
+        )
+
+    def _is_minimal_calibration_result(self, msg: MqttMessage) -> bool:
+        if not self._is_device_msg(msg):
+            return False
+        if self._topic_suffix(msg) != "events/calibration/result":
+            return False
+        payload = msg.payload_json
+        return (
+            payload.get("event_type") == "calibration_result"
+            and isinstance(payload.get("reason_id"), int)
+            and isinstance(payload.get("action_id"), int)
+            and isinstance(payload.get("state"), str)
+            and isinstance(payload.get("ts_ms"), int)
+            and isinstance(payload.get("command_id"), str)
+            and str(payload.get("status", "")).upper() in {"ACK", "NACK"}
+            and str(payload.get("result", "")).upper() in {"PASS", "FAIL", "CANCELLED", "STARTED"}
+        )
+
+    def _is_minimal_firmware_error(self, msg: MqttMessage) -> bool:
+        if not self._is_device_msg(msg):
+            return False
+        if self._topic_suffix(msg) != "events/error":
+            return False
+        payload = msg.payload_json
+        return (
+            payload.get("event_type") == "firmware_error"
+            and isinstance(payload.get("reason_id"), int)
+            and isinstance(payload.get("action_id"), int)
+            and payload.get("state") == "ERROR"
+            and isinstance(payload.get("ts_ms"), int)
+        )
+
+    def _check_minimal_calibration_payload(self, msg: MqttMessage) -> Tuple[bool, List[str]]:
+        forbidden = self._forbidden_fields(msg.payload_json, MINIMAL_CALIBRATION_FORBIDDEN_FIELDS)
+        suffix = self._topic_suffix(msg)
+        if suffix == "events/calibration/progress":
+            ok = self._is_minimal_calibration_progress(msg) and not forbidden
+            return ok, forbidden
+        if suffix == "events/calibration/result":
+            ok = self._is_minimal_calibration_result(msg) and not forbidden
+            return ok, forbidden
+        return False, forbidden
 
     def _device_topic_predicate(self, suffix: str, event_type: Optional[str] = None) -> Callable[[MqttMessage], bool]:
         def pred(msg: MqttMessage) -> bool:
@@ -994,9 +1132,9 @@ class FirmwareTestRunner:
         log("TX", f"{topic} {bad_payload} rc={getattr(result, 'rc', None)}")
         msg = self.store.wait_for(
             lambda m: self._is_device_msg(m)
-            and self._topic_suffix(m) in {"events/error", "events"}
+            and self._topic_suffix(m) in {"events/calibration/progress", "events/calibration/result", "events"}
             and (
-                "json" in str(get_field(m.payload_json, "reason", "message", "error_code", default="")).lower()
+                m.payload_json.get("reason_id") == CAL_REASON["INVALID_CALIBRATION_PAYLOAD"]
                 or str(m.payload_json.get("status", "")).upper() == "NACK"
             ),
             timeout=self.args.command_timeout,
@@ -1006,9 +1144,14 @@ class FirmwareTestRunner:
         if state_error:
             self.add("invalid_json_command", "FAIL", "Invalid JSON pushed firmware to ERROR; should reject command safely")
         elif msg:
-            self.add("invalid_json_command", "PASS", "Invalid JSON produced safe error/NACK", topic=msg.topic, payload=msg.payload_json)
+            if self._topic_suffix(msg).startswith("events/calibration/"):
+                ok, forbidden = self._check_minimal_calibration_payload(msg)
+                if not ok:
+                    self.add("invalid_json_command", "FAIL", "Calibration invalid-json response violates minimal numeric payload contract", topic=msg.topic, payload=msg.payload_json, forbidden=forbidden)
+                    return
+            self.add("invalid_json_command", "PASS", "Invalid JSON produced safe NACK/minimal calibration response", topic=msg.topic, payload=msg.payload_json)
         else:
-            self.add("invalid_json_command", "WARN", "No explicit error observed for invalid JSON command")
+            self.add("invalid_json_command", "WARN", "No explicit response observed for invalid JSON command")
 
     def test_calibration_cancel_while_idle(self) -> None:
         if not self.device_id:
@@ -1039,15 +1182,15 @@ class FirmwareTestRunner:
         if not self.device_id:
             return
         cases = [
-            ("zero_hall_delta", {"hall_delta": 0, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": self.args.bladder_2_pressure}),
-            ("negative_ref_pressure", {"hall_delta": self.args.hall_delta, "ref_pressure": -1, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": self.args.bladder_2_pressure}),
-            ("zero_bladder_1", {"hall_delta": self.args.hall_delta, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": 0, "bladder_2_pressure": self.args.bladder_2_pressure}),
-            ("zero_bladder_2", {"hall_delta": self.args.hall_delta, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": 0}),
-            ("wrong_event_type", {"event_type": "not_calibration_start", "hall_delta": self.args.hall_delta, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": self.args.bladder_2_pressure}),
+            ("zero_hall_delta", CAL_REASON["INVALID_HALL_DELTA"], {"hall_delta": 0, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": self.args.bladder_2_pressure}),
+            ("negative_ref_pressure", CAL_REASON["INVALID_CALIBRATION_PAYLOAD"], {"hall_delta": self.args.hall_delta, "ref_pressure": -1, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": self.args.bladder_2_pressure}),
+            ("zero_bladder_1", CAL_REASON["INVALID_CALIBRATION_PAYLOAD"], {"hall_delta": self.args.hall_delta, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": 0, "bladder_2_pressure": self.args.bladder_2_pressure}),
+            ("zero_bladder_2", CAL_REASON["INVALID_CALIBRATION_PAYLOAD"], {"hall_delta": self.args.hall_delta, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": 0}),
+            ("wrong_event_type", CAL_REASON["INVALID_CALIBRATION_PAYLOAD"], {"event_type": "not_calibration_start", "hall_delta": self.args.hall_delta, "ref_pressure": self.args.ref_pressure, "bladder_1_pressure": self.args.bladder_1_pressure, "bladder_2_pressure": self.args.bladder_2_pressure}),
         ]
         failures: List[Dict[str, Any]] = []
         passes = 0
-        for name, fields in cases:
+        for name, expected_reason_id, fields in cases:
             start = now_ms()
             command_id = f"cmd-edge-{name}-{start}"
             payload = {
@@ -1059,11 +1202,11 @@ class FirmwareTestRunner:
             self.monitor.publish_command(self.device_id, "cmd/calibration/start", payload)
             msg = self.store.wait_for(
                 lambda m, cid=command_id: self._is_device_msg(m)
-                and self._topic_suffix(m) in {"events/error", "events", "events/calibration/result"}
+                and self._topic_suffix(m) in {"events/calibration/progress", "events/calibration/result", "events"}
                 and (
                     cid in str(m.payload_json.get("command_id", ""))
+                    or int(m.payload_json.get("reason_id", -1)) in {CAL_REASON["INVALID_CALIBRATION_PAYLOAD"], CAL_REASON["INVALID_HALL_DELTA"]}
                     or str(m.payload_json.get("status", "")).upper() == "NACK"
-                    or "invalid" in str(get_field(m.payload_json, "reason", "message", "error_code", default="")).lower()
                 ),
                 timeout=self.args.command_timeout,
                 after_ms=start,
@@ -1072,9 +1215,15 @@ class FirmwareTestRunner:
             if state_error:
                 failures.append({"case": name, "reason": "firmware entered ERROR"})
             elif msg:
-                status = str(msg.payload_json.get("status", "")).upper()
-                text = json.dumps(msg.payload_json).lower()
-                if status == "NACK" or "invalid" in text or "error" in self._topic_suffix(msg):
+                suffix = self._topic_suffix(msg)
+                if suffix in {"events/calibration/progress", "events/calibration/result"}:
+                    ok, forbidden = self._check_minimal_calibration_payload(msg)
+                    actual_reason = int(msg.payload_json.get("reason_id", -1))
+                    if ok and actual_reason == expected_reason_id:
+                        passes += 1
+                    else:
+                        failures.append({"case": name, "reason": "bad minimal payload or unexpected reason_id", "expected_reason_id": expected_reason_id, "payload": msg.payload_json, "forbidden": forbidden})
+                elif str(msg.payload_json.get("status", "")).upper() == "NACK":
                     passes += 1
                 else:
                     failures.append({"case": name, "reason": "unclear response", "payload": msg.payload_json})
@@ -1082,9 +1231,9 @@ class FirmwareTestRunner:
                 failures.append({"case": name, "reason": "no response"})
             time.sleep(0.2)
         if failures:
-            self.add("calibration_payload_edge_cases", "WARN", "Some invalid calibration payload cases were not clearly rejected", passed=passes, failures=failures)
+            self.add("calibration_payload_edge_cases", "WARN", "Some invalid calibration payload cases were not clearly rejected with expected numeric IDs", passed=passes, failures=failures)
         else:
-            self.add("calibration_payload_edge_cases", "PASS", "Invalid calibration payload edge cases were safely rejected", passed=passes)
+            self.add("calibration_payload_edge_cases", "PASS", "Invalid calibration payload edge cases were safely rejected with numeric reason/action IDs", passed=passes)
 
     def test_debug_command(self) -> None:
         if not self.device_id:
@@ -1126,29 +1275,43 @@ class FirmwareTestRunner:
         )
         state_error = self._wait_state({"ERROR"}, timeout=1.0, after_ms=start)
         if state_error:
-            self.add("invalid_calibration_payload", "FAIL", "Invalid payload moved firmware to ERROR; should NACK and stay idle")
+            self.add("invalid_calibration_payload", "FAIL", "Invalid payload moved firmware to ERROR; should NACK and stay idle/ready")
             return
         if not result_msg:
-            self.add("invalid_calibration_payload", "WARN", "No explicit NACK/error seen for invalid calibration payload")
+            self.add("invalid_calibration_payload", "WARN", "No explicit NACK/progress seen for invalid calibration payload")
             return
+
         payload_json = result_msg.payload_json
-        status = str(get_field(payload_json, "status", default="")).upper()
-        message = str(get_field(payload_json, "message", "reason", "error_code", default=""))
-        if "NACK" in status or "invalid" in message.lower() or result_msg.topic.endswith("events/error"):
-            self.add("invalid_calibration_payload", "PASS", "Invalid calibration payload produced NACK/error without ERROR state", topic=result_msg.topic, payload=payload_json)
+        suffix = self._topic_suffix(result_msg)
+        if suffix in {"events/calibration/progress", "events/calibration/result"}:
+            ok, forbidden = self._check_minimal_calibration_payload(result_msg)
+            if not ok:
+                self.add("invalid_calibration_payload", "FAIL", "Calibration error payload is not minimal numeric format", topic=result_msg.topic, payload=payload_json, forbidden=forbidden)
+                return
+            if int(payload_json.get("reason_id", -1)) != CAL_REASON["INVALID_CALIBRATION_PAYLOAD"]:
+                self.add("invalid_calibration_payload", "WARN", "Invalid calibration payload returned unexpected reason_id", expected=CAL_REASON["INVALID_CALIBRATION_PAYLOAD"], payload=payload_json)
+                return
+            self.add("invalid_calibration_payload", "PASS", "Invalid calibration payload produced minimal numeric reason/action response", topic=result_msg.topic, payload=payload_json)
+            return
+
+        status = str(payload_json.get("status", "")).upper()
+        if status == "NACK":
+            self.add("invalid_calibration_payload", "PASS", "Invalid calibration payload produced generic command_result NACK", topic=result_msg.topic, payload=payload_json)
         else:
-            self.add("invalid_calibration_payload", "WARN", "Invalid payload response did not clearly indicate NACK", topic=result_msg.topic, payload=payload_json)
+            self.add("invalid_calibration_payload", "WARN", "Invalid payload response did not clearly indicate NACK/minimal reason", topic=result_msg.topic, payload=payload_json)
 
     def _matches_calibration_result_or_error(self, msg: MqttMessage, after_command: str = "") -> bool:
         if not self._is_device_msg(msg):
             return False
         suffix = self._topic_suffix(msg)
-        if suffix in {"events/calibration/result", "events/error", "events"}:
+        if suffix in {"events/calibration/progress", "events/calibration/result", "events/error", "events"}:
+            if suffix == "events/error" and msg.payload_json.get("event_type") == "firmware_error":
+                # Invalid user payload should not become firmware ERROR.
+                return False
             if after_command:
                 command_id = str(msg.payload_json.get("command_id", ""))
                 if command_id and after_command not in command_id:
-                    # Still accept generic error if no command_id exists.
-                    return suffix == "events/error" or str(msg.payload_json.get("event_type", "")).endswith("error")
+                    return False
             return True
         return False
 
@@ -1174,7 +1337,10 @@ class FirmwareTestRunner:
                 and (
                     str(m.payload_json.get("state", "")) == "CALIBRATING"
                     or str(m.payload_json.get("result", "")).upper() in {"STARTED", "PASS", "FAIL"}
-                    or str(m.payload_json.get("step", "")) == "CALIBRATION_STARTED"
+                    or (
+                        self._topic_suffix(m) == "events/calibration/progress"
+                        and int(m.payload_json.get("reason_id", -1)) in {CAL_REASON["NONE"], CAL_REASON["CALIBRATION_ALREADY_RUNNING"]}
+                    )
                 )
             ),
             timeout=self.args.command_timeout,
@@ -1197,15 +1363,26 @@ class FirmwareTestRunner:
             cancel_seen = self.store.wait_for(
                 lambda m: self._is_device_msg(m)
                 and (
-                    str(m.payload_json.get("result", "")).upper() == "CANCELLED"
-                    or str(m.payload_json.get("message", "")).lower().find("cancel") >= 0
+                    (
+                        self._topic_suffix(m) == "events/calibration/result"
+                        and str(m.payload_json.get("result", "")).upper() == "CANCELLED"
+                        and int(m.payload_json.get("reason_id", -1)) == CAL_REASON["CALIBRATION_CANCELLED"]
+                        and int(m.payload_json.get("action_id", -1)) == CAL_ACTION["MOVE_TO_PAIRED_IDLE_DROP_TEMP"]
+                    )
                     or str(m.payload_json.get("state", "")) == "PAIRED_IDLE"
                 ),
                 timeout=self.args.command_timeout,
                 after_ms=cancel_start,
             )
             if cancel_seen:
-                self.add("calibration_cancel", "PASS", "Calibration cancel response/status observed", topic=cancel_seen.topic, payload=cancel_seen.payload_json)
+                if self._topic_suffix(cancel_seen) == "events/calibration/result":
+                    ok, forbidden = self._check_minimal_calibration_payload(cancel_seen)
+                    if not ok:
+                        self.add("calibration_cancel", "FAIL", "Cancel result violates minimal payload contract", topic=cancel_seen.topic, payload=cancel_seen.payload_json, forbidden=forbidden)
+                    else:
+                        self.add("calibration_cancel", "PASS", "Calibration cancel result observed with minimal numeric payload", topic=cancel_seen.topic, payload=cancel_seen.payload_json)
+                else:
+                    self.add("calibration_cancel", "PASS", "Calibration cancel status observed", topic=cancel_seen.topic, payload=cancel_seen.payload_json)
             else:
                 self.add("calibration_cancel", "WARN", "No clear cancel response observed")
             return
@@ -1213,15 +1390,19 @@ class FirmwareTestRunner:
         end_state = self._wait_state({"READY_FOR_SESSION", "CALIBRATION_FAIL"}, timeout=self.args.calibration_timeout, after_ms=start)
         progress = self.store.find_all(lambda m: self._is_device_msg(m) and self._topic_suffix(m) == "events/calibration/progress", after_ms=start)
         result = self.store.find_all(lambda m: self._is_device_msg(m) and self._topic_suffix(m) == "events/calibration/result", after_ms=start)
-        progress_steps = [str(m.payload_json.get("step", "")) for m in progress if m.payload_json.get("step")]
-        invalid_steps = sorted(set(s for s in progress_steps if s not in CALIBRATION_PROGRESS_STEPS))
 
-        if invalid_steps:
-            self.add("calibration_progress_steps", "FAIL", "Unknown calibration progress step names observed", invalid_steps=invalid_steps)
-        elif progress:
-            self.add("calibration_progress_steps", "PASS", "Calibration progress events observed with valid step names", steps=progress_steps)
+        bad_payloads = []
+        for m in progress + result:
+            ok, forbidden = self._check_minimal_calibration_payload(m)
+            if not ok:
+                bad_payloads.append({"topic": m.topic, "payload": m.payload_json, "forbidden": forbidden})
+
+        if bad_payloads:
+            self.add("calibration_minimal_payload_contract", "FAIL", "Calibration progress/result payloads violate minimal numeric contract", bad_payloads=bad_payloads[:5])
+        elif progress or result:
+            self.add("calibration_minimal_payload_contract", "PASS", "Calibration progress/result payloads use minimal numeric contract", progress_count=len(progress), result_count=len(result))
         else:
-            self.add("calibration_progress_steps", "WARN", "No calibration progress events observed")
+            self.add("calibration_minimal_payload_contract", "WARN", "No calibration progress/result events observed")
 
         if end_state:
             final_state = str(end_state.payload_json.get("state", ""))
@@ -1229,7 +1410,7 @@ class FirmwareTestRunner:
             message = "Calibration finished successfully" if final_state == "READY_FOR_SESSION" else "Calibration ended in CALIBRATION_FAIL; check sensor/manual input"
             self.add("calibration_final_state", status, message, final_state=final_state, result_count=len(result))
         else:
-            self.add("calibration_final_state", "WARN", "No READY_FOR_SESSION or CALIBRATION_FAIL before timeout; calibration may still be waiting for physical input", timeout_s=self.args.calibration_timeout, progress_steps=progress_steps)
+            self.add("calibration_final_state", "WARN", "No READY_FOR_SESSION or CALIBRATION_FAIL before timeout; calibration may still be waiting for physical input", timeout_s=self.args.calibration_timeout, progress_count=len(progress))
 
     def _is_device_msg(self, msg: MqttMessage) -> bool:
         if not self.device_id:
@@ -1269,6 +1450,182 @@ class FirmwareTestRunner:
             self.add("session_start_gate", "PASS", "Session start accepted and SESSION_ACTIVE observed", payload=msg.payload_json)
         else:
             self.add("session_start_gate", "WARN", "Session start response observed but readiness behavior unclear", payload=msg.payload_json)
+
+    def test_active_session_flow(self) -> None:
+        if not self.device_id:
+            return
+        start = now_ms()
+        session_id = f"S-HW-{start}"
+        payload = {
+            "command_id": f"cmd-session-start-{start}",
+            "event_type": "session_start",
+            "session_id": session_id,
+            "profile_id": "adult-basic-test",
+            "issued_at_ms": start,
+        }
+        self.monitor.publish_command(self.device_id, "cmd/session/start", payload)
+
+        active = self.store.wait_for(
+            lambda m: self._is_device_msg(m)
+            and (
+                str(m.payload_json.get("state", "")) == "SESSION_ACTIVE"
+                or (
+                    str(m.payload_json.get("event_type", "")) == "command_result"
+                    and str(m.payload_json.get("status", "")).upper() == "ACK"
+                    and "session" in json.dumps(m.payload_json).lower()
+                )
+            ),
+            timeout=self.args.command_timeout,
+            after_ms=start,
+        )
+
+        if not active:
+            nack = self.store.wait_for(
+                lambda m: self._is_device_msg(m)
+                and str(m.payload_json.get("event_type", "")) == "command_result"
+                and str(m.payload_json.get("status", "")).upper() == "NACK",
+                timeout=2.0,
+                after_ms=start,
+            )
+            self.add("active_session_start", "WARN", "SESSION_ACTIVE not observed; device may not be READY_FOR_SESSION", nack=nack.payload_json if nack else {})
+            return
+
+        self.add("active_session_start", "PASS", "Session start accepted / SESSION_ACTIVE observed", topic=active.topic, payload=active.payload_json)
+
+        telemetry = self.store.wait_for(
+            lambda m: self._is_device_msg(m)
+            and self._topic_suffix(m) == "telemetry"
+            and str(m.payload_json.get("session_id", "")) == session_id,
+            timeout=self.args.telemetry_timeout,
+            after_ms=start,
+        )
+        if not telemetry:
+            self.add("active_session_telemetry", "WARN", "No telemetry observed for active session before timeout", timeout_s=self.args.telemetry_timeout)
+        else:
+            required_any = {"depth_progress", "rate_cpm", "compression_count", "valid_compression_count", "recoil_ok_count", "hand_placement", "ts_ms"}
+            present = sorted(k for k in required_any if k in telemetry.payload_json)
+            if len(present) >= 4:
+                self.add("active_session_telemetry", "PASS", "Metric-first telemetry observed during SESSION_ACTIVE", present=present, payload=telemetry.payload_json)
+            else:
+                self.add("active_session_telemetry", "WARN", "Telemetry observed but missing expected metric fields", present=present, payload=telemetry.payload_json)
+
+        stop_start = now_ms()
+        stop_payload = {
+            "command_id": f"cmd-session-stop-{stop_start}",
+            "event_type": "session_stop",
+            "session_id": session_id,
+            "issued_at_ms": stop_start,
+        }
+        self.monitor.publish_command(self.device_id, "cmd/session/stop", stop_payload)
+        stopped = self.store.wait_for(
+            lambda m: self._is_device_msg(m)
+            and (
+                str(m.payload_json.get("state", "")) == "READY_FOR_SESSION"
+                or str(m.payload_json.get("event_type", "")) == "session_stopped"
+                or (
+                    str(m.payload_json.get("event_type", "")) == "command_result"
+                    and str(m.payload_json.get("status", "")).upper() == "ACK"
+                    and "stop" in json.dumps(m.payload_json).lower()
+                )
+            ),
+            timeout=self.args.command_timeout,
+            after_ms=stop_start,
+        )
+        if stopped:
+            self.add("active_session_stop", "PASS", "Session stop acknowledged / READY_FOR_SESSION observed", topic=stopped.topic, payload=stopped.payload_json)
+        else:
+            self.add("active_session_stop", "WARN", "No clear session stop response observed")
+
+    def test_system_command_contract(self) -> None:
+        if not self.device_id:
+            return
+
+        command = self.args.system_command
+        if command not in {"reset", "turn-off", "flush-config"}:
+            self.add("system_command_contract", "SKIP", f"Unsupported system command choice: {command}")
+            return
+
+        suffix = {
+            "reset": "cmd/system/reset",
+            "turn-off": "cmd/system/turn-off",
+            "flush-config": "cmd/system/flush-config",
+        }[command]
+        expected_state = {
+            "reset": "RESETTING",
+            "turn-off": "TURN_OFF",
+            "flush-config": "RESETTING",
+        }[command]
+        event_type = {
+            "reset": "system_reset",
+            "turn-off": "system_turn_off",
+            "flush-config": "system_flush_config",
+        }[command]
+
+        start = now_ms()
+        payload = {
+            "command_id": f"cmd-system-{command}-{start}",
+            "event_type": event_type,
+            "issued_at_ms": start,
+        }
+        self.monitor.publish_command(self.device_id, suffix, payload)
+
+        observed = self.store.wait_for(
+            lambda m: self._is_device_msg(m)
+            and (
+                str(m.payload_json.get("state", "")) == expected_state
+                or (
+                    str(m.payload_json.get("event_type", "")) == "command_result"
+                    and str(m.payload_json.get("status", "")).upper() == "ACK"
+                    and suffix in str(m.payload_json.get("command", ""))
+                )
+            ),
+            timeout=self.args.command_timeout,
+            after_ms=start,
+        )
+
+        if observed:
+            self.add("system_command_contract", "PASS", f"System command {suffix} acknowledged or moved to {expected_state}", topic=observed.topic, payload=observed.payload_json)
+        else:
+            self.add("system_command_contract", "WARN", f"No clear response to system command {suffix}. If not implemented by MQTT, test long-press buttons manually.")
+
+    def test_observed_minimal_payload_contracts(self) -> None:
+        if not self.device_id:
+            return
+        messages = self.store.snapshot()
+        cal_msgs = [
+            m for m in messages
+            if self._is_device_msg(m)
+            and self._topic_suffix(m) in {"events/calibration/progress", "events/calibration/result"}
+        ]
+        err_msgs = [
+            m for m in messages
+            if self._is_device_msg(m) and self._topic_suffix(m) == "events/error"
+        ]
+
+        bad_cal = []
+        for m in cal_msgs:
+            ok, forbidden = self._check_minimal_calibration_payload(m)
+            if not ok:
+                bad_cal.append({"topic": m.topic, "payload": m.payload_json, "forbidden": forbidden})
+        if bad_cal:
+            self.add("observed_calibration_minimal_contract", "FAIL", "Observed calibration payloads violate minimal contract", bad=bad_cal[:5])
+        elif cal_msgs:
+            self.add("observed_calibration_minimal_contract", "PASS", "All observed calibration progress/result payloads follow minimal numeric contract", count=len(cal_msgs))
+        else:
+            self.add("observed_calibration_minimal_contract", "SKIP", "No calibration progress/result payloads observed")
+
+        bad_err = []
+        for m in err_msgs:
+            forbidden = self._forbidden_fields(m.payload_json, MINIMAL_ERROR_FORBIDDEN_FIELDS)
+            if m.payload_json.get("event_type") == "firmware_error":
+                if not self._is_minimal_firmware_error(m) or forbidden:
+                    bad_err.append({"topic": m.topic, "payload": m.payload_json, "forbidden": forbidden})
+        if bad_err:
+            self.add("observed_error_minimal_contract", "FAIL", "Observed firmware_error payloads violate minimal contract", bad=bad_err[:5])
+        elif any(m.payload_json.get("event_type") == "firmware_error" for m in err_msgs):
+            self.add("observed_error_minimal_contract", "PASS", "All observed firmware_error payloads follow minimal numeric contract")
+        else:
+            self.add("observed_error_minimal_contract", "SKIP", "No firmware_error payloads observed")
 
     def write_report(self) -> None:
         devices = [d.__dict__ for d in self.ctx.snapshot_devices()]
@@ -1389,6 +1746,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cancel-after", type=float, default=5.0)
     parser.add_argument("--skip-invalid-calibration", action="store_true")
     parser.add_argument("--test-session-start", action="store_true")
+    parser.add_argument("--run-session", action="store_true", help="After device is READY_FOR_SESSION, test cmd/session/start, telemetry, and cmd/session/stop")
+    parser.add_argument("--telemetry-timeout", type=float, default=15.0)
+    parser.add_argument("--test-system-commands", action="store_true", help="Dangerous: send one system reset/turn-off/flush-config MQTT command at the end")
+    parser.add_argument("--system-command", choices=["reset", "turn-off", "flush-config"], default="turn-off")
     parser.add_argument("--edge-tests", action="store_true", help="Run safe command edge-case tests: unknown command, invalid JSON, invalid calibration payloads, cancel while idle")
     parser.add_argument("--manual-checklist", action="store_true", help="Print manual hardware checklist before running tests")
     parser.add_argument("--hall-delta", type=int, default=13500)
@@ -1409,13 +1770,15 @@ def print_manual_hardware_checklist() -> None:
     print("   idf.py -p COMx flash monitor")
     print("2. If device enters PROVISIONING, connect phone/PC to the ESP SoftAP and submit the printed values/QR.")
     print("3. Confirm on monitor that Wi-Fi, backend registration, and MQTT connect succeed.")
-    print("4. During calibration, follow dashboard/test progress events:")
-    print("   WAITING_REF_PRESSURE -> apply reference pressure")
-    print("   WAITING_BLADDER_1_PRESSURE -> apply bladder 1 target")
-    print("   WAITING_BLADDER_2_PRESSURE -> apply bladder 2 target")
-    print("   WAITING_FULL_PRESS -> compress chest to full depth")
-    print("5. Do not press reset/unpair buttons during automatic calibration unless testing recovery.")
-    print("6. After READY_FOR_SESSION, run session start tests only if session runtime is implemented.")
+    print("4. During calibration, the updated firmware uses minimal numeric progress payloads:")
+    print("   event_type + reason_id + state + action_id + ts_ms")
+    print("   No device_id, reason_code, message, action_code, readyForSession, or step fields.")
+    print("5. For physical calibration, follow LocalHub UI prompts or ESP monitor logs.")
+    print("6. After READY_FOR_SESSION, use --run-session to verify SESSION_ACTIVE telemetry and stop.")
+    print("7. Manual long-press checks:")
+    print("   BUTTON_1 held 3s in normal states -> TURN_OFF, preserving NVS.")
+    print("   BUTTON_2 held 3s in normal states -> RESETTING, clearing config, then PROVISIONING.")
+    print("   ERROR and CALIBRATION_FAIL keep their own button behavior.")
     print("=" * 84)
     print()
 
