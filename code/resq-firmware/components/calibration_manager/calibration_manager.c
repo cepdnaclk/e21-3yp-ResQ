@@ -112,14 +112,34 @@ static esp_err_t calibration_read_pressure_once(gpio_num_t sck_pin,
     if (out_value == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* sck_pin is unused because shared SCK is used internally */
+    (void)sck_pin;
 
-    int32_t value = hx710_read(sck_pin, dout_pin);
+    /* Use shared-SCK synchronized read and select the requested dout pin value */
+    int32_t v0 = 0, v1 = 0, v2 = 0;
+    esp_err_t err = hx710_read_3_shared_sck(
+        BOARD_HX710_SHARED_SCK,
+        BOARD_HX710_0_DOUT,
+        BOARD_HX710_1_DOUT,
+        BOARD_HX710_2_DOUT,
+        &v0,
+        &v1,
+        &v2);
 
-    if (value == HX710_ERROR_TIMEOUT) {
-        return ESP_ERR_TIMEOUT;
+    if (err != ESP_OK) {
+        return err;
     }
 
-    *out_value = value;
+    if (dout_pin == BOARD_HX710_0_DOUT) {
+        *out_value = v0;
+    } else if (dout_pin == BOARD_HX710_1_DOUT) {
+        *out_value = v1;
+    } else if (dout_pin == BOARD_HX710_2_DOUT) {
+        *out_value = v2;
+    } else {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     return ESP_OK;
 }
 
@@ -409,7 +429,7 @@ static void calibration_manager_task(void *arg)
                                  CAL_ACTION_NONE);
     esp_err_t err = calibration_wait_for_pressure_target(
         "pressure_sensor_0",
-        BOARD_HX710_0_SCK,
+        BOARD_HX710_SHARED_SCK,
         BOARD_HX710_0_DOUT,
         s_calibration_config.ref_pressure,
         CALIBRATION_PRESSURE_TOLERANCE_RAW,
@@ -440,7 +460,7 @@ static void calibration_manager_task(void *arg)
 
     err = calibration_wait_for_pressure_target(
         "pressure_sensor_1",
-        BOARD_HX710_1_SCK,
+        BOARD_HX710_SHARED_SCK,
         BOARD_HX710_1_DOUT,
         s_calibration_config.bladder_1_pressure,
         CALIBRATION_PRESSURE_TOLERANCE_RAW,
@@ -465,7 +485,7 @@ static void calibration_manager_task(void *arg)
 
     err = calibration_wait_for_pressure_target(
         "pressure_sensor_2",
-        BOARD_HX710_2_SCK,
+        BOARD_HX710_SHARED_SCK,
         BOARD_HX710_2_DOUT,
         s_calibration_config.bladder_2_pressure,
         CALIBRATION_PRESSURE_TOLERANCE_RAW,
@@ -562,7 +582,7 @@ static void calibration_manager_task(void *arg)
      * ----------------------------------------------------- */
 
     err = calibration_read_pressure_average(
-        BOARD_HX710_1_SCK,
+        BOARD_HX710_SHARED_SCK,
         BOARD_HX710_1_DOUT,
         &s_calibration_config.bladder_1_full_press);
 
@@ -572,7 +592,7 @@ static void calibration_manager_task(void *arg)
     }
 
     err = calibration_read_pressure_average(
-        BOARD_HX710_2_SCK,
+        BOARD_HX710_SHARED_SCK,
         BOARD_HX710_2_DOUT,
         &s_calibration_config.bladder_2_full_press);
 
@@ -620,8 +640,8 @@ esp_err_t calibration_manager_init(void)
 
     calibration_config_set_defaults(&s_calibration_config);
 
-    /* Initialize pressure sensor 0 */
-    esp_err_t err = hx710_init(BOARD_HX710_0_SCK,
+    /* Initialize pressure sensor 0 (shared SCK) */
+    esp_err_t err = hx710_init(BOARD_HX710_SHARED_SCK,
                                BOARD_HX710_0_DOUT);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
@@ -630,8 +650,8 @@ esp_err_t calibration_manager_init(void)
         return err;
     }
 
-    /* Initialize pressure sensor 1 */
-    err = hx710_init(BOARD_HX710_1_SCK,
+    /* Initialize pressure sensor 1 (shared SCK) */
+    err = hx710_init(BOARD_HX710_SHARED_SCK,
                      BOARD_HX710_1_DOUT);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
@@ -640,8 +660,8 @@ esp_err_t calibration_manager_init(void)
         return err;
     }
 
-    /* Initialize pressure sensor 2 */
-    err = hx710_init(BOARD_HX710_2_SCK,
+    /* Initialize pressure sensor 2 (shared SCK) */
+    err = hx710_init(BOARD_HX710_SHARED_SCK,
                      BOARD_HX710_2_DOUT);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,

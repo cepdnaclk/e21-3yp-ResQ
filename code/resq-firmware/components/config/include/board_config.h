@@ -6,12 +6,23 @@
 /* =========================================================
  * Sensor pins
  * ========================================================= */
-#define BOARD_HX710_0_SCK      GPIO_NUM_18      // Reference pressure sensor
+#define BOARD_HX710_SHARED_SCK GPIO_NUM_18
+
+/*
+ * HX710 pressure sensors use one shared SCK line.
+ * Each sensor keeps a separate DOUT line.
+ * Do not read these sensors sequentially with hx710_read() using the same SCK.
+ * Use hx710_read_3_shared_sck() or the pressure array wrapper.
+ */
+
 #define BOARD_HX710_0_DOUT     GPIO_NUM_19
-#define BOARD_HX710_1_SCK      GPIO_NUM_6       // Bladder 1 pressure sensor - Left bladder
 #define BOARD_HX710_1_DOUT     GPIO_NUM_7
-#define BOARD_HX710_2_SCK      GPIO_NUM_4       // Bladder 2 pressure sensor - Right bladder
 #define BOARD_HX710_2_DOUT     GPIO_NUM_5
+
+/* Compatibility aliases - map old per-sensor SCK defines to the shared SCK */
+#define BOARD_HX710_0_SCK      BOARD_HX710_SHARED_SCK
+#define BOARD_HX710_1_SCK      BOARD_HX710_SHARED_SCK
+#define BOARD_HX710_2_SCK      BOARD_HX710_SHARED_SCK
 
 #define BOARD_HALL_ADC_CHAN    ADC_CHANNEL_2
 

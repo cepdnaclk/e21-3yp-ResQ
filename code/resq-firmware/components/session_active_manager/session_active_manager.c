@@ -40,17 +40,37 @@ static void session_sensor_task(void *arg)
         ESP_LOGW(TAG, "hall_sensor_init failed");
     }
 
-    hx710_init(BOARD_HX710_0_SCK, BOARD_HX710_0_DOUT);
-    hx710_init(BOARD_HX710_1_SCK, BOARD_HX710_1_DOUT);
-    hx710_init(BOARD_HX710_2_SCK, BOARD_HX710_2_DOUT);
+    /* Initialize HX710 sensors using shared SCK */
+    hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT);
+    hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_1_DOUT);
+    hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_2_DOUT);
 
     while (s_sensor_task_run) {
         cpr_sensor_sample_t sample = {0};
         sample.ts_ms = esp_timer_get_time() / 1000;
 
-        sample.pressure_0_raw = hx710_read(BOARD_HX710_0_SCK, BOARD_HX710_0_DOUT);
-        sample.pressure_1_raw = hx710_read(BOARD_HX710_1_SCK, BOARD_HX710_1_DOUT);
-        sample.pressure_2_raw = hx710_read(BOARD_HX710_2_SCK, BOARD_HX710_2_DOUT);
+        {
+            int32_t p0 = 0, p1 = 0, p2 = 0;
+            esp_err_t pressure_err = hx710_read_3_shared_sck(
+                BOARD_HX710_SHARED_SCK,
+                BOARD_HX710_0_DOUT,
+                BOARD_HX710_1_DOUT,
+                BOARD_HX710_2_DOUT,
+                &p0,
+                &p1,
+                &p2);
+
+            if (pressure_err != ESP_OK) {
+                sample.pressure_0_raw = HX710_ERROR_TIMEOUT;
+                sample.pressure_1_raw = HX710_ERROR_TIMEOUT;
+                sample.pressure_2_raw = HX710_ERROR_TIMEOUT;
+                ESP_LOGW(TAG, "Failed to read shared HX710 pressure sensors: %s", esp_err_to_name(pressure_err));
+            } else {
+                sample.pressure_0_raw = p0;
+                sample.pressure_1_raw = p1;
+                sample.pressure_2_raw = p2;
+            }
+        }
 
         int hall_raw = 0;
         if (hall_sensor_read_raw(&local_hall, &hall_raw) == ESP_OK) {
@@ -320,9 +340,19 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
 
         if (strcmp(command_suffix, "cmd/debug") == 0) {
             /* publish one debug snapshot */
-            int32_t p0 = hx710_read(BOARD_HX710_0_SCK, BOARD_HX710_0_DOUT);
-            int32_t p1 = hx710_read(BOARD_HX710_1_SCK, BOARD_HX710_1_DOUT);
-            int32_t p2 = hx710_read(BOARD_HX710_2_SCK, BOARD_HX710_2_DOUT);
+            int32_t p0 = 0, p1 = 0, p2 = 0;
+            esp_err_t perr = hx710_read_3_shared_sck(
+                BOARD_HX710_SHARED_SCK,
+                BOARD_HX710_0_DOUT,
+                BOARD_HX710_1_DOUT,
+                BOARD_HX710_2_DOUT,
+                &p0,
+                &p1,
+                &p2);
+            if (perr != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to read shared HX710 for debug: %s", esp_err_to_name(perr));
+                p0 = HX710_ERROR_TIMEOUT; p1 = HX710_ERROR_TIMEOUT; p2 = HX710_ERROR_TIMEOUT;
+            }
             int32_t hall = 0;
 
             hall_sensor_t local_h = {0};
