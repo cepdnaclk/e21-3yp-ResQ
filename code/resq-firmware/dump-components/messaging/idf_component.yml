@@ -1,3 +1,0 @@
-dependencies:
-  espressif/mqtt: "*"
-  espressif/cjson: "^1.7.19"
