@@ -285,13 +285,31 @@ static void heartbeat_task(void *arg)
                 g_ip[sizeof(g_ip) - 1] = '\0';
             }
 
+            /* Resolve session state from authoritative managers */
+            session_state_t session_state = {0};
+            bool session_active = false;
+            char heartbeat_session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+            bool sensor_running = false;
+
+            if (session_manager_get_state(&session_state) == ESP_OK) {
+                session_active = session_state.active;
+                if (session_state.active) {
+                    strncpy(heartbeat_session_id,
+                            session_state.session_id,
+                            sizeof(heartbeat_session_id) - 1);
+                    heartbeat_session_id[sizeof(heartbeat_session_id) - 1] = '\0';
+                }
+            }
+
+            sensor_running = telemetry_publisher_is_running();
+
             esp_err_t err = mqtt_manager_publish_heartbeat(
                 &g_network_cfg,
                 &g_calibration_cfg,
                 g_current_state,
-                g_session_active,
-                g_sensor_running,
-                g_session_id,
+                session_active,
+                sensor_running,
+                heartbeat_session_id,
                 g_ip,
                 wifi_manager_get_rssi()
             );
