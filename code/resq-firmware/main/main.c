@@ -285,13 +285,31 @@ static void heartbeat_task(void *arg)
                 g_ip[sizeof(g_ip) - 1] = '\0';
             }
 
+            /* Resolve session state from authoritative managers */
+            session_state_t session_state = {0};
+            bool session_active = false;
+            char heartbeat_session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+            bool sensor_running = false;
+
+            if (session_manager_get_state(&session_state) == ESP_OK) {
+                session_active = session_state.active;
+                if (session_state.active) {
+                    strncpy(heartbeat_session_id,
+                            session_state.session_id,
+                            sizeof(heartbeat_session_id) - 1);
+                    heartbeat_session_id[sizeof(heartbeat_session_id) - 1] = '\0';
+                }
+            }
+
+            sensor_running = telemetry_publisher_is_running();
+
             esp_err_t err = mqtt_manager_publish_heartbeat(
                 &g_network_cfg,
                 &g_calibration_cfg,
                 g_current_state,
-                g_session_active,
-                g_sensor_running,
-                g_session_id,
+                session_active,
+                sensor_running,
+                heartbeat_session_id,
                 g_ip,
                 wifi_manager_get_rssi()
             );
@@ -423,7 +441,7 @@ static resq_state_t run_provisioning_state(void)
         ESP_LOGE(TAG,
                  "Provisioning start failed: %s",
                  esp_err_to_name(err));
-
+        error_manager_set_error(FW_ERROR_CONFIG_INVALID);
         return RESQ_STATE_ERROR;
     }
 
@@ -431,7 +449,22 @@ static resq_state_t run_provisioning_state(void)
              "Provisioning portal active. Connect to ESP AP and open http://192.168.4.1/");
 
     while (!provisioning_manager_has_saved_config()) {
-        vTaskDelay(pdMS_TO_TICKS(200));
+        system_button_action_t action =
+            system_button_manager_poll(RESQ_STATE_PROVISIONING);
+
+        if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+            ESP_LOGW(TAG, "System button requested TURN_OFF during provisioning");
+            provisioning_manager_stop();
+            return RESQ_STATE_TURN_OFF;
+        }
+
+        if (action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+            ESP_LOGW(TAG, "System button requested FACTORY_RESET during provisioning");
+            provisioning_manager_stop();
+            return RESQ_STATE_RESETTING;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 
     /*

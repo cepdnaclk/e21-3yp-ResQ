@@ -18,6 +18,7 @@
 #include "cpr_metrics.h"
 #include "buzzer_manager.h"
 #include "telemetry_publisher.h"
+#include "error_manager.h"
 #include "calibration_manager.h"
 #include "hx710.h"
 #include "hall_sensor.h"
@@ -137,9 +138,33 @@ resq_state_t session_active_manager_start(network_config_t *network_config,
     /* reset metrics */
     cpr_metrics_reset(calibration_config);
 
-    /* start buzzer and telemetry */
-    buzzer_manager_start_metronome(110);
-    telemetry_publisher_start();
+    /* start buzzer and telemetry (check failures) */
+    esp_err_t buzz_err = buzzer_manager_start_metronome(110);
+    if (buzz_err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start buzzer metronome: %s", esp_err_to_name(buzz_err));
+        error_manager_set_error(FW_ERROR_BUZZER_TASK_FAILED);
+        session_manager_stop(session_id);
+        runtime_helpers_publish_command_result(network_config,
+                                               RESQ_STATE_READY_FOR_SESSION,
+                                               "cmd/session/start",
+                                               "NACK",
+                                               "buzzer_start_failed");
+        return RESQ_STATE_ERROR;
+    }
+
+    esp_err_t telemetry_err = telemetry_publisher_start();
+    if (telemetry_err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start telemetry publisher: %s", esp_err_to_name(telemetry_err));
+        buzzer_manager_stop();
+        session_manager_stop(session_id);
+        error_manager_set_error(FW_ERROR_TELEMETRY_TASK_FAILED);
+        runtime_helpers_publish_command_result(network_config,
+                                               RESQ_STATE_READY_FOR_SESSION,
+                                               "cmd/session/start",
+                                               "NACK",
+                                               "telemetry_start_failed");
+        return RESQ_STATE_ERROR;
+    }
 
     /* publish ack and session_started event */
     runtime_helpers_publish_command_result(network_config,
@@ -189,6 +214,21 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
     BaseType_t ok = xTaskCreate(session_sensor_task, "session_sensor", 4096, NULL, 6, &s_sensor_task);
     if (ok != pdPASS) {
         s_sensor_task_run = false;
+
+        /* try to stop components and session cleanly */
+        session_state_t cur = {0};
+        char stopped_session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+        if (session_manager_get_state(&cur) == ESP_OK && cur.active) {
+            strncpy(stopped_session_id, cur.session_id, sizeof(stopped_session_id) - 1);
+            stopped_session_id[sizeof(stopped_session_id) - 1] = '\0';
+        }
+
+        telemetry_publisher_stop();
+        buzzer_manager_stop();
+        session_manager_stop(stopped_session_id[0] ? stopped_session_id : NULL);
+
+        error_manager_set_error(FW_ERROR_SENSOR_RUNTIME_FAILED);
+
         return RESQ_STATE_ERROR;
     }
 
@@ -257,30 +297,60 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
         ESP_LOGI(TAG, "Session active command=%s", command_suffix);
 
         if (strcmp(command_suffix, "cmd/session/stop") == 0) {
-            /* validate active session id if provided */
-            /* attempt stop */
-            const char *payload = command.payload;
-            /* simple JSON parse for session_id or sessionId */
-            char session_id[128] = {0};
-            cJSON *root = cJSON_Parse(payload);
-            if (root) {
-                cJSON *sid = cJSON_GetObjectItemCaseSensitive(root, "session_id");
-                if (!cJSON_IsString(sid) || sid->valuestring == NULL) {
-                    sid = cJSON_GetObjectItemCaseSensitive(root, "sessionId");
-                }
-                if (cJSON_IsString(sid) && sid->valuestring) {
-                    strncpy(session_id, sid->valuestring, sizeof(session_id)-1);
-                }
-                cJSON_Delete(root);
+            /* determine active session id (copy it before stopping) */
+            session_state_t current_session = {0};
+            char stopped_session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+            if (session_manager_get_state(&current_session) == ESP_OK && current_session.active) {
+                strncpy(stopped_session_id, current_session.session_id, sizeof(stopped_session_id) - 1);
+                stopped_session_id[sizeof(stopped_session_id) - 1] = '\0';
             }
 
-            esp_err_t stop_err = session_manager_stop(session_id[0] ? session_id : NULL);
+            /* if no active session, reject */
+            if (stopped_session_id[0] == '\0') {
+                runtime_helpers_publish_command_result(network_config,
+                                                       RESQ_STATE_SESSION_ACTIVE,
+                                                       "cmd/session/stop",
+                                                       "NACK",
+                                                       "no_active_session");
+                continue;
+            }
+
+            /* parse optional requested session id from payload */
+            char requested_session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+            const char *payload = command.payload;
+            if (payload && payload[0] != '\0') {
+                cJSON *root = cJSON_Parse(payload);
+                if (root) {
+                    cJSON *sid = cJSON_GetObjectItemCaseSensitive(root, "session_id");
+                    if (!cJSON_IsString(sid) || sid->valuestring == NULL) {
+                        sid = cJSON_GetObjectItemCaseSensitive(root, "sessionId");
+                    }
+                    if (cJSON_IsString(sid) && sid->valuestring) {
+                        strncpy(requested_session_id, sid->valuestring, sizeof(requested_session_id) - 1);
+                        requested_session_id[sizeof(requested_session_id) - 1] = '\0';
+                    }
+                    cJSON_Delete(root);
+                }
+            }
+
+            /* if payload contained a session id and it doesn't match active session, reject */
+            if (requested_session_id[0] != '\0' && strcmp(requested_session_id, stopped_session_id) != 0) {
+                runtime_helpers_publish_command_result(network_config,
+                                                       RESQ_STATE_SESSION_ACTIVE,
+                                                       "cmd/session/stop",
+                                                       "NACK",
+                                                       "session_id_mismatch");
+                continue;
+            }
+
+            /* stop using preserved active session id */
+            esp_err_t stop_err = session_manager_stop(stopped_session_id);
             if (stop_err != ESP_OK) {
                 runtime_helpers_publish_command_result(network_config,
                                                        RESQ_STATE_SESSION_ACTIVE,
                                                        "cmd/session/stop",
                                                        "NACK",
-                                                       "invalid_session_stop");
+                                                       "session_stop_failed");
                 continue;
             }
 
@@ -294,14 +364,14 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
                                                    "ACK",
                                                    "session_stopped");
 
-            /* publish session_stopped event */
+            /* publish session_stopped event using copied session id */
             char ev[512];
             cpr_metrics_snapshot_t snap = {0};
             cpr_metrics_get_snapshot(&snap);
             int written = snprintf(ev, sizeof(ev),
                                    "{\"event_type\":\"session_stopped\",\"device_id\":\"%s\",\"session_id\":\"%s\",\"total_compressions\":%d,\"valid_compressions\":%d,\"recoil_ok_count\":%d,\"incomplete_recoil_count\":%d,\"state\":\"READY_FOR_SESSION\",\"ts_ms\":%lld}",
                                    runtime_helpers_get_device_id(network_config),
-                                   session_manager_get_session_id(),
+                                   stopped_session_id,
                                    snap.total_compressions,
                                    snap.valid_compressions,
                                    snap.recoil_ok_count,
