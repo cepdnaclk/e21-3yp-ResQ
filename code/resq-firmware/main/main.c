@@ -423,7 +423,7 @@ static resq_state_t run_provisioning_state(void)
         ESP_LOGE(TAG,
                  "Provisioning start failed: %s",
                  esp_err_to_name(err));
-
+        error_manager_set_error(FW_ERROR_CONFIG_INVALID);
         return RESQ_STATE_ERROR;
     }
 
@@ -431,7 +431,22 @@ static resq_state_t run_provisioning_state(void)
              "Provisioning portal active. Connect to ESP AP and open http://192.168.4.1/");
 
     while (!provisioning_manager_has_saved_config()) {
-        vTaskDelay(pdMS_TO_TICKS(200));
+        system_button_action_t action =
+            system_button_manager_poll(RESQ_STATE_PROVISIONING);
+
+        if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+            ESP_LOGW(TAG, "System button requested TURN_OFF during provisioning");
+            provisioning_manager_stop();
+            return RESQ_STATE_TURN_OFF;
+        }
+
+        if (action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+            ESP_LOGW(TAG, "System button requested FACTORY_RESET during provisioning");
+            provisioning_manager_stop();
+            return RESQ_STATE_RESETTING;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 
     /*
