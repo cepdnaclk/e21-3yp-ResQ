@@ -22,4 +22,5 @@ idf_component_register(
         freertos
         cjson
         system_button_manager
+        error_manager
 )
