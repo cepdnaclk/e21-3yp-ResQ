@@ -32,6 +32,7 @@ It is a Windows-first desktop application intended for an instructor PC to manag
 For a Windows-first local demo path, start with:
 
 - [Local demo runbook](docs/local-demo-runbook.md)
+- [Local demo launcher](scripts/local-demo/start-local-demo.ps1)
 - [Local firmware simulator smoke test](docs/local-firmware-simulator-smoke-test.md)
 - [Real ESP32 integration smoke test](docs/real-esp32-localhub-integration-smoke-test.md)
 

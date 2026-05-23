@@ -381,6 +381,7 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 ## R. Phase 11 Status
 
 - Local demo runbook added at `docs/local-demo-runbook.md` with Windows-first startup, calibration, session, diagnostics, review/export, and troubleshooting steps.
+- `scripts/local-demo/start-local-demo.ps1` added a safe launcher that opens broker, backend, desktop, simulator, watcher, and preflight windows separately so logs stay visible.
 - Helper scripts added under `scripts/local-demo/` for simulator startup, health checks, and MQTT trace watching during demo runs.
 - `scripts/check-localhub-service-info.ps1` now prints the service-info values plus sample provisioning and registration JSON so setup can be verified before a demo.
 - `apps/localhub-desktop/src/components/LocalSessionReviewPanel.tsx` received a small hardening pass so refresh is disabled while loading and the copy clearly calls out local/simulator session review.

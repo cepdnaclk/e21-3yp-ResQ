@@ -70,6 +70,24 @@ Run the optional MQTT trace helper in another terminal:
 powershell -ExecutionPolicy Bypass -File .\scripts\local-demo\demo-mqtt-watch.ps1
 ```
 
+## Demo Launcher
+
+If you want the demo services opened in separate visible PowerShell windows, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\local-demo\start-local-demo.ps1
+```
+
+The launcher keeps every service window visible so you can watch broker, backend, desktop, simulator, watcher, and preflight logs during debugging.
+
+To validate the launcher without starting anything, use the dry-run style skip command:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\local-demo\start-local-demo.ps1 -SkipBroker -SkipBackend -SkipDesktop -SkipSimulator -SkipWatcher
+```
+
+If the launcher fails or you want to start services manually, fall back to the individual commands in the sections above. The manual path is the same one the launcher uses, just split across separate terminals.
+
 ## Expected MQTT Topics
 
 The simulator and backend should use canonical topics under `resq/{deviceId}/...`.
@@ -145,6 +163,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\local-demo\start-firmware-sim
 - If calibration buttons remain disabled, check that the target device is publishing readiness and that the browser is not using stale state from an older session.
 - If exports fail, confirm you are signed in with an instructor or admin role.
 - If the service-info helper prints a LAN IP that is not reachable from other machines, use the Tauri-hosted LAN override flow or run the dashboard locally on the same machine.
+- If the launcher opens a window but the service exits immediately, keep that window visible and read the error directly instead of relaunching blindly.
+- If you prefer manual startup, use the individual broker, backend, desktop, simulator, watcher, and service-info commands from this runbook and keep each terminal open for logs.
 
 ## Notes
 
