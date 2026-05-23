@@ -3,6 +3,9 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
+import lk.resq.localhub.model.firmware.FirmwareRequestIds;
+import lk.resq.localhub.model.firmware.FirmwareTopics;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
@@ -18,10 +21,15 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class MqttCommandPublisherService {
@@ -36,6 +44,7 @@ public class MqttCommandPublisherService {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final AtomicLong requestSequence = new AtomicLong(0L);
 
     private MqttClient mqttClient;
 
@@ -84,12 +93,110 @@ public class MqttCommandPublisherService {
         }
     }
 
+    public FirmwareCommandPublishResult publishDebugCommand(String deviceId) {
+        return publishFirmwareCommand(
+                FirmwareTopics.debugCommandTopic(deviceId),
+                requestPayload(FirmwareCommandTypeId.DEBUG, null),
+                "debug",
+                FirmwareCommandTypeId.DEBUG
+        );
+    }
+
+    public FirmwareCommandPublishResult publishCalibrationStartCommand(
+            String deviceId,
+            Integer hallDelta,
+            Integer refPressure,
+            Integer bladder1Pressure,
+            Integer bladder2Pressure
+    ) {
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.CALIBRATION_START, null);
+        payload.put("hall_delta", hallDelta);
+        payload.put("ref_pressure", refPressure);
+        payload.put("bladder_1_pressure", bladder1Pressure);
+        payload.put("bladder_2_pressure", bladder2Pressure);
+        return publishFirmwareCommand(
+                FirmwareTopics.calibrationStartCommandTopic(deviceId),
+                payload,
+                "calibration start",
+                FirmwareCommandTypeId.CALIBRATION_START
+        );
+    }
+
+    public FirmwareCommandPublishResult publishCalibrationCancelCommand(String deviceId) {
+        return publishFirmwareCommand(
+                FirmwareTopics.calibrationCancelCommandTopic(deviceId),
+                requestPayload(FirmwareCommandTypeId.CALIBRATION_CANCEL, null),
+                "calibration cancel",
+                FirmwareCommandTypeId.CALIBRATION_CANCEL
+        );
+    }
+
+    public FirmwareCommandPublishResult publishSessionStartCommand(
+            String deviceId,
+            String sessionId,
+            String profileId,
+            Instant startedAt
+    ) {
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_START, startedAt);
+        payload.put("session_id", sessionId);
+        payload.put("profile_id", profileId);
+        return publishFirmwareCommand(
+                FirmwareTopics.sessionStartCommandTopic(deviceId),
+                payload,
+                "session start",
+                FirmwareCommandTypeId.SESSION_START
+        );
+    }
+
+    public FirmwareCommandPublishResult publishSessionStopCommand(String deviceId, String sessionId, Instant endedAt) {
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_STOP, endedAt);
+        payload.put("session_id", sessionId);
+        return publishFirmwareCommand(
+                FirmwareTopics.sessionStopCommandTopic(deviceId),
+                payload,
+                "session stop",
+                FirmwareCommandTypeId.SESSION_STOP
+        );
+    }
+
+    public FirmwareCommandPublishResult publishSystemRetryCommand(String deviceId) {
+        return publishFirmwareCommand(
+                FirmwareTopics.systemRetryCommandTopic(deviceId),
+                requestPayload(FirmwareCommandTypeId.SYSTEM_RETRY, null),
+                "system retry",
+                FirmwareCommandTypeId.SYSTEM_RETRY
+        );
+    }
+
+    public FirmwareCommandPublishResult publishSystemResetCommand(String deviceId) {
+        return publishFirmwareCommand(
+                FirmwareTopics.systemResetCommandTopic(deviceId),
+                requestPayload(FirmwareCommandTypeId.SYSTEM_RESET, null),
+                "system reset",
+                FirmwareCommandTypeId.SYSTEM_RESET
+        );
+    }
+
+    public FirmwareCommandPublishResult publishSystemFlushConfigCommand(String deviceId) {
+        return publishFirmwareCommand(
+                FirmwareTopics.systemFlushConfigCommandTopic(deviceId),
+                requestPayload(FirmwareCommandTypeId.SYSTEM_FLUSH_CONFIG, null),
+                "system flush-config",
+                FirmwareCommandTypeId.SYSTEM_FLUSH_CONFIG
+        );
+    }
+
     public void publishSessionStart(SessionStartCommandPayload payload) {
-        publish("resq/manikins/%s/cmd/session/start".formatted(payload.deviceId()), payload, "start");
+        publishSessionStartCommand(
+                payload.deviceId(),
+                payload.sessionId(),
+                payload.scenario(),
+                payload.startedAt()
+        );
     }
 
     public void publishSessionStop(SessionStopCommandPayload payload) {
-        publish("resq/manikins/%s/cmd/session/stop".formatted(payload.deviceId()), payload, "stop");
+        publishSessionStopCommand(payload.deviceId(), payload.sessionId(), payload.endedAt());
     }
 
     private void ensureConnected() {
@@ -146,29 +253,47 @@ public class MqttCommandPublisherService {
         }
     }
 
-    private void publish(String topic, Object payload, String action) {
+    protected FirmwareCommandPublishResult publishFirmwareCommand(
+            String topic,
+            Map<String, Object> payload,
+            String action,
+            FirmwareCommandTypeId commandTypeId
+    ) {
         try {
             ensureConnected();
             if (mqttClient == null || !mqttClient.isConnected()) {
                 throw new IllegalStateException("MQTT command publisher is not connected");
             }
 
-            String json = objectMapper.writeValueAsString(payload);
+            Map<String, Object> normalizedPayload = new LinkedHashMap<>(payload);
+            String json = objectMapper.writeValueAsString(normalizedPayload);
             MqttMessage message = new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
             message.setQos(0);
             mqttClient.publish(topic, message);
 
-            if (payload instanceof SessionStartCommandPayload startPayload) {
-                logger.info("Published MQTT start command to {} for session {}", topic, startPayload.sessionId());
-            } else if (payload instanceof SessionStopCommandPayload stopPayload) {
-                logger.info("Published MQTT stop command to {} for session {}", topic, stopPayload.sessionId());
-            } else {
-                logger.info("Published MQTT {} command to {}", action, topic);
-            }
+            String requestId = stringValue(normalizedPayload.get("request_id"));
+            logger.info(
+                    "Published MQTT {} command to {} for request {}",
+                    action,
+                    topic,
+                    requestId
+            );
+            return new FirmwareCommandPublishResult(topic, requestId, normalizedPayload);
         } catch (Exception error) {
             logger.warn("Failed to publish MQTT {} command to {}. Error message: {}", action, topic, error.getMessage(), error);
             throw new MqttCommandPublishException("Failed to publish MQTT " + action + " command to " + topic, error);
         }
+    }
+
+    private Map<String, Object> requestPayload(FirmwareCommandTypeId commandTypeId, Instant timestamp) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("request_id", FirmwareRequestIds.format(commandTypeId.value(), Math.toIntExact(requestSequence.incrementAndGet())));
+        payload.put("issued_at_ms", (timestamp == null ? Instant.now() : timestamp).toEpochMilli());
+        return payload;
+    }
+
+    private static String stringValue(Object value) {
+        return value == null ? null : value.toString();
     }
 
     private static String normalize(String value) {
@@ -178,5 +303,11 @@ public class MqttCommandPublisherService {
 
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    public record FirmwareCommandPublishResult(String topic, String requestId, Map<String, Object> payload) {
+        public FirmwareCommandPublishResult {
+            payload = Collections.unmodifiableMap(new LinkedHashMap<>(payload));
+        }
     }
 }

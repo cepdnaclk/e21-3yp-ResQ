@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
@@ -48,6 +49,22 @@ public class ManikinRegistryService {
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.state = firstText(payload, "state", "status", state.state);
+            state.ip = firstText(payload, "ip", "ipAddress", state.ip);
+            state.fw = firstText(payload, "fw", "firmware", state.fw);
+            state.rssi = firstInt(payload, "rssi", state.rssi);
+            state.battery = firstInt(payload, "battery", state.battery);
+            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            indexSession(state);
+        });
+    }
+
+    public void updateFromDebug(String deviceId, JsonNode payload) {
+        upsert(deviceId, state -> {
+            state.lastSeen = Instant.now();
+            state.online = true;
+            state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
+            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            state.state = firstText(payload, "state", "debugState", state.state);
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.rssi = firstInt(payload, "rssi", state.rssi);
@@ -112,7 +129,43 @@ public class ManikinRegistryService {
             state.lastSeen = Instant.now();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.lastEventType = firstText(payload, "eventType", "type", state.lastEventType);
+            state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type", "type");
+            indexSession(state);
+        });
+    }
+
+    public void updateFromCalibrationEvent(String deviceId, JsonNode payload) {
+        upsert(deviceId, state -> {
+            state.lastSeen = Instant.now();
+            state.online = true;
+            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type");
+            String result = firstText(payload, "result", "calibrationResult", "calibration_result", "state");
+            if (result != null) {
+                String normalized = result.toLowerCase(Locale.ROOT);
+                state.state = switch (normalized) {
+                    case "pass", "passed", "ready", "ok" -> "READY_FOR_SESSION";
+                    case "fail", "failed", "error" -> "CALIBRATION_FAIL";
+                    case "cancel", "cancelled", "canceled" -> "CALIBRATION_CANCELLED";
+                    default -> result;
+                };
+            }
+            state.sessionActive = false;
+            indexSession(state);
+        });
+    }
+
+    public void updateFromErrorEvent(String deviceId, JsonNode payload) {
+        upsert(deviceId, state -> {
+            state.lastSeen = Instant.now();
+            state.online = true;
+            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type");
+            state.state = firstText(payload, "state", "errorState", "error_state", null);
+            if (state.state == null || state.state.isBlank()) {
+                state.state = "ERROR";
+            }
+            state.sessionActive = false;
             indexSession(state);
         });
     }
@@ -334,6 +387,47 @@ public class ManikinRegistryService {
         value = text(payload, secondKey);
         if (value != null) {
             return value;
+        }
+
+        return fallback;
+    }
+
+    private static String firstText(JsonNode payload, String firstKey, String secondKey, String thirdKey, String fallback) {
+        String value = text(payload, firstKey);
+        if (value != null) {
+            return value;
+        }
+
+        value = text(payload, secondKey);
+        if (value != null) {
+            return value;
+        }
+
+        value = text(payload, thirdKey);
+        if (value != null) {
+            return value;
+        }
+
+        return fallback;
+    }
+
+    private static String firstScalarAsText(JsonNode payload, String fallback, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isTextual()) {
+                String value = node.asText().trim();
+                if (!value.isEmpty()) {
+                    return value;
+                }
+            }
+
+            if (node.isNumber()) {
+                return node.asText();
+            }
         }
 
         return fallback;

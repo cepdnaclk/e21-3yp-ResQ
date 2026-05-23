@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lk.resq.localhub.model.firmware.FirmwareTopics;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttClient;
@@ -33,10 +34,20 @@ public class MqttSubscriberService {
 
     // Keep topic handling canonical in one place for this slice.
     private static final List<String> SUBSCRIPTIONS = List.of(
+            FirmwareTopics.statusTopic("+"),
+            FirmwareTopics.heartbeatTopic("+"),
+            FirmwareTopics.telemetryTopic("+"),
+            FirmwareTopics.debugTopic("+"),
+            FirmwareTopics.eventsTopic("+"),
+            FirmwareTopics.calibrationEventsTopic("+"),
+            FirmwareTopics.errorEventsTopic("+"),
             "resq/manikins/+/status",
             "resq/manikins/+/heartbeat",
             "resq/manikins/+/telemetry",
+            "resq/manikins/+/debug",
             "resq/manikins/+/events",
+            "resq/manikins/+/events/calibration",
+            "resq/manikins/+/events/error",
             "resq/manikins/+/live"
     );
 
@@ -186,6 +197,7 @@ public class MqttSubscriberService {
     private void handleMessage(String topic, MqttMessage message) {
         ParsedTopic parsedTopic = parseTopic(topic);
         if (parsedTopic == null) {
+            logger.debug("Ignored MQTT topic outside the firmware contract: {}", topic);
             return;
         }
 
@@ -273,11 +285,29 @@ public class MqttSubscriberService {
                             rejectedTelemetryCount.get()
                     );
                 }
+                case "debug" -> {
+                    manikinRegistryService.updateFromDebug(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT debug message for {}", parsedTopic.deviceId);
+                }
                 case "events" -> {
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT event message for {}", parsedTopic.deviceId);
+                }
+                case "events/calibration" -> {
+                    manikinRegistryService.updateFromCalibrationEvent(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT calibration event for {}", parsedTopic.deviceId);
+                }
+                case "events/error" -> {
+                    manikinRegistryService.updateFromErrorEvent(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT error event for {}", parsedTopic.deviceId);
                 }
                 default -> {
                     // Ignore unknown messages.
@@ -330,29 +360,61 @@ public class MqttSubscriberService {
         return normalized;
     }
 
-    private ParsedTopic parseTopic(String topic) {
-        // Expected structure: resq/manikins/{deviceId}/{kind}
+    ParsedTopic parseTopic(String topic) {
+        if (topic == null || topic.isBlank()) {
+            return null;
+        }
+
         String[] parts = topic.split("/");
-        if (parts.length != 4) {
+        if (parts.length < 3 || !"resq".equals(parts[0])) {
             return null;
         }
 
-        if (!"resq".equals(parts[0]) || !"manikins".equals(parts[1])) {
-            return null;
+        if ("manikins".equals(parts[1])) {
+            if (parts.length < 4) {
+                return null;
+            }
+
+            String deviceId = parts[2];
+            if (deviceId == null || deviceId.isBlank()) {
+                return null;
+            }
+
+            return parseMessageType(deviceId, parts, 3);
         }
 
-        String deviceId = parts[2];
+        String deviceId = parts[1];
         if (deviceId == null || deviceId.isBlank()) {
             return null;
         }
 
-        String kind = parts[3].toLowerCase(Locale.ROOT);
+        return parseMessageType(deviceId, parts, 2);
+    }
+
+    private ParsedTopic parseMessageType(String deviceId, String[] parts, int messageIndex) {
+        if (parts.length <= messageIndex) {
+            return null;
+        }
+
+        String kind = parts[messageIndex].toLowerCase(Locale.ROOT);
         String normalizedType = switch (kind) {
             case "status" -> "status";
             case "heartbeat" -> "heartbeat";
             case "telemetry" -> "telemetry";
-            case "events" -> "events";
-            case "live" -> "telemetry"; // Compatibility: treat /live as telemetry.
+            case "debug" -> "debug";
+            case "events" -> {
+                if (parts.length > messageIndex + 1) {
+                    String subKind = parts[messageIndex + 1].toLowerCase(Locale.ROOT);
+                    if ("calibration".equals(subKind)) {
+                        yield "events/calibration";
+                    }
+                    if ("error".equals(subKind)) {
+                        yield "events/error";
+                    }
+                }
+                yield "events";
+            }
+            case "live" -> "telemetry";
             default -> null;
         };
 
@@ -416,6 +478,6 @@ public class MqttSubscriberService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private record ParsedTopic(String deviceId, String messageType) {
+    record ParsedTopic(String deviceId, String messageType) {
     }
 }

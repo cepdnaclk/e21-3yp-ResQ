@@ -315,7 +315,7 @@ For the migration itself, the best verification order is:
 
 The current system is operational, but it is still a legacy manikin-oriented implementation. The biggest migration risk is that several layers independently encode the old topic names and payload fallbacks. The safest path is to introduce a shared contract first, then migrate backend MQTT handling, then persistence, then frontend consumers, and only after that clean up the desktop provisioning flow.
 
-No runtime code was changed for this audit.
+Runtime backend changes were introduced later during Phase 2, but the audit guidance above still captures the remaining migration sequence.
 
 ## M. Phase 1 Status
 
@@ -323,3 +323,12 @@ No runtime code was changed for this audit.
 - Contract definitions added: canonical `resq/{deviceId}/...` topic builders, firmware state constants, command/event IDs, request-id helpers, and payload interfaces/records for the new firmware envelope.
 - Intentionally not migrated yet: the backend MQTT subscriber/publisher flow, frontend dashboards, database schema, and Tauri provisioning logic still use the legacy paths and behavior.
 - Next phase recommendation: wire the backend MQTT services to these new contract helpers first, then migrate persistence for request/reply and event tracking.
+
+## N. Phase 2 Status
+
+- Backend MQTT boundary updated additively: `MqttSubscriberService` now recognizes canonical `resq/{deviceId}/...` firmware topics while still accepting the legacy `resq/manikins/...` forms.
+- `MqttCommandPublisherService` now publishes canonical firmware command topics with `request_id` and `issued_at_ms` payload fields, while the legacy session start/stop entrypoints remain available to existing callers.
+- `TelemetryPayloadNormalizer` now accepts the firmware-style snake_case telemetry fields such as `depth_progress`, `depth_ok`, `valid_compression_count`, and `hand_placement` without removing the earlier fallbacks.
+- `ManikinRegistryService` now recognizes `event_id`-based calibration and error packets and keeps the live summary/session view updates compatible with the existing runtime model.
+- Validation completed: the hub API test suite passed after the backend change set was applied.
+- Remaining work: persistence for command/reply history, frontend live-client migration, and desktop orchestration cleanup are still deferred to later phases.

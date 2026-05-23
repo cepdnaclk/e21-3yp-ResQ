@@ -28,11 +28,11 @@ final class TelemetryPayloadNormalizer {
         }
 
         Double depthMm = firstDouble(payload, "depthMm", "depth_mm");
-        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode"));
+        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "mode"));
         if (depthMm == null) {
-            depthMm = firstDouble(payload, "current_delta", "currentDelta");
+            depthMm = firstDouble(payload, "depth_progress", "depthProgress", "current_delta", "currentDelta");
             if (depthMm != null) {
-                warnings.add("used raw current_delta/currentDelta as fallback depthMm");
+                warnings.add("used firmware depth_progress/current_delta as fallback depthMm");
                 if (sourceMode == null || "real".equals(sourceMode)) {
                     sourceMode = "simulator";
                 }
@@ -40,11 +40,14 @@ final class TelemetryPayloadNormalizer {
         }
 
         Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
-        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
+        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil", "depth_ok");
         Double pauseS = firstDouble(payload, "pauseS", "pause_s");
-        Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions");
+        Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions", "valid_compression_count");
         String handPlacement = firstText(payload, "handPlacement", "hand_placement");
         Object flags = jsonValue(payload.get("flags"));
+        if (flags == null) {
+            flags = jsonValue(payload.get("quality_flags"));
+        }
         String feedback = firstText(payload, "feedback");
         if (flags == null && feedback != null) {
             String mappedFlag = mapFeedbackToFlag(feedback);
@@ -58,6 +61,11 @@ final class TelemetryPayloadNormalizer {
 
         if (depthMm == null && rateCpm == null && recoilOk == null) {
             return TelemetryNormalizationResult.rejected("payload is missing required metric-first fields", warnings);
+        }
+
+        Object debugRaw = jsonValue(payload.get("debugRaw"));
+        if (debugRaw == null && looksLikeFirmwareTelemetry(payload)) {
+            debugRaw = jsonValue(payload);
         }
 
         LiveMetricPayload metric = new LiveMetricPayload(
@@ -75,7 +83,7 @@ final class TelemetryPayloadNormalizer {
                 handPlacement,
                 flags,
                 sourceMode,
-                jsonValue(payload.get("debugRaw"))
+                debugRaw
         );
 
         String rangeError = validateRanges(metric);
@@ -129,6 +137,16 @@ final class TelemetryPayloadNormalizer {
             case "HAND_PLACEMENT_WARNING", "BAD_HAND_PLACEMENT" -> "HAND_PLACEMENT_WARNING";
             default -> null;
         };
+    }
+
+    private static boolean looksLikeFirmwareTelemetry(JsonNode payload) {
+        return payload.has("depth_progress")
+                || payload.has("depthProgress")
+                || payload.has("depth_ok")
+                || payload.has("valid_compression_count")
+                || payload.has("quality_flags")
+                || payload.has("hand_placement")
+                || payload.has("pressure_balance_pct");
     }
 
     private static String firstText(JsonNode payload, String... keys) {
