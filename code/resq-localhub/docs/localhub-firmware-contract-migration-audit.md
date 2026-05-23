@@ -351,3 +351,14 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Dashboard compatibility was kept minimal: existing status/metric panels can show `firmwareState`, use firmware `rateCpm` and compression counts through the live metric model, and display `depthProgress` as a percentage when millimeter depth is not present.
 - Production build note: `tsconfig.json` now excludes `*.test.ts(x)` from `pnpm build`; frontend test tooling remains separate from the production build path and was not repaired as part of this phase.
 - Deferred item: full calibration/readiness UI, diagnostic endpoints, Tauri provisioning changes, and backend schema changes remain out of scope for Phase 4.
+
+## Q. Phase 5 Status
+
+- Backend DTOs and endpoints added for local firmware calibration/readiness: `POST /api/firmware/devices/{deviceId}/calibration/start`, `POST /api/firmware/devices/{deviceId}/calibration/cancel`, `GET /api/firmware/devices/{deviceId}/calibration/latest`, and `GET /api/firmware/devices/{deviceId}/readiness`.
+- `FirmwareCalibrationService` now publishes calibration start/cancel through the existing MQTT command publisher and maps persisted `firmware_calibration_results` plus current registry state into `FirmwareReadinessResponse`.
+- Readiness mapping: `READY_FOR_SESSION` is ready; `PASS` is ready when the device is not in `CALIBRATING`, `CALIBRATION_FAIL`, `ERROR`, or `SESSION_ACTIVE`; `FAIL`, `CANCELLED`, `CALIBRATING`, and `ERROR` are not ready.
+- Session start now has a conservative backend readiness gate for known firmware devices only. Legacy devices with no firmware state or calibration result remain compatible.
+- Instructor dashboard now shows a small readiness/calibration block per live device and can request calibration start/cancel using local backend endpoints. Start Session is disabled for known not-ready firmware devices.
+- Tests added for calibration service behavior, controller command responses, readiness mapping, and session-start blocking for a known not-ready firmware device.
+- Deferred item: calibration profile management UI, richer diagnostic command/event/debug endpoints, Tauri provisioning cleanup, and any cloud routing remain out of scope for this phase.
+- Next phase recommendation: wire provisioning/orchestration around the firmware lifecycle only after validating the Phase 5 endpoints with real device calibration events.

@@ -10,10 +10,13 @@ import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ActiveSessionServiceTest {
 
@@ -123,19 +126,58 @@ class ActiveSessionServiceTest {
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 54, 112)), "session is not active");
     }
 
+    @Test
+    void blocksSessionStartForKnownNotReadyFirmwareDevice() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "CALIBRATING",
+                  "session_active": false,
+                  "calibrated": false
+                }
+                """));
+
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Blocked readiness",
+                null
+        ))).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not ready");
+    }
+
     private ActiveSessionService newService() throws Exception {
+        return newServiceFixture().service;
+    }
+
+    private ServiceFixture newServiceFixture() throws Exception {
         MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService();
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
         ManikinRegistryService registry = new ManikinRegistryService(12);
-        return new ActiveSessionService(
+        FirmwarePersistenceRepository firmwareRepository = new FirmwarePersistenceRepository(
+                Path.of("target", "active-session-firmware-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        firmwareRepository.initialize();
+        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
+                commandPublisher,
+                firmwareRepository,
+                registry
+        );
+        ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
-                traineeRecordsRepository
+                traineeRecordsRepository,
+                firmwareCalibrationService
         );
+        return new ServiceFixture(service, registry);
     }
 
     private JsonNode telemetry(String deviceId, String sessionId, long seq, double depthMm, double rateCpm) throws Exception {
@@ -212,5 +254,8 @@ class ActiveSessionServiceTest {
         @Override
         public void publishSessionLive(String sessionId, lk.resq.localhub.model.SessionLiveView payload) {
         }
+    }
+
+    private record ServiceFixture(ActiveSessionService service, ManikinRegistryService registry) {
     }
 }

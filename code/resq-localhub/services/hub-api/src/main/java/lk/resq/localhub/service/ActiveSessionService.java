@@ -39,19 +39,22 @@ public class ActiveSessionService {
     private final LocalSessionRepository localSessionRepository;
     private final LiveStreamService liveStreamService;
     private final TraineeRecordsRepository traineeRecordsRepository;
+    private final FirmwareCalibrationService firmwareCalibrationService;
 
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
             MqttCommandPublisherService mqttCommandPublisherService,
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
-            TraineeRecordsRepository traineeRecordsRepository
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.localSessionRepository = localSessionRepository;
         this.liveStreamService = liveStreamService;
         this.traineeRecordsRepository = traineeRecordsRepository;
+        this.firmwareCalibrationService = firmwareCalibrationService;
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -67,6 +70,10 @@ public class ActiveSessionService {
                 throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
             }
         }
+        firmwareCalibrationService.sessionStartBlockReason(deviceId)
+                .ifPresent(reason -> {
+                    throw new IllegalStateException(reason);
+                });
 
         String traineeId = resolveTraineeId(request);
 

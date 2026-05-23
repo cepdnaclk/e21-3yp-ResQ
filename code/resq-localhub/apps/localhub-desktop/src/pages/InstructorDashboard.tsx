@@ -30,6 +30,13 @@ import {
   fetchManikinRegistry,
   type ManikinRegistryEntry,
 } from "../lib/browserManikinRegistryApi";
+import {
+  cancelCalibration,
+  defaultCalibrationPayload,
+  getReadiness,
+  startCalibration,
+  type FirmwareReadinessResponse,
+} from "../lib/browserFirmwareApi";
 import { QRCodeSVG as QR } from "qrcode.react";
 
 /**
@@ -136,6 +143,7 @@ function IndicatorBadge({
 }
 
 type SessionActionState = "idle" | "starting" | "ending";
+type CalibrationActionState = "idle" | "starting" | "cancelling";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
 
 type InstructorDashboardProps = {
@@ -234,6 +242,8 @@ export default function InstructorDashboard({
 
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
   const [sessionActionByDevice, setSessionActionByDevice] = useState<Record<string, SessionActionState>>({});
+  const [calibrationActionByDevice, setCalibrationActionByDevice] = useState<Record<string, CalibrationActionState>>({});
+  const [readinessByDevice, setReadinessByDevice] = useState<Record<string, FirmwareReadinessResponse | null>>({});
   const [sessionMessageByDevice, setSessionMessageByDevice] = useState<Record<string, string | null>>({});
   const [recentSessions, setRecentSessions] = useState<CompletedSession[]>([]);
   const [recentSessionsLoading, setRecentSessionsLoading] = useState(true);
@@ -456,6 +466,48 @@ export default function InstructorDashboard({
   const manikinByDeviceId = useMemo(() => {
     return new Map(manikins.map((manikin) => [manikin.deviceId, manikin]));
   }, [manikins]);
+  const deviceIdsKey = useMemo(() => manikins.map((manikin) => manikin.deviceId).sort().join("|"), [manikins]);
+
+  useEffect(() => {
+    if (!deviceIdsKey) {
+      return;
+    }
+
+    let cancelled = false;
+    const deviceIds = deviceIdsKey.split("|").filter(Boolean);
+
+    async function loadReadiness() {
+      const entries = await Promise.all(
+        deviceIds.map(async (deviceId) => {
+          try {
+            const readiness = await getReadiness(deviceId);
+            return [deviceId, readiness] as const;
+          } catch {
+            return [deviceId, null] as const;
+          }
+        })
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      setReadinessByDevice((current) => {
+        const next = { ...current };
+        for (const [deviceId, readiness] of entries) {
+          next[deviceId] = readiness;
+        }
+        return next;
+      });
+    }
+
+    loadReadiness();
+    const interval = window.setInterval(loadReadiness, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [deviceIdsKey]);
 
   function formatLastSeen(value: string | null): string {
     if (!value) {
@@ -476,6 +528,24 @@ export default function InstructorDashboard({
     }
 
     return `${value.toFixed(1)} ${suffix}`;
+  }
+
+  function readinessKnown(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+    return Boolean(readiness?.firmwareState || readiness?.latestResult);
+  }
+
+  function startBlockedByReadiness(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+    if (!readinessKnown(readiness)) {
+      return false;
+    }
+
+    const state = readiness?.firmwareState ?? "";
+    return (
+      !readiness?.readyForSession ||
+      state === "CALIBRATING" ||
+      state === "CALIBRATION_FAIL" ||
+      state === "ERROR"
+    );
   }
 
   function buildTraineeUrl(sessionId: string): string | null {
@@ -653,6 +723,57 @@ export default function InstructorDashboard({
       }));
     } finally {
       setSessionActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
+    }
+  }
+
+  async function refreshDeviceReadiness(deviceId: string) {
+    try {
+      const readiness = await getReadiness(deviceId);
+      setReadinessByDevice((current) => ({ ...current, [deviceId]: readiness }));
+    } catch {
+      setReadinessByDevice((current) => ({ ...current, [deviceId]: null }));
+    }
+  }
+
+  async function handleRunCalibration(deviceId: string) {
+    setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "starting" }));
+    setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
+
+    try {
+      const response = await startCalibration(deviceId, defaultCalibrationPayload());
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: `Calibration requested (${response.requestId})`,
+      }));
+      await refreshDeviceReadiness(deviceId);
+    } catch (error) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: error instanceof Error ? error.message : "Failed to start calibration.",
+      }));
+    } finally {
+      setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
+    }
+  }
+
+  async function handleCancelCalibration(deviceId: string) {
+    setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "cancelling" }));
+    setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
+
+    try {
+      const response = await cancelCalibration(deviceId);
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: `Calibration cancel requested (${response.requestId})`,
+      }));
+      await refreshDeviceReadiness(deviceId);
+    } catch (error) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: error instanceof Error ? error.message : "Failed to cancel calibration.",
+      }));
+    } finally {
+      setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
     }
   }
 
@@ -1163,6 +1284,12 @@ export default function InstructorDashboard({
                 const active = Boolean(activeSession?.sessionId);
                 const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
                 const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
+                const calibrationAction = calibrationActionByDevice[manikin.deviceId] ?? "idle";
+                const readiness = readinessByDevice[manikin.deviceId];
+                const readinessIsKnown = readinessKnown(readiness);
+                const startReadinessBlocked = startBlockedByReadiness(readiness);
+                const startDisabled = actionState !== "idle" || startReadinessBlocked;
+                const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
 
                 return (
                   <article
@@ -1195,12 +1322,66 @@ export default function InstructorDashboard({
                       </div>
                     </div>
 
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {manikin.firmwareState ?? manikin.state ?? "unknown"}</p>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {effectiveFirmwareState}</p>
                     <InstructorLiveMetrics
                       deviceId={manikin.deviceId}
                       sessionId={activeSession?.sessionId ?? null}
                       active={active}
                     />
+
+                    <div style={{ display: "grid", gap: "6px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 700 }}>Readiness</p>
+                        <IndicatorBadge
+                          label={!readinessIsKnown ? "Unknown" : readiness?.readyForSession ? "Ready" : "Not Ready"}
+                          status={!readinessIsKnown ? "neutral" : readiness?.readyForSession ? "ok" : "warn"}
+                        />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#475569", fontSize: "0.82rem" }}>
+                        <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
+                        <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
+                        <span>Result: {readiness?.latestResult ?? "-"}</span>
+                        <span>Progress: {readiness?.progressId ?? "-"}</span>
+                        <span>Reason: {readiness?.reasonId ?? "-"}</span>
+                        <span>Action: {readiness?.actionId ?? "-"}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleRunCalibration(manikin.deviceId)}
+                          disabled={calibrationAction !== "idle"}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid #1d4ed8",
+                            background: calibrationAction !== "idle" ? "#e2e8f0" : "#1d4ed8",
+                            color: calibrationAction !== "idle" ? "#64748b" : "#ffffff",
+                            cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                          }}
+                        >
+                          {calibrationAction === "starting" ? "Requesting..." : "Run Calibration"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCancelCalibration(manikin.deviceId)}
+                          disabled={calibrationAction !== "idle"}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid #cbd5e1",
+                            background: "#ffffff",
+                            color: calibrationAction !== "idle" ? "#94a3b8" : "#334155",
+                            cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                          }}
+                        >
+                          {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
+                        </button>
+                      </div>
+                    </div>
 
                     {/* Trainee Selection UI */}
                     <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
@@ -1412,16 +1593,17 @@ export default function InstructorDashboard({
                         <button
                           type="button"
                           onClick={() => handleStartSession(manikin.deviceId)}
-                          disabled={actionState !== "idle"}
+                          disabled={startDisabled}
                           style={{
                             padding: "8px 12px",
                             borderRadius: "6px",
                             border: "1px solid #0f172a",
-                            background: actionState !== "idle" ? "#e2e8f0" : "#0f172a",
-                            color: actionState !== "idle" ? "#64748b" : "#ffffff",
-                            cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                            background: startDisabled ? "#e2e8f0" : "#0f172a",
+                            color: startDisabled ? "#64748b" : "#ffffff",
+                            cursor: startDisabled ? "not-allowed" : "pointer",
                             fontWeight: 600,
                           }}
+                          title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
                         >
                           Start Session
                         </button>

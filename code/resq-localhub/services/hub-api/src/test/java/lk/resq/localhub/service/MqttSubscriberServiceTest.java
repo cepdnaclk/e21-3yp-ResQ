@@ -148,16 +148,22 @@ class MqttSubscriberServiceTest {
 
     private MqttSubscriberService newService(FirmwarePersistenceRepository repository) throws Exception {
         ManikinRegistryService registry = new ManikinRegistryService(12);
-    MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService(repository);
+        MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService(repository);
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
+        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
+                commandPublisher,
+                repository,
+                registry
+        );
         ActiveSessionService activeSessionService = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
-                traineeRecordsRepository
+                traineeRecordsRepository,
+                firmwareCalibrationService
         );
 
         return new MqttSubscriberService(

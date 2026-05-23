@@ -131,11 +131,25 @@ public class MqttCommandPublisherService {
             Integer bladder1Pressure,
             Integer bladder2Pressure
     ) {
+        return publishCalibrationStartCommand(deviceId, hallDelta, refPressure, bladder1Pressure, bladder2Pressure, null);
+    }
+
+    public FirmwareCommandPublishResult publishCalibrationStartCommand(
+            String deviceId,
+            Integer hallDelta,
+            Integer refPressure,
+            Integer bladder1Pressure,
+            Integer bladder2Pressure,
+            String profileId
+    ) {
         Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.CALIBRATION_START, null);
         payload.put("hall_delta", hallDelta);
         payload.put("ref_pressure", refPressure);
         payload.put("bladder_1_pressure", bladder1Pressure);
         payload.put("bladder_2_pressure", bladder2Pressure);
+        if (profileId != null && !profileId.isBlank()) {
+            payload.put("profile_id", profileId.trim());
+        }
         return publishFirmwareCommand(
                 FirmwareTopics.calibrationStartCommandTopic(deviceId),
                 payload,
