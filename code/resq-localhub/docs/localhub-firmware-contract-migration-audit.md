@@ -259,6 +259,21 @@ Likely first edits:
 
 Goal: switch to the new firmware topics and data model while keeping the backend authoritative for session and live-state transitions.
 
+### Phase 10: Local session review, export, and demo polish
+
+Likely first edits:
+
+- `services/hub-api/src/main/java/lk/resq/localhub/controller/SessionController.java`
+- `services/hub-api/src/main/java/lk/resq/localhub/controller/SessionExportController.java`
+- `services/hub-api/src/main/java/lk/resq/localhub/service/LocalSessionRepository.java`
+- `services/hub-api/src/main/java/lk/resq/localhub/service/ActiveSessionService.java`
+- `apps/localhub-desktop/src/components/LocalSessionReviewPanel.tsx`
+- `apps/localhub-desktop/src/lib/browserSessionsApi.ts`
+- `apps/localhub-desktop/src/pages/InstructorDashboard.tsx`
+- `docs/local-firmware-simulator-smoke-test.md`
+
+Goal: make completed local sessions easy to review and export for demo and evaluation runs, while preserving compatibility with both millimeter-based and progress-based telemetry.
+
 ### Phase 3: Persistence and auditability
 
 Likely first edits:

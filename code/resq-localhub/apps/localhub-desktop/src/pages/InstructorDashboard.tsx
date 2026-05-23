@@ -18,8 +18,6 @@ import {
   endSession,
   fetchCompletedSession,
   fetchCompletedSessions,
-  getSessionCsvExportUrl,
-  getSessionJsonExportUrl,
   startSession,
   type CompletedSession,
   type SessionStartResponse,
@@ -43,6 +41,7 @@ import {
   type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
+import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { QRCodeSVG as QR } from "qrcode.react";
 
 /**
@@ -286,6 +285,18 @@ export default function InstructorDashboard({
     });
   }
 
+  async function loadRecentSessions() {
+    try {
+      const sessions = await fetchCompletedSessions();
+      setRecentSessions(sessions);
+      setRecentSessionsError(null);
+    } catch (error) {
+      setRecentSessionsError(error instanceof Error ? error.message : "Failed to load completed sessions.");
+    } finally {
+      setRecentSessionsLoading(false);
+    }
+  }
+
   useEffect(() => {
     async function loadHealth() {
       setHealthLoading(true);
@@ -315,18 +326,6 @@ export default function InstructorDashboard({
         setManikinsError(message);
       } finally {
         setManikinsLoading(false);
-      }
-    }
-
-    async function loadRecentSessions() {
-      try {
-        const sessions = await fetchCompletedSessions();
-        setRecentSessions(sessions);
-        setRecentSessionsError(null);
-      } catch (error) {
-        setRecentSessionsError(error instanceof Error ? error.message : "Failed to load completed sessions.");
-      } finally {
-        setRecentSessionsLoading(false);
       }
     }
 
@@ -1201,124 +1200,19 @@ export default function InstructorDashboard({
           )}
         </section>
 
-        
-        <section style={styles.card}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Completed Session Summary</h2>
-          {latestEndedSession ? (
-            <div style={{ display: "grid", gap: "8px" }}>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Session: {latestEndedSession.sessionId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Device: {latestEndedSession.deviceId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Trainee: {latestEndedSession.traineeId ?? "-"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Started: {formatSummaryTime(latestEndedSession.startedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Ended: {formatSummaryTime(latestEndedSession.endedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Duration: {latestEndedSession.summary.durationSeconds}s</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Avg depth: {formatMetric(latestEndedSession.summary.avgDepthMm, "mm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Avg rate: {formatMetric(latestEndedSession.summary.avgRateCpm, "cpm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {formatMetric(latestEndedSession.summary.recoilPct, "%")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pauses: {latestEndedSession.summary.pausesCount}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Score: {latestEndedSession.summary.score}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {latestEndedSession.summary.latestFlags ?? "-"}</p>
-                {currentUser && currentUser.role !== "TRAINEE" ? (
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <a href={getSessionJsonExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                      Download JSON
-                    </a>
-                    <a href={getSessionCsvExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                      Download CSV
-                    </a>
-                  </div>
-                ) : null}
-            </div>
-          ) : (
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>End a session to see the summary here.</p>
-          )}
-        </section>
-
-        <section style={styles.card}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Recent Sessions</h2>
-          {recentSessionsLoading ? (
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading completed sessions...</p>
-          ) : recentSessionsError ? (
-            <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.92rem" }}>{recentSessionsError}</p>
-          ) : recentSessions.length === 0 ? (
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>No completed sessions yet.</p>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {recentSessions.map((session) => (
-                <article key={session.sessionId} style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "10px", background: "#ffffff" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-                    <div>
-                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{session.deviceId}</p>
-                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>{session.sessionId}</p>
-                    </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleViewDetails(session.sessionId)}
-                        style={{
-                          padding: "8px 12px",
-                          borderRadius: "6px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff",
-                          color: "#0f172a",
-                          fontWeight: 600,
-                          fontSize: "0.85rem",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {expandedSessionId === session.sessionId ? "Hide Details" : "View Details"}
-                      </button>
-                      {currentUser && currentUser.role !== "TRAINEE" ? (
-                        <>
-                          <a href={getSessionJsonExportUrl(session.sessionId)} style={linkButtonStyle}>
-                            Download JSON
-                          </a>
-                          <a href={getSessionCsvExportUrl(session.sessionId)} style={linkButtonStyle}>
-                            Download CSV
-                          </a>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Trainee {session.traineeId ?? "-"} | Started {formatSummaryDateTime(session.startedAt)} | Ended {formatSummaryDateTime(session.endedAt)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Duration {session.summary.durationSeconds}s | Score {session.summary.score} | Depth {formatMetric(session.summary.avgDepthMm, "mm")}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Rate {formatMetric(session.summary.avgRateCpm, "cpm")} | Recoil {formatMetric(session.summary.recoilPct, "%")} | Pauses {session.summary.pausesCount}
-                    </p>
-                  </div>
-
-                  {expandedSessionId === session.sessionId ? (
-                    <div style={{ marginTop: "10px", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#f8fafc", display: "grid", gap: "4px" }}>
-                      {expandedSessionLoading ? (
-                        <p style={{ margin: 0, color: "#64748b", fontSize: "0.85rem" }}>Loading session details...</p>
-                      ) : expandedSessionError ? (
-                        <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{expandedSessionError}</p>
-                      ) : expandedSessionDetail ? (
-                        <>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Session ID: {expandedSessionDetail.sessionId}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Device ID: {expandedSessionDetail.deviceId}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Trainee ID: {expandedSessionDetail.traineeId ?? "-"}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Started At: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Ended At: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Pauses: {expandedSessionDetail.summary.pausesCount}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Score: {expandedSessionDetail.summary.score}</p>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+        <LocalSessionReviewPanel
+          latestEndedSession={latestEndedSession}
+          sessions={recentSessions}
+          loading={recentSessionsLoading}
+          error={recentSessionsError}
+          canExport={Boolean(currentUser && currentUser.role !== "TRAINEE")}
+          expandedSessionId={expandedSessionId}
+          expandedSessionDetail={expandedSessionDetail}
+          expandedSessionLoading={expandedSessionLoading}
+          expandedSessionError={expandedSessionError}
+          onSelectSession={handleViewDetails}
+          onRefresh={loadRecentSessions}
+        />
 
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>

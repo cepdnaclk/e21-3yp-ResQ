@@ -143,6 +143,8 @@ Expected dashboard behavior:
 - Instructor live metrics update.
 - Trainee dashboard receives live rate, compression count, flags, and depth percentage.
 
+After the session ends, the instructor dashboard should show the completed session in the Local Session Review panel. Use that panel to inspect the summary, confirm the progress-aware depth values, and export the session as JSON or CSV for demo notes.
+
 Click `End Session`.
 
 Expected simulator behavior:

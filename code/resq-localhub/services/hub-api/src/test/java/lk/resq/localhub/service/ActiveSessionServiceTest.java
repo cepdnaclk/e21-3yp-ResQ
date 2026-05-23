@@ -137,9 +137,55 @@ class ActiveSessionServiceTest {
         assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
 
         SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
+        assertThat(completed.summary().sampleCount()).isEqualTo(1);
+        assertThat(completed.summary().totalCompressions()).isEqualTo(1);
+        assertThat(completed.summary().validCompressions()).isEqualTo(1);
         assertThat(completed.summary().avgDepthMm()).isEqualTo(0.0);
+        assertThat(completed.summary().avgDepthProgress()).isEqualTo(0.78);
         assertThat(completed.summary().avgRateCpm()).isEqualTo(111.0);
+        assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
+        assertThat(completed.summary().incompleteRecoilCount()).isEqualTo(0);
         assertThat(completed.summary().latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
+    }
+
+    @Test
+    void countsDepthMillimetersAndDepthProgressIndependently() throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Depth smoke",
+                null
+        ));
+
+        JsonNode telemetry = objectMapper.readTree("""
+                {
+                  "session_id": "%s",
+                  "depth_mm": 52.5,
+                  "depth_progress": 0.81,
+                  "rate_cpm": 108,
+                  "compression_count": 3,
+                  "recoil_ok": true,
+                  "pause_s": 0.0,
+                  "flags": "DEPTH_OK"
+                }
+                """.formatted(session.sessionId()));
+
+        assertThat(service.validateTelemetryBinding("M01", telemetry).accepted()).isTrue();
+        service.recordTelemetry("M01", telemetry);
+
+        SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
+        assertThat(completed.summary().sampleCount()).isEqualTo(1);
+        assertThat(completed.summary().totalCompressions()).isEqualTo(3);
+        assertThat(completed.summary().validCompressions()).isEqualTo(3);
+        assertThat(completed.summary().avgDepthMm()).isEqualTo(52.5);
+        assertThat(completed.summary().avgDepthProgress()).isEqualTo(0.81);
+        assertThat(completed.summary().avgRateCpm()).isEqualTo(108.0);
+        assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
+        assertThat(completed.summary().incompleteRecoilCount()).isEqualTo(0);
     }
 
     @Test
