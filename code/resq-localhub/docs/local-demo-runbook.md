@@ -108,10 +108,13 @@ Legacy `resq/manikins/{deviceId}/...` topics should still work for compatibility
 ## Calibration Flow
 
 1. Open the instructor dashboard.
-2. Confirm the target manikin is online and ready.
-3. Click `Run Calibration`.
-4. Watch the simulator publish ACK, progress, and final calibration result events.
-5. Confirm the readiness badge changes to ready when calibration passes.
+2. Open the `Calibration Settings` panel and confirm the `Adult Basic` default profile is present.
+3. Select the live manikin you want to test.
+4. Edit any calibration values you want to keep locally, then click `Save Profile`.
+5. Click `Set Default` if you want the saved profile to become the fallback profile for later runs.
+6. Click `Run Calibration`.
+7. Watch the simulator publish ACK, progress, and final calibration result events.
+8. Confirm the readiness badge changes to ready when calibration passes.
 
 Expected simulator wrapper command for calibration failure testing:
 

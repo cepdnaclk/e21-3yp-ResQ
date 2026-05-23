@@ -13,6 +13,8 @@ import lk.resq.localhub.model.firmware.FirmwareDeviceDiagnosticsResponse;
 import lk.resq.localhub.model.firmware.FirmwareEventRecord;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CalibrationProfileRepository;
+import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.FirmwareCalibrationService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LocalAuthRepository;
@@ -126,9 +128,14 @@ class FirmwareDiagnosticsControllerTest {
                 Path.of("target", "firmware-diagnostics-controller-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         repository.initialize();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+            Path.of("target", "firmware-diagnostics-controller-profile-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         ManikinRegistryService registry = new ManikinRegistryService(12);
-        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, repository, registry);
+        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, repository, profileService, registry);
         FirmwareDiagnosticsController controller = new FirmwareDiagnosticsController(
                 new AllowingAuthService(objectMapper),
                 calibrationService,

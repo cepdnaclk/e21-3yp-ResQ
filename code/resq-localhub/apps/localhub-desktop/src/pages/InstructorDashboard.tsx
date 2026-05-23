@@ -35,12 +35,13 @@ import {
 } from "../lib/browserManikinRegistryApi";
 import {
   cancelCalibration,
-  defaultCalibrationPayload,
   getReadiness,
   startCalibration,
+  type FirmwareCalibrationStartPayload,
   type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
+import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { QRCodeSVG as QR } from "qrcode.react";
 
@@ -258,6 +259,7 @@ export default function InstructorDashboard({
   const [expandedSessionDetail, setExpandedSessionDetail] = useState<CompletedSession | null>(null);
   const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
+  const [selectedCalibrationDeviceId, setSelectedCalibrationDeviceId] = useState<string | null>(null);
   // State for the "Pair New Manikin" panel
   const [provisioningWifiSsid, setProvisioningWifiSsid] = useState<string>("");
   const [provisioningWifiPassword, setProvisioningWifiPassword] = useState<string>("");
@@ -270,6 +272,21 @@ export default function InstructorDashboard({
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
   const [registryError, setRegistryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (manikins.length === 0) {
+      if (selectedCalibrationDeviceId !== null) {
+        setSelectedCalibrationDeviceId(null);
+      }
+      return;
+    }
+
+    const selectedStillExists = selectedCalibrationDeviceId && manikins.some((manikin) => manikin.deviceId === selectedCalibrationDeviceId);
+    if (!selectedStillExists) {
+      setSelectedCalibrationDeviceId(manikins[0].deviceId);
+    }
+  }, [manikins, selectedCalibrationDeviceId]);
+
   function applyManikinSnapshot(live: ManikinLiveSummary[]) {
     setManikins(live);
     setSessionDrafts((current) => {
@@ -753,12 +770,12 @@ export default function InstructorDashboard({
     }
   }
 
-  async function handleRunCalibration(deviceId: string) {
+  async function handleRunCalibration(deviceId: string, payload: FirmwareCalibrationStartPayload) {
     setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "starting" }));
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
     try {
-      const response = await startCalibration(deviceId, defaultCalibrationPayload());
+      const response = await startCalibration(deviceId, payload);
       setSessionMessageByDevice((current) => ({
         ...current,
         [deviceId]: `Calibration requested (${response.requestId})`,
@@ -1214,6 +1231,14 @@ export default function InstructorDashboard({
           onRefresh={loadRecentSessions}
         />
 
+        <CalibrationSettingsPanel
+          devices={manikins}
+          selectedDeviceId={selectedCalibrationDeviceId}
+          onSelectedDeviceChange={setSelectedCalibrationDeviceId}
+          calibrationAction={selectedCalibrationDeviceId ? calibrationActionByDevice[selectedCalibrationDeviceId] ?? "idle" : "idle"}
+          onRunCalibration={handleRunCalibration}
+        />
+
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
             <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
@@ -1315,23 +1340,6 @@ export default function InstructorDashboard({
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         <button
                           type="button"
-                          onClick={() => handleRunCalibration(manikin.deviceId)}
-                          disabled={calibrationAction !== "idle"}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: "6px",
-                            border: "1px solid #1d4ed8",
-                            background: calibrationAction !== "idle" ? "#e2e8f0" : "#1d4ed8",
-                            color: calibrationAction !== "idle" ? "#64748b" : "#ffffff",
-                            cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
-                            fontWeight: 700,
-                            fontSize: "0.82rem",
-                          }}
-                        >
-                          {calibrationAction === "starting" ? "Requesting..." : "Run Calibration"}
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => handleCancelCalibration(manikin.deviceId)}
                           disabled={calibrationAction !== "idle"}
                           style={{
@@ -1347,6 +1355,9 @@ export default function InstructorDashboard({
                         >
                           {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
                         </button>
+                        <span style={{ fontSize: "0.78rem", color: "#64748b", alignSelf: "center" }}>
+                          Use Calibration Settings to start a run.
+                        </span>
                       </div>
                     </div>
 

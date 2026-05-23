@@ -1,6 +1,7 @@
 package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lk.resq.localhub.model.firmware.CalibrationProfileRequest;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationStartRequest;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
@@ -28,7 +29,7 @@ class FirmwareCalibrationServiceTest {
                 20100,
                 15000,
                 15000,
-                "default"
+            "adult-basic"
         ));
 
         assertThat(response.deviceId()).isEqualTo("M01");
@@ -37,7 +38,40 @@ class FirmwareCalibrationServiceTest {
         assertThat(response.status()).isEqualTo("PUBLISHED");
         assertThat(fixture.publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.CALIBRATION_START);
         assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":13500");
-        assertThat(fixture.publisher.lastPayload).contains("\"profile_id\":\"default\"");
+        assertThat(fixture.publisher.lastPayload).contains("\"profile_id\":\"adult-basic\"");
+    }
+
+    @Test
+    void startCalibrationFallsBackToDefaultProfileWhenValuesAreMissing() {
+        Fixture fixture = newFixture();
+
+        var response = fixture.service.startCalibration("M01", new FirmwareCalibrationStartRequest(null, null, null, null, null));
+
+        assertThat(response.deviceId()).isEqualTo("M01");
+        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":13500");
+        assertThat(fixture.publisher.lastPayload).contains("\"ref_pressure\":20100");
+        assertThat(fixture.publisher.lastPayload).contains("\"profile_id\":\"adult-basic\"");
+    }
+
+    @Test
+    void startCalibrationUsesRequestedProfileWhenOnlyProfileIdIsProvided() {
+        Fixture fixture = newFixture();
+        var created = fixture.profileService.createProfile(new CalibrationProfileRequest(
+                "Adult Training",
+                14000,
+                20500,
+                15250,
+                15250,
+                "Custom training profile",
+                true,
+                false
+        ));
+
+        fixture.service.startCalibration("M01", new FirmwareCalibrationStartRequest(null, null, null, null, created.profileId()));
+
+        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":14000");
+        assertThat(fixture.publisher.lastPayload).contains("\"ref_pressure\":20500");
+        assertThat(fixture.publisher.lastPayload).contains(created.profileId());
     }
 
     @Test
@@ -103,10 +137,15 @@ class FirmwareCalibrationServiceTest {
                 Path.of("target", "firmware-calibration-service-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         repository.initialize();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+            Path.of("target", "firmware-calibration-service-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         ManikinRegistryService registry = new ManikinRegistryService(12);
-        FirmwareCalibrationService service = new FirmwareCalibrationService(publisher, repository, registry);
-        return new Fixture(service, repository, publisher, registry);
+        FirmwareCalibrationService service = new FirmwareCalibrationService(publisher, repository, profileService, registry);
+        return new Fixture(service, repository, publisher, registry, profileService);
     }
 
     private FirmwareCalibrationResultRecord calibration(String deviceId, String result, String state) {
@@ -163,7 +202,8 @@ class FirmwareCalibrationServiceTest {
             FirmwareCalibrationService service,
             FirmwarePersistenceRepository repository,
             CapturingPublisher publisher,
-            ManikinRegistryService registry
+            ManikinRegistryService registry,
+            CalibrationProfileService profileService
     ) {
     }
 }

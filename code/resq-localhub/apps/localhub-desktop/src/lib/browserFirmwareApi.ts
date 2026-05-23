@@ -1,9 +1,34 @@
 export type FirmwareCalibrationStartPayload = {
+  hallDelta?: number | null;
+  refPressure?: number | null;
+  bladder1Pressure?: number | null;
+  bladder2Pressure?: number | null;
+  profileId?: string | null;
+};
+
+export type CalibrationProfileRequest = {
+  name: string;
   hallDelta: number;
   refPressure: number;
   bladder1Pressure: number;
   bladder2Pressure: number;
-  profileId?: string | null;
+  description?: string | null;
+  active?: boolean | null;
+  defaultProfile?: boolean | null;
+};
+
+export type CalibrationProfileResponse = {
+  profileId: string;
+  name: string;
+  hallDelta: number;
+  refPressure: number;
+  bladder1Pressure: number;
+  bladder2Pressure: number;
+  description: string | null;
+  active: boolean;
+  defaultProfile: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type FirmwareCalibrationCommandResponse = {
@@ -147,16 +172,12 @@ export type FirmwareDeviceDiagnosticsResponse = {
   recentDebugSnapshots: FirmwareDebugSnapshotRecord[];
 };
 
-const DEFAULT_CALIBRATION_PAYLOAD: FirmwareCalibrationStartPayload = {
-  hallDelta: 13500,
-  refPressure: 20100,
-  bladder1Pressure: 15000,
-  bladder2Pressure: 15000,
-  profileId: "default",
-};
-
 function getFirmwareDeviceUrl(deviceId: string): string {
   return `http://${window.location.hostname}:18080/api/firmware/devices/${encodeURIComponent(deviceId)}`;
+}
+
+function getCalibrationProfilesUrl(): string {
+  return `http://${window.location.hostname}:18080/api/firmware/calibration-profiles`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -182,13 +203,43 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return readJsonResponse<T>(response);
 }
 
-export function defaultCalibrationPayload(): FirmwareCalibrationStartPayload {
-  return { ...DEFAULT_CALIBRATION_PAYLOAD };
+export function getCalibrationProfiles(): Promise<CalibrationProfileResponse[]> {
+  return requestJson<CalibrationProfileResponse[]>(getCalibrationProfilesUrl());
+}
+
+export function getDefaultCalibrationProfile(): Promise<CalibrationProfileResponse | null> {
+  return requestJson<CalibrationProfileResponse | null>(`${getCalibrationProfilesUrl()}/default`);
+}
+
+export function createCalibrationProfile(profile: CalibrationProfileRequest): Promise<CalibrationProfileResponse> {
+  return requestJson<CalibrationProfileResponse>(getCalibrationProfilesUrl(), {
+    method: "POST",
+    body: JSON.stringify(profile),
+  });
+}
+
+export function updateCalibrationProfile(profileId: string, profile: CalibrationProfileRequest): Promise<CalibrationProfileResponse> {
+  return requestJson<CalibrationProfileResponse>(`${getCalibrationProfilesUrl()}/${encodeURIComponent(profileId)}`, {
+    method: "PUT",
+    body: JSON.stringify(profile),
+  });
+}
+
+export function setDefaultCalibrationProfile(profileId: string): Promise<CalibrationProfileResponse> {
+  return requestJson<CalibrationProfileResponse>(`${getCalibrationProfilesUrl()}/${encodeURIComponent(profileId)}/default`, {
+    method: "POST",
+  });
+}
+
+export function deactivateCalibrationProfile(profileId: string): Promise<CalibrationProfileResponse> {
+  return requestJson<CalibrationProfileResponse>(`${getCalibrationProfilesUrl()}/${encodeURIComponent(profileId)}`, {
+    method: "DELETE",
+  });
 }
 
 export function startCalibration(
   deviceId: string,
-  payload: FirmwareCalibrationStartPayload = DEFAULT_CALIBRATION_PAYLOAD,
+  payload: FirmwareCalibrationStartPayload = {},
 ): Promise<FirmwareCalibrationCommandResponse> {
   return requestJson<FirmwareCalibrationCommandResponse>(`${getFirmwareDeviceUrl(deviceId)}/calibration/start`, {
     method: "POST",

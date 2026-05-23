@@ -9,6 +9,8 @@ import lk.resq.localhub.model.firmware.FirmwareCalibrationStartRequest;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CalibrationProfileRepository;
+import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.FirmwareCalibrationService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LocalAuthRepository;
@@ -63,10 +65,16 @@ class FirmwareCalibrationControllerTest {
                 Path.of("target", "firmware-calibration-controller-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         repository.initialize();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+            Path.of("target", "firmware-calibration-controller-test-profile-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         FirmwareCalibrationService service = new FirmwareCalibrationService(
                 publisher,
                 repository,
+            profileService,
                 new ManikinRegistryService(12)
         );
         FirmwareCalibrationController controller = new FirmwareCalibrationController(service, new AllowingAuthService(objectMapper));

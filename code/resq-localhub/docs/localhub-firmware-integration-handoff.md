@@ -37,6 +37,15 @@ The service-info endpoint returns the LAN-oriented setup information used by the
 - `dashboard_url`
 - `local_ip`
 
+## Calibration Profiles
+
+Calibration settings are now stored locally in SQLite and can be edited from the instructor dashboard without touching the firmware contract.
+
+- The first launch seeds an `adult-basic` default profile with the existing adult CPR calibration values.
+- The dashboard Calibration Settings panel lets an instructor choose a live device, edit profile values, save a new or existing profile, set a profile as default, and deactivate non-default profiles.
+- Run Calibration uses the selected saved profile, or the saved default profile when no custom profile is selected.
+- The firmware still receives the same MQTT command fields: `request_id`, `hall_delta`, `ref_pressure`, `bladder_1_pressure`, `bladder_2_pressure`, and `issued_at_ms`.
+
 ## MQTT Topic Contract
 
 Canonical firmware topics remain under `resq/{deviceId}/...`:
@@ -72,11 +81,12 @@ Telemetry is normalized at the backend boundary and must remain consistent with 
 
 Calibration remains the first readiness gate for the demo workflow:
 
-1. The instructor opens the live device card.
-2. The instructor clicks `Run Calibration`.
-3. The backend publishes the canonical calibration start command.
-4. The simulator returns `event_id` `4000`, `4001`, and `4002`.
-5. The readiness block updates to the final calibrated state when the result is `PASS`.
+1. The instructor opens the Calibration Settings panel and chooses a live device.
+2. The instructor selects the `Adult Basic` default profile or edits/saves another local profile.
+3. The instructor clicks `Run Calibration`.
+4. The backend publishes the canonical calibration start command using the saved profile values.
+5. The simulator returns `event_id` `4000`, `4001`, and `4002`.
+6. The readiness block updates to the final calibrated state when the result is `PASS`.
 
 ## Session Flow
 

@@ -445,3 +445,12 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Frontend browser firmware API now exposes diagnostics/history fetch helpers and a debug snapshot request helper for the local-only workflow.
 - Simulator-first validation remains the active path: use the diagnostics panel and MQTT trace helper to compare simulator command/event/debug output against the persisted backend records.
 - Deferred item: real ESP32 hardware testing remains skipped for now, and no cloud changes, new tables, or MQTT contract changes were introduced in Phase 9.
+
+## X. Phase 13 Status
+
+- Calibration profile persistence added with a local SQLite `calibration_profiles` table, idempotent schema initialization, and a seeded `adult-basic` default profile so calibration settings are editable without changing firmware behavior.
+- Backend profile endpoints added locally for list, default lookup, create, update, set default, and deactivate flows under `GET/POST/PUT/DELETE /api/firmware/calibration-profiles`.
+- Firmware calibration start now resolves values from the selected profile, or from the saved default profile when no profile is selected, instead of using hardcoded frontend constants.
+- Instructor dashboard now includes a simple Calibration Settings panel for selecting a live device, editing profile values, saving profiles, setting the default profile, deactivating profiles, and starting calibration from the chosen saved profile.
+- Firmware MQTT command payloads remain unchanged: the backend still publishes `request_id`, `hall_delta`, `ref_pressure`, `bladder_1_pressure`, `bladder_2_pressure`, and `issued_at_ms` fields without requiring any firmware-side contract change.
+- Validation completed for this phase: `services/hub-api` test suite passed and `apps/localhub-desktop` production build passed after the profile workflow changes were applied.

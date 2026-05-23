@@ -1,6 +1,7 @@
 package lk.resq.localhub.service;
 
 import lk.resq.localhub.model.ManikinLiveSummary;
+import lk.resq.localhub.model.firmware.CalibrationProfileResponse;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationCommandResponse;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationStartRequest;
@@ -17,15 +18,18 @@ public class FirmwareCalibrationService {
 
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
+        private final CalibrationProfileService calibrationProfileService;
     private final ManikinRegistryService manikinRegistryService;
 
     public FirmwareCalibrationService(
             MqttCommandPublisherService mqttCommandPublisherService,
             FirmwarePersistenceRepository firmwarePersistenceRepository,
+            CalibrationProfileService calibrationProfileService,
             ManikinRegistryService manikinRegistryService
     ) {
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
+        this.calibrationProfileService = calibrationProfileService;
         this.manikinRegistryService = manikinRegistryService;
     }
 
@@ -35,10 +39,22 @@ public class FirmwareCalibrationService {
                 ? new FirmwareCalibrationStartRequest(null, null, null, null, null)
                 : request;
 
-        Integer hallDelta = requireInteger(normalizedRequest.hallDelta(), "hallDelta is required");
-        Integer refPressure = requireInteger(normalizedRequest.refPressure(), "refPressure is required");
-        Integer bladder1Pressure = requireInteger(normalizedRequest.bladder1Pressure(), "bladder1Pressure is required");
-        Integer bladder2Pressure = requireInteger(normalizedRequest.bladder2Pressure(), "bladder2Pressure is required");
+        String requestedProfileId = normalize(normalizedRequest.profileId());
+        CalibrationProfileResponse profile = requestedProfileId != null
+            ? calibrationProfileService.getProfile(requestedProfileId).orElseThrow(() -> new IllegalArgumentException("Calibration profile not found: " + requestedProfileId))
+            : calibrationProfileService.getDefaultProfile().orElseThrow(() -> new IllegalArgumentException("No calibration profile is available"));
+
+        Integer hallDelta = coalesce(normalizedRequest.hallDelta(), profile.hallDelta());
+        Integer refPressure = coalesce(normalizedRequest.refPressure(), profile.refPressure());
+        Integer bladder1Pressure = coalesce(normalizedRequest.bladder1Pressure(), profile.bladder1Pressure());
+        Integer bladder2Pressure = coalesce(normalizedRequest.bladder2Pressure(), profile.bladder2Pressure());
+
+        hallDelta = requirePositiveInteger(hallDelta, "hallDelta must be greater than 0");
+        refPressure = requirePositiveInteger(refPressure, "refPressure must be greater than 0");
+        bladder1Pressure = requirePositiveInteger(bladder1Pressure, "bladder1Pressure must be greater than 0");
+        bladder2Pressure = requirePositiveInteger(bladder2Pressure, "bladder2Pressure must be greater than 0");
+
+        String resolvedProfileId = requestedProfileId != null ? requestedProfileId : profile.profileId();
 
         MqttCommandPublisherService.FirmwareCommandPublishResult result =
                 mqttCommandPublisherService.publishCalibrationStartCommand(
@@ -47,7 +63,7 @@ public class FirmwareCalibrationService {
                         refPressure,
                         bladder1Pressure,
                         bladder2Pressure,
-                        normalize(normalizedRequest.profileId())
+                resolvedProfileId
                 );
 
         return new FirmwareCalibrationCommandResponse(
@@ -188,6 +204,17 @@ public class FirmwareCalibrationService {
             throw new IllegalArgumentException(message);
         }
         return value;
+    }
+
+    private static Integer requirePositiveInteger(Integer value, String message) {
+        if (value == null || value <= 0) {
+            throw new IllegalArgumentException(message);
+        }
+        return value;
+    }
+
+    private static Integer coalesce(Integer first, Integer second) {
+        return first != null ? first : second;
     }
 
     private static String firstNonBlank(String first, String second) {

@@ -10,6 +10,8 @@ import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CalibrationProfileRepository;
+import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.FirmwareCalibrationService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LiveStreamService;
@@ -107,7 +109,12 @@ class SessionControllerTest {
                 Path.of("target", "session-controller-firmware-" + UUID.randomUUID() + ".sqlite").toString()
         );
         firmwareRepository.initialize();
-        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, registry);
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+            Path.of("target", "session-controller-profile-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry);
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 publisher,

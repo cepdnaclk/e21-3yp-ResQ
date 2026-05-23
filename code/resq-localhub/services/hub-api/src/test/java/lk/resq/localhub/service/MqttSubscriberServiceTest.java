@@ -7,6 +7,8 @@ import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
 import lk.resq.localhub.model.firmware.FirmwareEventRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
+import lk.resq.localhub.service.CalibrationProfileRepository;
+import lk.resq.localhub.service.CalibrationProfileService;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.junit.jupiter.api.Test;
 
@@ -226,9 +228,15 @@ class MqttSubscriberServiceTest {
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+            Path.of("target", "mqtt-subscriber-calibration-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
                 commandPublisher,
                 repository,
+            profileService,
                 registry
         );
         ActiveSessionService activeSessionService = new ActiveSessionService(

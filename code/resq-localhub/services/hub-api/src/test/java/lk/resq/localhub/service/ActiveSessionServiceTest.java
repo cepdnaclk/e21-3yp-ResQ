@@ -8,6 +8,8 @@ import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.service.CalibrationProfileRepository;
+import lk.resq.localhub.service.CalibrationProfileService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -248,9 +250,15 @@ class ActiveSessionServiceTest {
                 Path.of("target", "active-session-firmware-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         firmwareRepository.initialize();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+          Path.of("target", "active-session-profile-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
                 commandPublisher,
                 firmwareRepository,
+          profileService,
                 registry
         );
         ActiveSessionService service = new ActiveSessionService(
