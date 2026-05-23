@@ -406,3 +406,11 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Service-info helper added: `scripts/check-localhub-service-info.ps1` checks `/api/hub/service-info` and `/api/devices/register` so LAN host, MQTT host, and registration payload shape can be verified before hardware testing.
 - Simulator comparison points: topic shape, calibration event IDs `4000`/`4001`/`4002`, session event IDs `2000`/`2001`, telemetry arrival timing, and debug snapshot handling should match the simulator unless a real mismatch is documented.
 - Deferred item: no cloud routing, per-device credentials, provisioning redesign, or dashboard redesign was introduced in Phase 8; any mismatch fixes should remain small and compatibility-safe.
+
+## W. Phase 9 Status
+
+- Diagnostics API added on the backend for local firmware evidence: recent command requests, recent events, recent debug snapshots, a combined device diagnostics view, and a debug command trigger that reuses the existing MQTT publisher.
+- Instructor dashboard now includes a minimal Firmware Diagnostics panel per live device card so readiness, calibration outcome, command history, event history, and debug snapshots can be inspected without changing the main layout.
+- Frontend browser firmware API now exposes diagnostics/history fetch helpers and a debug snapshot request helper for the local-only workflow.
+- Simulator-first validation remains the active path: use the diagnostics panel and MQTT trace helper to compare simulator command/event/debug output against the persisted backend records.
+- Deferred item: real ESP32 hardware testing remains skipped for now, and no cloud changes, new tables, or MQTT contract changes were introduced in Phase 9.

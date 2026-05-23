@@ -42,6 +42,7 @@ import {
   startCalibration,
   type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
+import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { QRCodeSVG as QR } from "qrcode.react";
 
 /**
@@ -1454,6 +1455,12 @@ export default function InstructorDashboard({
                         </button>
                       </div>
                     </div>
+
+                    <FirmwareDiagnosticsPanel
+                      deviceId={manikin.deviceId}
+                      readiness={readiness}
+                      liveSummary={manikin}
+                    />
 
                     {/* Trainee Selection UI */}
                     <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>

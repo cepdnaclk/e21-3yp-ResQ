@@ -170,6 +170,14 @@ Expected backend behavior:
 - Debug snapshots are persisted in `firmware_debug_snapshots`.
 - Firmware events are persisted in `firmware_events`.
 
+The instructor dashboard now includes a minimal Firmware Diagnostics panel for each live device card. Use it to:
+
+- refresh readiness, command history, event history, and debug snapshot history
+- request a debug snapshot without leaving the dashboard
+- verify that the latest command, event, and debug rows show up after the simulator replies
+
+When the panel is opened, the latest diagnostics payload should show the same command/event sequence that the simulator emitted on MQTT.
+
 ## Failure Simulation
 
 Calibration failure:
