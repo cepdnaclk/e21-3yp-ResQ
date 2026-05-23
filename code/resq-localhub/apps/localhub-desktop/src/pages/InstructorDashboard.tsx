@@ -24,15 +24,13 @@ import {
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
-<<<<<<< HEAD
 import { useLiveSession } from "../hooks/useLiveSession";
-=======
 import { requestManikinPairing } from "../lib/browserManikinsProvisionApi";
 import {
   fetchManikinRegistry,
   type ManikinRegistryEntry,
 } from "../lib/browserManikinRegistryApi";
->>>>>>> resq_UI
+import { QRCodeSVG as QR } from "qrcode.react";
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -503,6 +501,31 @@ export default function InstructorDashboard({
     }
 
     return null;
+  }
+
+  function buildTraineeLandingUrl(): string {
+    const manualLanHost = sanitizeManualLanIp(manualLanIpOverride ?? window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY) ?? "");
+
+    if (manualLanHost) {
+      const { traineeUrl } = generateAccessUrls(manualLanHost);
+      if (traineeUrl) {
+        return traineeUrl;
+      }
+    }
+
+    const protocol = window.location.protocol.toLowerCase();
+    const canUseOrigin = protocol === "http:" || protocol === "https:";
+    const originHost = window.location.hostname;
+    const originIsLocalOnly =
+      originHost === "localhost" ||
+      originHost === "127.0.0.1" ||
+      originHost === "::1";
+
+    if (canUseOrigin && !originIsLocalOnly) {
+      return `${window.location.origin}/trainee`;
+    }
+
+    return "/trainee";
   }
 
   function navigateToDesktopHome() {

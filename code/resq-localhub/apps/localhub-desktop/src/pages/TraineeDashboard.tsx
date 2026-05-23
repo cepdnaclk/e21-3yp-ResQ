@@ -221,7 +221,6 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   );
 }
 
-<<<<<<< HEAD
 function liveStreamStateFromConnection(state: string): LiveStreamState {
   if (state === "MQTT_WS_LIVE" || state === "BACKEND_SSE_FALLBACK" || state === "BACKEND_POLLING_DEGRADED") {
     return "connected";
@@ -233,7 +232,8 @@ function liveStreamStateFromConnection(state: string): LiveStreamState {
     return "reconnecting";
   }
   return "connecting";
-=======
+}
+
 function WaitingSessionStory() {
   const [tipIndex, setTipIndex] = useState(0);
   const [placeholderSeconds, setPlaceholderSeconds] = useState(3);
@@ -316,7 +316,6 @@ function WaitingSessionStory() {
       </div>
     </section>
   );
->>>>>>> resq_UI
 }
 
 export default function TraineeDashboard({
@@ -463,6 +462,11 @@ export default function TraineeDashboard({
   const rateSeries = sensorHistory.map((point) => point.rateCpm);
   const pauseSeries = sensorHistory.map((point) => point.pauseS);
   const recoilSeries = sensorHistory.map((point) => point.recoilOk);
+  const force1Series = sensorHistory.map(() => session?.latestForce1 ?? null);
+  const force2Series = sensorHistory.map(() => session?.latestForce2 ?? null);
+  const balanceSeries = sensorHistory.map(() => session?.pressureBalancePct ?? null);
+  const latestBalance = session?.pressureBalancePct ?? null;
+  const latestSkewed = session?.pressureSkewed ?? null;
   const recentFlags = sensorHistory
     .map((point) => point.flags)
     .filter((value): value is string => Boolean(value && value.trim()))
@@ -736,7 +740,6 @@ export default function TraineeDashboard({
         {!sessionId && (
           <section style={styles.card}>
             <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>No Active Session</h2>
-<<<<<<< HEAD
             <div style={{ padding: "20px", borderRadius: "8px", background: "#f8fafc", border: "1px dashed #cbd5e1" }}>
               <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>
                 No active session selected yet.
@@ -745,121 +748,7 @@ export default function TraineeDashboard({
                 Open a trainee link like /trainee?sessionId=&lt;id&gt; from the instructor dashboard.
               </p>
             </div>
-          </section>
-        ) : sessionError ? (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Session Error</h2>
-              <LiveStreamStatusBadge state={streamState} />
-            </div>
-            <div style={{ padding: "20px", borderRadius: "8px", background: "#fef2f2", border: "1px solid #fecaca" }}>
-              <p style={{ margin: 0, color: "#991b1b", fontSize: "0.92rem" }}>
-                {sessionError}
-              </p>
-              {streamMessage ? (
-                <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
-                  {streamMessage}
-                </p>
-              ) : null}
-            </div>
-          </section>
-        ) : sessionLoading ? (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Active Session Live View</h2>
-              <LiveStreamStatusBadge state={streamState} />
-            </div>
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading session data...</p>
-          </section>
-        ) : !session ? (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Session Ended</h2>
-              <LiveStreamStatusBadge state={streamState} />
-            </div>
-            <div style={{ padding: "20px", borderRadius: "8px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.92rem" }}>
-                Session {sessionId} is no longer active.
-              </p>
-              {streamMessage ? (
-                <p style={{ margin: "8px 0 0 0", color: "#b45309", fontSize: "0.86rem" }}>
-                  {streamMessage}
-                </p>
-              ) : null}
-              <p style={{ margin: "8px 0 0 0", color: "#94a3b8", fontSize: "0.85rem" }}>
-                The instructor can still view and export the completed summary.
-              </p>
-            </div>
-          </section>
-        ) : (
-          <section style={styles.card}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Active Session Live View</h2>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                <LiveStreamStatusBadge state={streamState} />
-                <SessionStatusBadge active={Boolean(session?.active)} />
-              </div>
-            </div>
-            {streamMessage ? (
-              <p style={{ margin: "0 0 8px 0", color: "#b45309", fontSize: "0.86rem" }}>
-                {streamMessage}
-              </p>
-            ) : null}
-            <div style={{ display: "grid", gap: "6px" }}>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Session: {session.sessionId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Device: {session.deviceId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Trainee: {session.traineeId ?? "-"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {session.state ?? "unknown"}</p>
-              <p style={{ margin: 0, color: session.online ? "#166534" : "#991b1b", fontSize: "0.88rem", fontWeight: 600 }}>
-                Device: {session.online ? "Online" : "Offline"}
-              </p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Started: {formatTime(session.startedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Last Backend Snapshot: {formatTime(session.lastSeen)}</p>
-            </div>
-
-            <div style={{ marginTop: "14px" }}>
-              <LiveMetricsPanel state={liveState} title="Your Live Feedback" traineeFriendly />
-            </div>
-
-            <div style={{ marginTop: "16px" }}>
-              <h3 style={{ margin: "0 0 10px 0", fontSize: "1rem", fontWeight: 600, color: "#0f172a" }}>Live Sensor Plots</h3>
-              <p style={{ margin: "0 0 12px 0", fontSize: "0.83rem", color: "#64748b" }}>
-                Rolling window of last {MAX_SENSOR_POINTS} updates. Use this to quickly confirm sensor behavior.
-              </p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
-                <Sparkline values={depthSeries} color="#0ea5e9" label="Depth" />
-                <Sparkline values={rateSeries} color="#22c55e" label="Rate" />
-                <Sparkline values={pauseSeries} color="#f97316" label="Pause" />
-                <RecoilTimeline values={recoilSeries} />
-              </div>
-              <div style={{ marginTop: "10px", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px", background: "#f8fafc" }}>
-                <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>Recent Flags / Feedback</p>
-                {recentFlags.length === 0 ? (
-                  <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>No feedback flags yet</p>
-                ) : (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                    {recentFlags.map((flag, index) => (
-                      <span
-                        key={`${flag}-${index}`}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: "999px",
-                          fontSize: "0.78rem",
-                          fontWeight: 600,
-                          background: "#e2e8f0",
-                          color: "#334155",
-                        }}
-                      >
-                        {flag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-=======
             <WaitingSessionStory />
->>>>>>> resq_UI
           </section>
         )}
       </div>
