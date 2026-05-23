@@ -6,6 +6,8 @@ This smoke test validates the local ESP32 firmware contract path without real ha
 
 The simulator only uses canonical MQTT topics under `resq/{deviceId}/...`. Legacy topic support remains in the backend, but this test is intended to exercise the new firmware contract.
 
+For physical hardware, use [docs/real-esp32-localhub-integration-smoke-test.md](real-esp32-localhub-integration-smoke-test.md). That document covers the real ESP32 provisioning flow, registration request, and trace comparison against this simulator workflow.
+
 ## Real Firmware Onboarding Shape
 
 Phase 7 narrows the real firmware provisioning QR to only:
@@ -20,7 +22,7 @@ Phase 7 narrows the real firmware provisioning QR to only:
 
 Real firmware should use `backend_base_url` to call `POST /api/devices/register`, then use the returned `device_id`, `mqtt_host`, and `mqtt_port` to connect to MQTT and publish `resq/{deviceId}/status` plus `resq/{deviceId}/heartbeat`.
 
-The simulator still connects directly to MQTT because it is a local validation tool, not the ESP32 provisioning flow.
+The simulator still connects directly to MQTT because it is a local validation tool, not the ESP32 provisioning flow. Real firmware should register first and only then connect to MQTT.
 
 ## Prerequisites
 

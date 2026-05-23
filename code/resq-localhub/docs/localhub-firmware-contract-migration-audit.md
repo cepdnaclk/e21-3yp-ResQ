@@ -398,3 +398,11 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Instructor dashboard keeps the existing layout but now shows LocalHub service info, backend URL, Wi-Fi inputs, QR, and copyable provisioning JSON for the new firmware onboarding flow.
 - Simulator smoke-test documentation now distinguishes real firmware onboarding from the simulator's direct MQTT connection.
 - Deferred item: persisted device identity management, per-device MQTT credentials, richer broker health detection, and any cloud routing remain out of scope for Phase 7.
+
+## V. Phase 8 Status
+
+- Real-device smoke-test guide added: [docs/real-esp32-localhub-integration-smoke-test.md](real-esp32-localhub-integration-smoke-test.md) documents the full ESP32 provisioning, registration, calibration, session, and debug trace workflow.
+- MQTT trace helper added: `scripts/firmware-simulator/watch-real-firmware-mqtt.ps1` subscribes to the canonical firmware topics used by real ESP32 hardware so trace output can be compared against the simulator.
+- Service-info helper added: `scripts/check-localhub-service-info.ps1` checks `/api/hub/service-info` and `/api/devices/register` so LAN host, MQTT host, and registration payload shape can be verified before hardware testing.
+- Simulator comparison points: topic shape, calibration event IDs `4000`/`4001`/`4002`, session event IDs `2000`/`2001`, telemetry arrival timing, and debug snapshot handling should match the simulator unless a real mismatch is documented.
+- Deferred item: no cloud routing, per-device credentials, provisioning redesign, or dashboard redesign was introduced in Phase 8; any mismatch fixes should remain small and compatibility-safe.

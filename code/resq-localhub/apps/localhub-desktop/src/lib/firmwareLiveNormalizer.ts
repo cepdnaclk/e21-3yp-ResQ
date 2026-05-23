@@ -47,11 +47,11 @@ export function normalizeFirmwareLivePayload(raw: unknown): FirmwareLiveFields |
   const depthProgress = numberOrNull(rawPayload.depthProgress ?? rawPayload.depth_progress);
   const depthOk = booleanOrNull(rawPayload.depthOk ?? rawPayload.depth_ok);
   const rateCpm = numberOrNull(rawPayload.rateCpm ?? rawPayload.rate_cpm);
-  const compressionCount = intOrNull(rawPayload.compressionCount ?? rawPayload.compression_count ?? rawPayload.total_compressions);
+    const compressionCount = intOrNull(rawPayload.compressionCount ?? rawPayload.compression_count);
   const validCompressionCount = intOrNull(rawPayload.validCompressionCount ?? rawPayload.valid_compression_count);
   const recoilOkCount = intOrNull(rawPayload.recoilOkCount ?? rawPayload.recoil_ok_count);
   const incompleteRecoilCount = intOrNull(rawPayload.incompleteRecoilCount ?? rawPayload.incomplete_recoil_count);
-  const pauseS = numberOrNull(rawPayload.pauseS ?? rawPayload.pause_s);
+    const pauseS = numberOrNull(rawPayload.pauseS ?? rawPayload.pause_s);
   const handPlacement = text(rawPayload.handPlacement) ?? text(rawPayload.hand_placement);
   const pressureBalancePct = numberOrNull(rawPayload.pressureBalancePct ?? rawPayload.pressure_balance_pct);
   const flags = flagsOrNull(rawPayload.flags);
@@ -73,11 +73,11 @@ export function normalizeFirmwareLivePayload(raw: unknown): FirmwareLiveFields |
     depthProgress,
     depthOk,
     rateCpm,
-    compressionCount,
+      compressionCount,
     validCompressionCount,
     recoilOkCount,
     incompleteRecoilCount,
-    pauseS,
+      pauseS,
     handPlacement,
     pressureBalancePct,
     flags,
