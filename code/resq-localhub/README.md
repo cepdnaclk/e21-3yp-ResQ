@@ -35,6 +35,7 @@ For a Windows-first local demo path, start with:
 - [Local demo launcher](scripts/local-demo/start-local-demo.ps1)
 - [Local firmware simulator smoke test](docs/local-firmware-simulator-smoke-test.md)
 - [Real ESP32 integration smoke test](docs/real-esp32-localhub-integration-smoke-test.md)
+- [Local firmware integration handoff](docs/localhub-firmware-integration-handoff.md)
 
 ### 1) Backend API
 
@@ -151,3 +152,4 @@ See:
 - `docs/local-demo-runbook.md`
 - `docs/local-firmware-simulator-smoke-test.md`
 - `docs/real-esp32-localhub-integration-smoke-test.md`
+- `docs/localhub-firmware-integration-handoff.md`

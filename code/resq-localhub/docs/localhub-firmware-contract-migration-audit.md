@@ -387,6 +387,13 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - `apps/localhub-desktop/src/components/LocalSessionReviewPanel.tsx` received a small hardening pass so refresh is disabled while loading and the copy clearly calls out local/simulator session review.
 - Validation remains local-only: backend tests, desktop build, helper-script checks, and simulator-based verification are the intended gates; real ESP testing stays deferred until hardware is available.
 
+## S. Phase 12 Status
+
+- Final audit completed for the local firmware migration handoff. The repository still contains intentional compatibility remnants such as legacy `resq/manikins/...` support, `M01` defaults in demo tooling, and auth-related environment variables in the security docs.
+- Final handoff document added at `docs/localhub-firmware-integration-handoff.md` to summarize the local architecture, firmware provisioning flow, MQTT contract, diagnostics, simulator usage, demo launcher usage, and real ESP checklist.
+- Validation commands used for the final handoff: backend test suite, desktop build, safe launcher dry run with all skip switches, and simulator help output.
+- Deferred items remain unchanged: real ESP hardware validation, sensor calibration tuning, production installer hardening, cloud sync/deployment, and per-device MQTT credential hardening.
+
 ## R. Phase 6 Status
 
 - Local firmware simulator added at `scripts/firmware-simulator/firmware-simulator.js`; it is a Windows-friendly Node script that reuses the existing desktop `mqtt` dependency and exposes `--help`.
