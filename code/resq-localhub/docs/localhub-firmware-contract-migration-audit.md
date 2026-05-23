@@ -362,3 +362,13 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Tests added for calibration service behavior, controller command responses, readiness mapping, and session-start blocking for a known not-ready firmware device.
 - Deferred item: calibration profile management UI, richer diagnostic command/event/debug endpoints, Tauri provisioning cleanup, and any cloud routing remain out of scope for this phase.
 - Next phase recommendation: wire provisioning/orchestration around the firmware lifecycle only after validating the Phase 5 endpoints with real device calibration events.
+
+## R. Phase 6 Status
+
+- Local firmware simulator added at `scripts/firmware-simulator/firmware-simulator.js`; it is a Windows-friendly Node script that reuses the existing desktop `mqtt` dependency and exposes `--help`.
+- Simulator publishes canonical firmware topics only: retained `status`, periodic `heartbeat`, session `telemetry`, `debug`, `events`, `events/calibration`, and `events/error`.
+- Simulator subscribes to `resq/{deviceId}/cmd/#` and handles calibration start/cancel, session start/stop, debug, system retry/reset, calibration failure mode, firmware ERROR mode, and optional session interruption.
+- Command replies include `reply_id` copied from incoming `request_id`, `event_id`, firmware `state`, `reason_id`, `action_id`, and `ts_ms` so Phase 3 persistence and Phase 5 readiness endpoints can be exercised end to end.
+- Smoke-test guide added at `docs/local-firmware-simulator-smoke-test.md` with Mosquitto/backend/UI startup steps, simulator commands, expected MQTT topics, dashboard behavior, and failure simulation flows.
+- No Tauri provisioning, cloud behavior, firmware contract, backend schema, or legacy MQTT compatibility changes were made in this phase.
+- Next phase recommendation: run the documented smoke test with the backend and dashboard, then compare simulator traces against real ESP32 firmware traces before changing provisioning/orchestration.
