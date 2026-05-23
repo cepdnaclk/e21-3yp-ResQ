@@ -13,5 +13,8 @@ idf_component_register(
         calibration_manager
         wifi_manager
         esp_driver_gpio
+        system_button_manager
         freertos
+    PRIV_REQUIRES
+        system_button_manager
 )

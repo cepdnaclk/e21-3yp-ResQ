@@ -25,11 +25,12 @@ static const char *TAG = "system_buttons";
 #endif
 
 #define SYSTEM_BUTTON_ACTIVE_LEVEL          0
+#define SYSTEM_BUTTON_RELEASED_LEVEL        1
 #define SYSTEM_BUTTON_DEBOUNCE_MS           50
 #define SYSTEM_BUTTON_LONG_PRESS_MS         3000
 #define SYSTEM_BUTTON_TASK_POLL_MS          20
 #define SYSTEM_BUTTON_EDGE_QUEUE_LEN        16
-#define SYSTEM_BUTTON_ACTION_QUEUE_LEN      4
+#define SYSTEM_BUTTON_EVENT_QUEUE_LEN       8
 #define SYSTEM_BUTTON_TASK_STACK_WORDS      3072
 #define SYSTEM_BUTTON_TASK_PRIORITY         10
 
@@ -39,34 +40,29 @@ typedef struct {
 
 typedef struct {
     gpio_num_t gpio;
+    system_button_id_t button_id;
     bool pressed;
-    bool long_sent;
     TickType_t press_start_tick;
 } button_runtime_t;
 
 static bool s_initialized = false;
 static QueueHandle_t s_edge_queue = NULL;
-static QueueHandle_t s_action_queue = NULL;
+static QueueHandle_t s_event_queue = NULL;
 static TaskHandle_t s_button_task_handle = NULL;
 
 static button_runtime_t s_button_1 = {
     .gpio = BUTTON_1,
+    .button_id = SYSTEM_BUTTON_ID_1,
     .pressed = false,
-    .long_sent = false,
     .press_start_tick = 0,
 };
 
 static button_runtime_t s_button_2 = {
     .gpio = BUTTON_2,
+    .button_id = SYSTEM_BUTTON_ID_2,
     .pressed = false,
-    .long_sent = false,
     .press_start_tick = 0,
 };
-
-static bool button_is_pressed(gpio_num_t gpio)
-{
-    return gpio_get_level(gpio) == SYSTEM_BUTTON_ACTIVE_LEVEL;
-}
 
 static button_runtime_t *button_runtime_for_gpio(gpio_num_t gpio)
 {
@@ -81,17 +77,30 @@ static button_runtime_t *button_runtime_for_gpio(gpio_num_t gpio)
     return NULL;
 }
 
-static system_button_action_t action_for_gpio(gpio_num_t gpio)
+const char *system_button_id_to_string(system_button_id_t button_id)
 {
-    if (gpio == BUTTON_1) {
-        return SYSTEM_BUTTON_ACTION_TURN_OFF;
+    switch (button_id) {
+    case SYSTEM_BUTTON_ID_1:
+        return "BUTTON_1";
+    case SYSTEM_BUTTON_ID_2:
+        return "BUTTON_2";
+    case SYSTEM_BUTTON_ID_NONE:
+    default:
+        return "NONE";
     }
+}
 
-    if (gpio == BUTTON_2) {
-        return SYSTEM_BUTTON_ACTION_FACTORY_RESET;
+const char *system_button_press_type_to_string(system_button_press_type_t press_type)
+{
+    switch (press_type) {
+    case SYSTEM_BUTTON_PRESS_SHORT:
+        return "SHORT";
+    case SYSTEM_BUTTON_PRESS_LONG:
+        return "LONG";
+    case SYSTEM_BUTTON_PRESS_NONE:
+    default:
+        return "NONE";
     }
-
-    return SYSTEM_BUTTON_ACTION_NONE;
 }
 
 const char *system_button_action_to_string(system_button_action_t action)
@@ -168,54 +177,46 @@ static void IRAM_ATTR button_gpio_isr(void *arg)
     }
 }
 
-void system_button_manager_drain_actions(resq_state_t current_state)
+static void publish_event_for_button(button_runtime_t *button, TickType_t released_tick)
 {
-    if (!s_initialized || s_action_queue == NULL) {
+    if (button == NULL) {
         return;
     }
 
-    system_button_action_t candidate = SYSTEM_BUTTON_ACTION_NONE;
-
-    while (xQueueReceive(s_action_queue, &candidate, 0) == pdTRUE) {
-        if (candidate != SYSTEM_BUTTON_ACTION_NONE) {
-            ESP_LOGW(TAG,
-                     "Drained button action=%s in state=%s",
-                     system_button_action_to_string(candidate),
-                     resq_state_to_string(current_state));
-        }
-    }
-}
-
-static void publish_action_from_button(button_runtime_t *button)
-{
-    if (button == NULL || button->long_sent || !button->pressed) {
+    if (button->press_start_tick == 0) {
         return;
     }
 
-    TickType_t now = xTaskGetTickCount();
-    uint32_t held_ms = (uint32_t)((now - button->press_start_tick) * portTICK_PERIOD_MS);
+    TickType_t now = released_tick;
+    uint32_t duration_ms = (uint32_t)((now - button->press_start_tick) * portTICK_PERIOD_MS);
 
-    if (held_ms < SYSTEM_BUTTON_LONG_PRESS_MS) {
-        return;
-    }
+    system_button_press_type_t press_type =
+        (duration_ms >= SYSTEM_BUTTON_LONG_PRESS_MS)
+            ? SYSTEM_BUTTON_PRESS_LONG
+            : SYSTEM_BUTTON_PRESS_SHORT;
 
-    system_button_action_t action = action_for_gpio(button->gpio);
-    if (action == SYSTEM_BUTTON_ACTION_NONE) {
-        return;
-    }
+    system_button_event_t event = {
+        .button_id = button->button_id,
+        .press_type = press_type,
+        .duration_ms = duration_ms,
+        .released_tick = now,
+    };
 
-    if (xQueueSend(s_action_queue, &action, 0) != pdTRUE) {
+    if (xQueueSend(s_event_queue, &event, 0) != pdTRUE) {
         ESP_LOGW(TAG,
-                 "Button action queue full; dropping action=%s",
-                 system_button_action_to_string(action));
+                 "Button event queue full; dropping button=%s press=%s duration=%lu ms",
+                 system_button_id_to_string(event.button_id),
+                 system_button_press_type_to_string(event.press_type),
+                 (unsigned long)event.duration_ms);
     } else {
         ESP_LOGW(TAG,
-                 "Long press detected gpio=%d action=%s",
-                 (int)button->gpio,
-                 system_button_action_to_string(action));
+                 "Button released button=%s press=%s duration=%lu ms",
+                 system_button_id_to_string(event.button_id),
+                 system_button_press_type_to_string(event.press_type),
+                 (unsigned long)event.duration_ms);
     }
 
-    button->long_sent = true;
+    button->press_start_tick = 0;
 }
 
 static void update_button_state_from_edge(gpio_num_t gpio)
@@ -225,29 +226,28 @@ static void update_button_state_from_edge(gpio_num_t gpio)
         return;
     }
 
-    /*
-     * Debounce outside ISR.
-     */
     vTaskDelay(pdMS_TO_TICKS(SYSTEM_BUTTON_DEBOUNCE_MS));
 
-    bool pressed = button_is_pressed(gpio);
+    int stable_level = gpio_get_level(gpio);
+    bool now_pressed = (stable_level == SYSTEM_BUTTON_ACTIVE_LEVEL);
     TickType_t now = xTaskGetTickCount();
 
-    if (pressed && !button->pressed) {
+    /* Falling edge after debounce: released HIGH -> pressed LOW */
+    if (now_pressed && !button->pressed) {
         button->pressed = true;
-        button->long_sent = false;
         button->press_start_tick = now;
 
-        ESP_LOGI(TAG, "Button press started gpio=%d", (int)gpio);
+        ESP_LOGI(TAG,
+                 "Button press started button=%s gpio=%d",
+                 system_button_id_to_string(button->button_id),
+                 (int)gpio);
         return;
     }
 
-    if (!pressed && button->pressed) {
+    /* Rising edge after debounce: pressed LOW -> released HIGH */
+    if (!now_pressed && button->pressed) {
+        publish_event_for_button(button, now);
         button->pressed = false;
-        button->long_sent = false;
-        button->press_start_tick = 0;
-
-        ESP_LOGI(TAG, "Button released gpio=%d", (int)gpio);
         return;
     }
 }
@@ -259,14 +259,9 @@ static void system_button_task(void *arg)
     button_edge_event_t edge = {0};
 
     while (true) {
-        if (xQueueReceive(s_edge_queue,
-                          &edge,
-                          pdMS_TO_TICKS(SYSTEM_BUTTON_TASK_POLL_MS)) == pdTRUE) {
+        if (xQueueReceive(s_edge_queue, &edge, pdMS_TO_TICKS(SYSTEM_BUTTON_TASK_POLL_MS)) == pdTRUE) {
             update_button_state_from_edge(edge.gpio);
         }
-
-        publish_action_from_button(&s_button_1);
-        publish_action_from_button(&s_button_2);
     }
 }
 
@@ -276,17 +271,15 @@ esp_err_t system_button_manager_init(void)
         return ESP_OK;
     }
 
-    s_edge_queue = xQueueCreate(SYSTEM_BUTTON_EDGE_QUEUE_LEN,
-                                sizeof(button_edge_event_t));
+    s_edge_queue = xQueueCreate(SYSTEM_BUTTON_EDGE_QUEUE_LEN, sizeof(button_edge_event_t));
     if (s_edge_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create button edge queue");
         return ESP_ERR_NO_MEM;
     }
 
-    s_action_queue = xQueueCreate(SYSTEM_BUTTON_ACTION_QUEUE_LEN,
-                                  sizeof(system_button_action_t));
-    if (s_action_queue == NULL) {
-        ESP_LOGE(TAG, "Failed to create button action queue");
+    s_event_queue = xQueueCreate(SYSTEM_BUTTON_EVENT_QUEUE_LEN, sizeof(system_button_event_t));
+    if (s_event_queue == NULL) {
+        ESP_LOGE(TAG, "Failed to create button event queue");
         vQueueDelete(s_edge_queue);
         s_edge_queue = NULL;
         return ESP_ERR_NO_MEM;
@@ -306,10 +299,6 @@ esp_err_t system_button_manager_init(void)
         return err;
     }
 
-    /*
-     * gpio_install_isr_service() returns ESP_ERR_INVALID_STATE if the ISR
-     * service was already installed by another component. That is acceptable.
-     */
     err = gpio_install_isr_service(0);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "Failed to install GPIO ISR service: %s", esp_err_to_name(err));
@@ -349,39 +338,83 @@ esp_err_t system_button_manager_init(void)
     return ESP_OK;
 }
 
+esp_err_t system_button_manager_wait_event(system_button_event_t *event, TickType_t timeout_ticks)
+{
+    if (!s_initialized || s_event_queue == NULL || event == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (xQueueReceive(s_event_queue, event, timeout_ticks) == pdTRUE) {
+        return ESP_OK;
+    }
+
+    return ESP_ERR_TIMEOUT;
+}
+
+bool system_button_manager_take_event(system_button_event_t *event)
+{
+    return system_button_manager_wait_event(event, 0) == ESP_OK;
+}
+
+void system_button_manager_drain_events(resq_state_t current_state)
+{
+    if (!s_initialized || s_event_queue == NULL) {
+        return;
+    }
+
+    system_button_event_t ev = {0};
+
+    while (xQueueReceive(s_event_queue, &ev, 0) == pdTRUE) {
+        ESP_LOGW(TAG,
+                 "Drained button event button=%s press=%s duration=%lu ms in state=%s",
+                 system_button_id_to_string(ev.button_id),
+                 system_button_press_type_to_string(ev.press_type),
+                 (unsigned long)ev.duration_ms,
+                 resq_state_to_string(current_state));
+    }
+}
+
+void system_button_manager_drain_actions(resq_state_t current_state)
+{
+    system_button_manager_drain_events(current_state);
+}
+
 system_button_action_t system_button_manager_poll(resq_state_t current_state)
 {
-    if (!s_initialized || s_action_queue == NULL) {
+    if (!s_initialized || s_event_queue == NULL) {
         return SYSTEM_BUTTON_ACTION_NONE;
     }
 
+    system_button_event_t event = {0};
     system_button_action_t selected_action = SYSTEM_BUTTON_ACTION_NONE;
-    system_button_action_t candidate = SYSTEM_BUTTON_ACTION_NONE;
 
-    /*
-     * Drain the queue each time this function is called.
-     * This prevents a stale long-press event from being applied later after
-     * the state changes.
-     */
-    while (xQueueReceive(s_action_queue, &candidate, 0) == pdTRUE) {
-        if (candidate == SYSTEM_BUTTON_ACTION_NONE) {
-            continue;
-        }
-
-        if (!action_allowed_in_state(current_state, candidate)) {
-            ESP_LOGW(TAG,
-                     "Ignoring button action=%s in state=%s",
-                     system_button_action_to_string(candidate),
+    while (system_button_manager_take_event(&event)) {
+        if (event.press_type != SYSTEM_BUTTON_PRESS_LONG) {
+            ESP_LOGI(TAG,
+                     "Ignoring short press in global action path button=%s state=%s",
+                     system_button_id_to_string(event.button_id),
                      resq_state_to_string(current_state));
             continue;
         }
 
-        /*
-         * If multiple actions are queued, keep the first allowed action.
-         * Factory reset priority is already naturally handled by button timing.
-         */
+        system_button_action_t action = SYSTEM_BUTTON_ACTION_NONE;
+
+        if (event.button_id == SYSTEM_BUTTON_ID_1) {
+            action = SYSTEM_BUTTON_ACTION_TURN_OFF;
+        } else if (event.button_id == SYSTEM_BUTTON_ID_2) {
+            action = SYSTEM_BUTTON_ACTION_FACTORY_RESET;
+        }
+
+        if (!action_allowed_in_state(current_state, action)) {
+            ESP_LOGW(TAG,
+                     "Ignoring long press action=%s in state=%s",
+                     system_button_action_to_string(action),
+                     resq_state_to_string(current_state));
+            continue;
+        }
+
         if (selected_action == SYSTEM_BUTTON_ACTION_NONE) {
-            selected_action = candidate;
+            selected_action = action;
         }
     }
 

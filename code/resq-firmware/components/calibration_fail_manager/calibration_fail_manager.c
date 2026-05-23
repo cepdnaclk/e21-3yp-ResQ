@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "driver/gpio.h"
+#include "system_button_manager.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -36,48 +36,12 @@ esp_err_t calibration_fail_manager_init(void)
     if (s_initialized) {
         return ESP_OK;
     }
-
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << BUTTON_1) | (1ULL << BUTTON_2),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-
-    esp_err_t err = gpio_config(&io_conf);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to configure calibration fail buttons: %s", esp_err_to_name(err));
-        return err;
-    }
-
     s_initialized = true;
+    ESP_LOGI(TAG, "Calibration fail manager initialized (button GPIOs managed by system_button_manager)");
     return ESP_OK;
 }
 
-static bool button_pressed(gpio_num_t gpio)
-{
-    return gpio_get_level(gpio) == 0;
-}
 
-static bool button_pressed_debounced(gpio_num_t gpio)
-{
-    if (!button_pressed(gpio)) {
-        return false;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(50));
-
-    if (!button_pressed(gpio)) {
-        return false;
-    }
-
-    while (button_pressed(gpio)) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
-
-    return true;
-}
 
 resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                                           calibration_config_t *calibration_config,
@@ -113,56 +77,84 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
     }
 
     while (true) {
-        if (button_pressed_debounced(BUTTON_1)) {
-            ESP_LOGW(TAG, "BUTTON_1 pressed: retry calibration");
+        system_button_event_t button_event = {0};
 
-            esp_err_t retry_err = calibration_manager_retry_last(network_config);
+        if (system_button_manager_wait_event(&button_event, pdMS_TO_TICKS(50)) == ESP_OK) {
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                button_event.button_id == SYSTEM_BUTTON_ID_1) {
 
-            if (retry_err == ESP_OK) {
+                ESP_LOGW(TAG,
+                         "BUTTON_1 short press: retry calibration duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
+
+                esp_err_t retry_err = calibration_manager_retry_last(network_config);
+
+                if (retry_err == ESP_OK) {
+                    runtime_helpers_publish_command_result(network_config,
+                                                           RESQ_STATE_CALIBRATION_FAIL,
+                                                           "button/retry",
+                                                           "ACK",
+                                                           "retry_calibration");
+
+                    return RESQ_STATE_CALIBRATING;
+                }
+
+                /* Map retry errors to calibration reason/action */
+                calibration_reason_id_t reason = CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE;
+                calibration_action_id_t action = CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE;
+
+                if (retry_err == ESP_ERR_NOT_FOUND) {
+                    reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+                    action = CAL_ACTION_SEND_VALID_PAYLOAD;
+                } else if (retry_err == ESP_ERR_INVALID_STATE) {
+                    reason = CAL_REASON_CALIBRATION_ALREADY_RUNNING;
+                    action = CAL_ACTION_WAIT_OR_CANCEL;
+                }
+
                 runtime_helpers_publish_command_result(network_config,
                                                        RESQ_STATE_CALIBRATION_FAIL,
                                                        "button/retry",
-                                                       "ACK",
-                                                       "retry_calibration");
+                                                       "NACK",
+                                                       "retry_failed");
 
-                return RESQ_STATE_CALIBRATING;
+                calibration_manager_publish_progress_event(reason,
+                                                           RESQ_STATE_CALIBRATION_FAIL,
+                                                           action);
             }
 
-            /* Map retry errors to calibration reason/action */
-            calibration_reason_id_t reason = CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE;
-            calibration_action_id_t action = CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE;
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                button_event.button_id == SYSTEM_BUTTON_ID_2) {
 
-            if (retry_err == ESP_ERR_NOT_FOUND) {
-                reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
-                action = CAL_ACTION_SEND_VALID_PAYLOAD;
-            } else if (retry_err == ESP_ERR_INVALID_STATE) {
-                reason = CAL_REASON_CALIBRATION_ALREADY_RUNNING;
-                action = CAL_ACTION_WAIT_OR_CANCEL;
-            }
+                ESP_LOGW(TAG,
+                         "BUTTON_2 short press: return to paired idle duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
 
-            runtime_helpers_publish_command_result(network_config,
-                                                   RESQ_STATE_CALIBRATION_FAIL,
-                                                   "button/retry",
-                                                   "NACK",
-                                                   "retry_failed");
+                calibration_manager_drop_temporary_values();
 
-            calibration_manager_publish_progress_event(reason,
+                runtime_helpers_publish_command_result(network_config,
                                                        RESQ_STATE_CALIBRATION_FAIL,
-                                                       action);
-        }
+                                                       "button/idle",
+                                                       "ACK",
+                                                       "returning_to_paired_idle");
 
-        if (button_pressed_debounced(BUTTON_2)) {
-            ESP_LOGW(TAG, "BUTTON_2 pressed: return to paired idle");
+                return RESQ_STATE_PAIRED_IDLE;
+            }
 
-            calibration_manager_drop_temporary_values();
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
+                button_event.button_id == SYSTEM_BUTTON_ID_1) {
 
-            runtime_helpers_publish_command_result(network_config,
-                                                   RESQ_STATE_CALIBRATION_FAIL,
-                                                   "button/idle",
-                                                   "ACK",
-                                                   "returning_to_paired_idle");
+                ESP_LOGW(TAG,
+                         "BUTTON_1 long press in CALIBRATION_FAIL: TURN_OFF duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
 
-            return RESQ_STATE_PAIRED_IDLE;
+                return RESQ_STATE_TURN_OFF;
+            }
+
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
+                button_event.button_id == SYSTEM_BUTTON_ID_2) {
+                ESP_LOGW(TAG,
+                         "BUTTON_2 long press in CALIBRATION_FAIL ignored; use short press to return idle");
+            }
         }
 
         if (!wifi_manager_is_connected()) {

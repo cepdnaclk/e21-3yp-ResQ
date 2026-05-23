@@ -903,6 +903,14 @@ void app_main(void)
     ESP_ERROR_CHECK(status_indicator_init());
     ESP_ERROR_CHECK(status_indicator_start());
 
+    /* Initialize system button manager early so BUTTON_1/BUTTON_2 GPIOs are
+     * configured before any manager may read them (e.g., ERROR/CALIBRATION_FAIL).
+     */
+    err = system_button_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "system_button_manager_init early init failed: %s", esp_err_to_name(err));
+    }
+
     /* Initialize error manager (button) early so ERROR state can use it. */
     err = error_manager_init();
     if (err != ESP_OK) {
