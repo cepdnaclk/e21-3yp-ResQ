@@ -6,6 +6,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
+#include "cJSON.h"
+
 #include "mqtt_manager.h"
 #include "config_store.h"
 #include "board_config.h"
@@ -61,13 +63,14 @@ esp_err_t runtime_helpers_publish_error_event(const network_config_t *network_co
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
-                           "\"event_type\":\"error\"," 
+                           "\"event_id\":%d," 
                            "\"device_id\":\"%s\"," 
                            "\"state\":\"%s\"," 
                            "\"error_code\":\"%s\"," 
                            "\"message\":\"%s\"," 
                            "\"ts_ms\":%lld"
                            "}",
+                           5000,
                            runtime_helpers_get_device_id(network_config),
                            resq_state_to_string(state),
                            error_code != NULL ? error_code : "UNKNOWN_ERROR",
@@ -88,7 +91,114 @@ esp_err_t runtime_helpers_publish_error_event(const network_config_t *network_co
         return ESP_ERR_INVALID_STATE;
     }
 
-    return mqtt_manager_publish_topic_json("events/error", payload);
+    return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_ERROR, payload);
+}
+
+esp_err_t resq_command_extract_request_id(const char *payload, char *out, size_t out_len)
+{
+    if (payload == NULL || out == NULL || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *root = cJSON_Parse(payload);
+    if (root == NULL) {
+        /* Treat unparsable payload as missing IDs */
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    esp_err_t result = ESP_ERR_NOT_FOUND;
+
+    /* Prefer request_id (new contract) */
+    cJSON *req = cJSON_GetObjectItemCaseSensitive(root, "request_id");
+    if (cJSON_IsString(req) && req->valuestring != NULL && req->valuestring[0] != '\0') {
+        strncpy(out, req->valuestring, out_len - 1);
+        out[out_len - 1] = '\0';
+        result = ESP_OK;
+        cJSON_Delete(root);
+        return result;
+    }
+
+    /* Backward compatibility: accept command_id if request_id missing
+     * TODO: remove command_id compatibility after LocalHub uses request_id */
+    cJSON *cmd = cJSON_GetObjectItemCaseSensitive(root, "command_id");
+    if (cJSON_IsString(cmd) && cmd->valuestring != NULL && cmd->valuestring[0] != '\0') {
+        strncpy(out, cmd->valuestring, out_len - 1);
+        out[out_len - 1] = '\0';
+        result = ESP_OK;
+        cJSON_Delete(root);
+        return result;
+    }
+
+    cJSON_Delete(root);
+    return result;
+}
+
+esp_err_t runtime_helpers_publish_command_result_from_command(const network_config_t *network_config,
+                                                              resq_state_t state,
+                                                              const resq_mqtt_command_t *cmd,
+                                                              const char *command_suffix,
+                                                              const char *status,
+                                                              const char *reason)
+{
+    if (network_config == NULL || cmd == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    (void)network_config;
+    (void)reason;
+
+    /* Extract request_id (must be present for command replies) */
+    char request_id[128] = {0};
+    esp_err_t id_err = resq_command_extract_request_id(cmd->payload, request_id, sizeof(request_id));
+    if (id_err != ESP_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Determine routing and event_id based on command suffix */
+    int event_id = 1000; /* generic command ACK/NACK */
+    const char *topic_suffix = RESQ_SUFFIX_EVENTS;
+
+    if (command_suffix != NULL) {
+        if (strncmp(command_suffix, "cmd/calibration", 15) == 0) {
+            event_id = 4000;
+            topic_suffix = RESQ_SUFFIX_EVENTS_CALIBRATION;
+        } else if (strncmp(command_suffix, "cmd/system", 10) == 0) {
+            event_id = 5001;
+            topic_suffix = RESQ_SUFFIX_EVENTS_ERROR;
+        } else if (strcmp(command_suffix, RESQ_SUFFIX_CMD_DEBUG) == 0 && status != NULL && strcmp(status, "ACK") == 0) {
+            event_id = 1002;
+            topic_suffix = RESQ_SUFFIX_EVENTS;
+        } else {
+            event_id = 1000;
+            topic_suffix = RESQ_SUFFIX_EVENTS;
+        }
+    }
+
+    char payload[512];
+    int written = snprintf(payload,
+                           sizeof(payload),
+                           "{"
+                           "\"event_id\":%d," 
+                           "\"reply_id\":\"%s\"," 
+                           "\"status\":\"%s\"," 
+                           "\"state\":\"%s\"," 
+                           "\"ts_ms\":%lld"
+                           "}",
+                           event_id,
+                           request_id,
+                           status != NULL ? status : "",
+                           resq_state_to_string(state),
+                           (long long)runtime_helpers_now_ms());
+
+    if (written <= 0 || written >= (int)sizeof(payload)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    if (!mqtt_manager_is_connected()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return mqtt_manager_publish_topic_json(topic_suffix, payload);
 }
 
 esp_err_t runtime_helpers_publish_command_result(const network_config_t *network_config,
@@ -102,7 +212,6 @@ esp_err_t runtime_helpers_publish_command_result(const network_config_t *network
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
-                           "\"event_type\":\"command_result\"," 
                            "\"device_id\":\"%s\"," 
                            "\"command\":\"%s\"," 
                            "\"status\":\"%s\"," 
@@ -127,6 +236,8 @@ esp_err_t runtime_helpers_publish_command_result(const network_config_t *network
 
     return mqtt_manager_publish_event_json(payload);
 }
+
+
 
 esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config)
 {

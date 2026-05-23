@@ -18,6 +18,7 @@
 #include "states.h"
 #include "runtime_helpers.h"
 #include "mqtt_manager.h"
+#include "mqtt_topics.h"
 #include "calibration_codes.h"
 #include "cJSON.h"
 
@@ -42,6 +43,26 @@ static network_config_t s_network_config;
 /* current command id for the running calibration */
 static char s_command_id[64] = {0};
 
+/* request_id provided by LocalHub for replies (reply_id) */
+static char s_request_id[128] = {0};
+
+/* Store the request_id for the running calibration. Used as reply_id in events. */
+void calibration_manager_set_request_id(const char *request_id)
+{
+    if (request_id == NULL) {
+        s_request_id[0] = '\0';
+        return;
+    }
+
+    strncpy(s_request_id, request_id, sizeof(s_request_id) - 1);
+    s_request_id[sizeof(s_request_id) - 1] = '\0';
+}
+
+const char *calibration_manager_get_request_id(void)
+{
+    return s_request_id;
+}
+
 static bool s_initialized = false;
 static bool s_running = false;
 static calibration_reason_id_t s_last_failure_reason = CAL_REASON_NONE;
@@ -59,15 +80,17 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
 {
     char payload[256];
 
+    /* Use numeric event_id for calibration progress and publish to standard calibration events topic */
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
-                           "\"event_type\":\"calibration_progress\","
-                           "\"reason_id\":%d,"
-                           "\"state\":\"%s\","
-                           "\"action_id\":%d,"
+                           "\"event_id\":%d," 
+                           "\"reason_id\":%d," 
+                           "\"state\":\"%s\"," 
+                           "\"action_id\":%d," 
                            "\"ts_ms\":%lld"
                            "}",
+                           4001,
                            (int)reason_id,
                            resq_state_to_string(state),
                            (int)action_id,
@@ -79,7 +102,7 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
     }
 
     if (mqtt_manager_is_connected()) {
-        mqtt_manager_publish_topic_json("events/calibration/progress", payload);
+        mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
     }
 }
 
@@ -919,16 +942,18 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
 
     esp_err_t result = ESP_OK;
 
-    cJSON *command_id = cJSON_GetObjectItemCaseSensitive(root, "command_id");
-    cJSON *event_type = cJSON_GetObjectItemCaseSensitive(root, "event_type");
+    /* Prefer request_id, fall back to command_id for compatibility */
+    cJSON *command_id = cJSON_GetObjectItemCaseSensitive(root, "request_id");
+    if (!cJSON_IsString(command_id) || command_id->valuestring == NULL) {
+        command_id = cJSON_GetObjectItemCaseSensitive(root, "command_id");
+    }
     cJSON *hall_delta = cJSON_GetObjectItemCaseSensitive(root, "hall_delta");
     cJSON *ref_pressure = cJSON_GetObjectItemCaseSensitive(root, "ref_pressure");
     cJSON *bladder_1_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_1_pressure");
     cJSON *bladder_2_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_2_pressure");
 
-    if (!cJSON_IsString(command_id) || command_id->valuestring == NULL ||
-        !cJSON_IsString(event_type) || event_type->valuestring == NULL ||
-        strcmp(event_type->valuestring, "calibration_start") != 0 ||
+    /* Require either request_id (preferred) or legacy command_id, and numeric fields. */
+    if ((!cJSON_IsString(command_id) || command_id->valuestring == NULL) ||
         !cJSON_IsNumber(hall_delta) ||
         !cJSON_IsNumber(ref_pressure) ||
         !cJSON_IsNumber(bladder_1_pressure) ||
@@ -972,4 +997,53 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
 exit:
     cJSON_Delete(root);
     return result;
+}
+
+esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
+                                                        const char *status,
+                                                        const char *result,
+                                                        calibration_reason_id_t reason_id,
+                                                        resq_state_t state,
+                                                        calibration_action_id_t action_id)
+{
+    if (reply_id == NULL || reply_id[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int event_id = 4000;
+    if (result != NULL && (strcmp(result, "PASS") == 0 || strcmp(result, "FAIL") == 0 || strcmp(result, "CANCELLED") == 0)) {
+        event_id = 4002;
+    }
+
+    char payload[512];
+    int written = snprintf(payload,
+                           sizeof(payload),
+                           "{"
+                           "\"event_id\":%d," 
+                           "\"reply_id\":\"%s\"," 
+                           "\"status\":\"%s\"," 
+                           "\"result\":\"%s\"," 
+                           "\"reason_id\":%d," 
+                           "\"state\":\"%s\"," 
+                           "\"action_id\":%d," 
+                           "\"ts_ms\":%lld"
+                           "}",
+                           event_id,
+                           reply_id,
+                           status != NULL ? status : "",
+                           result != NULL ? result : "",
+                           (int)reason_id,
+                           resq_state_to_string(state),
+                           (int)action_id,
+                           (long long)(esp_timer_get_time() / 1000));
+
+    if (written <= 0 || written >= (int)sizeof(payload)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    if (!mqtt_manager_is_connected()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
 }

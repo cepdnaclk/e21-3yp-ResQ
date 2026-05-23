@@ -18,11 +18,6 @@
 
 static const char *TAG = "calibration_state_manager";
 
-static int64_t now_ms(void)
-{
-    return esp_timer_get_time() / 1000;
-}
-
 static void publish_calibration_result(const char *command_id,
                                        const char *status,
                                        const char *result,
@@ -30,35 +25,20 @@ static void publish_calibration_result(const char *command_id,
                                        resq_state_t state,
                                        calibration_action_id_t action_id)
 {
-    char payload[320];
-
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"event_type\":\"calibration_result\"," 
-                           "\"command_id\":\"%s\"," 
-                           "\"status\":\"%s\"," 
-                           "\"result\":\"%s\"," 
-                           "\"reason_id\":%d," 
-                           "\"state\":\"%s\"," 
-                           "\"action_id\":%d," 
-                           "\"ts_ms\":%lld"
-                           "}",
-                           command_id != NULL ? command_id : "",
-                           status != NULL ? status : "",
-                           result != NULL ? result : "",
-                           (int)reason_id,
-                           resq_state_to_string(state),
-                           (int)action_id,
-                           (long long)now_ms());
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        ESP_LOGE(TAG, "Calibration result payload too large");
-        return;
+    /* Prefer stored request_id from calibration_manager; fall back to provided command_id for compatibility */
+    const char *reply_id = calibration_manager_get_request_id();
+    if (reply_id == NULL || reply_id[0] == '\0') {
+        reply_id = command_id != NULL ? command_id : "";
     }
 
-    if (mqtt_manager_is_connected()) {
-        mqtt_manager_publish_topic_json("events/calibration/result", payload);
+    esp_err_t err = calibration_manager_publish_calibration_result(reply_id,
+                                                                   status,
+                                                                   result,
+                                                                   reason_id,
+                                                                   state,
+                                                                   action_id);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to publish calibration result (reply_id=%s) err=%d", reply_id, err);
     }
 }
 
@@ -102,15 +82,27 @@ resq_state_t calibration_state_manager_run(network_config_t *network_config,
             if (suffix != NULL && strcmp(suffix, "cmd/calibration/cancel") == 0) {
                 ESP_LOGW(TAG, "Calibration cancelled by command");
 
+                char reply_id[128] = {0};
+                if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                    ESP_LOGW(TAG, "Missing request_id for cmd/calibration/cancel; skipping cancel");
+                    continue;
+                }
+
+                /* publish ACK and check result before cancelling */
+                esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                          RESQ_STATE_CALIBRATING,
+                                                                                          &command,
+                                                                                          "cmd/calibration/cancel",
+                                                                                          "ACK",
+                                                                                          "calibration_cancelled");
+                if (pub_err != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/cancel; skipping cancel (err=%d)", pub_err);
+                    continue;
+                }
+
                 calibration_manager_cancel();
 
-                runtime_helpers_publish_command_result(network_config,
-                                                       RESQ_STATE_CALIBRATING,
-                                                       "cmd/calibration/cancel",
-                                                       "ACK",
-                                                       "calibration_cancelled");
-
-                publish_calibration_result(calibration_manager_get_command_id(),
+                publish_calibration_result(reply_id,
                                            "ACK",
                                            "CANCELLED",
                                            CAL_REASON_CALIBRATION_CANCELLED,

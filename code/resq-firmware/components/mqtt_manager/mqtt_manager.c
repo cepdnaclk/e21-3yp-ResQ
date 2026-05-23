@@ -17,14 +17,8 @@
 
 static const char *TAG = "mqtt_manager";
 
-/* Topic model */
-#define RESQ_MQTT_ROOT_TOPIC    "resq"
-#define RESQ_TOPIC_STATUS       "status"
-#define RESQ_TOPIC_HEARTBEAT    "heartbeat"
-#define RESQ_TOPIC_TELEMETRY    "telemetry"
-#define RESQ_TOPIC_DEBUG        "debug"
-#define RESQ_TOPIC_EVENTS       "events"
-#define RESQ_TOPIC_CMD_WILDCARD "cmd/#"
+/* Topic model centralized in mqtt_topics.h */
+#include "mqtt_topics.h"
 
 #define MQTT_CONNECTED_BIT BIT0
 #define MQTT_FAIL_BIT      BIT1
@@ -67,9 +61,24 @@ static const char *select_device_id_runtime(void)
     return "unknown";
 }
 
+/* Wrapper to maintain existing internal usage while delegating to centralized helper */
 static void build_topic_for_suffix(const char *device_id, const char *suffix, char *out, size_t out_len)
 {
-    snprintf(out, out_len, "%s/%s/%s", RESQ_MQTT_ROOT_TOPIC, device_id, suffix);
+    /* ignore result here; callers generally don't expect failure for internal topics */
+    (void)resq_mqtt_build_topic(device_id, suffix, out, out_len);
+}
+
+/* Implementation of centralized topic builder declared in mqtt_topics.h */
+esp_err_t resq_mqtt_build_topic(const char *device_id, const char *suffix, char *out, size_t out_len)
+{
+    if (device_id == NULL || device_id[0] == '\0' || suffix == NULL || suffix[0] == '\0' || out == NULL || out_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int needed = snprintf(out, out_len, "%s/%s/%s", RESQ_MQTT_ROOT_TOPIC, device_id, suffix);
+    if (needed < 0) return ESP_FAIL;
+    if ((size_t)needed >= out_len) return ESP_ERR_INVALID_SIZE;
+    return ESP_OK;
 }
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -218,10 +227,8 @@ esp_err_t mqtt_manager_start(const char *device_id,
         s_device_id[0] = '\0';
     }
 
-    snprintf(s_topic_cmd_wildcard, sizeof(s_topic_cmd_wildcard), "%s/%s/%s",
-             RESQ_MQTT_ROOT_TOPIC,
-             select_device_id_runtime(),
-             RESQ_TOPIC_CMD_WILDCARD);
+    /* Build subscription wildcard topic: resq/{device}/cmd/# */
+    (void)resq_mqtt_build_topic(select_device_id_runtime(), RESQ_SUFFIX_CMD_ROOT, s_topic_cmd_wildcard, sizeof(s_topic_cmd_wildcard));
 
     char uri[MQTT_MANAGER_URI_MAX_LEN];
     snprintf(uri, sizeof(uri), "mqtt://%s:%d", mqtt_host, mqtt_port);
@@ -344,11 +351,11 @@ esp_err_t mqtt_manager_publish_status(resq_state_t state,
     }
 
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-    build_topic_for_suffix(s_device_id, RESQ_TOPIC_STATUS, topic, sizeof(topic));
+    build_topic_for_suffix(s_device_id, RESQ_SUFFIX_STATUS, topic, sizeof(topic));
 
     cJSON *root = cJSON_CreateObject();
     if (!root) return ESP_ERR_NO_MEM;
-
+    cJSON_AddNumberToObject(root, "event_id", 1001);
     cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
     cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
     cJSON_AddBoolToObject(root, "session_active", session_active);
@@ -384,7 +391,7 @@ esp_err_t mqtt_manager_publish_error_status(resq_state_t state,
     }
 
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-    build_topic_for_suffix(s_device_id, RESQ_TOPIC_STATUS, topic, sizeof(topic));
+    build_topic_for_suffix(s_device_id, RESQ_SUFFIX_STATUS, topic, sizeof(topic));
 
     cJSON *root = cJSON_CreateObject();
     if (!root) return ESP_ERR_NO_MEM;
@@ -420,12 +427,11 @@ esp_err_t mqtt_manager_publish_identity_event(const network_config_t *network_co
     }
 
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-    build_topic_for_suffix(s_device_id, RESQ_TOPIC_EVENTS, topic, sizeof(topic));
+    build_topic_for_suffix(s_device_id, RESQ_SUFFIX_EVENTS, topic, sizeof(topic));
 
     cJSON *root = cJSON_CreateObject();
     if (!root) return ESP_ERR_NO_MEM;
 
-    cJSON_AddStringToObject(root, "event_type", "device_identity");
     cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
     char mac[RESQ_DEVICE_MAC_MAX_LEN] = {0};
     if (config_store_get_device_mac(mac, sizeof(mac)) == ESP_OK) {
@@ -461,7 +467,7 @@ esp_err_t mqtt_manager_publish_heartbeat(const network_config_t *network_config,
     }
 
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-    build_topic_for_suffix(s_device_id, RESQ_TOPIC_HEARTBEAT, topic, sizeof(topic));
+    build_topic_for_suffix(s_device_id, RESQ_SUFFIX_HEARTBEAT, topic, sizeof(topic));
 
     cJSON *root = cJSON_CreateObject();
     if (!root) return ESP_ERR_NO_MEM;
@@ -506,7 +512,7 @@ esp_err_t mqtt_manager_publish_event_json(const char *json_payload)
     if (!s_connected || json_payload == NULL) return ESP_ERR_INVALID_STATE;
 
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-    build_topic_for_suffix(s_device_id, RESQ_TOPIC_EVENTS, topic, sizeof(topic));
+    build_topic_for_suffix(s_device_id, RESQ_SUFFIX_EVENTS, topic, sizeof(topic));
     return publish_to_topic(topic, json_payload, 1, 0);
 }
 
@@ -515,7 +521,7 @@ esp_err_t mqtt_manager_publish_telemetry_json(const char *json_payload)
     if (!s_connected || json_payload == NULL) return ESP_ERR_INVALID_STATE;
 
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-    build_topic_for_suffix(s_device_id, RESQ_TOPIC_TELEMETRY, topic, sizeof(topic));
+    build_topic_for_suffix(s_device_id, RESQ_SUFFIX_TELEMETRY, topic, sizeof(topic));
     return publish_to_topic(topic, json_payload, 0, 0);
 }
 
@@ -524,7 +530,7 @@ esp_err_t mqtt_manager_publish_debug_json(const char *json_payload)
     if (!s_connected || json_payload == NULL) return ESP_ERR_INVALID_STATE;
 
     char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-    build_topic_for_suffix(s_device_id, RESQ_TOPIC_DEBUG, topic, sizeof(topic));
+    build_topic_for_suffix(s_device_id, RESQ_SUFFIX_DEBUG, topic, sizeof(topic));
     return publish_to_topic(topic, json_payload, 0, 0);
 }
 

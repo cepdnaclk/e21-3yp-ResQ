@@ -4,6 +4,7 @@
 #include "esp_err.h"
 #include "states.h"
 #include "resq_config_types.h"
+#include "mqtt_manager.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,7 +17,7 @@ resq_state_t session_active_manager_start(network_config_t *network_config,
                                           const char *ip_address,
                                           const char *session_id,
                                           const char *profile_id,
-                                          const char *command_id);
+                                          const resq_mqtt_command_t *cmd);
 
 resq_state_t session_active_manager_run(network_config_t *network_config,
                                         calibration_config_t *calibration_config,
