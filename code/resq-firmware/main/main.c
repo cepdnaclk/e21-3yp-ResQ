@@ -85,6 +85,7 @@ static resq_state_t run_error_state(void);
 static resq_state_t run_session_interrupted_state(void);
 static resq_state_t run_resetting_state(void);
 static resq_state_t run_turn_off_state(void);
+static bool state_handles_system_buttons_internally(resq_state_t state);
 
 /* =========================================================
  * Small helpers
@@ -458,11 +459,12 @@ static resq_state_t run_provisioning_state(void)
             return RESQ_STATE_TURN_OFF;
         }
 
-        if (action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
-            ESP_LOGW(TAG, "System button requested FACTORY_RESET during provisioning");
-            provisioning_manager_stop();
-            return RESQ_STATE_RESETTING;
-        }
+        /*
+         * FACTORY_RESET is intentionally ignored in PROVISIONING.
+         * Provisioning is already the safe recovery/configuration state.
+         * This prevents false BUTTON_2 long press / floating input from causing
+         * a provisioning -> reset -> reboot loop.
+         */
 
         vTaskDelay(pdMS_TO_TICKS(50));
     }
@@ -989,11 +991,27 @@ void app_main(void)
         }
 
         /* Poll global system buttons using the current state to decide actions */
-        system_button_action_t button_action = system_button_manager_poll(g_current_state);
-        if (button_action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
-            next_state = RESQ_STATE_TURN_OFF;
-        } else if (button_action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
-            next_state = RESQ_STATE_RESETTING;
+        if (!state_handles_system_buttons_internally(g_current_state)) {
+            system_button_action_t button_action = system_button_manager_poll(g_current_state);
+
+            if (button_action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+                ESP_LOGW(TAG,
+                         "Global system button requested TURN_OFF in state=%s",
+                         resq_state_to_string(g_current_state));
+                next_state = RESQ_STATE_TURN_OFF;
+            } else if (button_action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+                ESP_LOGW(TAG,
+                         "Global system button requested FACTORY_RESET in state=%s",
+                         resq_state_to_string(g_current_state));
+                next_state = RESQ_STATE_RESETTING;
+            }
+        } else {
+            /*
+             * Drain/discard queued long-press actions in states that own their own
+             * button behavior or where global long-press actions are intentionally
+             * disabled.
+             */
+            system_button_manager_drain_actions(g_current_state);
         }
 
         if (next_state != g_current_state) {
@@ -1001,5 +1019,22 @@ void app_main(void)
         }
 
         vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_DELAY_MS));
+    }
+}
+
+static bool state_handles_system_buttons_internally(resq_state_t state)
+{
+    switch (state) {
+    case RESQ_STATE_PROVISIONING:
+    case RESQ_STATE_PAIRED_IDLE:
+    case RESQ_STATE_READY_FOR_SESSION:
+    case RESQ_STATE_CALIBRATING:
+    case RESQ_STATE_CALIBRATION_FAIL:
+    case RESQ_STATE_SESSION_ACTIVE:
+    case RESQ_STATE_ERROR:
+        return true;
+
+    default:
+        return false;
     }
 }

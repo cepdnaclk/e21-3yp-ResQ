@@ -17,6 +17,7 @@
 #include "hall_sensor.h"
 #include "hx710.h"
 #include "mqtt_manager.h"
+#include "mqtt_topics.h"
 #include "status_indicator.h"
 #include "wifi_manager.h"
 #include "runtime_helpers.h"
@@ -29,56 +30,7 @@ static const char *TAG = "paired_idle";
 
 static bool s_initialized = false;
 
-static int64_t now_ms(void)
-{
-    return esp_timer_get_time() / 1000;
-}
-
-
 /* debug snapshot publishing moved to runtime_helpers_publish_debug_snapshot() */
-
-
-static void paired_idle_publish_calibration_result(const network_config_t *network_config,
-                                                   resq_state_t state,
-                                                   const char *command_id,
-                                                   const char *status,
-                                                   const char *result,
-                                                   calibration_reason_id_t reason_id,
-                                                   calibration_action_id_t action_id)
-{
-    char payload[512];
-
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"event_type\":\"calibration_result\"," 
-                           "\"command_id\":\"%s\"," 
-                           "\"status\":\"%s\"," 
-                           "\"result\":\"%s\"," 
-                           "\"reason_id\":%d," 
-                           "\"state\":\"%s\"," 
-                           "\"action_id\":%d," 
-                           "\"ts_ms\":%lld"
-                           "}",
-                           command_id != NULL ? command_id : "",
-                           status != NULL ? status : "",
-                           result != NULL ? result : "",
-                           (int)reason_id,
-                           resq_state_to_string(state),
-                           (int)action_id,
-                           (long long)now_ms());
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        ESP_LOGE(TAG, "Calibration result payload too large");
-        return;
-    }
-
-    if (mqtt_manager_is_connected()) {
-        mqtt_manager_publish_topic_json("events/calibration/result", payload);
-    }
-}
-
-/* calibration_start parsing moved to calibration_manager_parse_start_payload() */
 
 
 static esp_err_t paired_idle_parse_session_start(const char *payload,
@@ -96,17 +48,19 @@ static esp_err_t paired_idle_parse_session_start(const char *payload,
 
     esp_err_t result = ESP_OK;
 
-    cJSON *command_id = cJSON_GetObjectItemCaseSensitive(root, "command_id");
-    cJSON *event_type = cJSON_GetObjectItemCaseSensitive(root, "event_type");
+    /* Prefer request_id, fall back to command_id for compatibility */
+    cJSON *command_id = cJSON_GetObjectItemCaseSensitive(root, "request_id");
+    if (!cJSON_IsString(command_id) || command_id->valuestring == NULL) {
+        command_id = cJSON_GetObjectItemCaseSensitive(root, "command_id");
+    }
     cJSON *session_id = cJSON_GetObjectItemCaseSensitive(root, "session_id");
     cJSON *sessionId = cJSON_GetObjectItemCaseSensitive(root, "sessionId");
     cJSON *profile_id = cJSON_GetObjectItemCaseSensitive(root, "profile_id");
 
-    if (event_type != NULL && cJSON_IsString(event_type) && event_type->valuestring != NULL) {
-        if (strcmp(event_type->valuestring, "session_start") != 0) {
-            result = ESP_ERR_INVALID_ARG;
-            goto exit;
-        }
+    /* Require either request_id (preferred) or legacy command_id, and a session id. */
+    if (!cJSON_IsString(command_id) || command_id->valuestring == NULL) {
+        result = ESP_ERR_INVALID_ARG;
+        goto exit;
     }
 
     const char *sid = NULL;
@@ -227,11 +181,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         const char *command_suffix = runtime_helpers_get_command_suffix(command.topic);
 
         if (command_suffix == NULL) {
-            runtime_helpers_publish_command_result(network_config,
-                                                   visible_state,
-                                                   "unknown",
-                                                   "NACK",
-                                                   "invalid_command_topic");
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                visible_state,
+                                                                &command,
+                                                                "unknown",
+                                                                "NACK",
+                                                                "invalid_command_topic");
             runtime_helpers_publish_error_event(network_config,
                                                 visible_state,
                                                 "INVALID_COMMAND_TOPIC",
@@ -247,40 +202,58 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
             esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
 
             if (debug_err != ESP_OK) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       visible_state,
-                                                       "cmd/debug",
-                                                       "NACK",
-                                                       "debug_read_failed");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    command_suffix,
+                                                                    "NACK",
+                                                                    "debug_read_failed");
                 continue;
             }
 
-            runtime_helpers_publish_command_result(network_config,
-                                                   visible_state,
-                                                   "cmd/debug",
-                                                   "ACK",
-                                                   "debug_published");
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                visible_state,
+                                                                &command,
+                                                                command_suffix,
+                                                                "ACK",
+                                                                "debug_published");
             continue;
         }
 
         if (strcmp(command_suffix, "cmd/calibration/cancel") == 0) {
-            runtime_helpers_publish_command_result(network_config,
-                                                   visible_state,
-                                                   "cmd/calibration/cancel",
-                                                   "ACK",
-                                                   "no_active_calibration");
+            char reply_id[128] = {0};
+            if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                ESP_LOGW(TAG, "Missing request_id for %s; skipping calibration cancel", command_suffix);
+                continue;
+            }
 
-            paired_idle_publish_calibration_result(network_config,
-                                                   RESQ_STATE_PAIRED_IDLE,
-                                                   "cmd-005",
-                                                   "ACK",
-                                                   "CANCELLED",
-                                                   CAL_REASON_CALIBRATION_CANCELLED,
-                                                   CAL_ACTION_MOVE_TO_PAIRED_IDLE_DROP_TEMP);
+            esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                      visible_state,
+                                                                                      &command,
+                                                                                      command_suffix,
+                                                                                      "ACK",
+                                                                                      "no_active_calibration");
+            if (pub_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to publish command result for %s; skipping cancel (err=%d)", command_suffix, pub_err);
+                continue;
+            }
+
+            calibration_manager_publish_calibration_result(reply_id,
+                                                           "ACK",
+                                                           "CANCELLED",
+                                                           CAL_REASON_CALIBRATION_CANCELLED,
+                                                           RESQ_STATE_PAIRED_IDLE,
+                                                           CAL_ACTION_MOVE_TO_PAIRED_IDLE_DROP_TEMP);
             continue;
         }
 
         if (strcmp(command_suffix, "cmd/session/start") == 0) {
+            char reply_id[128] = {0};
+            if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                ESP_LOGW(TAG, "Missing request_id for cmd/session/start; skipping session start");
+                continue;
+            }
+
             char command_id[128] = {0};
             char session_id[128] = {0};
             char profile_id[128] = {0};
@@ -294,11 +267,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                                                   sizeof(profile_id));
 
             if (parse_err != ESP_OK) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       visible_state,
-                                                       "cmd/session/start",
-                                                       "NACK",
-                                                       "invalid_session_start_payload");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    "cmd/session/start",
+                                                                    "NACK",
+                                                                    "invalid_session_start_payload");
                 runtime_helpers_publish_error_event(network_config,
                                                     visible_state,
                                                     "INVALID_SESSION_START_PAYLOAD",
@@ -307,21 +281,23 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
             }
 
             if (!calibration_config->calibrated) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       visible_state,
-                                                       "cmd/session/start",
-                                                       "NACK",
-                                                       "calibration_not_ready");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    "cmd/session/start",
+                                                                    "NACK",
+                                                                    "calibration_not_ready");
                 continue;
             }
 
-            /* attempt to start active session */
+            /* attempt to start active session; pass full command context so the
+             * session manager can reply using the request_id */
             resq_state_t start_state = session_active_manager_start(network_config,
                                                                     calibration_config,
                                                                     ip_address,
                                                                     session_id,
                                                                     profile_id,
-                                                                    command_id[0] ? command_id : NULL);
+                                                                    &command);
 
             if (start_state == RESQ_STATE_SESSION_ACTIVE) {
                 return RESQ_STATE_SESSION_ACTIVE;
@@ -332,6 +308,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         }
 
         if (strcmp(command_suffix, "cmd/calibration/start") == 0) {
+            char reply_id[128] = {0};
+            if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                ESP_LOGW(TAG, "Missing request_id for cmd/calibration/start; skipping calibration start");
+                continue;
+            }
+
             char command_id[128] = {0};
             calibration_reason_id_t parse_reason = CAL_REASON_NONE;
 
@@ -342,11 +324,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                                                            &parse_reason);
 
             if (parse_err != ESP_OK) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       visible_state,
-                                                       "cmd/calibration/start",
-                                                       "NACK",
-                                                       "invalid_calibration_payload");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    "cmd/calibration/start",
+                                                                    "NACK",
+                                                                    "invalid_calibration_payload");
 
                 calibration_manager_publish_progress_event(parse_reason,
                                                            visible_state,
@@ -361,11 +344,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
             /* If calibration is already running, NACK and publish progress */
             if (calibration_manager_is_running()) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       visible_state,
-                                                       "cmd/calibration/start",
-                                                       "NACK",
-                                                       "calibration_already_running");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    "cmd/calibration/start",
+                                                                    "NACK",
+                                                                    "calibration_already_running");
 
                 calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_ALREADY_RUNNING,
                                                            RESQ_STATE_CALIBRATING,
@@ -375,49 +359,57 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
             calibration_config->calibrated = false;
 
-            runtime_helpers_publish_command_result(network_config,
-                                                   visible_state,
-                                                   "cmd/calibration/start",
-                                                   "ACK",
-                                                   "moving_to_calibrating");
+            esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                      visible_state,
+                                                                                      &command,
+                                                                                      "cmd/calibration/start",
+                                                                                      "ACK",
+                                                                                      "moving_to_calibrating");
+            if (pub_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/start; skipping calibration start (err=%d)", pub_err);
+                continue;
+            }
 
-            paired_idle_publish_calibration_result(network_config,
-                                                   RESQ_STATE_CALIBRATING,
-                                                   command_id[0] != '\0' ? command_id : "cmd-003",
-                                                   "ACK",
-                                                   "STARTED",
-                                                   CAL_REASON_NONE,
-                                                   CAL_ACTION_NONE);
+            /* Store request_id for the running calibration after successful ACK publish */
+            calibration_manager_set_request_id(reply_id);
+
+            calibration_manager_publish_calibration_result(reply_id,
+                                                           "ACK",
+                                                           "STARTED",
+                                                           CAL_REASON_NONE,
+                                                           RESQ_STATE_CALIBRATING,
+                                                           CAL_ACTION_NONE);
 
             esp_err_t start_err = calibration_manager_start(network_config,
                                                             calibration_config,
-                                                            command_id[0] != '\0' ? command_id : "cmd-003");
+                                                            command_id[0] != '\0' ? command_id : NULL);
 
             if (start_err != ESP_OK) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       visible_state,
-                                                       "cmd/calibration/start",
-                                                       "NACK",
-                                                       "calibration_start_failed");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    "cmd/calibration/start",
+                                                                    "NACK",
+                                                                    "calibration_start_failed");
 
-                paired_idle_publish_calibration_result(network_config,
-                                                       visible_state,
-                                                       command_id,
-                                                       "NACK",
-                                                       "FAIL",
-                                                       CAL_REASON_NONE,
-                                                       CAL_ACTION_NONE);
+                calibration_manager_publish_calibration_result(reply_id,
+                                                               "NACK",
+                                                               "FAIL",
+                                                               CAL_REASON_NONE,
+                                                               visible_state,
+                                                               CAL_ACTION_NONE);
                 continue;
             }
 
             return RESQ_STATE_CALIBRATING;
         }
 
-        runtime_helpers_publish_command_result(network_config,
-                                               visible_state,
-                                               command_suffix,
-                                               "NACK",
-                                               "unknown_command");
+        runtime_helpers_publish_command_result_from_command(network_config,
+                                    visible_state,
+                                    &command,
+                                    command_suffix,
+                                    "NACK",
+                                    "unknown_command");
 
         runtime_helpers_publish_error_event(network_config,
                                             visible_state,

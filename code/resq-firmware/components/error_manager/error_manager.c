@@ -209,76 +209,117 @@ resq_state_t error_manager_run(network_config_t *network_config,
                 const char *suffix = runtime_helpers_get_command_suffix(command.topic);
 
                 if (suffix == NULL) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_ERROR,
-                                                           "unknown",
-                                                           "NACK",
-                                                           "invalid_command_topic");
+                    runtime_helpers_publish_command_result_from_command(network_config,
+                                                                        RESQ_STATE_ERROR,
+                                                                        &command,
+                                                                        "unknown",
+                                                                        "NACK",
+                                                                        "invalid_command_topic");
                     continue;
                 }
 
                 ESP_LOGI(TAG, "ERROR state command=%s", suffix);
 
                 if (strcmp(suffix, "cmd/system/retry") == 0) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_ERROR,
-                                                           "cmd/system/retry",
-                                                           "ACK",
-                                                           "retry_requested");
+                    char reply_id[128] = {0};
+                    if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                        ESP_LOGW(TAG, "Missing request_id for %s; skipping retry", suffix);
+                        continue;
+                    }
+
+                    esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                              RESQ_STATE_ERROR,
+                                                                                              &command,
+                                                                                              "cmd/system/retry",
+                                                                                              "ACK",
+                                                                                              "retry_requested");
+                    if (pub_err != ESP_OK) {
+                        ESP_LOGW(TAG, "Failed to publish command result for %s; skipping retry (err=%d)", suffix, pub_err);
+                        continue;
+                    }
+
                     return error_manager_get_retry_state();
                 }
 
                 if (strcmp(suffix, "cmd/system/reset") == 0) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_ERROR,
-                                                           "cmd/system/reset",
-                                                           "ACK",
-                                                           "reset_requested");
+                    char reply_id[128] = {0};
+                    if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                        ESP_LOGW(TAG, "Missing request_id for %s; skipping reset", suffix);
+                        continue;
+                    }
+
+                    esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                              RESQ_STATE_ERROR,
+                                                                                              &command,
+                                                                                              "cmd/system/reset",
+                                                                                              "ACK",
+                                                                                              "reset_requested");
+                    if (pub_err != ESP_OK) {
+                        ESP_LOGW(TAG, "Failed to publish command result for %s; skipping reset (err=%d)", suffix, pub_err);
+                        continue;
+                    }
+
                     return RESQ_STATE_RESETTING;
                 }
 
                 if (strcmp(suffix, "cmd/system/flush-config") == 0) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_ERROR,
-                                                           "cmd/system/flush-config",
-                                                           "ACK",
-                                                           "flush_config_requested");
+                    char reply_id[128] = {0};
+                    if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                        ESP_LOGW(TAG, "Missing request_id for %s; skipping flush-config", suffix);
+                        continue;
+                    }
+
+                    esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                              RESQ_STATE_ERROR,
+                                                                                              &command,
+                                                                                              "cmd/system/flush-config",
+                                                                                              "ACK",
+                                                                                              "flush_config_requested");
+                    if (pub_err != ESP_OK) {
+                        ESP_LOGW(TAG, "Failed to publish command result for %s; skipping flush-config (err=%d)", suffix, pub_err);
+                        continue;
+                    }
+
                     return RESQ_STATE_FLUSH_CONFIG;
                 }
 
                 if (strcmp(suffix, "cmd/debug") == 0) {
                     esp_err_t dbg_err = runtime_helpers_publish_debug_snapshot(network_config);
                     if (dbg_err == ESP_OK) {
-                        runtime_helpers_publish_command_result(network_config,
-                                                               RESQ_STATE_ERROR,
-                                                               "cmd/debug",
-                                                               "ACK",
-                                                               "debug_published");
+                        runtime_helpers_publish_command_result_from_command(network_config,
+                                                                            RESQ_STATE_ERROR,
+                                                                            &command,
+                                                                            "cmd/debug",
+                                                                            "ACK",
+                                                                            "debug_published");
                     } else {
-                        runtime_helpers_publish_command_result(network_config,
-                                                               RESQ_STATE_ERROR,
-                                                               "cmd/debug",
-                                                               "NACK",
-                                                               "debug_not_available_in_error_state");
+                        runtime_helpers_publish_command_result_from_command(network_config,
+                                                                            RESQ_STATE_ERROR,
+                                                                            &command,
+                                                                            "cmd/debug",
+                                                                            "NACK",
+                                                                            "debug_not_available_in_error_state");
                     }
                     continue;
                 }
 
                 if (strcmp(suffix, "cmd/calibration/start") == 0 || strcmp(suffix, "cmd/session/start") == 0) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_ERROR,
-                                                           suffix,
-                                                           "NACK",
-                                                           "device_in_error");
+                    runtime_helpers_publish_command_result_from_command(network_config,
+                                                                        RESQ_STATE_ERROR,
+                                                                        &command,
+                                                                        suffix,
+                                                                        "NACK",
+                                                                        "device_in_error");
                     continue;
                 }
 
                 /* Unknown command */
-                runtime_helpers_publish_command_result(network_config,
-                                                       RESQ_STATE_ERROR,
-                                                       suffix,
-                                                       "NACK",
-                                                       "unknown_command");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    RESQ_STATE_ERROR,
+                                                                    &command,
+                                                                    suffix,
+                                                                    "NACK",
+                                                                    "unknown_command");
             }
         }
 

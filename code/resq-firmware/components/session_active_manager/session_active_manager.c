@@ -100,38 +100,63 @@ resq_state_t session_active_manager_start(network_config_t *network_config,
                                           const char *ip_address,
                                           const char *session_id,
                                           const char *profile_id,
-                                          const char *command_id)
+                                          const resq_mqtt_command_t *cmd)
 {
     if (network_config == NULL || calibration_config == NULL || session_id == NULL) {
         return RESQ_STATE_READY_FOR_SESSION;
     }
 
+    /* Require request_id in the originating MQTT command; do not start session
+     * if request_id is missing. Publish a NACK reply if a command context was
+     * provided. */
+    char request_id[128] = {0};
+    if (cmd == NULL || resq_command_extract_request_id(cmd->payload, request_id, sizeof(request_id)) != ESP_OK) {
+        if (cmd != NULL) {
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_READY_FOR_SESSION,
+                                                                cmd,
+                                                                "cmd/session/start",
+                                                                "NACK",
+                                                                "missing_request_id");
+        }
+        return RESQ_STATE_READY_FOR_SESSION;
+    }
+
     if (!calibration_config->calibrated || !calibration_manager_is_ready()) {
-        runtime_helpers_publish_command_result(network_config,
-                                               RESQ_STATE_READY_FOR_SESSION,
-                                               "cmd/session/start",
-                                               "NACK",
-                                               "calibration_not_ready");
+        if (cmd != NULL) {
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_READY_FOR_SESSION,
+                                                                cmd,
+                                                                "cmd/session/start",
+                                                                "NACK",
+                                                                "calibration_not_ready");
+        }
         return RESQ_STATE_READY_FOR_SESSION;
     }
 
     if (!wifi_manager_is_connected() || !mqtt_manager_is_connected()) {
-        runtime_helpers_publish_command_result(network_config,
-                                               RESQ_STATE_READY_FOR_SESSION,
-                                               "cmd/session/start",
-                                               "NACK",
-                                               "connectivity_not_ready");
+        if (cmd != NULL) {
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_READY_FOR_SESSION,
+                                                                cmd,
+                                                                "cmd/session/start",
+                                                                "NACK",
+                                                                "connectivity_not_ready");
+        }
         return RESQ_STATE_READY_FOR_SESSION;
     }
 
     /* start session manager */
     esp_err_t start_err = session_manager_start(session_id, profile_id ? profile_id : "");
     if (start_err != ESP_OK) {
-        runtime_helpers_publish_command_result(network_config,
-                                               RESQ_STATE_READY_FOR_SESSION,
-                                               "cmd/session/start",
-                                               "NACK",
-                                               "session_already_active");
+        if (cmd != NULL) {
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_READY_FOR_SESSION,
+                                                                cmd,
+                                                                "cmd/session/start",
+                                                                "NACK",
+                                                                "session_already_active");
+        }
         return RESQ_STATE_READY_FOR_SESSION;
     }
 
@@ -144,11 +169,14 @@ resq_state_t session_active_manager_start(network_config_t *network_config,
         ESP_LOGE(TAG, "Failed to start buzzer metronome: %s", esp_err_to_name(buzz_err));
         error_manager_set_error(FW_ERROR_BUZZER_TASK_FAILED);
         session_manager_stop(session_id);
-        runtime_helpers_publish_command_result(network_config,
-                                               RESQ_STATE_READY_FOR_SESSION,
-                                               "cmd/session/start",
-                                               "NACK",
-                                               "buzzer_start_failed");
+        if (cmd != NULL) {
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_READY_FOR_SESSION,
+                                                                cmd,
+                                                                "cmd/session/start",
+                                                                "NACK",
+                                                                "buzzer_start_failed");
+        }
         return RESQ_STATE_ERROR;
     }
 
@@ -158,34 +186,28 @@ resq_state_t session_active_manager_start(network_config_t *network_config,
         buzzer_manager_stop();
         session_manager_stop(session_id);
         error_manager_set_error(FW_ERROR_TELEMETRY_TASK_FAILED);
-        runtime_helpers_publish_command_result(network_config,
-                                               RESQ_STATE_READY_FOR_SESSION,
-                                               "cmd/session/start",
-                                               "NACK",
-                                               "telemetry_start_failed");
+        if (cmd != NULL) {
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_READY_FOR_SESSION,
+                                                                cmd,
+                                                                "cmd/session/start",
+                                                                "NACK",
+                                                                "telemetry_start_failed");
+        }
         return RESQ_STATE_ERROR;
     }
 
-    /* publish ack and session_started event */
-    runtime_helpers_publish_command_result(network_config,
-                                           RESQ_STATE_SESSION_ACTIVE,
-                                           "cmd/session/start",
-                                           "ACK",
-                                           "session_started");
-
+    /* publish session-start event (Phase-1: numeric event_id, include reply_id) */
     char event[256];
     int written = snprintf(event, sizeof(event),
-                           "{\"event_type\":\"session_started\"," 
-                           "\"device_id\":\"%s\"," 
-                           "\"session_id\":\"%s\"," 
-                           "\"state\":\"SESSION_ACTIVE\"," 
-                           "\"ts_ms\":%lld}",
-                           runtime_helpers_get_device_id(network_config),
+                           "{\"event_id\":%d,\"reply_id\":\"%s\",\"status\":\"ACK\",\"state\":\"SESSION_ACTIVE\",\"session_id\":\"%s\",\"ts_ms\":%lld}",
+                           2000,
+                           request_id,
                            session_id,
                            (long long)(esp_timer_get_time() / 1000));
 
     if (written > 0 && mqtt_manager_is_connected()) {
-        mqtt_manager_publish_event_json(event);
+        mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS, event);
     }
 
     /* publish retained status */
@@ -286,11 +308,12 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
 
         const char *command_suffix = runtime_helpers_get_command_suffix(command.topic);
         if (command_suffix == NULL) {
-            runtime_helpers_publish_command_result(network_config,
-                                                   RESQ_STATE_SESSION_ACTIVE,
-                                                   "unknown",
-                                                   "NACK",
-                                                   "invalid_command_topic");
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_SESSION_ACTIVE,
+                                                                &command,
+                                                                "unknown",
+                                                                "NACK",
+                                                                "invalid_command_topic");
             continue;
         }
 
@@ -307,11 +330,14 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
 
             /* if no active session, reject */
             if (stopped_session_id[0] == '\0') {
-                runtime_helpers_publish_command_result(network_config,
-                                                       RESQ_STATE_SESSION_ACTIVE,
-                                                       "cmd/session/stop",
-                                                       "NACK",
-                                                       "no_active_session");
+                ESP_LOGW(TAG, "No active session for cmd/session/stop; skipping");
+                continue;
+            }
+
+            /* require request_id before stopping session */
+            char reply_id[128] = {0};
+            if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
+                ESP_LOGW(TAG, "Missing request_id for cmd/session/stop; skipping stop");
                 continue;
             }
 
@@ -335,22 +361,24 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
 
             /* if payload contained a session id and it doesn't match active session, reject */
             if (requested_session_id[0] != '\0' && strcmp(requested_session_id, stopped_session_id) != 0) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       RESQ_STATE_SESSION_ACTIVE,
-                                                       "cmd/session/stop",
-                                                       "NACK",
-                                                       "session_id_mismatch");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    RESQ_STATE_SESSION_ACTIVE,
+                                                                    &command,
+                                                                    "cmd/session/stop",
+                                                                    "NACK",
+                                                                    "session_id_mismatch");
                 continue;
             }
 
             /* stop using preserved active session id */
             esp_err_t stop_err = session_manager_stop(stopped_session_id);
             if (stop_err != ESP_OK) {
-                runtime_helpers_publish_command_result(network_config,
-                                                       RESQ_STATE_SESSION_ACTIVE,
-                                                       "cmd/session/stop",
-                                                       "NACK",
-                                                       "session_stop_failed");
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    RESQ_STATE_SESSION_ACTIVE,
+                                                                    &command,
+                                                                    "cmd/session/stop",
+                                                                    "NACK",
+                                                                    "session_stop_failed");
                 continue;
             }
 
@@ -358,27 +386,25 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
             telemetry_publisher_stop();
             s_sensor_task_run = false;
 
-            runtime_helpers_publish_command_result(network_config,
-                                                   RESQ_STATE_SESSION_ACTIVE,
-                                                   "cmd/session/stop",
-                                                   "ACK",
-                                                   "session_stopped");
-
-            /* publish session_stopped event using copied session id */
-            char ev[512];
+            /* publish session stop final event (Phase-1): event_id 2001 with reply_id
+             * include summary counters and state READY_FOR_SESSION */
             cpr_metrics_snapshot_t snap = {0};
             cpr_metrics_get_snapshot(&snap);
+
+            char ev[512];
             int written = snprintf(ev, sizeof(ev),
-                                   "{\"event_type\":\"session_stopped\",\"device_id\":\"%s\",\"session_id\":\"%s\",\"total_compressions\":%d,\"valid_compressions\":%d,\"recoil_ok_count\":%d,\"incomplete_recoil_count\":%d,\"state\":\"READY_FOR_SESSION\",\"ts_ms\":%lld}",
-                                   runtime_helpers_get_device_id(network_config),
+                                   "{\"event_id\":%d,\"reply_id\":\"%s\",\"status\":\"ACK\",\"result\":\"STOPPED\",\"session_id\":\"%s\",\"total_compressions\":%d,\"valid_compressions\":%d,\"recoil_ok_count\":%d,\"incomplete_recoil_count\":%d,\"state\":\"READY_FOR_SESSION\",\"ts_ms\":%lld}",
+                                   2001,
+                                   reply_id,
                                    stopped_session_id,
                                    snap.total_compressions,
                                    snap.valid_compressions,
                                    snap.recoil_ok_count,
                                    snap.incomplete_recoil_count,
                                    (long long)(esp_timer_get_time() / 1000));
+
             if (written > 0 && mqtt_manager_is_connected()) {
-                mqtt_manager_publish_event_json(ev);
+                mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS, ev);
                 mqtt_manager_publish_status(RESQ_STATE_READY_FOR_SESSION,
                                             network_config,
                                             calibration_config,
@@ -391,20 +417,22 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
         }
 
         if (strcmp(command_suffix, "cmd/session/start") == 0) {
-            runtime_helpers_publish_command_result(network_config,
-                                                   RESQ_STATE_SESSION_ACTIVE,
-                                                   "cmd/session/start",
-                                                   "NACK",
-                                                   "session_already_active");
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_SESSION_ACTIVE,
+                                                                &command,
+                                                                "cmd/session/start",
+                                                                "NACK",
+                                                                "session_already_active");
             continue;
         }
 
         if (strcmp(command_suffix, "cmd/calibration/start") == 0 || strcmp(command_suffix, "cmd/calibration/cancel") == 0) {
-            runtime_helpers_publish_command_result(network_config,
-                                                   RESQ_STATE_SESSION_ACTIVE,
-                                                   command_suffix,
-                                                   "NACK",
-                                                   "session_active");
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_SESSION_ACTIVE,
+                                                                &command,
+                                                                command_suffix,
+                                                                "NACK",
+                                                                "session_active");
             continue;
         }
 
@@ -455,20 +483,22 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
                 mqtt_manager_publish_debug_json(dbg);
             }
 
-            runtime_helpers_publish_command_result(network_config,
-                                                   RESQ_STATE_SESSION_ACTIVE,
-                                                   "cmd/debug",
-                                                   "ACK",
-                                                   "debug_published");
+            runtime_helpers_publish_command_result_from_command(network_config,
+                                                                RESQ_STATE_SESSION_ACTIVE,
+                                                                &command,
+                                                                "cmd/debug",
+                                                                "ACK",
+                                                                "debug_published");
             continue;
         }
 
         /* unknown command */
-        runtime_helpers_publish_command_result(network_config,
-                                               RESQ_STATE_SESSION_ACTIVE,
-                                               command_suffix,
-                                               "NACK",
-                                               "unknown_command");
+        runtime_helpers_publish_command_result_from_command(network_config,
+                                    RESQ_STATE_SESSION_ACTIVE,
+                                    &command,
+                                    command_suffix,
+                                    "NACK",
+                                    "unknown_command");
     }
 
     return RESQ_STATE_READY_FOR_SESSION;
