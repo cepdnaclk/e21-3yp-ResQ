@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_log.h"
 
@@ -14,6 +13,7 @@
 #include "freertos/task.h"
 
 #include "board_config.h"
+#include "system_button_manager.h"
 #include "config_store.h"
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
@@ -38,35 +38,15 @@ esp_err_t error_manager_init(void)
     if (s_initialized) {
         return ESP_OK;
     }
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << BUTTON_1) | (1ULL << BUTTON_2),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-
-    esp_err_t err = gpio_config(&io_conf);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to configure BUTTON_1 GPIO: %s", esp_err_to_name(err));
-        return err;
-    }
-
+    /* BUTTON_1 and BUTTON_2 GPIOs are owned and configured by system_button_manager.
+     * Do not reconfigure them here to avoid ISR/interrupt conflicts. */
     s_initialized = true;
-    ESP_LOGI(TAG, "Error manager initialized on BUTTON_1 GPIO=%d", BUTTON_1);
+    ESP_LOGI(TAG, "Error manager initialized (button GPIOs managed by system_button_manager)");
 
     return ESP_OK;
 }
 
-static bool button_is_pressed(void)
-{
-    return gpio_get_level(BUTTON_1) == 0;
-}
-
-static bool button2_is_pressed(void)
-{
-    return gpio_get_level(BUTTON_2) == 0;
-}
+/* Button level reads are handled by system_button_manager; use event API. */
 
 esp_err_t error_manager_set_error(firmware_error_reason_id_t reason_id)
 {
@@ -164,11 +144,15 @@ resq_state_t error_manager_run(network_config_t *network_config,
 
     /* Wait for user button or system commands */
     while (true) {
-        /* Check button 1 (retry) */
-        if (button_is_pressed()) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            if (button_is_pressed()) {
-                ESP_LOGW(TAG, "BUTTON_1 pressed. Retry requested.");
+        system_button_event_t button_event = {0};
+
+        if (system_button_manager_wait_event(&button_event, pdMS_TO_TICKS(50)) == ESP_OK) {
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                button_event.button_id == SYSTEM_BUTTON_ID_1) {
+
+                ESP_LOGW(TAG,
+                         "BUTTON_1 short press in ERROR: retry/recover duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
 
                 if (mqtt_manager_is_connected() && network_config != NULL) {
                     runtime_helpers_publish_command_result(network_config,
@@ -180,13 +164,13 @@ resq_state_t error_manager_run(network_config_t *network_config,
 
                 return error_manager_get_retry_state();
             }
-        }
 
-        /* Check button 2 (flush config / provisioning) */
-        if (button2_is_pressed()) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            if (button2_is_pressed()) {
-                ESP_LOGW(TAG, "BUTTON_2 pressed. Clear config requested.");
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                button_event.button_id == SYSTEM_BUTTON_ID_2) {
+
+                ESP_LOGW(TAG,
+                         "BUTTON_2 short press in ERROR: flush/idle path duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
 
                 if (mqtt_manager_is_connected() && network_config != NULL) {
                     runtime_helpers_publish_command_result(network_config,
@@ -197,6 +181,14 @@ resq_state_t error_manager_run(network_config_t *network_config,
                 }
 
                 return RESQ_STATE_FLUSH_CONFIG;
+            }
+
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG) {
+                if (button_event.button_id == SYSTEM_BUTTON_ID_1) {
+                    ESP_LOGW(TAG, "BUTTON_1 long press in ERROR ignored or mapped to retry policy");
+                } else if (button_event.button_id == SYSTEM_BUTTON_ID_2) {
+                    ESP_LOGW(TAG, "BUTTON_2 long press in ERROR ignored; use system command for reset");
+                }
             }
         }
 
