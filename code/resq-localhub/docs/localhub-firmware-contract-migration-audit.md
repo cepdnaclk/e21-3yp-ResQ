@@ -378,6 +378,14 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Deferred item: calibration profile management UI, richer diagnostic command/event/debug endpoints, Tauri provisioning cleanup, and any cloud routing remain out of scope for this phase.
 - Next phase recommendation: wire provisioning/orchestration around the firmware lifecycle only after validating the Phase 5 endpoints with real device calibration events.
 
+## R. Phase 11 Status
+
+- Local demo runbook added at `docs/local-demo-runbook.md` with Windows-first startup, calibration, session, diagnostics, review/export, and troubleshooting steps.
+- Helper scripts added under `scripts/local-demo/` for simulator startup, health checks, and MQTT trace watching during demo runs.
+- `scripts/check-localhub-service-info.ps1` now prints the service-info values plus sample provisioning and registration JSON so setup can be verified before a demo.
+- `apps/localhub-desktop/src/components/LocalSessionReviewPanel.tsx` received a small hardening pass so refresh is disabled while loading and the copy clearly calls out local/simulator session review.
+- Validation remains local-only: backend tests, desktop build, helper-script checks, and simulator-based verification are the intended gates; real ESP testing stays deferred until hardware is available.
+
 ## R. Phase 6 Status
 
 - Local firmware simulator added at `scripts/firmware-simulator/firmware-simulator.js`; it is a Windows-friendly Node script that reuses the existing desktop `mqtt` dependency and exposes `--help`.

@@ -31,7 +31,11 @@ function Invoke-JsonRequest {
 
 Write-Host "Checking $BackendBaseUrl/api/hub/service-info ..."
 $serviceInfo = Invoke-JsonRequest -Method Get -Path "/api/hub/service-info"
-$serviceInfo | ConvertTo-Json -Depth 8 | Write-Host
+Write-Host "backend_base_url: $($serviceInfo.backend_base_url)"
+Write-Host "mqtt_host: $($serviceInfo.mqtt_host)"
+Write-Host "mqtt_port: $($serviceInfo.mqtt_port)"
+Write-Host "dashboard_url: $($serviceInfo.dashboard_url)"
+Write-Host "local_ip: $($serviceInfo.local_ip)"
 
 Write-Host "Checking $BackendBaseUrl/api/devices/register ..."
 $registrationRequest = @{
@@ -41,7 +45,20 @@ $registrationRequest = @{
     device_label = $DeviceLabel
 }
 $registrationResponse = Invoke-JsonRequest -Method Post -Path "/api/devices/register" -Body $registrationRequest
-$registrationResponse | ConvertTo-Json -Depth 8 | Write-Host
+Write-Host "Sample provisioning JSON:"
+@{
+    wifi_ssid = "training-wifi"
+    wifi_password = "password"
+    backend_base_url = $serviceInfo.backend_base_url
+} | ConvertTo-Json -Depth 8 | Write-Host
+
+Write-Host "Sample firmware registration response:"
+@{
+    ok = $registrationResponse.ok
+    device_id = $registrationResponse.device_id
+    mqtt_host = $registrationResponse.mqtt_host
+    mqtt_port = $registrationResponse.mqtt_port
+} | ConvertTo-Json -Depth 8 | Write-Host
 
 if (-not $serviceInfo.ok) {
     throw "Service info response reported ok=false."

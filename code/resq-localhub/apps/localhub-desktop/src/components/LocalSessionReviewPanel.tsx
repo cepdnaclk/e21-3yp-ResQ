@@ -32,9 +32,9 @@ export function LocalSessionReviewPanel({
       <div style={styles.headerRow}>
         <div>
           <h2 style={styles.heading}>Local Session Review</h2>
-          <p style={styles.subheading}>Review recent completed sessions and export a clean demo package.</p>
+          <p style={styles.subheading}>Review recent local and simulator sessions, then export a clean demo package.</p>
         </div>
-        <button type="button" onClick={onRefresh} style={styles.refreshButton}>
+        <button type="button" onClick={onRefresh} disabled={loading} style={styles.refreshButton}>
           Refresh
         </button>
       </div>
