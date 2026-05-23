@@ -36,7 +36,7 @@ function getRouteFromPathname(): RouteType {
 export default function App() {
   const { currentUser, isLoading, bootstrap, logout } = useAuth();
   const [route] = useState<RouteType>(() => getRouteFromPathname());
-  const [page, setPage] = useState<Page>("instructor");
+  const [page, setPage] = useState<Page>("home");
   const [manualLanIpOverride, setManualLanIpOverride] = useState<string | null>(null);
   const [traineeSessionId, setTraineeSessionId] = useState<string | null>(null);
 
@@ -104,40 +104,43 @@ export default function App() {
   }
 
   return (
-    <div style={styles.app}>
-      <header style={styles.header}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px", flexWrap: "wrap" }}>
+    <div className="app-shell">
+      <header className="app-shell__header">
+        <div className="app-shell__brand">
+          <div className="app-shell__logo-wrap" aria-hidden="true">
+            <img
+              src="/resq-logo-dark-512.png"
+              alt=""
+              className="app-shell__logo"
+            />
+          </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: "1.75rem", fontWeight: 700, letterSpacing: "-0.02em" }}>ResQ Local Hub</h1>
-            <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: "0.95rem", fontWeight: 400 }}>
-              Windows-first local-first instructor desktop
+            <p className="app-shell__kicker">ResQ Local Hub</p>
+            <h1 className="app-shell__title">Command Center</h1>
+            <p className="app-shell__subtitle">
+              Train smarter with local-first control, live session workflows, and real-time device diagnostics.
             </p>
           </div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
-              {currentUser.role}
-            </span>
-            <span style={{ color: "#475569", fontSize: "0.9rem", fontWeight: 600 }}>
-              {currentUser.displayName}
-            </span>
-            <button type="button" onClick={handleLogout} style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 600, cursor: "pointer" }}>
-              Logout
-            </button>
-          </div>
+        </div>
+        <div className="app-shell__userbar">
+          <span className={`role-pill role-pill--${currentUser.role.toLowerCase()}`}>{currentUser.role}</span>
+          <span className="app-shell__user">{currentUser.displayName}</span>
+          <button type="button" className="button button--ghost" onClick={handleLogout}>
+            Logout
+          </button>
         </div>
       </header>
 
-      <nav style={styles.nav}>
-        {/* Simple tab-like buttons keep the starter app easy to follow. */}
-        <button style={tabStyle(page === "home")} onClick={() => setPage("home")}>Home</button>
-        <button style={tabStyle(page === "instructor")} onClick={() => setPage("instructor")}>Instructor</button>
-        <button style={tabStyle(page === "trainee")} onClick={() => setPage("trainee")}>Trainee</button>
-        <button style={tabStyle(page === "setup")} onClick={() => setPage("setup")}>Setup</button>
-        {currentUser.role === "ADMIN" ? <button style={tabStyle(page === "users")} onClick={() => setPage("users")}>Users</button> : null}
-        {currentUser.role === "ADMIN" ? <button style={tabStyle(page === "diagnostics")} onClick={() => setPage("diagnostics")}>Diagnostics</button> : null}
+      <nav className="app-shell__nav" aria-label="Desktop navigation">
+        <button type="button" className={navClass(page === "home")} onClick={() => setPage("home")}>Home</button>
+        <button type="button" className={navClass(page === "instructor")} onClick={() => setPage("instructor")}>Instructor</button>
+        <button type="button" className={navClass(page === "trainee")} onClick={() => setPage("trainee")}>Trainee</button>
+        <button type="button" className={navClass(page === "setup")} onClick={() => setPage("setup")}>Setup</button>
+        {currentUser.role === "ADMIN" ? <button type="button" className={navClass(page === "users")} onClick={() => setPage("users")}>Users</button> : null}
+        {currentUser.role === "ADMIN" ? <button type="button" className={navClass(page === "diagnostics")} onClick={() => setPage("diagnostics")}>Diagnostics</button> : null}
       </nav>
 
-      <main style={styles.main}>
+      <main className="app-shell__main">
         {page === "home" && <HomePage manualLanIpOverride={manualLanIpOverride} />}
         {page === "instructor" && (
           <InstructorDashboard
@@ -169,45 +172,7 @@ export default function App() {
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  app: {
-    fontFamily: "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif",
-    padding: "32px 24px",
-    color: "#0f172a",
-    background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
-    minHeight: "100vh"
-  },
-  header: {
-    marginBottom: "24px",
-    paddingBottom: "16px",
-    borderBottom: "1px solid #e5e7eb"
-  },
-  nav: {
-    display: "flex",
-    gap: "12px",
-    marginBottom: "24px",
-    flexWrap: "wrap"
-  },
-  main: {
-    background: "#ffffff",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    padding: "24px",
-    boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08), 0 8px 24px rgba(15, 23, 42, 0.04)"
-  }
-};
 
-function tabStyle(active: boolean): React.CSSProperties {
-  return {
-    background: active ? "#0f172a" : "#ffffff",
-    color: active ? "#f8fafc" : "#0f172a",
-    border: "1px solid " + (active ? "#0f172a" : "#e5e7eb"),
-    borderRadius: "8px",
-    padding: "10px 16px",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontSize: "0.95rem",
-    transition: "all 0.2s ease-in-out",
-    boxShadow: active ? "0 2px 8px rgba(15, 23, 42, 0.12)" : "none",
-  };
+function navClass(active: boolean): string {
+  return active ? "nav-chip nav-chip--active" : "nav-chip";
 }

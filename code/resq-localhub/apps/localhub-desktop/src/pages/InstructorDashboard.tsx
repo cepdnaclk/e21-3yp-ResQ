@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
-const QR = QRCodeSVG as any;
 import { useAuth } from "../auth/AuthContext";
 import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
@@ -26,7 +24,15 @@ import {
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
+<<<<<<< HEAD
 import { useLiveSession } from "../hooks/useLiveSession";
+=======
+import { requestManikinPairing } from "../lib/browserManikinsProvisionApi";
+import {
+  fetchManikinRegistry,
+  type ManikinRegistryEntry,
+} from "../lib/browserManikinRegistryApi";
+>>>>>>> resq_UI
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -239,7 +245,19 @@ export default function InstructorDashboard({
   const [expandedSessionDetail, setExpandedSessionDetail] = useState<CompletedSession | null>(null);
   const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
-
+  // State for the "Pair New Manikin" panel
+  const [pairingDeviceId, setPairingDeviceId] = useState<string>("");
+  const [pairingLoading, setPairingLoading] = useState<boolean>(false);
+  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [pairingResult, setPairingResult] = useState<{
+    deviceId: string;
+    token: string;
+    expiresAt: string;
+  } | null>(null);
+  // State for the Device Registry panel
+  const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
+  const [registryLoading, setRegistryLoading] = useState(true);
+  const [registryError, setRegistryError] = useState<string | null>(null);
   function applyManikinSnapshot(live: ManikinLiveSummary[]) {
     setManikins(live);
     setSessionDrafts((current) => {
@@ -298,6 +316,19 @@ export default function InstructorDashboard({
         setTraineesError(message);
       } finally {
         setTraineesLoading(false);
+      }
+    }
+    async function loadRegistry() {
+      try {
+        const entries = await fetchManikinRegistry();
+        setRegistry(entries);
+        setRegistryError(null);
+      } catch (error) {
+        setRegistryError(
+          error instanceof Error ? error.message : "Failed to load device registry."
+        );
+      } finally {
+        setRegistryLoading(false);
       }
     }
 
@@ -402,11 +433,13 @@ export default function InstructorDashboard({
     loadManikins();
     loadRecentSessions();
     loadTrainees();
+    loadRegistry();
     connectManikinStream();
 
     const healthInterval = setInterval(loadHealth, 5000);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
-
+    const registryInterval = setInterval(loadRegistry, 15000);
+    
     return () => {
       cancelled = true;
       if (eventSource) {
@@ -418,6 +451,7 @@ export default function InstructorDashboard({
       stopFallbackPolling();
       clearInterval(healthInterval);
       clearInterval(recentSessionsInterval);
+      clearInterval(registryInterval);
     };
   }, []);
 
@@ -622,6 +656,28 @@ export default function InstructorDashboard({
       setExpandedSessionLoading(false);
     }
   }
+  async function handleRequestPairing() {
+    // Guard: don't do anything if the input box is empty
+    if (!pairingDeviceId.trim()) return;
+
+    setPairingLoading(true);
+    setPairingError(null);
+    setPairingResult(null);
+
+    try {
+      // This calls POST /api/manikins/pair-request on the Spring Boot backend
+      const result = await requestManikinPairing(pairingDeviceId.trim());
+      setPairingResult(result);
+    }   catch (error) {
+      // If the backend returns an error, show it to the instructor
+      setPairingError(
+        error instanceof Error ? error.message : "Failed to generate pairing token."
+      );
+    } finally {
+      // Whether it succeeded or failed, stop showing the loading state
+      setPairingLoading(false);
+    }
+  }
 
   return (
     <div style={styles.container}>
@@ -698,7 +754,237 @@ export default function InstructorDashboard({
             </p>
           )}
         </section>
+        <section style={styles.card}>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>
+            Pair New Manikin
+          </h2>
+          <p style={{ margin: "0 0 14px 0", color: "#64748b", fontSize: "0.9rem" }}>
+            Enter the Device ID printed on the manikin module, then click Generate.
+            A QR code will appear for the person setting up the manikin to scan.
+          </p>
 
+          {/* Input row: text box and button sit side by side */}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
+            <input
+              type="text"
+              placeholder="Device ID e.g. M01"
+              value={pairingDeviceId}
+              onChange={(e) => {
+                setPairingDeviceId(e.target.value);
+                // Clear any previous result or error as the instructor types
+                setPairingResult(null);
+                setPairingError(null);
+              }}
+              style={{
+                flex: 1,
+                minWidth: "180px",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <button
+              type="button"
+              disabled={pairingLoading || !pairingDeviceId.trim()}
+              onClick={handleRequestPairing}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "6px",
+                border: "1px solid #0f172a",
+                // Button goes grey when disabled (loading or empty input)
+                background: pairingLoading || !pairingDeviceId.trim() ? "#e2e8f0" : "#0f172a",
+                color: pairingLoading || !pairingDeviceId.trim() ? "#64748b" : "#ffffff",
+                fontWeight: 600,
+                cursor: pairingLoading || !pairingDeviceId.trim() ? "not-allowed" : "pointer",
+                fontSize: "0.9rem",
+              }}
+            >
+              {pairingLoading ? "Generating..." : "Generate Pairing QR"}
+            </button>
+          </div>
+
+          {/* Error message — only shown when something goes wrong */}
+          {pairingError ? (
+            <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.88rem" }}>
+              {pairingError}
+            </p>
+          ) : null}
+
+          {/* Success result — only shown after a successful backend response */}
+          {pairingResult ? (
+            <div style={{
+              padding: "14px",
+              borderRadius: "10px",
+              border: "1px solid #e2e8f0",
+              background: "#f8fafc",
+              display: "grid",
+              gap: "10px",
+              justifyItems: "center",
+            }}>
+              <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", color: "#0f172a" }}>
+                Scan to provision the manikin
+              </p>
+              {/* QR encodes the full pairing payload as JSON so the
+                  manikin's provisioning portal can read it in one scan */}
+              <QR
+                value={JSON.stringify(pairingResult)}
+                size={180}
+                bgColor="#ffffff"
+                fgColor="#0f172a"
+                level="M"
+              />
+              <p style={{ margin: 0, color: "#475569", fontSize: "0.82rem", textAlign: "center" }}>
+                Device: <strong>{pairingResult.deviceId}</strong>
+                {" · "}
+                Expires: {new Date(pairingResult.expiresAt).toLocaleTimeString()}
+              </p>
+              {/* Fallback for people who cannot scan a QR code */}
+              <details style={{ width: "100%", fontSize: "0.82rem", color: "#64748b" }}>
+                <summary style={{ cursor: "pointer" }}>
+                  Show raw token (manual entry fallback)
+                </summary>
+                <code style={{
+                  display: "block",
+                  marginTop: "6px",
+                  padding: "8px",
+                  background: "#e2e8f0",
+                  borderRadius: "4px",
+                  wordBreak: "break-all",
+                  fontSize: "0.78rem",
+                }}>
+                  {pairingResult.token}
+                </code>
+              </details>
+            </div>
+          ) : null}
+        </section>
+        
+        <section style={styles.card}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "12px",
+          }}>
+            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>
+              Device Registry
+            </h2>
+            {/* Show a live count badge — only after loading is complete */}
+            {!registryLoading && !registryError ? (
+              <span style={{
+                padding: "4px 10px",
+                borderRadius: "999px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                background: "#dbeafe",
+                color: "#1d4ed8",
+              }}>
+                {registry.filter(m => m.online).length} / {registry.length} online
+              </span>
+            ) : null}
+          </div>
+
+          {registryLoading ? (
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>
+              Loading device registry...
+            </p>
+          ) : registryError ? (
+            <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.92rem" }}>
+              {registryError}
+            </p>
+          ) : registry.length === 0 ? (
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>
+              No devices in registry yet. Manikins appear here once they
+              connect and publish their first status message.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: "8px" }}>
+              {registry.map((manikin) => (
+                <div
+                  key={manikin.deviceId}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 14px",
+                    borderRadius: "8px",
+                    border: "1px solid #e2e8f0",
+                    // Green tint when online, neutral when offline
+                    background: manikin.online ? "#f0fdf4" : "#f8fafc",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                  }}
+                >
+                  {/* Left side: device identity */}
+                  <div style={{ display: "grid", gap: "2px" }}>
+                    <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#0f172a" }}>
+                      {manikin.deviceId}
+                    </span>
+                    <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                      {manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}
+                    </span>
+                  </div>
+
+                  {/* Right side: status badges */}
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                    <span style={{
+                      padding: "3px 8px",
+                      borderRadius: "999px",
+                      fontSize: "0.76rem",
+                      fontWeight: 700,
+                      background: manikin.online ? "#dcfce7" : "#fee2e2",
+                      color: manikin.online ? "#166534" : "#991b1b",
+                    }}>
+                      {manikin.online ? "Online" : "Offline"}
+                    </span>
+
+                    {manikin.state ? (
+                      <span style={{
+                        padding: "3px 8px",
+                        borderRadius: "999px",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        background: "#e2e8f0",
+                        color: "#334155",
+                      }}>
+                        {manikin.state}
+                      </span>
+                    ) : null}
+
+                    {/* Color the signal strength badge based on quality:
+                        above -60 dBm = good, -60 to -75 = fair, below -75 = poor */}
+                    {manikin.rssi !== null ? (
+                      <span style={{
+                        padding: "3px 8px",
+                        borderRadius: "999px",
+                        fontSize: "0.76rem",
+                        fontWeight: 600,
+                        background: manikin.rssi > -60 ? "#dcfce7"
+                          : manikin.rssi > -75 ? "#fef3c7"
+                          : "#fee2e2",
+                        color: manikin.rssi > -60 ? "#166534"
+                          : manikin.rssi > -75 ? "#92400e"
+                          : "#991b1b",
+                      }}>
+                        {manikin.rssi} dBm
+                      </span>
+                    ) : null}
+
+                    <span style={{ fontSize: "0.76rem", color: "#94a3b8" }}>
+                      {manikin.lastSeen
+                        ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}`
+                        : "Never seen"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        
         <section style={styles.card}>
           <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Completed Session Summary</h2>
           {latestEndedSession ? (
@@ -1147,37 +1433,10 @@ export default function InstructorDashboard({
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
                           Trainee: {activeSession!.traineeId ?? "-"}
                         </p>
-                        {traineeLink ? (
-                          <>
-                            <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                              Trainee Link: {traineeLink}
-                            </p>
-                            <div
-                              style={{
-                                marginTop: "4px",
-                                padding: "10px",
-                                borderRadius: "8px",
-                                border: "1px solid #dbe3ee",
-                                background: "#ffffff",
-                                display: "grid",
-                                justifyItems: "center",
-                                gap: "8px",
-                              }}
-                            >
-                              <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                                Student Dashboard QR
-                              </p>
-                              <QR value={traineeLink} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
-                              <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
-                                Scan from trainee phone to open the live trainee dashboard.
-                              </p>
-                            </div>
-                          </>
-                        ) : (
-                          <p style={{ margin: 0, fontSize: "0.82rem", color: "#b45309" }}>
-                            QR unavailable. Set a LAN host/IP in Setup to generate a scannable trainee URL.
-                          </p>
-                        )}
+                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
+                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
+                        </p>
+                        {/* QR removed: Trainee dashboard QR omitted */}
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <button
                             type="button"

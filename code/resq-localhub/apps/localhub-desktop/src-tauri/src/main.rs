@@ -24,6 +24,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::get_network_info,
+            commands::get_provisioning_data,
+            commands::get_dashboard_urls,
+            commands::refresh_pairing_token,
             api_service::start_api_service,
             api_service::stop_api_service,
             api_service::get_api_service_status,
