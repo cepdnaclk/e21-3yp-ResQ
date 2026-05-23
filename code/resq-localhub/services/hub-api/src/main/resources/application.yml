@@ -6,10 +6,16 @@ spring:
     name: hub-api
 
 resq:
+  localhub:
+    backend:
+      advertised-host: ${RESQ_BACKEND_ADVERTISED_HOST:}
+    dashboard-url: ${RESQ_DASHBOARD_URL:http://localhost:1420}
   storage:
     sqlite-path: ${RESQ_SQLITE_PATH:${user.home}/.resq-localhub/hub-api.sqlite}
   mqtt:
     broker-url: ${RESQ_MQTT_BROKER_URL:tcp://localhost:1883}
+    advertised-host: ${RESQ_MQTT_ADVERTISED_HOST:}
+    port: ${RESQ_MQTT_PORT:1883}
     client-id: ${RESQ_MQTT_CLIENT_ID:hub-api-live-registry}
     command-client-id: ${RESQ_MQTT_COMMAND_CLIENT_ID:hub-api-session-commands}
     username: ${RESQ_MQTT_USERNAME:}

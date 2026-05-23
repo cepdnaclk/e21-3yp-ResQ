@@ -388,3 +388,13 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Legacy compatibility remains: explicit `depth_mm`/`depthMm` still populate physical depth, and legacy `current_delta`/`currentDelta` remains a fallback for older non-firmware telemetry.
 - Active session accumulation still counts telemetry samples with only `depthProgress`, keeps rate/recoil/pause/flag data, and avoids calculating millimeter averages from progress-only packets.
 - Smoke test should be rerun to confirm telemetry remains accepted, `sampleCount` increases, and no warning claims `depth_progress` is being used as `depthMm`.
+
+## U. Phase 7 Status
+
+- Backend local firmware onboarding endpoints added: `POST /api/devices/register` for tolerant firmware registration and `GET /api/hub/service-info` for LAN-friendly backend/MQTT service details.
+- Registration response returns `ok`, `device_id`, `mqtt_host`, and `mqtt_port`; it does not require or return `manikin_id`, cloud auth, JWTs, MQTT credentials, or provisioning secrets.
+- Service info advertises `backend_base_url`, `mqtt_host`, `mqtt_port`, `dashboard_url`, and `local_ip`, with configurable advertised hosts and localhost/LAN fallback behavior.
+- Desktop provisioning QR payload was cleaned up to default to only `wifi_ssid`, `wifi_password`, and `backend_base_url`; MQTT broker details are shown as service information and fetched by firmware after registration.
+- Instructor dashboard keeps the existing layout but now shows LocalHub service info, backend URL, Wi-Fi inputs, QR, and copyable provisioning JSON for the new firmware onboarding flow.
+- Simulator smoke-test documentation now distinguishes real firmware onboarding from the simulator's direct MQTT connection.
+- Deferred item: persisted device identity management, per-device MQTT credentials, richer broker health detection, and any cloud routing remain out of scope for Phase 7.

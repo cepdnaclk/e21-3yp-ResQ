@@ -110,13 +110,10 @@ fn detect_ipv4_via_udp() -> Option<Ipv4Addr> {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProvisioningData {
-    ssid: String,
-    password: String,
-    broker_host: String,
-    broker_port: u16,
-    pairing_token: String,
+    wifi_ssid: String,
+    wifi_password: String,
+    backend_base_url: String,
     provision_url: String,
 }
 
@@ -129,28 +126,25 @@ pub struct DashboardUrls {
 
 #[tauri::command]
 pub fn get_provisioning_data() -> Result<ProvisioningData, String> {
-    // Get network info (broker host)
-    let broker_host = get_network_info()?
+    let backend_host = get_network_info()?
         .primary_ipv4
         .ok_or("Failed to detect LAN IP")?;
 
-    // Fetch pairing token from backend API
-    let pairing_token = fetch_pairing_token()?;
+    let wifi_ssid = "ResQ-Hub".to_string();
+    let wifi_password = "password123".to_string();
+    let backend_base_url = format!("http://{}:18080", backend_host);
 
-    // Build the provisioning URL that the manikin's setup page will parse
-    // Format: http://192.168.4.1/setup?ssid=...&password=...&broker_host=...&broker_port=...&token=...
     let provision_url = format!(
-        "http://192.168.4.1/setup?ssid=ResQ-Hub&password=password123&broker_host={}&broker_port=1883&token={}",
-        urlencoding::encode(&broker_host),
-        urlencoding::encode(&pairing_token)
+        "http://192.168.4.1/setup?wifi_ssid={}&wifi_password={}&backend_base_url={}",
+        urlencoding::encode(&wifi_ssid),
+        urlencoding::encode(&wifi_password),
+        urlencoding::encode(&backend_base_url)
     );
 
     Ok(ProvisioningData {
-        ssid: "ResQ-Hub".to_string(),
-        password: "password123".to_string(),
-        broker_host,
-        broker_port: 1883,
-        pairing_token,
+        wifi_ssid,
+        wifi_password,
+        backend_base_url,
         provision_url,
     })
 }

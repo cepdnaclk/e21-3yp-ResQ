@@ -6,6 +6,22 @@ This smoke test validates the local ESP32 firmware contract path without real ha
 
 The simulator only uses canonical MQTT topics under `resq/{deviceId}/...`. Legacy topic support remains in the backend, but this test is intended to exercise the new firmware contract.
 
+## Real Firmware Onboarding Shape
+
+Phase 7 narrows the real firmware provisioning QR to only:
+
+```json
+{
+  "wifi_ssid": "training-wifi",
+  "wifi_password": "password",
+  "backend_base_url": "http://192.168.8.187:18080"
+}
+```
+
+Real firmware should use `backend_base_url` to call `POST /api/devices/register`, then use the returned `device_id`, `mqtt_host`, and `mqtt_port` to connect to MQTT and publish `resq/{deviceId}/status` plus `resq/{deviceId}/heartbeat`.
+
+The simulator still connects directly to MQTT because it is a local validation tool, not the ESP32 provisioning flow.
+
 ## Prerequisites
 
 - Node.js is available on `PATH`.

@@ -25,7 +25,12 @@ import {
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
 import { useLiveSession } from "../hooks/useLiveSession";
-import { requestManikinPairing } from "../lib/browserManikinsProvisionApi";
+import {
+  buildFirmwareProvisioningPayload,
+  fetchHubServiceInfo,
+  type FirmwareProvisioningPayload,
+  type HubServiceInfoResponse,
+} from "../lib/browserManikinsProvisionApi";
 import {
   fetchManikinRegistry,
   type ManikinRegistryEntry,
@@ -254,14 +259,13 @@ export default function InstructorDashboard({
   const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
   // State for the "Pair New Manikin" panel
-  const [pairingDeviceId, setPairingDeviceId] = useState<string>("");
+  const [provisioningWifiSsid, setProvisioningWifiSsid] = useState<string>("");
+  const [provisioningWifiPassword, setProvisioningWifiPassword] = useState<string>("");
   const [pairingLoading, setPairingLoading] = useState<boolean>(false);
   const [pairingError, setPairingError] = useState<string | null>(null);
-  const [pairingResult, setPairingResult] = useState<{
-    deviceId: string;
-    token: string;
-    expiresAt: string;
-  } | null>(null);
+  const [serviceInfo, setServiceInfo] = useState<HubServiceInfoResponse | null>(null);
+  const [serviceInfoError, setServiceInfoError] = useState<string | null>(null);
+  const [provisioningPayload, setProvisioningPayload] = useState<FirmwareProvisioningPayload | null>(null);
   // State for the Device Registry panel
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
@@ -287,6 +291,17 @@ export default function InstructorDashboard({
       const result = await fetchBrowserHealth();
       setHealth(result);
       setHealthLoading(false);
+    }
+
+    async function loadServiceInfo() {
+      try {
+        const info = await fetchHubServiceInfo();
+        setServiceInfo(info);
+        setServiceInfoError(null);
+      } catch (error) {
+        setServiceInfo(null);
+        setServiceInfoError(error instanceof Error ? error.message : "LocalHub service info is unavailable.");
+      }
     }
 
     async function loadManikins() {
@@ -438,6 +453,7 @@ export default function InstructorDashboard({
     }
 
     loadHealth();
+    loadServiceInfo();
     loadManikins();
     loadRecentSessions();
     loadTrainees();
@@ -445,6 +461,7 @@ export default function InstructorDashboard({
     connectManikinStream();
 
     const healthInterval = setInterval(loadHealth, 5000);
+    const serviceInfoInterval = setInterval(loadServiceInfo, 10000);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
     const registryInterval = setInterval(loadRegistry, 15000);
     
@@ -458,6 +475,7 @@ export default function InstructorDashboard({
       }
       stopFallbackPolling();
       clearInterval(healthInterval);
+      clearInterval(serviceInfoInterval);
       clearInterval(recentSessionsInterval);
       clearInterval(registryInterval);
     };
@@ -801,27 +819,32 @@ export default function InstructorDashboard({
     }
   }
   async function handleRequestPairing() {
-    // Guard: don't do anything if the input box is empty
-    if (!pairingDeviceId.trim()) return;
+    if (!provisioningWifiSsid.trim()) return;
 
     setPairingLoading(true);
     setPairingError(null);
-    setPairingResult(null);
+    setProvisioningPayload(null);
 
     try {
-      // This calls POST /api/manikins/pair-request on the Spring Boot backend
-      const result = await requestManikinPairing(pairingDeviceId.trim());
-      setPairingResult(result);
-    }   catch (error) {
-      // If the backend returns an error, show it to the instructor
+      const info = serviceInfo ?? await fetchHubServiceInfo();
+      setServiceInfo(info);
+      setProvisioningPayload(buildFirmwareProvisioningPayload(
+        info,
+        provisioningWifiSsid.trim(),
+        provisioningWifiPassword,
+      ));
+    } catch (error) {
       setPairingError(
-        error instanceof Error ? error.message : "Failed to generate pairing token."
+        error instanceof Error ? error.message : "Failed to generate provisioning payload."
       );
     } finally {
-      // Whether it succeeded or failed, stop showing the loading state
       setPairingLoading(false);
     }
   }
+
+  const provisioningPayloadText = provisioningPayload
+    ? JSON.stringify(provisioningPayload, null, 2)
+    : "";
 
   return (
     <div style={styles.container}>
@@ -900,23 +923,40 @@ export default function InstructorDashboard({
         </section>
         <section style={styles.card}>
           <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>
-            Pair New Manikin
+            Firmware Provisioning
           </h2>
           <p style={{ margin: "0 0 14px 0", color: "#64748b", fontSize: "0.9rem" }}>
-            Enter the Device ID printed on the manikin module, then click Generate.
-            A QR code will appear for the person setting up the manikin to scan.
+            Generate a setup QR for firmware in provisioning mode. The QR only contains Wi-Fi credentials and the LocalHub backend URL.
           </p>
 
           {/* Input row: text box and button sit side by side */}
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
             <input
               type="text"
-              placeholder="Device ID e.g. M01"
-              value={pairingDeviceId}
+              placeholder="Wi-Fi SSID"
+              value={provisioningWifiSsid}
               onChange={(e) => {
-                setPairingDeviceId(e.target.value);
-                // Clear any previous result or error as the instructor types
-                setPairingResult(null);
+                setProvisioningWifiSsid(e.target.value);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                flex: 1,
+                minWidth: "180px",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <input
+              type="password"
+              placeholder="Wi-Fi password"
+              value={provisioningWifiPassword}
+              onChange={(e) => {
+                setProvisioningWifiPassword(e.target.value);
+                setProvisioningPayload(null);
                 setPairingError(null);
               }}
               style={{
@@ -931,25 +971,43 @@ export default function InstructorDashboard({
             />
             <button
               type="button"
-              disabled={pairingLoading || !pairingDeviceId.trim()}
+              disabled={pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo}
               onClick={handleRequestPairing}
               style={{
                 padding: "8px 14px",
                 borderRadius: "6px",
                 border: "1px solid #0f172a",
                 // Button goes grey when disabled (loading or empty input)
-                background: pairingLoading || !pairingDeviceId.trim() ? "#e2e8f0" : "#0f172a",
-                color: pairingLoading || !pairingDeviceId.trim() ? "#64748b" : "#ffffff",
+                background: pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo ? "#e2e8f0" : "#0f172a",
+                color: pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo ? "#64748b" : "#ffffff",
                 fontWeight: 600,
-                cursor: pairingLoading || !pairingDeviceId.trim() ? "not-allowed" : "pointer",
+                cursor: pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo ? "not-allowed" : "pointer",
                 fontSize: "0.9rem",
               }}
             >
-              {pairingLoading ? "Generating..." : "Generate Pairing QR"}
+              {pairingLoading ? "Generating..." : "Generate QR"}
             </button>
           </div>
 
           {/* Error message — only shown when something goes wrong */}
+          <div style={{ display: "grid", gap: "6px", marginBottom: "12px", fontSize: "0.84rem", color: "#475569" }}>
+            <p style={{ margin: 0 }}>
+              Backend URL: <strong>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              MQTT after registration: <strong>{serviceInfo ? `${serviceInfo.mqtt_host}:${serviceInfo.mqtt_port}` : "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              Firmware will fetch MQTT broker settings from LocalHub after registration.
+            </p>
+          </div>
+
+          {serviceInfoError ? (
+            <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.88rem" }}>
+              {serviceInfoError}
+            </p>
+          ) : null}
+
           {pairingError ? (
             <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.88rem" }}>
               {pairingError}
@@ -957,7 +1015,7 @@ export default function InstructorDashboard({
           ) : null}
 
           {/* Success result — only shown after a successful backend response */}
-          {pairingResult ? (
+          {provisioningPayload ? (
             <div style={{
               padding: "14px",
               borderRadius: "10px",
@@ -968,26 +1026,24 @@ export default function InstructorDashboard({
               justifyItems: "center",
             }}>
               <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", color: "#0f172a" }}>
-                Scan to provision the manikin
+                Scan to provision firmware
               </p>
               {/* QR encodes the full pairing payload as JSON so the
                   manikin's provisioning portal can read it in one scan */}
               <QR
-                value={JSON.stringify(pairingResult)}
+                value={JSON.stringify(provisioningPayload)}
                 size={180}
                 bgColor="#ffffff"
                 fgColor="#0f172a"
                 level="M"
               />
               <p style={{ margin: 0, color: "#475569", fontSize: "0.82rem", textAlign: "center" }}>
-                Device: <strong>{pairingResult.deviceId}</strong>
-                {" · "}
-                Expires: {new Date(pairingResult.expiresAt).toLocaleTimeString()}
+                QR includes Wi-Fi SSID, Wi-Fi password, and backend_base_url only.
               </p>
               {/* Fallback for people who cannot scan a QR code */}
               <details style={{ width: "100%", fontSize: "0.82rem", color: "#64748b" }}>
                 <summary style={{ cursor: "pointer" }}>
-                  Show raw token (manual entry fallback)
+                  Show provisioning JSON
                 </summary>
                 <code style={{
                   display: "block",
@@ -998,9 +1054,25 @@ export default function InstructorDashboard({
                   wordBreak: "break-all",
                   fontSize: "0.78rem",
                 }}>
-                  {pairingResult.token}
+                  {provisioningPayloadText}
                 </code>
               </details>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(provisioningPayloadText)}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "0.84rem",
+                }}
+              >
+                Copy Payload
+              </button>
             </div>
           ) : null}
         </section>
