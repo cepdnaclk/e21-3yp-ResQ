@@ -22,3 +22,4 @@ export {
   type LiveSessionStatus,
   type LiveSourceMode,
 } from "./types/live";
+export * from "./firmware";
