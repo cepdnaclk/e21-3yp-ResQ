@@ -3,6 +3,7 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import lk.resq.localhub.model.firmware.FirmwareRequestIds;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
@@ -25,6 +26,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +43,7 @@ public class MqttCommandPublisherService {
     private final String clientId;
     private final String username;
     private final String password;
+    private final FirmwarePersistenceRepository firmwarePersistenceRepository;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -48,23 +51,42 @@ public class MqttCommandPublisherService {
 
     private MqttClient mqttClient;
 
-        @Autowired
-        public MqttCommandPublisherService(
+    @Autowired
+    public MqttCommandPublisherService(
             ObjectMapper objectMapper,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.command-client-id:hub-api-session-commands}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
             @Value("${resq.mqtt.password:}") String password
     ) {
         this.objectMapper = objectMapper;
+        this.firmwarePersistenceRepository = firmwarePersistenceRepository;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
         this.password = password;
     }
 
+    public MqttCommandPublisherService(
+            ObjectMapper objectMapper,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            String brokerUrl,
+            String clientId
+    ) {
+        this(objectMapper, firmwarePersistenceRepository, brokerUrl, clientId, null, null);
+    }
+
     public MqttCommandPublisherService(ObjectMapper objectMapper, String brokerUrl, String clientId) {
-        this(objectMapper, brokerUrl, clientId, null, null);
+        this(
+                objectMapper,
+                defaultFirmwarePersistenceRepository(),
+                brokerUrl,
+                clientId,
+                null,
+                null
+        );
+        this.firmwarePersistenceRepository.initialize();
     }
 
     @PostConstruct
@@ -199,7 +221,7 @@ public class MqttCommandPublisherService {
         publishSessionStopCommand(payload.deviceId(), payload.sessionId(), payload.endedAt());
     }
 
-    private void ensureConnected() {
+    protected void ensureConnected() {
         if (!running.get()) {
             return;
         }
@@ -259,19 +281,38 @@ public class MqttCommandPublisherService {
             String action,
             FirmwareCommandTypeId commandTypeId
     ) {
+        Instant now = Instant.now();
+        String requestId = stringValue(payload.get("request_id"));
+        FirmwareCommandRequestRecord pendingRecord = new FirmwareCommandRequestRecord(
+                requestId,
+                inferDeviceId(topic),
+                commandTypeId.value(),
+                commandTypeId.name(),
+                topic,
+                objectMapperValueAsString(payload),
+                "PENDING",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                now,
+                null,
+                null,
+                now.plusSeconds(120),
+                now
+        );
+
         try {
+            firmwarePersistenceRepository.recordCommandRequest(pendingRecord);
             ensureConnected();
-            if (mqttClient == null || !mqttClient.isConnected()) {
-                throw new IllegalStateException("MQTT command publisher is not connected");
-            }
 
             Map<String, Object> normalizedPayload = new LinkedHashMap<>(payload);
             String json = objectMapper.writeValueAsString(normalizedPayload);
-            MqttMessage message = new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
-            message.setQos(0);
-            mqttClient.publish(topic, message);
+            publishToBroker(topic, json);
 
-            String requestId = stringValue(normalizedPayload.get("request_id"));
+            firmwarePersistenceRepository.markCommandPublished(requestId, Instant.now());
             logger.info(
                     "Published MQTT {} command to {} for request {}",
                     action,
@@ -280,9 +321,27 @@ public class MqttCommandPublisherService {
             );
             return new FirmwareCommandPublishResult(topic, requestId, normalizedPayload);
         } catch (Exception error) {
+            if (requestId != null) {
+                try {
+                    firmwarePersistenceRepository.markCommandFailed(requestId, Instant.now(), error.getMessage());
+                } catch (Exception persistenceError) {
+                    logger.warn("Failed to mark firmware command {} as FAILED after publish error", requestId, persistenceError);
+                }
+            }
             logger.warn("Failed to publish MQTT {} command to {}. Error message: {}", action, topic, error.getMessage(), error);
             throw new MqttCommandPublishException("Failed to publish MQTT " + action + " command to " + topic, error);
         }
+    }
+
+    protected void publishToBroker(String topic, String jsonPayload) throws Exception {
+        ensureConnected();
+        if (mqttClient == null || !mqttClient.isConnected()) {
+            throw new IllegalStateException("MQTT command publisher is not connected");
+        }
+
+        MqttMessage message = new MqttMessage(jsonPayload.getBytes(StandardCharsets.UTF_8));
+        message.setQos(0);
+        mqttClient.publish(topic, message);
     }
 
     private Map<String, Object> requestPayload(FirmwareCommandTypeId commandTypeId, Instant timestamp) {
@@ -294,6 +353,33 @@ public class MqttCommandPublisherService {
 
     private static String stringValue(Object value) {
         return value == null ? null : value.toString();
+    }
+
+    private static FirmwarePersistenceRepository defaultFirmwarePersistenceRepository() {
+        return new FirmwarePersistenceRepository(Path.of(System.getProperty("user.home"), ".resq-localhub", "hub-api.sqlite").toString());
+    }
+
+    private String objectMapperValueAsString(Map<String, Object> payload) {
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception error) {
+            throw new IllegalStateException("Failed to serialize firmware command payload", error);
+        }
+    }
+
+    private static String inferDeviceId(String topic) {
+        if (topic == null || topic.isBlank()) {
+            return null;
+        }
+
+        String[] parts = topic.split("/");
+        if (parts.length >= 4 && "manikins".equals(parts[1])) {
+            return parts[2];
+        }
+        if (parts.length >= 3 && "resq".equals(parts[0])) {
+            return parts[1];
+        }
+        return null;
     }
 
     private static String normalize(String value) {

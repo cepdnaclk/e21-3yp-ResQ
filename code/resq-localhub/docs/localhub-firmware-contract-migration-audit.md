@@ -332,3 +332,12 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - `ManikinRegistryService` now recognizes `event_id`-based calibration and error packets and keeps the live summary/session view updates compatible with the existing runtime model.
 - Validation completed: the hub API test suite passed after the backend change set was applied.
 - Remaining work: persistence for command/reply history, frontend live-client migration, and desktop orchestration cleanup are still deferred to later phases.
+
+## O. Phase 3 Status
+
+- Files changed: `services/hub-api/src/main/java/lk/resq/localhub/service/FirmwarePersistenceRepository.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareCommandRequestRecord.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareEventRecord.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareCalibrationResultRecord.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareDebugSnapshotRecord.java`, plus additive wiring in `MqttCommandPublisherService` and `MqttSubscriberService` and focused backend tests.
+- Tables added: `firmware_command_requests`, `firmware_events`, `firmware_calibration_results`, and `firmware_debug_snapshots` using `CREATE TABLE IF NOT EXISTS` so existing local installs remain compatible.
+- Repositories/services added: `FirmwarePersistenceRepository` now owns the SQLite schema, insert/update helpers, and query helpers such as `findCommandByRequestId`, `findRecentCommands`, `findRecentEvents`, `findLatestCalibrationResult`, and `findDebugSnapshots`.
+- Command tracking behavior: canonical command publishes create a `PENDING` row before publish, transition to `PUBLISHED` on success, and transition to `FAILED` on publish failure; command replies update the matching row when `reply_id` or `request_id` is present.
+- Event persistence behavior: canonical firmware events are persisted for `events`, `events/calibration`, and `events/error`; calibration packets also land in `firmware_calibration_results`; debug packets land in `firmware_debug_snapshots`.
+- Deferred item: firmware state history and diagnostic HTTP endpoints were intentionally not added in this phase to keep the change additive and localized; frontend and Tauri work remains Phase 4 and later.
