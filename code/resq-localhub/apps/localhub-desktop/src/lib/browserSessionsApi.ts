@@ -74,7 +74,12 @@ export type SessionLiveView = {
   rssi: number | null;
   battery: number | null;
   sessionActive: boolean | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  lastErrorId?: string | null;
   latestDepthMm: number | null;
+  latestDepthProgress?: number | null;
+  latestCompressionCount?: number | null;
   latestRateCpm: number | null;
   latestRecoilOk: boolean | null;
   latestPauseS: number | null;

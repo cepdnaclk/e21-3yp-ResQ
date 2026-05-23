@@ -151,9 +151,11 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
       depthOk: booleanOrNull(raw.depthOk ?? raw.depth_ok ?? firmware?.depthOk),
       rateCpm,
       recoilOk,
-      pauseS: numberOrNull(raw.pauseS ?? raw.pause_s),
-      compressionCount: numberOrNull(raw.compressionCount ?? raw.compression_count ?? raw.total_compressions),
-      handPlacement: text(raw.handPlacement) ?? text(raw.hand_placement),
+      pauseS: numberOrNull(raw.pauseS ?? raw.pause_s ?? firmware?.pauseS),
+      compressionCount: numberOrNull(
+        raw.compressionCount ?? raw.compression_count ?? raw.total_compressions ?? firmware?.compressionCount,
+      ),
+      handPlacement: text(raw.handPlacement) ?? text(raw.hand_placement) ?? firmware?.handPlacement ?? null,
       flags,
       sourceMode: sourceMode ?? undefined,
       sessionActive: booleanOrNull(raw.sessionActive ?? raw.session_active ?? firmware?.sessionActive) ?? null,
@@ -204,10 +206,6 @@ function numberOrNull(value: unknown): number | null {
 
 function booleanOrNull(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
-}
-
-function numberOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function numberOrNullText(value: unknown): string | null {

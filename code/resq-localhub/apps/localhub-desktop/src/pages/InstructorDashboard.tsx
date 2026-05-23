@@ -1152,7 +1152,7 @@ export default function InstructorDashboard({
                 color: "#64748b",
               }}
             >
-              No manikins publishing yet. Start publishing to resq/manikins/&lt;deviceId&gt;/status, heartbeat, telemetry, events, or live.
+              No manikins publishing yet. Start publishing to resq/&lt;deviceId&gt;/status, heartbeat, telemetry, debug, or events. Legacy resq/manikins/&lt;deviceId&gt;/... topics still work.
             </div>
           ) : null}
 
@@ -1195,7 +1195,7 @@ export default function InstructorDashboard({
                       </div>
                     </div>
 
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {manikin.state ?? "unknown"}</p>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {manikin.firmwareState ?? manikin.state ?? "unknown"}</p>
                     <InstructorLiveMetrics
                       deviceId={manikin.deviceId}
                       sessionId={activeSession?.sessionId ?? null}

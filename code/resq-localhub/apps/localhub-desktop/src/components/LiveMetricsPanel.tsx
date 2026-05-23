@@ -61,7 +61,7 @@ export function LiveMetricsPanel({
           opacity: unavailable ? 0.62 : 1,
         }}
       >
-        <MetricCard label="Depth" value={formatNumber(state.latestMetric?.depthMm, "mm", unavailable)} muted={muted} />
+        <MetricCard label="Depth" value={formatDepth(state.latestMetric, unavailable)} muted={muted} />
         <MetricCard label="Rate" value={formatNumber(state.latestMetric?.rateCpm, "cpm", unavailable)} muted={muted} />
         <MetricCard label="Recoil" value={formatRecoil(state.latestMetric, unavailable)} muted={muted} />
         <MetricCard label="Pause" value={formatNumber(state.latestMetric?.pauseS, "s", unavailable)} muted={muted} />
@@ -70,6 +70,9 @@ export function LiveMetricsPanel({
       </div>
 
       <div style={{ display: "grid", gap: "6px" }}>
+        <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>
+          Firmware: {state.firmwareState ?? state.latestMetric?.firmwareState ?? "-"}
+        </p>
         <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>
           Flags: {flags.length > 0 ? flags.join(", ") : "-"}
         </p>
@@ -228,6 +231,22 @@ function formatNumber(value: number | null | undefined, suffix: string, unavaila
     return "Offline";
   }
   return value === null || value === undefined ? "-" : `${value.toFixed(1)} ${suffix}`;
+}
+
+function formatDepth(metric: LiveMetricPayload | null | undefined, unavailable: boolean): string {
+  if (unavailable) {
+    return "Offline";
+  }
+  if (!metric) {
+    return "-";
+  }
+  if (metric.depthMm !== null && metric.depthMm !== undefined) {
+    return `${metric.depthMm.toFixed(1)} mm`;
+  }
+  if (metric.depthProgress !== null && metric.depthProgress !== undefined) {
+    return `${Math.round(metric.depthProgress * 100)}%`;
+  }
+  return "-";
 }
 
 function formatCount(value: number | null | undefined, unavailable: boolean): string {

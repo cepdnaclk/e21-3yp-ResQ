@@ -341,3 +341,13 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Command tracking behavior: canonical command publishes create a `PENDING` row before publish, transition to `PUBLISHED` on success, and transition to `FAILED` on publish failure; command replies update the matching row when `reply_id` or `request_id` is present.
 - Event persistence behavior: canonical firmware events are persisted for `events`, `events/calibration`, and `events/error`; calibration packets also land in `firmware_calibration_results`; debug packets land in `firmware_debug_snapshots`.
 - Deferred item: firmware state history and diagnostic HTTP endpoints were intentionally not added in this phase to keep the change additive and localized; frontend and Tauri work remains Phase 4 and later.
+
+## P. Phase 4 Status
+
+- Files changed: `apps/localhub-desktop/src/lib/firmwareLiveNormalizer.ts`, `apps/localhub-desktop/src/lib/liveClientTypes.ts`, `apps/localhub-desktop/src/lib/mqttLiveClient.ts`, `apps/localhub-desktop/src/lib/liveClient.ts`, `apps/localhub-desktop/src/hooks/useLiveSession.ts`, `apps/localhub-desktop/src/components/LiveMetricsPanel.tsx`, `apps/localhub-desktop/src/pages/InstructorDashboard.tsx`, `apps/localhub-desktop/src/pages/TraineeDashboard.tsx`, and browser-facing live API types.
+- Frontend normalization now accepts firmware snake_case fields including `session_id`, `session_active`, `last_error_id`, `depth_progress`, `depth_ok`, `rate_cpm`, compression counters, recoil counters, `pause_s`, `hand_placement`, `pressure_balance_pct`, event IDs, reason/action/progress IDs, and `ts_ms`.
+- MQTT live client now subscribes to canonical `resq/{deviceId}/status`, `heartbeat`, `telemetry`, `debug`, `events`, `events/calibration`, and `events/error` topics while keeping legacy `resq/manikins/{deviceId}/status`, `heartbeat`, `telemetry`, `events`, and `live`.
+- SSE and polling fallbacks continue to use the shared live update normalizer, so backend-forwarded firmware-style payloads with device IDs are tolerated without changing dashboard page logic.
+- Dashboard compatibility was kept minimal: existing status/metric panels can show `firmwareState`, use firmware `rateCpm` and compression counts through the live metric model, and display `depthProgress` as a percentage when millimeter depth is not present.
+- Production build note: `tsconfig.json` now excludes `*.test.ts(x)` from `pnpm build`; frontend test tooling remains separate from the production build path and was not repaired as part of this phase.
+- Deferred item: full calibration/readiness UI, diagnostic endpoints, Tauri provisioning changes, and backend schema changes remain out of scope for Phase 4.

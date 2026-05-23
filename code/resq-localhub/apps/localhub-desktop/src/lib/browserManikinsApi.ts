@@ -8,7 +8,12 @@ export type ManikinLiveSummary = {
   rssi: number | null;
   battery: number | null;
   sessionActive: boolean | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  lastErrorId?: string | null;
   latestDepthMm: number | null;
+  latestDepthProgress?: number | null;
+  latestCompressionCount?: number | null;
   latestRateCpm: number | null;
   latestRecoilOk: boolean | null;
   latestPauseS: number | null;
@@ -94,7 +99,12 @@ function normalizeLiveSummary(value: unknown): ManikinLiveSummary | null {
     rssi: asNumber(record.rssi),
     battery: asNumber(record.battery),
     sessionActive: asBoolean(record.sessionActive),
+    firmwareState: asString(record.firmwareState),
+    calibrated: asBoolean(record.calibrated),
+    lastErrorId: asString(record.lastErrorId),
     latestDepthMm: asNumber(record.latestDepthMm),
+    latestDepthProgress: asNumber(record.latestDepthProgress),
+    latestCompressionCount: asNumber(record.latestCompressionCount),
     latestRateCpm: asNumber(record.latestRateCpm),
     latestRecoilOk: asBoolean(record.latestRecoilOk),
     latestPauseS: asNumber(record.latestPauseS),

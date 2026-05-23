@@ -1,5 +1,5 @@
 import mqtt, { type MqttClient } from "mqtt";
-import { toLiveMetric, type LiveClientUpdate } from "./liveClientTypes";
+import { toLiveClientUpdate, toLiveMetric, type LiveClientUpdate } from "./liveClientTypes";
 
 export type MqttLiveClientOptions = {
   deviceId: string;
@@ -21,7 +21,16 @@ export type MqttLiveClient = {
   stop(): void;
 };
 
-const MQTT_TOPIC_KINDS = ["telemetry", "status", "heartbeat", "events"] as const;
+const MQTT_TOPIC_KINDS = [
+  "telemetry",
+  "status",
+  "heartbeat",
+  "debug",
+  "events",
+  "events/calibration",
+  "events/error",
+  "live",
+] as const;
 
 export function createMqttLiveClient(
   options: MqttLiveClientOptions,
@@ -49,7 +58,20 @@ export function createMqttLiveClient(
       if (stopped || !client) {
         return;
       }
-      const topics = MQTT_TOPIC_KINDS.map((kind) => `resq/manikins/${options.deviceId}/${kind}`);
+      const topics = [
+        `resq/${options.deviceId}/status`,
+        `resq/${options.deviceId}/heartbeat`,
+        `resq/${options.deviceId}/telemetry`,
+        `resq/${options.deviceId}/debug`,
+        `resq/${options.deviceId}/events`,
+        `resq/${options.deviceId}/events/calibration`,
+        `resq/${options.deviceId}/events/error`,
+        `resq/manikins/${options.deviceId}/status`,
+        `resq/manikins/${options.deviceId}/heartbeat`,
+        `resq/manikins/${options.deviceId}/telemetry`,
+        `resq/manikins/${options.deviceId}/events`,
+        `resq/manikins/${options.deviceId}/live`,
+      ];
       client.subscribe(topics, { qos: 0 }, (error) => {
         if (error) {
           callbacks.onError(error instanceof Error ? error : new Error(String(error)));
@@ -110,7 +132,7 @@ export function createMqttLiveClient(
     if (payloadDeviceId !== options.deviceId) {
       return null;
     }
-    if (options.sessionId && payloadSessionId !== options.sessionId) {
+    if (options.sessionId && payloadSessionId && payloadSessionId !== options.sessionId) {
       return null;
     }
 
@@ -127,29 +149,30 @@ export function createMqttLiveClient(
       };
     }
 
-    if (parsedTopic.kind === "heartbeat") {
-      return {
-        deviceId: payloadDeviceId,
-        sessionId: payloadSessionId,
-        heartbeatSeen: true,
-        lastSeenAt: timestampOrNow(raw.timestamp ?? raw.tsMs),
-      };
+    if (parsedTopic.kind === "live") {
+      return toLiveClientUpdate({ ...raw, deviceId: payloadDeviceId, sessionId: payloadSessionId ?? raw.sessionId });
     }
 
-    if (parsedTopic.kind === "status") {
+    const update = toLiveClientUpdate({ ...raw, deviceId: payloadDeviceId, sessionId: payloadSessionId ?? raw.sessionId });
+    const lastSeenAt = update?.lastSeenAt ?? timestampOrNow(raw.timestamp ?? raw.tsMs ?? raw.ts_ms);
+
+    if (parsedTopic.kind === "heartbeat") {
       return {
-        deviceId: payloadDeviceId,
-        sessionId: payloadSessionId,
-        statusSeen: true,
-        lastSeenAt: timestampOrNow(raw.timestamp ?? raw.tsMs),
+        ...update,
+        deviceId: update?.deviceId ?? payloadDeviceId,
+        sessionId: update?.sessionId ?? payloadSessionId,
+        heartbeatSeen: true,
+        lastSeenAt,
       };
     }
 
     return {
-      deviceId: payloadDeviceId,
-      sessionId: payloadSessionId,
-      eventType: text(raw.eventType) ?? text(raw.type),
-      lastSeenAt: timestampOrNow(raw.timestamp ?? raw.tsMs),
+      ...update,
+      deviceId: update?.deviceId ?? payloadDeviceId,
+      sessionId: update?.sessionId ?? payloadSessionId,
+      statusSeen: parsedTopic.kind === "status" ? true : update?.statusSeen,
+      eventType: update?.eventType ?? text(raw.eventType) ?? text(raw.type),
+      lastSeenAt,
     };
   }
 
@@ -158,16 +181,35 @@ export function createMqttLiveClient(
 
 function parseTopic(topic: string): { deviceId: string; kind: (typeof MQTT_TOPIC_KINDS)[number] } | null {
   const parts = topic.split("/");
-  if (parts.length !== 4 || parts[0] !== "resq" || parts[1] !== "manikins") {
-    return null;
+
+  if (parts.length === 4 && parts[0] === "resq" && parts[1] === "manikins") {
+    const kind = parts[3];
+    if (!isMqttTopicKind(kind)) {
+      return null;
+    }
+
+    return { deviceId: parts[2], kind };
   }
 
-  const kind = parts[3];
-  if (!isMqttTopicKind(kind)) {
-    return null;
+  if (parts.length === 3 && parts[0] === "resq") {
+    const kind = parts[2];
+    if (!isMqttTopicKind(kind)) {
+      return null;
+    }
+
+    return { deviceId: parts[1], kind };
   }
 
-  return { deviceId: parts[2], kind };
+  if (parts.length === 4 && parts[0] === "resq" && parts[2] === "events") {
+    const kind = `events/${parts[3]}`;
+    if (!isMqttTopicKind(kind)) {
+      return null;
+    }
+
+    return { deviceId: parts[1], kind };
+  }
+
+  return null;
 }
 
 function isMqttTopicKind(value: string): value is (typeof MQTT_TOPIC_KINDS)[number] {

@@ -52,6 +52,14 @@ export function useLiveSession(options: UseLiveSessionOptions): LiveClientState 
     lastHeartbeatAt: null,
     lastStatusAt: null,
     lastEventType: null,
+    firmwareState: null,
+    calibrated: null,
+    sessionActive: null,
+    lastErrorId: null,
+    eventId: null,
+    reasonId: null,
+    actionId: null,
+    progressId: null,
     error: null,
   }));
 
@@ -71,6 +79,14 @@ export function useLiveSession(options: UseLiveSessionOptions): LiveClientState 
       lastHeartbeatAt: null,
       lastStatusAt: null,
       lastEventType: null,
+      firmwareState: null,
+      calibrated: null,
+      sessionActive: null,
+      lastErrorId: null,
+      eventId: null,
+      reasonId: null,
+      actionId: null,
+      progressId: null,
     }));
 
     if (!clientOptions.enabled) {
