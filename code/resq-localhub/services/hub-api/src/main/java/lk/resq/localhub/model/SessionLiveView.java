@@ -5,6 +5,7 @@ import java.time.Instant;
 public record SessionLiveView(
         String sessionId,
         String deviceId,
+        String manikinId,
         String traineeId,
         boolean active,
         Instant startedAt,
@@ -27,6 +28,11 @@ public record SessionLiveView(
         Long latestForce1,
         Long latestForce2,
         Double pressureBalancePct,
-        Boolean pressureSkewed
+        Boolean pressureSkewed,
+        LiveMetricPayload latestMetric,
+        Long seq,
+        String connectionState,
+        boolean stale,
+        boolean offline
 ) {
 }

@@ -24,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class MqttSubscriberService {
@@ -46,8 +47,12 @@ public class MqttSubscriberService {
 
     private final String brokerUrl;
     private final String clientId;
+    private final String username;
+    private final String password;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong acceptedTelemetryCount = new AtomicLong(0);
+    private final AtomicLong rejectedTelemetryCount = new AtomicLong(0);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private MqttClient mqttClient;
@@ -58,7 +63,9 @@ public class MqttSubscriberService {
             ActiveSessionService activeSessionService,
             LiveStreamService liveStreamService,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
-            @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId
+            @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
+            @Value("${resq.mqtt.username:}") String username,
+            @Value("${resq.mqtt.password:}") String password
     ) {
         this.objectMapper = objectMapper;
         this.manikinRegistryService = manikinRegistryService;
@@ -66,6 +73,8 @@ public class MqttSubscriberService {
         this.liveStreamService = liveStreamService;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
+        this.username = normalize(username);
+        this.password = password;
     }
 
     @PostConstruct
@@ -133,6 +142,7 @@ public class MqttSubscriberService {
         options.setCleanSession(true);
         options.setAutomaticReconnect(true);
         options.setConnectionTimeout(5);
+        applyCredentials(options);
 
         mqttClient.setCallback(new MqttCallback() {
             @Override
@@ -162,6 +172,17 @@ public class MqttSubscriberService {
         logger.info("MQTT subscriber subscribed to {} topic patterns", SUBSCRIPTIONS.size());
     }
 
+    private void applyCredentials(MqttConnectOptions options) {
+        if (username == null) {
+            return;
+        }
+
+        options.setUserName(username);
+        if (password != null && !password.isBlank()) {
+            options.setPassword(password.toCharArray());
+        }
+    }
+
     private void handleMessage(String topic, MqttMessage message) {
         ParsedTopic parsedTopic = parseTopic(topic);
         if (parsedTopic == null) {
@@ -170,40 +191,92 @@ public class MqttSubscriberService {
 
         String payloadText = new String(message.getPayload(), StandardCharsets.UTF_8);
 
+        JsonNode payload;
         try {
-            JsonNode payload = parsePayload(payloadText, topic);
+            payload = parsePayload(payloadText, topic);
+        } catch (Exception error) {
+            logger.warn(
+                    "Invalid MQTT JSON payload on topic {}. Raw payload: {}. Error message: {}",
+                    topic,
+                    payloadText,
+                    error.getMessage(),
+                    error
+            );
+            return;
+        }
 
+        try {
             switch (parsedTopic.messageType) {
                 case "status" -> {
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT status message for {}", parsedTopic.deviceId);
                 }
                 case "heartbeat" -> {
                     manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
-                    try {
-                        manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, payload);
-                    } catch (RuntimeException error) {
+                    TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                            TelemetryPayloadNormalizer.normalize(payload);
+                    if (!normalization.ok()) {
+                        long rejected = rejectedTelemetryCount.incrementAndGet();
                         logger.warn(
-                                "Failed to update live registry from telemetry for {}. Continuing with session accumulator update.",
+                                "Rejected MQTT telemetry for device {} on topic {} during normalization: {} (accepted={}, rejected={})",
                                 parsedTopic.deviceId,
-                                error
+                                topic,
+                                normalization.reason(),
+                                acceptedTelemetryCount.get(),
+                                rejected
+                        );
+                        return;
+                    }
+
+                    JsonNode normalizedPayload = objectMapper.valueToTree(normalization.value());
+                    ActiveSessionService.TelemetryValidationResult validation =
+                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, normalizedPayload);
+                    if (!validation.accepted()) {
+                        long rejected = rejectedTelemetryCount.incrementAndGet();
+                        logger.warn(
+                                "Rejected MQTT telemetry for device {} on topic {}: {} (accepted={}, rejected={})",
+                                parsedTopic.deviceId,
+                                topic,
+                                validation.reason(),
+                                acceptedTelemetryCount.get(),
+                                rejected
+                        );
+                        return;
+                    }
+
+                    if (!normalization.warnings().isEmpty()) {
+                        logger.info(
+                                "Normalized MQTT telemetry for device {} session {} with warnings: {}",
+                                validation.deviceId(),
+                                validation.sessionId(),
+                                normalization.warnings()
                         );
                     }
 
-                    // Bridge telemetry into active-session summary accumulation for the same device.
-                    activeSessionService.recordTelemetry(parsedTopic.deviceId, payload);
+                    manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, normalizedPayload);
+                    activeSessionService.recordTelemetry(parsedTopic.deviceId, normalizedPayload);
+                    long accepted = acceptedTelemetryCount.incrementAndGet();
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForDevice(parsedTopic.deviceId);
-                    logger.info("Processed MQTT telemetry message for {} and forwarded to active-session accumulator", parsedTopic.deviceId);
+                    logger.info(
+                            "Accepted MQTT telemetry for device {} session {} and forwarded to active-session accumulator (accepted={}, rejected={})",
+                            parsedTopic.deviceId,
+                            validation.sessionId(),
+                            accepted,
+                            rejectedTelemetryCount.get()
+                    );
                 }
                 case "events" -> {
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT event message for {}", parsedTopic.deviceId);
                 }
                 default -> {
@@ -212,7 +285,7 @@ public class MqttSubscriberService {
             }
         } catch (Exception error) {
             logger.warn(
-                    "Invalid MQTT JSON payload on topic {}. Raw payload: {}. Error message: {}",
+                    "Failed to process MQTT payload on topic {}. Raw payload: {}. Error message: {}",
                     topic,
                     payloadText,
                     error.getMessage(),
@@ -302,6 +375,45 @@ public class MqttSubscriberService {
         activeSessionService.findActiveSessionForDevice(deviceId)
                 .flatMap(info -> activeSessionService.getSessionLiveView(info.sessionId()))
                 .ifPresent(view -> liveStreamService.publishSessionLive(view.sessionId(), view));
+    }
+
+    private void publishSessionLiveForPayload(JsonNode payload) {
+        String sessionId = text(payload, "sessionId");
+        if (sessionId == null) {
+            sessionId = text(payload, "session_id");
+        }
+
+        if (sessionId == null) {
+            return;
+        }
+
+        String resolvedSessionId = sessionId;
+        activeSessionService.getSessionLiveView(resolvedSessionId)
+                .or(() -> manikinRegistryService.getSessionLiveView(resolvedSessionId))
+                .ifPresent(view -> liveStreamService.publishSessionLive(resolvedSessionId, view));
+    }
+
+    private static String text(JsonNode payload, String key) {
+        if (payload == null) {
+            return null;
+        }
+
+        JsonNode node = payload.get(key);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+
+        String value = node.asText().trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    private static String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private record ParsedTopic(String deviceId, String messageType) {

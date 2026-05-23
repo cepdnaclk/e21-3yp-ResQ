@@ -6,6 +6,7 @@ logs/
 .env
 .env.local
 .env.*.local
+infra/mosquitto/passwords
 
 # Node / frontend
 node_modules/

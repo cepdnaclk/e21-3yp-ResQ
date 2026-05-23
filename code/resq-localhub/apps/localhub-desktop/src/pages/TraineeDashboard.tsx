@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
+import { useLiveSession } from "../hooks/useLiveSession";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import {
   fetchSessionLive,
-  getSessionLiveStreamUrl,
   type SessionLiveView,
 } from "../lib/browserSessionsApi";
 
@@ -93,10 +94,6 @@ type SensorPoint = {
   rateCpm: number | null;
   pauseS: number | null;
   recoilOk: boolean | null;
-  force1: number | null;
-  force2: number | null;
-  pressureBalancePct: number | null;
-  pressureSkewed: boolean | null;
   flags: string | null;
 };
 
@@ -215,6 +212,19 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   );
 }
 
+function liveStreamStateFromConnection(state: string): LiveStreamState {
+  if (state === "MQTT_WS_LIVE" || state === "BACKEND_SSE_FALLBACK" || state === "BACKEND_POLLING_DEGRADED") {
+    return "connected";
+  }
+  if (state === "ERROR" || state === "OFFLINE") {
+    return "unavailable";
+  }
+  if (state === "STALE") {
+    return "reconnecting";
+  }
+  return "connecting";
+}
+
 export default function TraineeDashboard({
   embeddedInDesktop = false,
   initialSessionId = null,
@@ -226,9 +236,14 @@ export default function TraineeDashboard({
   const [session, setSession] = useState<SessionLiveView | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [streamState, setStreamState] = useState<LiveStreamState>("connecting");
-  const [streamMessage, setStreamMessage] = useState<string | null>(null);
   const [sensorHistory, setSensorHistory] = useState<SensorPoint[]>([]);
+  const liveState = useLiveSession({
+    deviceId: session?.deviceId,
+    sessionId,
+    enabled: Boolean(sessionId && session?.deviceId && session.active),
+  });
+  const streamState = liveStreamStateFromConnection(liveState.connectionState);
+  const streamMessage = liveState.error ?? liveState.message ?? null;
 
   useEffect(() => {
     if (initialSessionId && initialSessionId.trim().length > 0) {
@@ -263,33 +278,11 @@ export default function TraineeDashboard({
       setSession(null);
       setSessionLoading(false);
       setSessionError(null);
-      setStreamState("unavailable");
-      setStreamMessage(null);
       return;
     }
 
     const activeSessionId = sessionId;
-
     let isActive = true;
-    let eventSource: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function appendSensorPoint(next: SessionLiveView) {
-      const point: SensorPoint = {
-        ts: Date.now(),
-        depthMm: next.latestDepthMm,
-        rateCpm: next.latestRateCpm,
-        pauseS: next.latestPauseS,
-        recoilOk: next.latestRecoilOk,
-        force1: next.latestForce1,
-        force2: next.latestForce2,
-        pressureBalancePct: next.pressureBalancePct,
-        pressureSkewed: next.pressureSkewed,
-        flags: next.latestFlags,
-      };
-
-      setSensorHistory((previous) => [...previous, point].slice(-MAX_SENSOR_POINTS));
-    }
 
     async function loadSession() {
       try {
@@ -298,9 +291,6 @@ export default function TraineeDashboard({
           return;
         }
         setSession(live);
-        if (live) {
-          appendSensorPoint(live);
-        }
         setSessionError(null);
       } catch (error) {
         if (!isActive) {
@@ -315,102 +305,36 @@ export default function TraineeDashboard({
       }
     }
 
-    function safeParseSession(raw: string): SessionLiveView | null {
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        if (parsed === null || typeof parsed !== "object") {
-          return null;
-        }
-
-        return parsed as SessionLiveView;
-      } catch {
-        return null;
-      }
-    }
-
-    function connectSessionStream() {
-      if (!isActive) {
-        return;
-      }
-
-      if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
-        setStreamState("unavailable");
-        setStreamMessage("Stream unavailable in this browser.");
-        return;
-      }
-
-      setStreamState("connecting");
-      const stream = new EventSource(getSessionLiveStreamUrl(activeSessionId), { withCredentials: true });
-      eventSource = stream;
-
-      stream.onopen = () => {
-        if (!isActive) {
-          return;
-        }
-
-        setStreamState("connected");
-        setStreamMessage(null);
-        setSessionError(null);
-      };
-
-      stream.addEventListener("session-live", (event) => {
-        if (!isActive) {
-          return;
-        }
-
-        const data = (event as MessageEvent<string>).data;
-        if (data === "null") {
-          setSession(null);
-          setSessionLoading(false);
-          return;
-        }
-
-        const payload = safeParseSession(data);
-        if (!payload) {
-          return;
-        }
-
-        setSession(payload);
-        appendSensorPoint(payload);
-        setSessionLoading(false);
-        setSessionError(null);
-      });
-
-      stream.onerror = () => {
-        if (!isActive) {
-          return;
-        }
-
-        setStreamState("reconnecting");
-        setStreamMessage("Live stream disconnected. Reconnecting...");
-
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
-        }
-
-        if (!reconnectTimer) {
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            connectSessionStream();
-          }, 2000);
-        }
-      };
-    }
-
     loadSession();
-    connectSessionStream();
 
     return () => {
       isActive = false;
-      if (eventSource) {
-        eventSource.close();
-      }
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    const metric = liveState.latestMetric;
+    if (!metric) {
+      return;
+    }
+
+    setSensorHistory((previous) => [
+      ...previous,
+      {
+        ts: Date.now(),
+        depthMm: metric.depthMm,
+        rateCpm: metric.rateCpm,
+        pauseS: metric.pauseS,
+        recoilOk: metric.recoilOk,
+        flags: Array.isArray(metric.flags) ? metric.flags.join(", ") : metric.flags,
+      },
+    ].slice(-MAX_SENSOR_POINTS));
+  }, [
+    liveState.latestMetric?.seq,
+    liveState.latestMetric?.timestamp,
+    liveState.latestMetric?.tsMs,
+    liveState.latestMetric?.compressionCount,
+  ]);
 
   function metric(value: number | null, suffix: string): string {
     if (value === null || value === undefined) {
@@ -445,11 +369,6 @@ export default function TraineeDashboard({
   const rateSeries = sensorHistory.map((point) => point.rateCpm);
   const pauseSeries = sensorHistory.map((point) => point.pauseS);
   const recoilSeries = sensorHistory.map((point) => point.recoilOk);
-  const force1Series = sensorHistory.map((point) => point.force1);
-  const force2Series = sensorHistory.map((point) => point.force2);
-  const balanceSeries = sensorHistory.map((point) => point.pressureBalancePct);
-  const latestBalance = sensorHistory.length > 0 ? sensorHistory[sensorHistory.length - 1].pressureBalancePct : null;
-  const latestSkewed = sensorHistory.length > 0 ? sensorHistory[sensorHistory.length - 1].pressureSkewed : null;
   const recentFlags = sensorHistory
     .map((point) => point.flags)
     .filter((value): value is string => Boolean(value && value.trim()))
@@ -653,22 +572,11 @@ export default function TraineeDashboard({
                 Device: {session.online ? "Online" : "Offline"}
               </p>
               <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Started: {formatTime(session.startedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Last Seen: {formatTime(session.lastSeen)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(session.latestDepthMm, "mm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(session.latestRateCpm, "cpm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {session.latestRecoilOk === null ? "-" : session.latestRecoilOk ? "OK" : "Not OK"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(session.latestPauseS, "s")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                Pressure Balance: {session.pressureBalancePct === null ? "-" : `${session.pressureBalancePct.toFixed(1)} %`}
-              </p>
-              <p style={{ margin: 0, color: session.pressureSkewed === null ? "#475569" : session.pressureSkewed ? "#991b1b" : "#166534", fontSize: "0.88rem", fontWeight: 600 }}>
-                Pressure: {session.pressureSkewed === null ? "-" : session.pressureSkewed ? "Skewed" : "Even"}
-              </p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                Force A/B: {session.latestForce1 === null || session.latestForce2 === null ? "-" : `${session.latestForce1} / ${session.latestForce2}`}
-              </p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Last Event: {session.lastEventType ?? "-"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {session.latestFlags ?? "-"}</p>
+              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Last Backend Snapshot: {formatTime(session.lastSeen)}</p>
+            </div>
+
+            <div style={{ marginTop: "14px" }}>
+              <LiveMetricsPanel state={liveState} title="Your Live Feedback" traineeFriendly />
             </div>
 
             <div style={{ marginTop: "16px" }}>
@@ -677,18 +585,12 @@ export default function TraineeDashboard({
                 Rolling window of last {MAX_SENSOR_POINTS} updates. Use this to quickly confirm sensor behavior.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
-                <Sparkline values={depthSeries} color="#0ea5e9" label="Depth / Delta" />
-                <Sparkline values={rateSeries} color="#22c55e" label="Rate / Compression Trend" />
+                <Sparkline values={depthSeries} color="#0ea5e9" label="Depth" />
+                <Sparkline values={rateSeries} color="#22c55e" label="Rate" />
                 <Sparkline values={pauseSeries} color="#f97316" label="Pause" />
-                <Sparkline values={force1Series} color="#2563eb" label="Force Graph A (Bladder 1)" />
-                <Sparkline values={force2Series} color="#7c3aed" label="Force Graph B (Bladder 2)" />
-                <Sparkline values={balanceSeries} color="#0891b2" label="Pressure Balance (%)" />
                 <RecoilTimeline values={recoilSeries} />
               </div>
               <div style={{ marginTop: "10px", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px", background: "#f8fafc" }}>
-                <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                  Live Balance: {latestBalance === null ? "-" : `${latestBalance.toFixed(1)}%`} | Status: {latestSkewed === null ? "-" : latestSkewed ? "Skewed" : "Even"}
-                </p>
                 <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>Recent Flags / Feedback</p>
                 {recentFlags.length === 0 ? (
                   <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>No feedback flags yet</p>

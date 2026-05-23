@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 const QR = QRCodeSVG as any;
 import { useAuth } from "../auth/AuthContext";
+import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
@@ -25,6 +26,7 @@ import {
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
+import { useLiveSession } from "../hooks/useLiveSession";
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -137,6 +139,34 @@ type InstructorDashboardProps = {
   onOpenTraineeDashboard?: (sessionId: string) => void;
   manualLanIpOverride?: string | null;
 };
+
+function InstructorLiveMetrics({
+  deviceId,
+  sessionId,
+  active,
+}: {
+  deviceId: string;
+  sessionId: string | null;
+  active: boolean;
+}) {
+  const liveState = useLiveSession({
+    deviceId,
+    sessionId,
+    enabled: active,
+  });
+
+  if (!active || !sessionId) {
+    return (
+      <div style={{ padding: "12px", borderRadius: "8px", border: "1px dashed #cbd5e1", background: "#f8fafc" }}>
+        <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>
+          Select or start a session to view live metrics.
+        </p>
+      </div>
+    );
+  }
+
+  return <LiveMetricsPanel state={liveState} title="Selected Session Live Metrics" compact />;
+}
 
 function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   if (state === "connecting") {
@@ -824,10 +854,6 @@ export default function InstructorDashboard({
                 const active = Boolean(activeSession?.sessionId);
                 const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
                 const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
-                const depthOk = manikin.latestDepthMm !== null && manikin.latestDepthMm >= 50 && manikin.latestDepthMm <= 60;
-                const rateOk = manikin.latestRateCpm !== null && manikin.latestRateCpm >= 100 && manikin.latestRateCpm <= 120;
-                const recoilOk = manikin.latestRecoilOk === true;
-                const pressureBalanced = manikin.pressureSkewed === null ? null : !manikin.pressureSkewed;
 
                 return (
                   <article
@@ -861,42 +887,11 @@ export default function InstructorDashboard({
                     </div>
 
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {manikin.state ?? "unknown"}</p>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      <IndicatorBadge
-                        label={depthOk ? "Depth 50-60 OK" : manikin.latestDepthMm === null ? "Depth -" : "Depth Out"}
-                        status={manikin.latestDepthMm === null ? "neutral" : depthOk ? "ok" : "warn"}
-                      />
-                      <IndicatorBadge
-                        label={rateOk ? "Rate 100-120 OK" : manikin.latestRateCpm === null ? "Rate -" : "Rate Out"}
-                        status={manikin.latestRateCpm === null ? "neutral" : rateOk ? "ok" : "warn"}
-                      />
-                      <IndicatorBadge
-                        label={manikin.latestRecoilOk === null ? "Recoil -" : recoilOk ? "Recoil OK" : "Recoil Not OK"}
-                        status={manikin.latestRecoilOk === null ? "neutral" : recoilOk ? "ok" : "warn"}
-                      />
-                      <IndicatorBadge
-                        label={pressureBalanced === null ? "Pressure -" : pressureBalanced ? "Pressure Even" : "Pressure Skewed"}
-                        status={pressureBalanced === null ? "neutral" : pressureBalanced ? "ok" : "warn"}
-                      />
-                    </div>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(manikin.latestDepthMm, "mm")}</p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(manikin.latestRateCpm, "cpm")}</p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Recoil: {manikin.latestRecoilOk === null ? "-" : manikin.latestRecoilOk ? "OK" : "Not OK"}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Force Balance: {manikin.pressureBalancePct === null ? "-" : `${manikin.pressureBalancePct.toFixed(1)}%`}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Force A/B: {manikin.latestForce1 === null || manikin.latestForce2 === null ? "-" : `${manikin.latestForce1} / ${manikin.latestForce2}`}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(manikin.latestPauseS, "s")}</p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Last Seen: {formatLastSeen(manikin.lastSeen)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Last Event: {manikin.lastEventType ?? "-"}
-                    </p>
+                    <InstructorLiveMetrics
+                      deviceId={manikin.deviceId}
+                      sessionId={activeSession?.sessionId ?? null}
+                      active={active}
+                    />
 
                     {/* Trainee Selection UI */}
                     <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>

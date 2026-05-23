@@ -10,6 +10,7 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -30,20 +31,31 @@ public class MqttCommandPublisherService {
     private final ObjectMapper objectMapper;
     private final String brokerUrl;
     private final String clientId;
+    private final String username;
+    private final String password;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private MqttClient mqttClient;
 
-    public MqttCommandPublisherService(
+        @Autowired
+        public MqttCommandPublisherService(
             ObjectMapper objectMapper,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
-            @Value("${resq.mqtt.command-client-id:hub-api-session-commands}") String clientId
+            @Value("${resq.mqtt.command-client-id:hub-api-session-commands}") String clientId,
+            @Value("${resq.mqtt.username:}") String username,
+            @Value("${resq.mqtt.password:}") String password
     ) {
         this.objectMapper = objectMapper;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
+        this.username = normalize(username);
+        this.password = password;
+    }
+
+    public MqttCommandPublisherService(ObjectMapper objectMapper, String brokerUrl, String clientId) {
+        this(objectMapper, brokerUrl, clientId, null, null);
     }
 
     @PostConstruct
@@ -117,9 +129,21 @@ public class MqttCommandPublisherService {
         options.setCleanSession(true);
         options.setAutomaticReconnect(true);
         options.setConnectionTimeout(5);
+        applyCredentials(options);
 
         mqttClient.connect(options);
         logger.info("MQTT command publisher connected to {}", brokerUrl);
+    }
+
+    private void applyCredentials(MqttConnectOptions options) {
+        if (username == null) {
+            return;
+        }
+
+        options.setUserName(username);
+        if (password != null && !password.isBlank()) {
+            options.setPassword(password.toCharArray());
+        }
     }
 
     private void publish(String topic, Object payload, String action) {
@@ -145,5 +169,14 @@ public class MqttCommandPublisherService {
             logger.warn("Failed to publish MQTT {} command to {}. Error message: {}", action, topic, error.getMessage(), error);
             throw new MqttCommandPublishException("Failed to publish MQTT " + action + " command to " + topic, error);
         }
+    }
+
+    private static String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }
