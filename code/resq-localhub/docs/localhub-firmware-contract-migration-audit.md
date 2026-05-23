@@ -372,3 +372,19 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Smoke-test guide added at `docs/local-firmware-simulator-smoke-test.md` with Mosquitto/backend/UI startup steps, simulator commands, expected MQTT topics, dashboard behavior, and failure simulation flows.
 - No Tauri provisioning, cloud behavior, firmware contract, backend schema, or legacy MQTT compatibility changes were made in this phase.
 - Next phase recommendation: run the documented smoke test with the backend and dashboard, then compare simulator traces against real ESP32 firmware traces before changing provisioning/orchestration.
+
+## S. Phase 6.1 Hotfix Status
+
+- Smoke testing found canonical `resq/{deviceId}/telemetry` packets were rejected because backend telemetry normalization still required `deviceId` in the JSON body.
+- Fix applied: `MqttSubscriberService` now passes the MQTT topic-derived device ID into `TelemetryPayloadNormalizer`, and the normalizer accepts firmware telemetry without `device_id`/`deviceId` when that topic device ID is available.
+- Safety behavior preserved: if a telemetry payload includes a device ID that conflicts with the topic device ID, normalization rejects it with a clear mismatch reason rather than storing data under the wrong device.
+- Existing legacy telemetry compatibility remains: legacy `resq/manikins/{deviceId}/telemetry` topics and older payload fields such as `current_delta`, `currentDelta`, `depthMm`, `rateCpm`, `pauseS`, and `feedback` are still supported.
+- Smoke test should be rerun to confirm the backend no longer logs `payload deviceId is missing` for canonical telemetry and the active session `sampleCount` increases.
+
+## T. Phase 6.2 Hotfix Status
+
+- Follow-up smoke testing showed accepted firmware telemetry was still logging `used firmware depth_progress/current_delta as fallback depthMm`, which made ratio values such as `0.78` appear as physical millimeters.
+- Fix applied: backend `LiveMetricPayload` now carries nullable `depthProgress` separately from nullable `depthMm`; `depth_progress`/`depthProgress` no longer populate `depthMm`.
+- Legacy compatibility remains: explicit `depth_mm`/`depthMm` still populate physical depth, and legacy `current_delta`/`currentDelta` remains a fallback for older non-firmware telemetry.
+- Active session accumulation still counts telemetry samples with only `depthProgress`, keeps rate/recoil/pause/flag data, and avoids calculating millimeter averages from progress-only packets.
+- Smoke test should be rerun to confirm telemetry remains accepted, `sampleCount` increases, and no warning claims `depth_progress` is being used as `depthMm`.

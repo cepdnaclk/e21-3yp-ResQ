@@ -105,6 +105,44 @@ class ActiveSessionServiceTest {
     }
 
     @Test
+    void countsFirmwareTelemetryWithDepthProgressWithoutTreatingItAsMillimeters() throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Depth progress smoke",
+                null
+        ));
+
+        JsonNode firmwareTelemetry = objectMapper.readTree("""
+                {
+                  "session_id": "%s",
+                  "depth_progress": 0.78,
+                  "depth_ok": true,
+                  "rate_cpm": 111,
+                  "compression_count": 1,
+                  "pause_s": 0.2,
+                  "flags": "DEPTH_OK,RATE_OK,RECOIL_OK"
+                }
+                """.formatted(session.sessionId()));
+
+        assertThat(service.validateTelemetryBinding("M01", firmwareTelemetry).accepted()).isTrue();
+        service.recordTelemetry("M01", firmwareTelemetry);
+
+        var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
+        assertThat(liveView.latestDepthMm()).isNull();
+        assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
+
+        SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
+        assertThat(completed.summary().avgDepthMm()).isEqualTo(0.0);
+        assertThat(completed.summary().avgRateCpm()).isEqualTo(111.0);
+        assertThat(completed.summary().latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
+    }
+
+    @Test
     void rejectsEndedSessionAndNonIncreasingSeq() throws Exception {
         ActiveSessionService service = newService();
         SessionStartResponse session = service.startSession(new SessionStartRequest(

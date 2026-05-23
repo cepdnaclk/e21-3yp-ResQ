@@ -13,12 +13,22 @@ final class TelemetryPayloadNormalizer {
     }
 
     static TelemetryNormalizationResult normalize(JsonNode payload) {
+        return normalize(payload, null);
+    }
+
+    static TelemetryNormalizationResult normalize(JsonNode payload, String topicDeviceId) {
         List<String> warnings = new ArrayList<>();
         if (payload == null || !payload.isObject()) {
             return TelemetryNormalizationResult.rejected("payload must be a JSON object", warnings);
         }
 
-        String deviceId = firstText(payload, "deviceId", "device_id");
+        String payloadDeviceId = firstText(payload, "deviceId", "device_id");
+        String normalizedTopicDeviceId = normalizeText(topicDeviceId);
+        if (payloadDeviceId != null && normalizedTopicDeviceId != null && !payloadDeviceId.equals(normalizedTopicDeviceId)) {
+            return TelemetryNormalizationResult.rejected("payload deviceId does not match MQTT topic deviceId", warnings);
+        }
+
+        String deviceId = payloadDeviceId != null ? payloadDeviceId : normalizedTopicDeviceId;
         String sessionId = firstText(payload, "sessionId", "session_id");
         if (deviceId == null) {
             return TelemetryNormalizationResult.rejected("payload deviceId is missing", warnings);
@@ -28,11 +38,12 @@ final class TelemetryPayloadNormalizer {
         }
 
         Double depthMm = firstDouble(payload, "depthMm", "depth_mm");
+        Double depthProgress = firstDouble(payload, "depthProgress", "depth_progress");
         String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "mode"));
         if (depthMm == null) {
-            depthMm = firstDouble(payload, "depth_progress", "depthProgress", "current_delta", "currentDelta");
+            depthMm = firstDouble(payload, "current_delta", "currentDelta");
             if (depthMm != null) {
-                warnings.add("used firmware depth_progress/current_delta as fallback depthMm");
+                warnings.add("used raw current_delta/currentDelta as fallback depthMm");
                 if (sourceMode == null || "real".equals(sourceMode)) {
                     sourceMode = "simulator";
                 }
@@ -59,7 +70,7 @@ final class TelemetryPayloadNormalizer {
             }
         }
 
-        if (depthMm == null && rateCpm == null && recoilOk == null) {
+        if (depthMm == null && depthProgress == null && rateCpm == null && recoilOk == null) {
             return TelemetryNormalizationResult.rejected("payload is missing required metric-first fields", warnings);
         }
 
@@ -76,6 +87,7 @@ final class TelemetryPayloadNormalizer {
                 firstLong(payload, "tsMs", "ts_ms"),
                 jsonValue(payload.get("timestamp")),
                 depthMm,
+                depthProgress,
                 rateCpm,
                 recoilOk,
                 pauseS,
@@ -98,6 +110,9 @@ final class TelemetryPayloadNormalizer {
         if (metric.depthMm() != null && (metric.depthMm() < 0.0 || metric.depthMm() > 120.0)) {
             return "depthMm is outside the accepted range";
         }
+        if (metric.depthProgress() != null && (metric.depthProgress() < 0.0 || metric.depthProgress() > 1.0)) {
+            return "depthProgress is outside the accepted range";
+        }
         if (metric.rateCpm() != null && (metric.rateCpm() < 0.0 || metric.rateCpm() > 240.0)) {
             return "rateCpm is outside the accepted range";
         }
@@ -111,6 +126,15 @@ final class TelemetryPayloadNormalizer {
             return "seq cannot be negative";
         }
         return null;
+    }
+
+    private static String normalizeText(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static String normalizeSourceMode(String value) {

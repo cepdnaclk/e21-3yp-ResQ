@@ -8,6 +8,7 @@ public record LiveMetricPayload(
         Long tsMs,
         Object timestamp,
         Double depthMm,
+        Double depthProgress,
         Double rateCpm,
         Boolean recoilOk,
         Double pauseS,

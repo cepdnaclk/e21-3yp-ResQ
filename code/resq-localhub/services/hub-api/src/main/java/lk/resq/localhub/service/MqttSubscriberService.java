@@ -271,7 +271,7 @@ public class MqttSubscriberService {
                 }
                 case "telemetry" -> {
                     TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                            TelemetryPayloadNormalizer.normalize(payload);
+                            TelemetryPayloadNormalizer.normalize(payload, parsedTopic.deviceId);
                     if (!normalization.ok()) {
                         long rejected = rejectedTelemetryCount.incrementAndGet();
                         logger.warn(

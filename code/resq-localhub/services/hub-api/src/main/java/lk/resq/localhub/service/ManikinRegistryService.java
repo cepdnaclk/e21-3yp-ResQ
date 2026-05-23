@@ -81,7 +81,13 @@ public class ManikinRegistryService {
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.seq = firstLong(payload, state.seq, "seq");
-            state.latestDepthMm = firstDouble(payload, state.latestDepthMm, "depthMm", "depth_mm");
+            Double payloadDepthMm = firstDouble(payload, null, "depthMm", "depth_mm");
+            Double payloadDepthProgress = firstDouble(payload, null, "depthProgress", "depth_progress");
+            if (payloadDepthMm != null) {
+                state.latestDepthMm = payloadDepthMm;
+            } else if (payloadDepthProgress != null) {
+                state.latestDepthMm = null;
+            }
             state.latestRateCpm = firstDouble(payload, state.latestRateCpm, "rateCpm", "rate_cpm");
             state.latestRecoilOk = firstBoolean(payload, state.latestRecoilOk, "recoilOk", "recoil_ok", "recoil");
             state.latestPauseS = firstDouble(payload, state.latestPauseS, "pauseS", "pause_s");
@@ -111,6 +117,7 @@ public class ManikinRegistryService {
                     firstLong(payload, null, "tsMs", "ts_ms"),
                     jsonValue(payload.get("timestamp")),
                     state.latestDepthMm,
+                    payloadDepthProgress,
                     state.latestRateCpm,
                     state.latestRecoilOk,
                     state.latestPauseS,
