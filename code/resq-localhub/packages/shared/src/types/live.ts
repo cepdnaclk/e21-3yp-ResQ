@@ -27,6 +27,9 @@ export type LiveDeviceStatus = {
   rssi?: number | null;
   battery?: number | null;
   sessionActive?: boolean | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  lastErrorId?: string | null;
 };
 
 export type LiveSessionStatus = {
@@ -49,13 +52,28 @@ export type LiveMetricPayload = {
   tsMs?: number | null;
   timestamp?: string | number | null;
   depthMm: number | null;
+  depthProgress?: number | null;
+  depthOk?: boolean | null;
   rateCpm: number | null;
   recoilOk: boolean | null;
+  recoilOkCount?: number | null;
+  incompleteRecoilCount?: number | null;
   pauseS: number | null;
   compressionCount: number | null;
+  validCompressionCount?: number | null;
   handPlacement: string | null;
+  pressureBalancePct?: number | null;
   flags: string | string[] | null;
+  sessionActive?: boolean | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  lastErrorId?: string | null;
+  eventId?: number | null;
+  reasonId?: string | null;
+  actionId?: number | null;
+  progressId?: number | null;
   sourceMode?: LiveMetricSourceMode;
+  rawPayload?: unknown;
   debugRaw?: unknown;
 };
 
@@ -69,4 +87,12 @@ export type LiveFallbackSnapshot = {
   stale: boolean;
   offline: boolean;
   message?: string | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  sessionActive?: boolean | null;
+  lastErrorId?: string | null;
+  eventId?: number | null;
+  reasonId?: string | null;
+  actionId?: number | null;
+  progressId?: number | null;
 };

@@ -29,6 +29,14 @@ It is a Windows-first desktop application intended for an instructor PC to manag
 
 ## Quick Start
 
+For a Windows-first local demo path, start with:
+
+- [Local demo runbook](docs/local-demo-runbook.md)
+- [Local demo launcher](scripts/local-demo/start-local-demo.ps1)
+- [Local firmware simulator smoke test](docs/local-firmware-simulator-smoke-test.md)
+- [Real ESP32 integration smoke test](docs/real-esp32-localhub-integration-smoke-test.md)
+- [Local firmware integration handoff](docs/localhub-firmware-integration-handoff.md)
+
 ### 1) Backend API
 
 ```powershell
@@ -141,3 +149,7 @@ See:
 - `docs/architecture-overview.md`
 - `docs/open-source-plan.md`
 - `docs/development-plan.md`
+- `docs/local-demo-runbook.md`
+- `docs/local-firmware-simulator-smoke-test.md`
+- `docs/real-esp32-localhub-integration-smoke-test.md`
+- `docs/localhub-firmware-integration-handoff.md`

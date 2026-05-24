@@ -56,16 +56,28 @@ public class LocalSessionRepository {
                 statement.executeUpdate("""
                         CREATE TABLE IF NOT EXISTS session_metrics (
                           session_id TEXT PRIMARY KEY,
+                                                    sample_count INTEGER NOT NULL DEFAULT 0,
+                                                    total_compressions INTEGER NOT NULL DEFAULT 0,
+                                                    valid_compressions INTEGER NOT NULL DEFAULT 0,
                           duration_seconds INTEGER NOT NULL,
                           avg_depth_mm REAL NOT NULL,
+                                                    avg_depth_progress REAL,
                           avg_rate_cpm REAL NOT NULL,
                           recoil_pct REAL NOT NULL,
+                                                    recoil_ok_count INTEGER NOT NULL DEFAULT 0,
+                                                    incomplete_recoil_count INTEGER NOT NULL DEFAULT 0,
                           pauses_count INTEGER NOT NULL,
                           score INTEGER NOT NULL,
                           latest_flags TEXT,
                           FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
                         )
                         """);
+                ensureColumn(connection, "session_metrics", "sample_count", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumn(connection, "session_metrics", "total_compressions", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumn(connection, "session_metrics", "valid_compressions", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumn(connection, "session_metrics", "avg_depth_progress", "REAL");
+                ensureColumn(connection, "session_metrics", "recoil_ok_count", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumn(connection, "session_metrics", "incomplete_recoil_count", "INTEGER NOT NULL DEFAULT 0");
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize local SQLite store at " + databasePath, error);
@@ -89,13 +101,19 @@ public class LocalSessionRepository {
                     """);
                  PreparedStatement metricsStatement = connection.prepareStatement("""
                     INSERT INTO session_metrics (
-                      session_id, duration_seconds, avg_depth_mm, avg_rate_cpm, recoil_pct, pauses_count, score, latest_flags
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                            session_id, sample_count, total_compressions, valid_compressions, duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm, recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count, score, latest_flags
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
+                                            sample_count = excluded.sample_count,
+                                            total_compressions = excluded.total_compressions,
+                                            valid_compressions = excluded.valid_compressions,
                       duration_seconds = excluded.duration_seconds,
                       avg_depth_mm = excluded.avg_depth_mm,
+                                            avg_depth_progress = excluded.avg_depth_progress,
                       avg_rate_cpm = excluded.avg_rate_cpm,
                       recoil_pct = excluded.recoil_pct,
+                                            recoil_ok_count = excluded.recoil_ok_count,
+                                            incomplete_recoil_count = excluded.incomplete_recoil_count,
                       pauses_count = excluded.pauses_count,
                       score = excluded.score,
                       latest_flags = excluded.latest_flags
@@ -112,13 +130,23 @@ public class LocalSessionRepository {
 
                 SessionSummary summary = session.summary();
                 metricsStatement.setString(1, summary.sessionId());
-                metricsStatement.setLong(2, summary.durationSeconds());
-                metricsStatement.setDouble(3, summary.avgDepthMm());
-                metricsStatement.setDouble(4, summary.avgRateCpm());
-                metricsStatement.setDouble(5, summary.recoilPct());
-                metricsStatement.setInt(6, summary.pausesCount());
-                metricsStatement.setInt(7, summary.score());
-                metricsStatement.setString(8, summary.latestFlags());
+                metricsStatement.setInt(2, summary.sampleCount());
+                metricsStatement.setInt(3, summary.totalCompressions());
+                metricsStatement.setInt(4, summary.validCompressions());
+                metricsStatement.setLong(5, summary.durationSeconds());
+                metricsStatement.setDouble(6, summary.avgDepthMm());
+                if (summary.avgDepthProgress() == null) {
+                    metricsStatement.setNull(7, java.sql.Types.REAL);
+                } else {
+                    metricsStatement.setDouble(7, summary.avgDepthProgress());
+                }
+                metricsStatement.setDouble(8, summary.avgRateCpm());
+                metricsStatement.setDouble(9, summary.recoilPct());
+                metricsStatement.setInt(10, summary.recoilOkCount());
+                metricsStatement.setInt(11, summary.incompleteRecoilCount());
+                metricsStatement.setInt(12, summary.pausesCount());
+                metricsStatement.setInt(13, summary.score());
+                metricsStatement.setString(14, summary.latestFlags());
                 metricsStatement.executeUpdate();
 
                 connection.commit();
@@ -142,10 +170,16 @@ public class LocalSessionRepository {
                        s.ended_at,
                        s.scenario,
                        s.notes,
+                       m.sample_count,
+                       m.total_compressions,
+                       m.valid_compressions,
                        m.duration_seconds,
                        m.avg_depth_mm,
+                       m.avg_depth_progress,
                        m.avg_rate_cpm,
                        m.recoil_pct,
+                       m.recoil_ok_count,
+                       m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
                        m.latest_flags
@@ -178,10 +212,16 @@ public class LocalSessionRepository {
                        s.ended_at,
                        s.scenario,
                        s.notes,
+                       m.sample_count,
+                       m.total_compressions,
+                       m.valid_compressions,
                        m.duration_seconds,
                        m.avg_depth_mm,
+                       m.avg_depth_progress,
                        m.avg_rate_cpm,
                        m.recoil_pct,
+                       m.recoil_ok_count,
+                       m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
                        m.latest_flags
@@ -209,9 +249,15 @@ public class LocalSessionRepository {
                 parseInstant(resultSet.getString("started_at")),
                 parseInstant(resultSet.getString("ended_at")),
                 resultSet.getLong("duration_seconds"),
+            resultSet.getInt("sample_count"),
+            resultSet.getInt("total_compressions"),
+            resultSet.getInt("valid_compressions"),
                 resultSet.getDouble("avg_depth_mm"),
+            nullableDouble(resultSet, "avg_depth_progress"),
                 resultSet.getDouble("avg_rate_cpm"),
                 resultSet.getDouble("recoil_pct"),
+            resultSet.getInt("recoil_ok_count"),
+            resultSet.getInt("incomplete_recoil_count"),
                 resultSet.getInt("pauses_count"),
                 resultSet.getInt("score"),
                 resultSet.getString("latest_flags")
@@ -236,5 +282,26 @@ public class LocalSessionRepository {
 
     private static Instant parseInstant(String value) {
         return value == null ? null : Instant.parse(value);
+    }
+
+    private static void ensureColumn(Connection connection, String tableName, String columnName, String definition) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("PRAGMA table_info(" + tableName + ")")) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    if (columnName.equalsIgnoreCase(resultSet.getString("name"))) {
+                        return;
+                    }
+                }
+            }
+        }
+
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + definition);
+        }
+    }
+
+    private static Double nullableDouble(ResultSet resultSet, String columnLabel) throws SQLException {
+        double value = resultSet.getDouble(columnLabel);
+        return resultSet.wasNull() ? null : value;
     }
 }

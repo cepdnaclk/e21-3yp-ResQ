@@ -39,19 +39,22 @@ public class ActiveSessionService {
     private final LocalSessionRepository localSessionRepository;
     private final LiveStreamService liveStreamService;
     private final TraineeRecordsRepository traineeRecordsRepository;
+    private final FirmwareCalibrationService firmwareCalibrationService;
 
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
             MqttCommandPublisherService mqttCommandPublisherService,
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
-            TraineeRecordsRepository traineeRecordsRepository
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.localSessionRepository = localSessionRepository;
         this.liveStreamService = liveStreamService;
         this.traineeRecordsRepository = traineeRecordsRepository;
+        this.firmwareCalibrationService = firmwareCalibrationService;
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -67,6 +70,10 @@ public class ActiveSessionService {
                 throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
             }
         }
+        firmwareCalibrationService.sessionStartBlockReason(deviceId)
+                .ifPresent(reason -> {
+                    throw new IllegalStateException(reason);
+                });
 
         String traineeId = resolveTraineeId(request);
 
@@ -207,11 +214,7 @@ public class ActiveSessionService {
         }
 
         String payloadDeviceId = firstText(payload, null, "deviceId", "device_id");
-        if (payloadDeviceId == null) {
-            return TelemetryValidationResult.rejected("payload deviceId is missing");
-        }
-
-        if (!normalizedDeviceId.equals(payloadDeviceId)) {
+        if (payloadDeviceId != null && !normalizedDeviceId.equals(payloadDeviceId)) {
             return TelemetryValidationResult.rejected("payload deviceId does not match MQTT topic deviceId");
         }
 
@@ -235,7 +238,7 @@ public class ActiveSessionService {
         }
 
         TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                TelemetryPayloadNormalizer.normalize(payload);
+                TelemetryPayloadNormalizer.normalize(payload, normalizedDeviceId);
         if (!normalization.ok()) {
             return TelemetryValidationResult.rejected(normalization.reason());
         }
@@ -259,7 +262,7 @@ public class ActiveSessionService {
         }
 
         TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                TelemetryPayloadNormalizer.normalize(payload);
+                TelemetryPayloadNormalizer.normalize(payload, deviceId);
         if (!normalization.ok()) {
             logger.info("Rejected telemetry for device {}: {}", deviceId, normalization.reason());
             return;
@@ -274,9 +277,11 @@ public class ActiveSessionService {
         LiveMetricPayload metric = normalization.value();
         state.accumulator.record(
                 metric.depthMm(),
+                metric.depthProgress(),
                 metric.rateCpm(),
                 metric.recoilOk(),
-                metric.pauseS(),
+            metric.pauseS(),
+            metric.compressionCount(),
                 flagsToString(metric.flags())
         );
         if (metric.seq() != null) {
@@ -284,11 +289,12 @@ public class ActiveSessionService {
         }
         getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         logger.info(
-            "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, rateCpm={}, recoilOk={}, pauseS={})",
+            "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, depthProgress={}, rateCpm={}, recoilOk={}, pauseS={})",
             state.sessionId,
             state.deviceId,
             state.accumulator.sampleCount(),
             metric.depthMm(),
+            metric.depthProgress(),
             metric.rateCpm(),
             metric.recoilOk(),
             metric.pauseS()
@@ -579,26 +585,48 @@ public class ActiveSessionService {
 
     private static final class SessionTelemetryAccumulator {
         private int sampleCount;
+        private int totalCompressions;
+        private int validCompressions;
+        private int depthSampleCount;
+        private int depthProgressSampleCount;
+        private int rateSampleCount;
         private double depthSumMm;
+        private double depthProgressSum;
         private double rateSumCpm;
         private int recoilTrueCount;
         private int recoilFalseCount;
         private int pausesCount;
         private Double lastDepthMm;
+        private Double lastDepthProgress;
         private Double lastRateCpm;
         private Boolean lastRecoilOk;
         private Double lastPauseS;
         private String latestFlags;
 
-        private void record(Double depthMm, Double rateCpm, Boolean recoilOk, Double pauseS, String flags) {
+        private void record(Double depthMm, Double depthProgress, Double rateCpm, Boolean recoilOk, Double pauseS, Integer compressionCount, String flags) {
             sampleCount++;
 
+            if (compressionCount != null && compressionCount > 0) {
+                totalCompressions += compressionCount;
+                if (Boolean.TRUE.equals(recoilOk)) {
+                    validCompressions += compressionCount;
+                }
+            }
+
             if (depthMm != null) {
+                depthSampleCount++;
                 depthSumMm += depthMm;
                 lastDepthMm = depthMm;
             }
 
+            if (depthProgress != null) {
+                depthProgressSampleCount++;
+                depthProgressSum += depthProgress;
+                lastDepthProgress = depthProgress;
+            }
+
             if (rateCpm != null) {
+                rateSampleCount++;
                 rateSumCpm += rateCpm;
                 lastRateCpm = rateCpm;
             }
@@ -626,6 +654,10 @@ public class ActiveSessionService {
             return lastDepthMm;
         }
 
+        private Double lastDepthProgress() {
+            return lastDepthProgress;
+        }
+
         private Double lastRateCpm() {
             return lastRateCpm;
         }
@@ -650,14 +682,17 @@ public class ActiveSessionService {
             long durationSeconds = Math.max(0L, Duration.between(startedAt, endedAt).getSeconds());
             int totalSamples = sampleCount;
             int totalRecoilSamples = recoilTrueCount + recoilFalseCount;
-            double avgDepthMm = totalSamples == 0 ? 0.0 : depthSumMm / totalSamples;
-            double avgRateCpm = totalSamples == 0 ? 0.0 : rateSumCpm / totalSamples;
+            double avgDepthMm = depthSampleCount == 0 ? 0.0 : depthSumMm / depthSampleCount;
+            Double avgDepthProgress = depthProgressSampleCount == 0 ? null : depthProgressSum / depthProgressSampleCount;
+            double avgRateCpm = rateSampleCount == 0 ? 0.0 : rateSumCpm / rateSampleCount;
             double recoilPct = totalRecoilSamples == 0 ? 0.0 : (recoilTrueCount * 100.0) / totalRecoilSamples;
 
             logger.info(
-                    "Computed summary from telemetry (sessionId={}, sampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
+                    "Computed summary from telemetry (sessionId={}, sampleCount={}, depthSampleCount={}, depthProgressSampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
                     sessionId,
                     totalSamples,
+                    depthSampleCount,
+                    depthProgressSampleCount,
                     recoilTrueCount,
                     recoilFalseCount,
                     pausesCount
@@ -670,9 +705,15 @@ public class ActiveSessionService {
                     startedAt,
                     endedAt,
                     durationSeconds,
+                        totalSamples,
+                        totalCompressions,
+                        validCompressions,
                     avgDepthMm,
+                        avgDepthProgress,
                     avgRateCpm,
                     recoilPct,
+                        recoilTrueCount,
+                        recoilFalseCount,
                     pausesCount,
                     0,
                     latestFlags
@@ -685,9 +726,15 @@ public class ActiveSessionService {
                     baseSummary.startedAt(),
                     baseSummary.endedAt(),
                     baseSummary.durationSeconds(),
+                    baseSummary.sampleCount(),
+                    baseSummary.totalCompressions(),
+                    baseSummary.validCompressions(),
                     baseSummary.avgDepthMm(),
+                    baseSummary.avgDepthProgress(),
                     baseSummary.avgRateCpm(),
                     baseSummary.recoilPct(),
+                    baseSummary.recoilOkCount(),
+                    baseSummary.incompleteRecoilCount(),
                     baseSummary.pausesCount(),
                     calculateScore(baseSummary),
                     baseSummary.latestFlags()

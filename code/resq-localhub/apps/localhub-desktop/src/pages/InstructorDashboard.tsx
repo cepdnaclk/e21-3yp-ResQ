@@ -18,18 +18,32 @@ import {
   endSession,
   fetchCompletedSession,
   fetchCompletedSessions,
-  getSessionCsvExportUrl,
-  getSessionJsonExportUrl,
   startSession,
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
 import { useLiveSession } from "../hooks/useLiveSession";
-import { requestManikinPairing } from "../lib/browserManikinsProvisionApi";
+import {
+  buildEspProvisioningUrl,
+  buildFirmwareProvisioningPayload,
+  fetchHubServiceInfo,
+  type FirmwareProvisioningPayload,
+  type HubServiceInfoResponse,
+} from "../lib/browserManikinsProvisionApi";
 import {
   fetchManikinRegistry,
   type ManikinRegistryEntry,
 } from "../lib/browserManikinRegistryApi";
+import {
+  cancelCalibration,
+  getReadiness,
+  startCalibration,
+  type FirmwareCalibrationStartPayload,
+  type FirmwareReadinessResponse,
+} from "../lib/browserFirmwareApi";
+import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
+import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
+import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { QRCodeSVG as QR } from "qrcode.react";
 
 /**
@@ -136,6 +150,7 @@ function IndicatorBadge({
 }
 
 type SessionActionState = "idle" | "starting" | "ending";
+type CalibrationActionState = "idle" | "starting" | "cancelling";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
 
 type InstructorDashboardProps = {
@@ -234,6 +249,8 @@ export default function InstructorDashboard({
 
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
   const [sessionActionByDevice, setSessionActionByDevice] = useState<Record<string, SessionActionState>>({});
+  const [calibrationActionByDevice, setCalibrationActionByDevice] = useState<Record<string, CalibrationActionState>>({});
+  const [readinessByDevice, setReadinessByDevice] = useState<Record<string, FirmwareReadinessResponse | null>>({});
   const [sessionMessageByDevice, setSessionMessageByDevice] = useState<Record<string, string | null>>({});
   const [recentSessions, setRecentSessions] = useState<CompletedSession[]>([]);
   const [recentSessionsLoading, setRecentSessionsLoading] = useState(true);
@@ -243,19 +260,39 @@ export default function InstructorDashboard({
   const [expandedSessionDetail, setExpandedSessionDetail] = useState<CompletedSession | null>(null);
   const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
+  const [selectedCalibrationDeviceId, setSelectedCalibrationDeviceId] = useState<string | null>(null);
   // State for the "Pair New Manikin" panel
-  const [pairingDeviceId, setPairingDeviceId] = useState<string>("");
+  const [espSetupBaseUrl, setEspSetupBaseUrl] = useState<string>("http://192.168.4.1");
+  const [espProvisionPath, setEspProvisionPath] = useState<string>("/");
+  const [provisioningWifiSsid, setProvisioningWifiSsid] = useState<string>("");
+  const [provisioningWifiPassword, setProvisioningWifiPassword] = useState<string>("");
+  const [provisioningBackendBaseUrl, setProvisioningBackendBaseUrl] = useState<string>("");
+  const [provisioningAutoSave, setProvisioningAutoSave] = useState<boolean>(true);
   const [pairingLoading, setPairingLoading] = useState<boolean>(false);
   const [pairingError, setPairingError] = useState<string | null>(null);
-  const [pairingResult, setPairingResult] = useState<{
-    deviceId: string;
-    token: string;
-    expiresAt: string;
-  } | null>(null);
+  const [serviceInfo, setServiceInfo] = useState<HubServiceInfoResponse | null>(null);
+  const [serviceInfoError, setServiceInfoError] = useState<string | null>(null);
+  const [provisioningUrl, setProvisioningUrl] = useState<string | null>(null);
+  const [provisioningPayload, setProvisioningPayload] = useState<FirmwareProvisioningPayload | null>(null);
   // State for the Device Registry panel
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
   const [registryError, setRegistryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (manikins.length === 0) {
+      if (selectedCalibrationDeviceId !== null) {
+        setSelectedCalibrationDeviceId(null);
+      }
+      return;
+    }
+
+    const selectedStillExists = selectedCalibrationDeviceId && manikins.some((manikin) => manikin.deviceId === selectedCalibrationDeviceId);
+    if (!selectedStillExists) {
+      setSelectedCalibrationDeviceId(manikins[0].deviceId);
+    }
+  }, [manikins, selectedCalibrationDeviceId]);
+
   function applyManikinSnapshot(live: ManikinLiveSummary[]) {
     setManikins(live);
     setSessionDrafts((current) => {
@@ -271,12 +308,35 @@ export default function InstructorDashboard({
     });
   }
 
+  async function loadRecentSessions() {
+    try {
+      const sessions = await fetchCompletedSessions();
+      setRecentSessions(sessions);
+      setRecentSessionsError(null);
+    } catch (error) {
+      setRecentSessionsError(error instanceof Error ? error.message : "Failed to load completed sessions.");
+    } finally {
+      setRecentSessionsLoading(false);
+    }
+  }
+
   useEffect(() => {
     async function loadHealth() {
       setHealthLoading(true);
       const result = await fetchBrowserHealth();
       setHealth(result);
       setHealthLoading(false);
+    }
+
+    async function loadServiceInfo() {
+      try {
+        const info = await fetchHubServiceInfo();
+        setServiceInfo(info);
+        setServiceInfoError(null);
+      } catch (error) {
+        setServiceInfo(null);
+        setServiceInfoError(error instanceof Error ? error.message : "LocalHub service info is unavailable.");
+      }
     }
 
     async function loadManikins() {
@@ -289,18 +349,6 @@ export default function InstructorDashboard({
         setManikinsError(message);
       } finally {
         setManikinsLoading(false);
-      }
-    }
-
-    async function loadRecentSessions() {
-      try {
-        const sessions = await fetchCompletedSessions();
-        setRecentSessions(sessions);
-        setRecentSessionsError(null);
-      } catch (error) {
-        setRecentSessionsError(error instanceof Error ? error.message : "Failed to load completed sessions.");
-      } finally {
-        setRecentSessionsLoading(false);
       }
     }
 
@@ -428,6 +476,7 @@ export default function InstructorDashboard({
     }
 
     loadHealth();
+    loadServiceInfo();
     loadManikins();
     loadRecentSessions();
     loadTrainees();
@@ -435,6 +484,7 @@ export default function InstructorDashboard({
     connectManikinStream();
 
     const healthInterval = setInterval(loadHealth, 5000);
+    const serviceInfoInterval = setInterval(loadServiceInfo, 10000);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
     const registryInterval = setInterval(loadRegistry, 15000);
     
@@ -448,6 +498,7 @@ export default function InstructorDashboard({
       }
       stopFallbackPolling();
       clearInterval(healthInterval);
+      clearInterval(serviceInfoInterval);
       clearInterval(recentSessionsInterval);
       clearInterval(registryInterval);
     };
@@ -456,6 +507,58 @@ export default function InstructorDashboard({
   const manikinByDeviceId = useMemo(() => {
     return new Map(manikins.map((manikin) => [manikin.deviceId, manikin]));
   }, [manikins]);
+  const deviceIdsKey = useMemo(() => manikins.map((manikin) => manikin.deviceId).sort().join("|"), [manikins]);
+
+  useEffect(() => {
+    if (!deviceIdsKey) {
+      return;
+    }
+
+    let cancelled = false;
+    const deviceIds = deviceIdsKey.split("|").filter(Boolean);
+
+    async function loadReadiness() {
+      const entries = await Promise.all(
+        deviceIds.map(async (deviceId) => {
+          try {
+            const readiness = await getReadiness(deviceId);
+            return [deviceId, readiness] as const;
+          } catch {
+            return [deviceId, null] as const;
+          }
+        })
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      setReadinessByDevice((current) => {
+        const next = { ...current };
+        for (const [deviceId, readiness] of entries) {
+          next[deviceId] = readiness;
+        }
+        return next;
+      });
+    }
+
+    loadReadiness();
+    const interval = window.setInterval(loadReadiness, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [deviceIdsKey]);
+
+  useEffect(() => {
+    if (!serviceInfo?.backend_base_url) {
+      return;
+    }
+
+    if (!provisioningBackendBaseUrl.trim()) {
+      setProvisioningBackendBaseUrl(serviceInfo.backend_base_url);
+    }
+  }, [serviceInfo?.backend_base_url, provisioningBackendBaseUrl]);
 
   function formatLastSeen(value: string | null): string {
     if (!value) {
@@ -476,6 +579,24 @@ export default function InstructorDashboard({
     }
 
     return `${value.toFixed(1)} ${suffix}`;
+  }
+
+  function readinessKnown(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+    return Boolean(readiness?.firmwareState || readiness?.latestResult);
+  }
+
+  function startBlockedByReadiness(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+    if (!readinessKnown(readiness)) {
+      return false;
+    }
+
+    const state = readiness?.firmwareState ?? "";
+    return (
+      !readiness?.readyForSession ||
+      state === "CALIBRATING" ||
+      state === "CALIBRATION_FAIL" ||
+      state === "ERROR"
+    );
   }
 
   function buildTraineeUrl(sessionId: string): string | null {
@@ -656,6 +777,57 @@ export default function InstructorDashboard({
     }
   }
 
+  async function refreshDeviceReadiness(deviceId: string) {
+    try {
+      const readiness = await getReadiness(deviceId);
+      setReadinessByDevice((current) => ({ ...current, [deviceId]: readiness }));
+    } catch {
+      setReadinessByDevice((current) => ({ ...current, [deviceId]: null }));
+    }
+  }
+
+  async function handleRunCalibration(deviceId: string, payload: FirmwareCalibrationStartPayload) {
+    setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "starting" }));
+    setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
+
+    try {
+      const response = await startCalibration(deviceId, payload);
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: `Calibration requested (${response.requestId})`,
+      }));
+      await refreshDeviceReadiness(deviceId);
+    } catch (error) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: error instanceof Error ? error.message : "Failed to start calibration.",
+      }));
+    } finally {
+      setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
+    }
+  }
+
+  async function handleCancelCalibration(deviceId: string) {
+    setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "cancelling" }));
+    setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
+
+    try {
+      const response = await cancelCalibration(deviceId);
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: `Calibration cancel requested (${response.requestId})`,
+      }));
+      await refreshDeviceReadiness(deviceId);
+    } catch (error) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: error instanceof Error ? error.message : "Failed to cancel calibration.",
+      }));
+    } finally {
+      setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
+    }
+  }
+
   async function handleViewDetails(sessionId: string) {
     if (expandedSessionId === sessionId) {
       setExpandedSessionId(null);
@@ -680,27 +852,49 @@ export default function InstructorDashboard({
     }
   }
   async function handleRequestPairing() {
-    // Guard: don't do anything if the input box is empty
-    if (!pairingDeviceId.trim()) return;
+    if (!provisioningWifiSsid.trim()) return;
 
     setPairingLoading(true);
     setPairingError(null);
-    setPairingResult(null);
+    setProvisioningUrl(null);
+    setProvisioningPayload(null);
 
     try {
-      // This calls POST /api/manikins/pair-request on the Spring Boot backend
-      const result = await requestManikinPairing(pairingDeviceId.trim());
-      setPairingResult(result);
-    }   catch (error) {
-      // If the backend returns an error, show it to the instructor
+      const info = serviceInfo ?? await fetchHubServiceInfo();
+      setServiceInfo(info);
+      const backendBaseUrl = provisioningBackendBaseUrl.trim() || info.backend_base_url;
+      const payload = buildFirmwareProvisioningPayload(
+        {
+          ...info,
+          backend_base_url: backendBaseUrl,
+        },
+        provisioningWifiSsid.trim(),
+        provisioningWifiPassword,
+      );
+      const url = buildEspProvisioningUrl({
+        espSetupBaseUrl,
+        espProvisionPath,
+        wifiSsid: payload.wifi_ssid,
+        wifiPassword: payload.wifi_pass,
+        backendBaseUrl: payload.backend_base_url,
+        autoSave: provisioningAutoSave,
+      });
+
+      setProvisioningPayload(payload);
+      setProvisioningUrl(url);
+    } catch (error) {
       setPairingError(
-        error instanceof Error ? error.message : "Failed to generate pairing token."
+        error instanceof Error ? error.message : "Failed to generate provisioning payload."
       );
     } finally {
-      // Whether it succeeded or failed, stop showing the loading state
       setPairingLoading(false);
     }
   }
+
+  const provisioningPayloadText = provisioningPayload
+    ? JSON.stringify(provisioningPayload, null, 2)
+    : "";
+  const provisioningUrlText = provisioningUrl ?? "";
 
   return (
     <div style={styles.container}>
@@ -779,28 +973,33 @@ export default function InstructorDashboard({
         </section>
         <section style={styles.card}>
           <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>
-            Pair New Manikin
+            Firmware Provisioning
           </h2>
           <p style={{ margin: "0 0 14px 0", color: "#64748b", fontSize: "0.9rem" }}>
-            Enter the Device ID printed on the manikin module, then click Generate.
-            A QR code will appear for the person setting up the manikin to scan.
+            Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
           </p>
 
-          {/* Input row: text box and button sit side by side */}
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
+          <ol style={{ margin: "0 0 14px 18px", padding: 0, color: "#475569", fontSize: "0.86rem", lineHeight: 1.5 }}>
+            <li>Power on ESP in provisioning mode.</li>
+            <li>Connect phone to the ESP Wi-Fi, for example "ResQ Setup".</li>
+            <li>Scan this QR.</li>
+            <li>The firmware portal opens with Wi-Fi and LocalHub details.</li>
+            <li>If auto-save is supported by firmware and enabled, the device connects automatically.</li>
+            <li>Otherwise, press Save Configuration in the firmware portal.</li>
+          </ol>
+
+          <div style={{ display: "grid", gap: "8px", marginBottom: "12px" }}>
             <input
               type="text"
-              placeholder="Device ID e.g. M01"
-              value={pairingDeviceId}
+              placeholder="ESP setup base URL"
+              value={espSetupBaseUrl}
               onChange={(e) => {
-                setPairingDeviceId(e.target.value);
-                // Clear any previous result or error as the instructor types
-                setPairingResult(null);
+                setEspSetupBaseUrl(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
                 setPairingError(null);
               }}
               style={{
-                flex: 1,
-                minWidth: "180px",
                 padding: "8px 10px",
                 borderRadius: "6px",
                 border: "1px solid #cbd5e1",
@@ -808,35 +1007,144 @@ export default function InstructorDashboard({
                 fontSize: "0.9rem",
               }}
             />
+            <input
+              type="text"
+              placeholder="ESP provision path"
+              value={espProvisionPath}
+              onChange={(e) => {
+                setEspProvisionPath(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Wi-Fi SSID"
+              value={provisioningWifiSsid}
+              onChange={(e) => {
+                setProvisioningWifiSsid(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <input
+              type="password"
+              placeholder="Wi-Fi password"
+              value={provisioningWifiPassword}
+              onChange={(e) => {
+                setProvisioningWifiPassword(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Backend base URL"
+              value={provisioningBackendBaseUrl}
+              onChange={(e) => {
+                setProvisioningBackendBaseUrl(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#334155", fontSize: "0.88rem" }}>
+              <input
+                type="checkbox"
+                checked={provisioningAutoSave}
+                onChange={(e) => {
+                  setProvisioningAutoSave(e.target.checked);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+              />
+              Auto-save on scan
+            </label>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
             <button
               type="button"
-              disabled={pairingLoading || !pairingDeviceId.trim()}
+              disabled={pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url)}
               onClick={handleRequestPairing}
               style={{
                 padding: "8px 14px",
                 borderRadius: "6px",
                 border: "1px solid #0f172a",
-                // Button goes grey when disabled (loading or empty input)
-                background: pairingLoading || !pairingDeviceId.trim() ? "#e2e8f0" : "#0f172a",
-                color: pairingLoading || !pairingDeviceId.trim() ? "#64748b" : "#ffffff",
+                background: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#e2e8f0" : "#0f172a",
+                color: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#64748b" : "#ffffff",
                 fontWeight: 600,
-                cursor: pairingLoading || !pairingDeviceId.trim() ? "not-allowed" : "pointer",
+                cursor: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "not-allowed" : "pointer",
                 fontSize: "0.9rem",
               }}
             >
-              {pairingLoading ? "Generating..." : "Generate Pairing QR"}
+              {pairingLoading ? "Generating..." : "Generate QR"}
             </button>
           </div>
 
-          {/* Error message — only shown when something goes wrong */}
+          <div style={{ display: "grid", gap: "6px", marginBottom: "12px", fontSize: "0.84rem", color: "#475569" }}>
+            <p style={{ margin: 0 }}>
+              Service backend_base_url: <strong>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              Service mqtt_host: <strong>{serviceInfo?.mqtt_host ?? "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              Service mqtt_port: <strong>{serviceInfo?.mqtt_port ?? "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              Service local_ip: <strong>{serviceInfo?.local_ip ?? "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              QR sends only Wi-Fi + backend URL. Firmware gets MQTT host/port from LocalHub after registration.
+            </p>
+          </div>
+
+          {serviceInfoError ? (
+            <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.88rem" }}>
+              {serviceInfoError}
+            </p>
+          ) : null}
+
           {pairingError ? (
             <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.88rem" }}>
               {pairingError}
             </p>
           ) : null}
 
-          {/* Success result — only shown after a successful backend response */}
-          {pairingResult ? (
+          {provisioningPayload && provisioningUrl ? (
             <div style={{
               padding: "14px",
               borderRadius: "10px",
@@ -847,26 +1155,55 @@ export default function InstructorDashboard({
               justifyItems: "center",
             }}>
               <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", color: "#0f172a" }}>
-                Scan to provision the manikin
+                Scan to provision firmware
               </p>
-              {/* QR encodes the full pairing payload as JSON so the
-                  manikin's provisioning portal can read it in one scan */}
               <QR
-                value={JSON.stringify(pairingResult)}
+                value={provisioningUrl}
                 size={180}
                 bgColor="#ffffff"
                 fgColor="#0f172a"
                 level="M"
               />
               <p style={{ margin: 0, color: "#475569", fontSize: "0.82rem", textAlign: "center" }}>
-                Device: <strong>{pairingResult.deviceId}</strong>
-                {" · "}
-                Expires: {new Date(pairingResult.expiresAt).toLocaleTimeString()}
+                QR URL includes wifi_ssid, wifi_pass, backend_base_url, and optional auto=1.
               </p>
-              {/* Fallback for people who cannot scan a QR code */}
+
+              <div style={{ width: "100%", display: "grid", gap: "6px" }}>
+                <p style={{ margin: 0, color: "#334155", fontSize: "0.82rem", fontWeight: 600 }}>
+                  Generated Provisioning URL
+                </p>
+                <code style={{
+                  display: "block",
+                  padding: "8px",
+                  background: "#e2e8f0",
+                  borderRadius: "4px",
+                  wordBreak: "break-all",
+                  fontSize: "0.78rem",
+                }}>
+                  {provisioningUrlText}
+                </code>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(provisioningUrlText)}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "0.84rem",
+                }}
+              >
+                Copy URL
+              </button>
+
               <details style={{ width: "100%", fontSize: "0.82rem", color: "#64748b" }}>
                 <summary style={{ cursor: "pointer" }}>
-                  Show raw token (manual entry fallback)
+                  Developer JSON copy
                 </summary>
                 <code style={{
                   display: "block",
@@ -877,9 +1214,25 @@ export default function InstructorDashboard({
                   wordBreak: "break-all",
                   fontSize: "0.78rem",
                 }}>
-                  {pairingResult.token}
+                  {provisioningPayloadText}
                 </code>
               </details>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(provisioningPayloadText)}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "0.84rem",
+                }}
+              >
+                Copy JSON
+              </button>
             </div>
           ) : null}
         </section>
@@ -1007,124 +1360,27 @@ export default function InstructorDashboard({
           )}
         </section>
 
-        
-        <section style={styles.card}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Completed Session Summary</h2>
-          {latestEndedSession ? (
-            <div style={{ display: "grid", gap: "8px" }}>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Session: {latestEndedSession.sessionId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Device: {latestEndedSession.deviceId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Trainee: {latestEndedSession.traineeId ?? "-"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Started: {formatSummaryTime(latestEndedSession.startedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Ended: {formatSummaryTime(latestEndedSession.endedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Duration: {latestEndedSession.summary.durationSeconds}s</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Avg depth: {formatMetric(latestEndedSession.summary.avgDepthMm, "mm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Avg rate: {formatMetric(latestEndedSession.summary.avgRateCpm, "cpm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {formatMetric(latestEndedSession.summary.recoilPct, "%")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pauses: {latestEndedSession.summary.pausesCount}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Score: {latestEndedSession.summary.score}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {latestEndedSession.summary.latestFlags ?? "-"}</p>
-                {currentUser && currentUser.role !== "TRAINEE" ? (
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <a href={getSessionJsonExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                      Download JSON
-                    </a>
-                    <a href={getSessionCsvExportUrl(latestEndedSession.sessionId)} style={linkButtonStyle}>
-                      Download CSV
-                    </a>
-                  </div>
-                ) : null}
-            </div>
-          ) : (
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>End a session to see the summary here.</p>
-          )}
-        </section>
+        <LocalSessionReviewPanel
+          latestEndedSession={latestEndedSession}
+          sessions={recentSessions}
+          loading={recentSessionsLoading}
+          error={recentSessionsError}
+          canExport={Boolean(currentUser && currentUser.role !== "TRAINEE")}
+          expandedSessionId={expandedSessionId}
+          expandedSessionDetail={expandedSessionDetail}
+          expandedSessionLoading={expandedSessionLoading}
+          expandedSessionError={expandedSessionError}
+          onSelectSession={handleViewDetails}
+          onRefresh={loadRecentSessions}
+        />
 
-        <section style={styles.card}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>Recent Sessions</h2>
-          {recentSessionsLoading ? (
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>Loading completed sessions...</p>
-          ) : recentSessionsError ? (
-            <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.92rem" }}>{recentSessionsError}</p>
-          ) : recentSessions.length === 0 ? (
-            <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>No completed sessions yet.</p>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {recentSessions.map((session) => (
-                <article key={session.sessionId} style={{ padding: "12px", border: "1px solid #e2e8f0", borderRadius: "10px", background: "#ffffff" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-                    <div>
-                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{session.deviceId}</p>
-                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>{session.sessionId}</p>
-                    </div>
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleViewDetails(session.sessionId)}
-                        style={{
-                          padding: "8px 12px",
-                          borderRadius: "6px",
-                          border: "1px solid #cbd5e1",
-                          background: "#ffffff",
-                          color: "#0f172a",
-                          fontWeight: 600,
-                          fontSize: "0.85rem",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {expandedSessionId === session.sessionId ? "Hide Details" : "View Details"}
-                      </button>
-                      {currentUser && currentUser.role !== "TRAINEE" ? (
-                        <>
-                          <a href={getSessionJsonExportUrl(session.sessionId)} style={linkButtonStyle}>
-                            Download JSON
-                          </a>
-                          <a href={getSessionCsvExportUrl(session.sessionId)} style={linkButtonStyle}>
-                            Download CSV
-                          </a>
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Trainee {session.traineeId ?? "-"} | Started {formatSummaryDateTime(session.startedAt)} | Ended {formatSummaryDateTime(session.endedAt)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Duration {session.summary.durationSeconds}s | Score {session.summary.score} | Depth {formatMetric(session.summary.avgDepthMm, "mm")}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Rate {formatMetric(session.summary.avgRateCpm, "cpm")} | Recoil {formatMetric(session.summary.recoilPct, "%")} | Pauses {session.summary.pausesCount}
-                    </p>
-                  </div>
-
-                  {expandedSessionId === session.sessionId ? (
-                    <div style={{ marginTop: "10px", padding: "10px", borderRadius: "8px", border: "1px solid #e2e8f0", background: "#f8fafc", display: "grid", gap: "4px" }}>
-                      {expandedSessionLoading ? (
-                        <p style={{ margin: 0, color: "#64748b", fontSize: "0.85rem" }}>Loading session details...</p>
-                      ) : expandedSessionError ? (
-                        <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>{expandedSessionError}</p>
-                      ) : expandedSessionDetail ? (
-                        <>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Session ID: {expandedSessionDetail.sessionId}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Device ID: {expandedSessionDetail.deviceId}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Trainee ID: {expandedSessionDetail.traineeId ?? "-"}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Started At: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Ended At: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Pauses: {expandedSessionDetail.summary.pausesCount}</p>
-                          <p style={{ margin: 0, color: "#334155", fontSize: "0.85rem" }}>Score: {expandedSessionDetail.summary.score}</p>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+        <CalibrationSettingsPanel
+          devices={manikins}
+          selectedDeviceId={selectedCalibrationDeviceId}
+          onSelectedDeviceChange={setSelectedCalibrationDeviceId}
+          calibrationAction={selectedCalibrationDeviceId ? calibrationActionByDevice[selectedCalibrationDeviceId] ?? "idle" : "idle"}
+          onRunCalibration={handleRunCalibration}
+        />
 
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
@@ -1152,7 +1408,7 @@ export default function InstructorDashboard({
                 color: "#64748b",
               }}
             >
-              No manikins publishing yet. Start publishing to resq/manikins/&lt;deviceId&gt;/status, heartbeat, telemetry, events, or live.
+              No manikins publishing yet. Start publishing to resq/&lt;deviceId&gt;/status, heartbeat, telemetry, debug, or events. Legacy resq/manikins/&lt;deviceId&gt;/... topics still work.
             </div>
           ) : null}
 
@@ -1163,6 +1419,12 @@ export default function InstructorDashboard({
                 const active = Boolean(activeSession?.sessionId);
                 const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
                 const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
+                const calibrationAction = calibrationActionByDevice[manikin.deviceId] ?? "idle";
+                const readiness = readinessByDevice[manikin.deviceId];
+                const readinessIsKnown = readinessKnown(readiness);
+                const startReadinessBlocked = startBlockedByReadiness(readiness);
+                const startDisabled = actionState !== "idle" || startReadinessBlocked;
+                const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
 
                 return (
                   <article
@@ -1195,11 +1457,57 @@ export default function InstructorDashboard({
                       </div>
                     </div>
 
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {manikin.state ?? "unknown"}</p>
+                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {effectiveFirmwareState}</p>
                     <InstructorLiveMetrics
                       deviceId={manikin.deviceId}
                       sessionId={activeSession?.sessionId ?? null}
                       active={active}
+                    />
+
+                    <div style={{ display: "grid", gap: "6px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "10px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 700 }}>Readiness</p>
+                        <IndicatorBadge
+                          label={!readinessIsKnown ? "Unknown" : readiness?.readyForSession ? "Ready" : "Not Ready"}
+                          status={!readinessIsKnown ? "neutral" : readiness?.readyForSession ? "ok" : "warn"}
+                        />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#475569", fontSize: "0.82rem" }}>
+                        <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
+                        <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
+                        <span>Result: {readiness?.latestResult ?? "-"}</span>
+                        <span>Progress: {readiness?.progressId ?? "-"}</span>
+                        <span>Reason: {readiness?.reasonId ?? "-"}</span>
+                        <span>Action: {readiness?.actionId ?? "-"}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleCancelCalibration(manikin.deviceId)}
+                          disabled={calibrationAction !== "idle"}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid #cbd5e1",
+                            background: "#ffffff",
+                            color: calibrationAction !== "idle" ? "#94a3b8" : "#334155",
+                            cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                          }}
+                        >
+                          {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
+                        </button>
+                        <span style={{ fontSize: "0.78rem", color: "#64748b", alignSelf: "center" }}>
+                          Use Calibration Settings to start a run.
+                        </span>
+                      </div>
+                    </div>
+
+                    <FirmwareDiagnosticsPanel
+                      deviceId={manikin.deviceId}
+                      readiness={readiness}
+                      liveSummary={manikin}
                     />
 
                     {/* Trainee Selection UI */}
@@ -1412,16 +1720,17 @@ export default function InstructorDashboard({
                         <button
                           type="button"
                           onClick={() => handleStartSession(manikin.deviceId)}
-                          disabled={actionState !== "idle"}
+                          disabled={startDisabled}
                           style={{
                             padding: "8px 12px",
                             borderRadius: "6px",
                             border: "1px solid #0f172a",
-                            background: actionState !== "idle" ? "#e2e8f0" : "#0f172a",
-                            color: actionState !== "idle" ? "#64748b" : "#ffffff",
-                            cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                            background: startDisabled ? "#e2e8f0" : "#0f172a",
+                            color: startDisabled ? "#64748b" : "#ffffff",
+                            cursor: startDisabled ? "not-allowed" : "pointer",
                             fontWeight: 600,
                           }}
+                          title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
                         >
                           Start Session
                         </button>

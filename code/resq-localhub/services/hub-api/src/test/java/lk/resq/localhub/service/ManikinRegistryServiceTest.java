@@ -128,4 +128,34 @@ class ManikinRegistryServiceTest {
         assertThat(session.lastEventType()).isEqualTo("PAD_ADJUSTED");
         assertThat(session.connectionState()).isEqualTo("BACKEND_SSE_FALLBACK");
     }
+
+    @Test
+    void calibrationAndErrorEventsUseFirmwareEventIds() throws Exception {
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+
+        registry.updateFromCalibrationEvent("M01", objectMapper.readTree("""
+                {
+                  "sessionId": "S-CAL",
+                  "event_id": 4001,
+                  "result": "pass"
+                }
+                """));
+
+        SessionLiveView calibrated = registry.getSessionLiveView("S-CAL").orElseThrow();
+        assertThat(calibrated.state()).isEqualTo("READY_FOR_SESSION");
+        assertThat(calibrated.lastEventType()).isEqualTo("4001");
+        assertThat(calibrated.sessionActive()).isFalse();
+
+        registry.updateFromErrorEvent("M01", objectMapper.readTree("""
+                {
+                  "sessionId": "S-CAL",
+                  "event_id": 5001
+                }
+                """));
+
+        SessionLiveView errored = registry.getSessionLiveView("S-CAL").orElseThrow();
+        assertThat(errored.state()).isEqualTo("ERROR");
+        assertThat(errored.lastEventType()).isEqualTo("5001");
+        assertThat(errored.sessionActive()).isFalse();
+    }
 }

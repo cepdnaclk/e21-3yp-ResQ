@@ -100,6 +100,7 @@ const WAITING_SESSION_TIPS = [
 type SensorPoint = {
   ts: number;
   depthMm: number | null;
+  depthProgress: number | null;
   rateCpm: number | null;
   pauseS: number | null;
   recoilOk: boolean | null;
@@ -416,6 +417,7 @@ export default function TraineeDashboard({
       {
         ts: Date.now(),
         depthMm: metric.depthMm,
+        depthProgress: metric.depthProgress ?? null,
         rateCpm: metric.rateCpm,
         pauseS: metric.pauseS,
         recoilOk: metric.recoilOk,
@@ -435,6 +437,16 @@ export default function TraineeDashboard({
     }
 
     return `${value.toFixed(1)} ${suffix}`;
+  }
+
+  function depthMetric(depthMm: number | null | undefined, depthProgress: number | null | undefined): string {
+    if (depthMm !== null && depthMm !== undefined) {
+      return `${depthMm.toFixed(1)} mm`;
+    }
+    if (depthProgress !== null && depthProgress !== undefined) {
+      return `${Math.round(depthProgress * 100)} %`;
+    }
+    return "-";
   }
 
   function formatTime(value: string | null): string {
@@ -458,7 +470,7 @@ export default function TraineeDashboard({
     window.location.assign("/");
   }
 
-  const depthSeries = sensorHistory.map((point) => point.depthMm);
+  const depthSeries = sensorHistory.map((point) => point.depthMm ?? (point.depthProgress === null ? null : point.depthProgress * 100));
   const rateSeries = sensorHistory.map((point) => point.rateCpm);
   const pauseSeries = sensorHistory.map((point) => point.pauseS);
   const recoilSeries = sensorHistory.map((point) => point.recoilOk);
@@ -467,6 +479,12 @@ export default function TraineeDashboard({
   const balanceSeries = sensorHistory.map(() => session?.pressureBalancePct ?? null);
   const latestBalance = session?.pressureBalancePct ?? null;
   const latestSkewed = session?.pressureSkewed ?? null;
+  const liveMetric = liveState.latestMetric;
+  const liveDepth = depthMetric(session?.latestDepthMm ?? liveMetric?.depthMm, session?.latestDepthProgress ?? liveMetric?.depthProgress);
+  const liveRate = metric(session?.latestRateCpm ?? liveMetric?.rateCpm ?? null, "cpm");
+  const liveRecoil = session?.latestRecoilOk ?? liveMetric?.recoilOk ?? null;
+  const livePause = metric(session?.latestPauseS ?? liveMetric?.pauseS ?? null, "s");
+  const livePressureBalance = session?.pressureBalancePct ?? liveMetric?.pressureBalancePct ?? null;
   const recentFlags = sensorHistory
     .map((point) => point.flags)
     .filter((value): value is string => Boolean(value && value.trim()))
@@ -673,13 +691,14 @@ export default function TraineeDashboard({
                   </p>
                 ) : null}
                 <div style={{ display: "grid", gap: "6px", marginBottom: "16px" }}>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(session.latestDepthMm, "mm")}</p>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(session.latestRateCpm, "cpm")}</p>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {session.latestRecoilOk === null ? "-" : session.latestRecoilOk ? "OK" : "Not OK"}</p>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(session.latestPauseS, "s")}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {liveDepth}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {liveRate}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {liveRecoil === null ? "-" : liveRecoil ? "OK" : "Not OK"}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {livePause}</p>
                   <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                    Pressure Balance: {session.pressureBalancePct === null ? "-" : `${session.pressureBalancePct.toFixed(1)} %`}
+                    Pressure Balance: {livePressureBalance === null ? "-" : `${livePressureBalance.toFixed(1)} %`}
                   </p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Firmware: {liveState.firmwareState ?? liveMetric?.firmwareState ?? session.state ?? "-"}</p>
                   <p style={{ margin: 0, color: session.pressureSkewed === null ? "#475569" : session.pressureSkewed ? "#991b1b" : "#166534", fontSize: "0.88rem", fontWeight: 600 }}>
                     Pressure: {session.pressureSkewed === null ? "-" : session.pressureSkewed ? "Skewed" : "Even"}
                   </p>

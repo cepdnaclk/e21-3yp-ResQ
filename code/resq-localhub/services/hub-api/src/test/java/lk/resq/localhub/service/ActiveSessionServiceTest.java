@@ -8,12 +8,17 @@ import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.service.CalibrationProfileRepository;
+import lk.resq.localhub.service.CalibrationProfileService;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ActiveSessionServiceTest {
 
@@ -102,6 +107,90 @@ class ActiveSessionServiceTest {
     }
 
     @Test
+    void countsFirmwareTelemetryWithDepthProgressWithoutTreatingItAsMillimeters() throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Depth progress smoke",
+                null
+        ));
+
+        JsonNode firmwareTelemetry = objectMapper.readTree("""
+                {
+                  "session_id": "%s",
+                  "depth_progress": 0.78,
+                  "depth_ok": true,
+                  "rate_cpm": 111,
+                  "compression_count": 1,
+                  "pause_s": 0.2,
+                  "flags": "DEPTH_OK,RATE_OK,RECOIL_OK"
+                }
+                """.formatted(session.sessionId()));
+
+        assertThat(service.validateTelemetryBinding("M01", firmwareTelemetry).accepted()).isTrue();
+        service.recordTelemetry("M01", firmwareTelemetry);
+
+        var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
+        assertThat(liveView.latestDepthMm()).isNull();
+        assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
+
+        SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
+        assertThat(completed.summary().sampleCount()).isEqualTo(1);
+        assertThat(completed.summary().totalCompressions()).isEqualTo(1);
+        assertThat(completed.summary().validCompressions()).isEqualTo(1);
+        assertThat(completed.summary().avgDepthMm()).isEqualTo(0.0);
+        assertThat(completed.summary().avgDepthProgress()).isEqualTo(0.78);
+        assertThat(completed.summary().avgRateCpm()).isEqualTo(111.0);
+        assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
+        assertThat(completed.summary().incompleteRecoilCount()).isEqualTo(0);
+        assertThat(completed.summary().latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
+    }
+
+    @Test
+    void countsDepthMillimetersAndDepthProgressIndependently() throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Depth smoke",
+                null
+        ));
+
+        JsonNode telemetry = objectMapper.readTree("""
+                {
+                  "session_id": "%s",
+                  "depth_mm": 52.5,
+                  "depth_progress": 0.81,
+                  "rate_cpm": 108,
+                  "compression_count": 3,
+                  "recoil_ok": true,
+                  "pause_s": 0.0,
+                  "flags": "DEPTH_OK"
+                }
+                """.formatted(session.sessionId()));
+
+        assertThat(service.validateTelemetryBinding("M01", telemetry).accepted()).isTrue();
+        service.recordTelemetry("M01", telemetry);
+
+        SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
+        assertThat(completed.summary().sampleCount()).isEqualTo(1);
+        assertThat(completed.summary().totalCompressions()).isEqualTo(3);
+        assertThat(completed.summary().validCompressions()).isEqualTo(3);
+        assertThat(completed.summary().avgDepthMm()).isEqualTo(52.5);
+        assertThat(completed.summary().avgDepthProgress()).isEqualTo(0.81);
+        assertThat(completed.summary().avgRateCpm()).isEqualTo(108.0);
+        assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
+        assertThat(completed.summary().incompleteRecoilCount()).isEqualTo(0);
+    }
+
+    @Test
     void rejectsEndedSessionAndNonIncreasingSeq() throws Exception {
         ActiveSessionService service = newService();
         SessionStartResponse session = service.startSession(new SessionStartRequest(
@@ -123,19 +212,64 @@ class ActiveSessionServiceTest {
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 54, 112)), "session is not active");
     }
 
+    @Test
+    void blocksSessionStartForKnownNotReadyFirmwareDevice() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "CALIBRATING",
+                  "session_active": false,
+                  "calibrated": false
+                }
+                """));
+
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Blocked readiness",
+                null
+        ))).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not ready");
+    }
+
     private ActiveSessionService newService() throws Exception {
+        return newServiceFixture().service;
+    }
+
+    private ServiceFixture newServiceFixture() throws Exception {
         MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService();
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
         ManikinRegistryService registry = new ManikinRegistryService(12);
-        return new ActiveSessionService(
+        FirmwarePersistenceRepository firmwareRepository = new FirmwarePersistenceRepository(
+                Path.of("target", "active-session-firmware-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        firmwareRepository.initialize();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+          Path.of("target", "active-session-profile-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
+                commandPublisher,
+                firmwareRepository,
+          profileService,
+                registry
+        );
+        ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
-                traineeRecordsRepository
+                traineeRecordsRepository,
+                firmwareCalibrationService
         );
+        return new ServiceFixture(service, registry);
     }
 
     private JsonNode telemetry(String deviceId, String sessionId, long seq, double depthMm, double rateCpm) throws Exception {
@@ -212,5 +346,8 @@ class ActiveSessionServiceTest {
         @Override
         public void publishSessionLive(String sessionId, lk.resq.localhub.model.SessionLiveView payload) {
         }
+    }
+
+    private record ServiceFixture(ActiveSessionService service, ManikinRegistryService registry) {
     }
 }

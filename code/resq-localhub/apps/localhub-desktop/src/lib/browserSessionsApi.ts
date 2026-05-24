@@ -22,9 +22,15 @@ export type SessionSummary = {
   startedAt: string;
   endedAt: string;
   durationSeconds: number;
+  sampleCount: number;
+  totalCompressions: number;
+  validCompressions: number;
   avgDepthMm: number;
+  avgDepthProgress: number | null;
   avgRateCpm: number;
   recoilPct: number;
+  recoilOkCount: number;
+  incompleteRecoilCount: number;
   pausesCount: number;
   score: number;
   latestFlags: string | null;
@@ -74,7 +80,12 @@ export type SessionLiveView = {
   rssi: number | null;
   battery: number | null;
   sessionActive: boolean | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  lastErrorId?: string | null;
   latestDepthMm: number | null;
+  latestDepthProgress?: number | null;
+  latestCompressionCount?: number | null;
   latestRateCpm: number | null;
   latestRecoilOk: boolean | null;
   latestPauseS: number | null;
@@ -96,6 +107,10 @@ function getSessionsBaseUrl(): string {
 
 function getSessionsExportBaseUrl(): string {
   return `http://${window.location.hostname}:18080/api/export/sessions`;
+}
+
+function getSessionReviewExportBaseUrl(): string {
+  return `http://${window.location.hostname}:18080/api/sessions`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -205,6 +220,10 @@ export function getSessionJsonExportUrl(sessionId: string): string {
 
 export function getSessionCsvExportUrl(sessionId: string): string {
   return `${getSessionsExportBaseUrl()}/${encodeURIComponent(sessionId)}.csv`;
+}
+
+export function getSessionReviewExportUrl(sessionId: string, format: "json" | "csv" = "json"): string {
+  return `${getSessionReviewExportBaseUrl()}/${encodeURIComponent(sessionId)}/export?format=${format}`;
 }
 
 export { getErrorMessage };
