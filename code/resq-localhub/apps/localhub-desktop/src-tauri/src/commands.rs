@@ -114,7 +114,11 @@ pub struct ProvisioningData {
     wifi_ssid: String,
     wifi_password: String,
     backend_base_url: String,
-    provision_url: String,
+    provisioning_url: String,
+    provisioning_json: String,
+    esp_setup_base_url: String,
+    esp_provision_path: String,
+    auto_save: bool,
 }
 
 #[derive(Serialize)]
@@ -133,19 +137,39 @@ pub fn get_provisioning_data() -> Result<ProvisioningData, String> {
     let wifi_ssid = "ResQ-Hub".to_string();
     let wifi_password = "password123".to_string();
     let backend_base_url = format!("http://{}:18080", backend_host);
+    let esp_setup_base_url = "http://192.168.4.1".to_string();
+    let esp_provision_path = "/".to_string();
+    let auto_save = true;
 
-    let provision_url = format!(
-        "http://192.168.4.1/setup?wifi_ssid={}&wifi_password={}&backend_base_url={}",
+    let mut provisioning_url = format!(
+        "{}{path}?wifi_ssid={}&wifi_pass={}&backend_base_url={}",
+        esp_setup_base_url,
         urlencoding::encode(&wifi_ssid),
         urlencoding::encode(&wifi_password),
-        urlencoding::encode(&backend_base_url)
+        urlencoding::encode(&backend_base_url),
+        path = esp_provision_path,
     );
+
+    if auto_save {
+        provisioning_url.push_str("&auto=1");
+    }
+
+    let provisioning_json = serde_json::json!({
+        "wifi_ssid": &wifi_ssid,
+        "wifi_pass": &wifi_password,
+        "backend_base_url": &backend_base_url,
+    })
+    .to_string();
 
     Ok(ProvisioningData {
         wifi_ssid,
         wifi_password,
         backend_base_url,
-        provision_url,
+        provisioning_url,
+        provisioning_json,
+        esp_setup_base_url,
+        esp_provision_path,
+        auto_save,
     })
 }
 

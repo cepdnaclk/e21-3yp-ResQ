@@ -425,7 +425,7 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Backend local firmware onboarding endpoints added: `POST /api/devices/register` for tolerant firmware registration and `GET /api/hub/service-info` for LAN-friendly backend/MQTT service details.
 - Registration response returns `ok`, `device_id`, `mqtt_host`, and `mqtt_port`; it does not require or return `manikin_id`, cloud auth, JWTs, MQTT credentials, or provisioning secrets.
 - Service info advertises `backend_base_url`, `mqtt_host`, `mqtt_port`, `dashboard_url`, and `local_ip`, with configurable advertised hosts and localhost/LAN fallback behavior.
-- Desktop provisioning QR payload was cleaned up to default to only `wifi_ssid`, `wifi_password`, and `backend_base_url`; MQTT broker details are shown as service information and fetched by firmware after registration.
+- Desktop provisioning QR payload was cleaned up to default to only `wifi_ssid`, `wifi_pass`, and `backend_base_url`; MQTT broker details are shown as service information and fetched by firmware after registration.
 - Instructor dashboard keeps the existing layout but now shows LocalHub service info, backend URL, Wi-Fi inputs, QR, and copyable provisioning JSON for the new firmware onboarding flow.
 - Simulator smoke-test documentation now distinguishes real firmware onboarding from the simulator's direct MQTT connection.
 - Deferred item: persisted device identity management, per-device MQTT credentials, richer broker health detection, and any cloud routing remain out of scope for Phase 7.
@@ -454,3 +454,11 @@ Runtime backend changes were introduced later during Phase 2, but the audit guid
 - Instructor dashboard now includes a simple Calibration Settings panel for selecting a live device, editing profile values, saving profiles, setting the default profile, deactivating profiles, and starting calibration from the chosen saved profile.
 - Firmware MQTT command payloads remain unchanged: the backend still publishes `request_id`, `hall_delta`, `ref_pressure`, `bladder_1_pressure`, `bladder_2_pressure`, and `issued_at_ms` fields without requiring any firmware-side contract change.
 - Validation completed for this phase: `services/hub-api` test suite passed and `apps/localhub-desktop` production build passed after the profile workflow changes were applied.
+
+## Y. Phase 14 Status
+
+- Provisioning QR now defaults to an ESP portal URL (`http://192.168.4.1/`) with URL query parameters instead of encoding raw JSON by default.
+- Auto-save option added to the LocalHub provisioning UI; when enabled, generated URL appends `auto=1`.
+- Raw provisioning JSON is still available as a developer copy option in the dashboard.
+- QR payload remains limited to Wi-Fi and backend URL fields (`wifi_ssid`, `wifi_pass`, `backend_base_url`), while MQTT settings remain service-info/registration data.
+- Firmware-side `auto=1` handling is expected but not required for the LocalHub build; manual save in firmware portal remains a valid fallback.

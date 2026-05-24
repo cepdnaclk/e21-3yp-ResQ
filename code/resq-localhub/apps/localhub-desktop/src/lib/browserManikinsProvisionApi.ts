@@ -11,8 +11,17 @@ export type HubServiceInfoResponse = {
 
 export type FirmwareProvisioningPayload = {
   wifi_ssid: string;
-  wifi_password: string;
+  wifi_pass: string;
   backend_base_url: string;
+};
+
+export type EspProvisioningUrlInput = {
+  espSetupBaseUrl?: string;
+  espProvisionPath?: string;
+  wifiSsid: string;
+  wifiPassword: string;
+  backendBaseUrl: string;
+  autoSave?: boolean;
 };
 
 export type DeviceRegistrationResponse = {
@@ -41,9 +50,56 @@ export function buildFirmwareProvisioningPayload(
 ): FirmwareProvisioningPayload {
   return {
     wifi_ssid: wifiSsid,
-    wifi_password: wifiPassword,
+    wifi_pass: wifiPassword,
     backend_base_url: serviceInfo.backend_base_url,
   };
+}
+
+function normalizeEspBaseUrl(rawBaseUrl: string | undefined): string {
+  const trimmed = (rawBaseUrl ?? "http://192.168.4.1").trim();
+  const fallback = "http://192.168.4.1";
+  if (!trimmed) {
+    return fallback;
+  }
+  return trimmed.replace(/\/+$/g, "") || fallback;
+}
+
+function normalizeEspPath(rawPath: string | undefined): string {
+  const trimmed = (rawPath ?? "/").trim();
+  if (!trimmed) {
+    return "/";
+  }
+
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  const collapsed = withLeadingSlash.replace(/\/{2,}/g, "/");
+  if (collapsed === "/") {
+    return "/";
+  }
+
+  return collapsed.replace(/\/+$/g, "") || "/";
+}
+
+export function buildEspProvisioningUrl({
+  espSetupBaseUrl = "http://192.168.4.1",
+  espProvisionPath = "/",
+  wifiSsid,
+  wifiPassword,
+  backendBaseUrl,
+  autoSave = true,
+}: EspProvisioningUrlInput): string {
+  const base = normalizeEspBaseUrl(espSetupBaseUrl);
+  const path = normalizeEspPath(espProvisionPath);
+  const url = new URL(`${base}${path}`);
+
+  url.searchParams.set("wifi_ssid", wifiSsid.trim());
+  url.searchParams.set("wifi_pass", wifiPassword.trim());
+  url.searchParams.set("backend_base_url", backendBaseUrl.trim());
+
+  if (autoSave) {
+    url.searchParams.set("auto", "1");
+  }
+
+  return url.toString();
 }
 
 export async function registerFirmwareDevice(payload: {

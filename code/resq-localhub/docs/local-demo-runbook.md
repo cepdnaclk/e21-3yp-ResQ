@@ -172,3 +172,5 @@ powershell -ExecutionPolicy Bypass -File .\scripts\local-demo\start-firmware-sim
 ## Notes
 
 This runbook is intentionally local-only. It does not add cloud routing, does not require real ESP hardware, and does not change the firmware MQTT contract.
+
+The firmware simulator does not use the provisioning QR flow. Real firmware onboarding uses the ESP portal URL QR (default `http://192.168.4.1/` with `wifi_ssid`, `wifi_pass`, `backend_base_url`, and optional `auto=1`).

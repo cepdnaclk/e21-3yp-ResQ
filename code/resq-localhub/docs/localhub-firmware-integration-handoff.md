@@ -18,9 +18,15 @@ Legacy compatibility is still intentionally present. The backend still accepts l
 
 Real firmware should still provision in two stages:
 
-1. The firmware receives only `wifi_ssid`, `wifi_password`, and `backend_base_url` from the provisioning QR.
-2. The firmware connects to Wi-Fi and calls `POST /api/devices/register`.
-3. The backend returns the runtime connection details the device needs for MQTT.
+1. The phone must first connect to the ESP setup Wi-Fi (for example `ResQ Setup`) so `http://192.168.4.1/` is reachable.
+2. The LocalHub QR opens the firmware portal root URL with query parameters:
+
+	`http://192.168.4.1/?wifi_ssid=<encoded>&wifi_pass=<encoded>&backend_base_url=<encoded>&auto=1`
+
+3. The firmware receives only `wifi_ssid`, `wifi_pass`, and `backend_base_url` from the provisioning URL query.
+4. If firmware supports `auto=1`, it can save and connect automatically; otherwise the user presses `Save Configuration` manually in the portal.
+5. The firmware connects to Wi-Fi and calls `POST /api/devices/register`.
+6. The backend returns the runtime connection details the device needs for MQTT.
 
 The backend registration endpoint is tolerant and local-only. It returns:
 
@@ -145,14 +151,17 @@ Each service remains visible in its own window so you can inspect logs directly 
 
 Before switching from simulator validation to real hardware, verify:
 
-1. The provisioning QR only contains `wifi_ssid`, `wifi_password`, and `backend_base_url`.
-2. The backend registration endpoint returns `ok`, `device_id`, `mqtt_host`, and `mqtt_port`.
-3. The device publishes canonical `resq/{deviceId}/...` topics.
-4. Calibration produces `4000`, `4001`, and `4002` in order.
-5. Session start produces `2000` and session stop produces `2001`.
-6. Telemetry binds the device ID from the MQTT topic.
-7. `depthProgress` remains separate from `depthMm`.
-8. The diagnostics panel and session review/export flows still work after a real trace.
+1. The provisioning QR only contains `wifi_ssid`, `wifi_pass`, and `backend_base_url`.
+2. The provisioning QR opens the firmware portal root URL (`http://192.168.4.1/`) with URL-encoded query parameters.
+3. The phone is connected to ESP setup Wi-Fi before scanning.
+4. `auto=1` is supported by firmware for automatic save when available; manual Save remains valid if not.
+5. The backend registration endpoint returns `ok`, `device_id`, `mqtt_host`, and `mqtt_port`.
+6. The device publishes canonical `resq/{deviceId}/...` topics.
+7. Calibration produces `4000`, `4001`, and `4002` in order.
+8. Session start produces `2000` and session stop produces `2001`.
+9. Telemetry binds the device ID from the MQTT topic.
+10. `depthProgress` remains separate from `depthMm`.
+11. The diagnostics panel and session review/export flows still work after a real trace.
 
 ## Known Limitations and Deferred Items
 

@@ -24,6 +24,7 @@ import {
 } from "../lib/browserSessionsApi";
 import { useLiveSession } from "../hooks/useLiveSession";
 import {
+  buildEspProvisioningUrl,
   buildFirmwareProvisioningPayload,
   fetchHubServiceInfo,
   type FirmwareProvisioningPayload,
@@ -261,12 +262,17 @@ export default function InstructorDashboard({
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
   const [selectedCalibrationDeviceId, setSelectedCalibrationDeviceId] = useState<string | null>(null);
   // State for the "Pair New Manikin" panel
+  const [espSetupBaseUrl, setEspSetupBaseUrl] = useState<string>("http://192.168.4.1");
+  const [espProvisionPath, setEspProvisionPath] = useState<string>("/");
   const [provisioningWifiSsid, setProvisioningWifiSsid] = useState<string>("");
   const [provisioningWifiPassword, setProvisioningWifiPassword] = useState<string>("");
+  const [provisioningBackendBaseUrl, setProvisioningBackendBaseUrl] = useState<string>("");
+  const [provisioningAutoSave, setProvisioningAutoSave] = useState<boolean>(true);
   const [pairingLoading, setPairingLoading] = useState<boolean>(false);
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [serviceInfo, setServiceInfo] = useState<HubServiceInfoResponse | null>(null);
   const [serviceInfoError, setServiceInfoError] = useState<string | null>(null);
+  const [provisioningUrl, setProvisioningUrl] = useState<string | null>(null);
   const [provisioningPayload, setProvisioningPayload] = useState<FirmwareProvisioningPayload | null>(null);
   // State for the Device Registry panel
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
@@ -543,6 +549,16 @@ export default function InstructorDashboard({
       window.clearInterval(interval);
     };
   }, [deviceIdsKey]);
+
+  useEffect(() => {
+    if (!serviceInfo?.backend_base_url) {
+      return;
+    }
+
+    if (!provisioningBackendBaseUrl.trim()) {
+      setProvisioningBackendBaseUrl(serviceInfo.backend_base_url);
+    }
+  }, [serviceInfo?.backend_base_url, provisioningBackendBaseUrl]);
 
   function formatLastSeen(value: string | null): string {
     if (!value) {
@@ -840,16 +856,32 @@ export default function InstructorDashboard({
 
     setPairingLoading(true);
     setPairingError(null);
+    setProvisioningUrl(null);
     setProvisioningPayload(null);
 
     try {
       const info = serviceInfo ?? await fetchHubServiceInfo();
       setServiceInfo(info);
-      setProvisioningPayload(buildFirmwareProvisioningPayload(
-        info,
+      const backendBaseUrl = provisioningBackendBaseUrl.trim() || info.backend_base_url;
+      const payload = buildFirmwareProvisioningPayload(
+        {
+          ...info,
+          backend_base_url: backendBaseUrl,
+        },
         provisioningWifiSsid.trim(),
         provisioningWifiPassword,
-      ));
+      );
+      const url = buildEspProvisioningUrl({
+        espSetupBaseUrl,
+        espProvisionPath,
+        wifiSsid: payload.wifi_ssid,
+        wifiPassword: payload.wifi_pass,
+        backendBaseUrl: payload.backend_base_url,
+        autoSave: provisioningAutoSave,
+      });
+
+      setProvisioningPayload(payload);
+      setProvisioningUrl(url);
     } catch (error) {
       setPairingError(
         error instanceof Error ? error.message : "Failed to generate provisioning payload."
@@ -862,6 +894,7 @@ export default function InstructorDashboard({
   const provisioningPayloadText = provisioningPayload
     ? JSON.stringify(provisioningPayload, null, 2)
     : "";
+  const provisioningUrlText = provisioningUrl ?? "";
 
   return (
     <div style={styles.container}>
@@ -943,23 +976,66 @@ export default function InstructorDashboard({
             Firmware Provisioning
           </h2>
           <p style={{ margin: "0 0 14px 0", color: "#64748b", fontSize: "0.9rem" }}>
-            Generate a setup QR for firmware in provisioning mode. The QR only contains Wi-Fi credentials and the LocalHub backend URL.
+            Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
           </p>
 
-          {/* Input row: text box and button sit side by side */}
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
+          <ol style={{ margin: "0 0 14px 18px", padding: 0, color: "#475569", fontSize: "0.86rem", lineHeight: 1.5 }}>
+            <li>Power on ESP in provisioning mode.</li>
+            <li>Connect phone to the ESP Wi-Fi, for example "ResQ Setup".</li>
+            <li>Scan this QR.</li>
+            <li>The firmware portal opens with Wi-Fi and LocalHub details.</li>
+            <li>If auto-save is supported by firmware and enabled, the device connects automatically.</li>
+            <li>Otherwise, press Save Configuration in the firmware portal.</li>
+          </ol>
+
+          <div style={{ display: "grid", gap: "8px", marginBottom: "12px" }}>
+            <input
+              type="text"
+              placeholder="ESP setup base URL"
+              value={espSetupBaseUrl}
+              onChange={(e) => {
+                setEspSetupBaseUrl(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <input
+              type="text"
+              placeholder="ESP provision path"
+              value={espProvisionPath}
+              onChange={(e) => {
+                setEspProvisionPath(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
             <input
               type="text"
               placeholder="Wi-Fi SSID"
               value={provisioningWifiSsid}
               onChange={(e) => {
                 setProvisioningWifiSsid(e.target.value);
+                setProvisioningUrl(null);
                 setProvisioningPayload(null);
                 setPairingError(null);
               }}
               style={{
-                flex: 1,
-                minWidth: "180px",
                 padding: "8px 10px",
                 borderRadius: "6px",
                 border: "1px solid #cbd5e1",
@@ -973,12 +1049,11 @@ export default function InstructorDashboard({
               value={provisioningWifiPassword}
               onChange={(e) => {
                 setProvisioningWifiPassword(e.target.value);
+                setProvisioningUrl(null);
                 setProvisioningPayload(null);
                 setPairingError(null);
               }}
               style={{
-                flex: 1,
-                minWidth: "180px",
                 padding: "8px 10px",
                 borderRadius: "6px",
                 border: "1px solid #cbd5e1",
@@ -986,19 +1061,52 @@ export default function InstructorDashboard({
                 fontSize: "0.9rem",
               }}
             />
+            <input
+              type="text"
+              placeholder="Backend base URL"
+              value={provisioningBackendBaseUrl}
+              onChange={(e) => {
+                setProvisioningBackendBaseUrl(e.target.value);
+                setProvisioningUrl(null);
+                setProvisioningPayload(null);
+                setPairingError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid #cbd5e1",
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+              }}
+            />
+            <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#334155", fontSize: "0.88rem" }}>
+              <input
+                type="checkbox"
+                checked={provisioningAutoSave}
+                onChange={(e) => {
+                  setProvisioningAutoSave(e.target.checked);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+              />
+              Auto-save on scan
+            </label>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
             <button
               type="button"
-              disabled={pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo}
+              disabled={pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url)}
               onClick={handleRequestPairing}
               style={{
                 padding: "8px 14px",
                 borderRadius: "6px",
                 border: "1px solid #0f172a",
-                // Button goes grey when disabled (loading or empty input)
-                background: pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo ? "#e2e8f0" : "#0f172a",
-                color: pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo ? "#64748b" : "#ffffff",
+                background: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#e2e8f0" : "#0f172a",
+                color: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#64748b" : "#ffffff",
                 fontWeight: 600,
-                cursor: pairingLoading || !provisioningWifiSsid.trim() || !serviceInfo ? "not-allowed" : "pointer",
+                cursor: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "not-allowed" : "pointer",
                 fontSize: "0.9rem",
               }}
             >
@@ -1006,16 +1114,21 @@ export default function InstructorDashboard({
             </button>
           </div>
 
-          {/* Error message — only shown when something goes wrong */}
           <div style={{ display: "grid", gap: "6px", marginBottom: "12px", fontSize: "0.84rem", color: "#475569" }}>
             <p style={{ margin: 0 }}>
-              Backend URL: <strong>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong>
+              Service backend_base_url: <strong>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong>
             </p>
             <p style={{ margin: 0 }}>
-              MQTT after registration: <strong>{serviceInfo ? `${serviceInfo.mqtt_host}:${serviceInfo.mqtt_port}` : "Unavailable"}</strong>
+              Service mqtt_host: <strong>{serviceInfo?.mqtt_host ?? "Unavailable"}</strong>
             </p>
             <p style={{ margin: 0 }}>
-              Firmware will fetch MQTT broker settings from LocalHub after registration.
+              Service mqtt_port: <strong>{serviceInfo?.mqtt_port ?? "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              Service local_ip: <strong>{serviceInfo?.local_ip ?? "Unavailable"}</strong>
+            </p>
+            <p style={{ margin: 0 }}>
+              QR sends only Wi-Fi + backend URL. Firmware gets MQTT host/port from LocalHub after registration.
             </p>
           </div>
 
@@ -1031,8 +1144,7 @@ export default function InstructorDashboard({
             </p>
           ) : null}
 
-          {/* Success result — only shown after a successful backend response */}
-          {provisioningPayload ? (
+          {provisioningPayload && provisioningUrl ? (
             <div style={{
               padding: "14px",
               borderRadius: "10px",
@@ -1045,22 +1157,53 @@ export default function InstructorDashboard({
               <p style={{ margin: 0, fontWeight: 600, fontSize: "0.9rem", color: "#0f172a" }}>
                 Scan to provision firmware
               </p>
-              {/* QR encodes the full pairing payload as JSON so the
-                  manikin's provisioning portal can read it in one scan */}
               <QR
-                value={JSON.stringify(provisioningPayload)}
+                value={provisioningUrl}
                 size={180}
                 bgColor="#ffffff"
                 fgColor="#0f172a"
                 level="M"
               />
               <p style={{ margin: 0, color: "#475569", fontSize: "0.82rem", textAlign: "center" }}>
-                QR includes Wi-Fi SSID, Wi-Fi password, and backend_base_url only.
+                QR URL includes wifi_ssid, wifi_pass, backend_base_url, and optional auto=1.
               </p>
-              {/* Fallback for people who cannot scan a QR code */}
+
+              <div style={{ width: "100%", display: "grid", gap: "6px" }}>
+                <p style={{ margin: 0, color: "#334155", fontSize: "0.82rem", fontWeight: 600 }}>
+                  Generated Provisioning URL
+                </p>
+                <code style={{
+                  display: "block",
+                  padding: "8px",
+                  background: "#e2e8f0",
+                  borderRadius: "4px",
+                  wordBreak: "break-all",
+                  fontSize: "0.78rem",
+                }}>
+                  {provisioningUrlText}
+                </code>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(provisioningUrlText)}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "0.84rem",
+                }}
+              >
+                Copy URL
+              </button>
+
               <details style={{ width: "100%", fontSize: "0.82rem", color: "#64748b" }}>
                 <summary style={{ cursor: "pointer" }}>
-                  Show provisioning JSON
+                  Developer JSON copy
                 </summary>
                 <code style={{
                   display: "block",
@@ -1088,7 +1231,7 @@ export default function InstructorDashboard({
                   fontSize: "0.84rem",
                 }}
               >
-                Copy Payload
+                Copy JSON
               </button>
             </div>
           ) : null}

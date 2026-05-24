@@ -9,22 +9,25 @@ Use it after the simulator smoke test in [docs/local-firmware-simulator-smoke-te
 Confirm the real device flow end to end:
 
 1. ESP boots into provisioning mode if not configured.
-2. User scans the LocalHub QR.
-3. The QR payload contains only `wifi_ssid`, `wifi_password`, and `backend_base_url`.
-4. ESP connects to Wi-Fi.
-5. ESP calls `POST /api/devices/register`.
-6. Backend returns `ok`, `device_id`, `mqtt_host`, and `mqtt_port`.
-7. ESP connects to MQTT.
-8. ESP subscribes to `resq/{deviceId}/cmd/#`.
-9. ESP publishes `resq/{deviceId}/status` and `resq/{deviceId}/heartbeat`.
-10. Instructor runs calibration.
-11. ESP receives `resq/{deviceId}/cmd/calibration/start`.
-12. ESP publishes calibration events `4000`, `4001`, and `4002`.
-13. Instructor starts a session.
-14. ESP receives `resq/{deviceId}/cmd/session/start`.
-15. ESP publishes `resq/{deviceId}/events` with `event_id: 2000` and publishes telemetry.
-16. Instructor stops the session.
-17. ESP publishes `resq/{deviceId}/events` with `event_id: 2001`.
+2. User connects phone to the ESP setup Wi-Fi.
+3. User scans the LocalHub QR.
+4. Browser opens the firmware portal at `http://192.168.4.1/`.
+5. The QR URL query contains only `wifi_ssid`, `wifi_pass`, and `backend_base_url`, with optional `auto=1`.
+6. If auto-save works, ESP connects automatically; if not, user presses `Save Configuration`.
+7. ESP connects to Wi-Fi.
+8. ESP calls `POST /api/devices/register`.
+9. Backend returns `ok`, `device_id`, `mqtt_host`, and `mqtt_port`.
+10. ESP connects to MQTT.
+11. ESP subscribes to `resq/{deviceId}/cmd/#`.
+12. ESP publishes `resq/{deviceId}/status` and `resq/{deviceId}/heartbeat`.
+13. Instructor runs calibration.
+14. ESP receives `resq/{deviceId}/cmd/calibration/start`.
+15. ESP publishes calibration events `4000`, `4001`, and `4002`.
+16. Instructor starts a session.
+17. ESP receives `resq/{deviceId}/cmd/session/start`.
+18. ESP publishes `resq/{deviceId}/events` with `event_id: 2000` and publishes telemetry.
+19. Instructor stops the session.
+20. ESP publishes `resq/{deviceId}/events` with `event_id: 2001`.
 
 ## Required Terminals
 
@@ -110,19 +113,15 @@ Expected registration response keys:
 }
 ```
 
-## Expected QR Payload
+## Expected QR Provisioning URL
 
-The LocalHub QR should only encode:
+The LocalHub QR should open the firmware portal root with URL-encoded query parameters:
 
-```json
-{
-  "wifi_ssid": "training-wifi",
-  "wifi_password": "password",
-  "backend_base_url": "http://192.168.8.187:18080"
-}
+```text
+http://192.168.4.1/?wifi_ssid=training-wifi&wifi_pass=password&backend_base_url=http%3A%2F%2F192.168.8.187%3A18080&auto=1
 ```
 
-If any MQTT broker details or cloud settings appear in the QR payload, treat that as a Phase 7/8 regression and do not continue until it is removed.
+If any MQTT broker details or cloud settings appear in the QR URL, treat that as a Phase 7/8 regression and do not continue until it is removed.
 
 ## Expected MQTT Topics
 
