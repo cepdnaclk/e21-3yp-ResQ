@@ -33,6 +33,7 @@
 #include "telemetry_publisher.h"
 #include "session_active_manager.h"
 #include "system_button_manager.h"
+#include "adc_shared_service.h"
 
 /* =========================================================
  * Main firmware configuration
@@ -168,6 +169,13 @@ static esp_err_t initialize_components_once(void)
                  "config_store_init failed: %s",
                  esp_err_to_name(err));
         return err;
+    }
+
+    /* Initialize shared ADC service early (non-fatal) */
+    err = adc_shared_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "adc_shared_service_init failed during boot: %s", esp_err_to_name(err));
+        /* Continue boot — calibration/session code must handle ADC absence */
     }
 
     err = provisioning_manager_init();

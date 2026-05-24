@@ -1,6 +1,10 @@
 #include "hall_sensor.h"
-
+#include "adc_shared_service.h"
+#include "board_config.h"
+#include "esp_log.h"
 #include <string.h>
+
+static const char *TAG = "hall_sensor";
 
 esp_err_t hall_sensor_init(hall_sensor_t *sensor, adc_channel_t channel)
 {
@@ -13,26 +17,15 @@ esp_err_t hall_sensor_init(hall_sensor_t *sensor, adc_channel_t channel)
   sensor->channel = channel;
   sensor->initialized = false;
 
-  adc_oneshot_unit_init_cfg_t init_config = {
-    .unit_id = ADC_UNIT_1,
-  };
-
-  esp_err_t err = adc_oneshot_new_unit(&init_config, &sensor->adc_handle);
-  if (err != ESP_OK) {
-    return err;
+  if (sensor->channel != BOARD_HALL_ADC_CHAN) {
+    ESP_LOGW(TAG, "hall_sensor_init called with channel %d, expected BOARD_HALL_ADC_CHAN (%d)",
+             sensor->channel, BOARD_HALL_ADC_CHAN);
+    return ESP_ERR_INVALID_ARG;
   }
 
-  adc_oneshot_chan_cfg_t channel_config = {
-    .bitwidth = ADC_BITWIDTH_DEFAULT,
-    .atten = ADC_ATTEN_DB_12,
-  };
-
-  err = adc_oneshot_config_channel(sensor->adc_handle,
-                                   sensor->channel,
-                                   &channel_config);
+  esp_err_t err = adc_shared_service_init();
   if (err != ESP_OK) {
-    adc_oneshot_del_unit(sensor->adc_handle);
-    sensor->adc_handle = NULL;
+    ESP_LOGW(TAG, "adc_shared_service_init failed: %s", esp_err_to_name(err));
     return err;
   }
 
@@ -46,11 +39,9 @@ esp_err_t hall_sensor_read_raw(hall_sensor_t *sensor, int *raw_value)
     return ESP_ERR_INVALID_ARG;
   }
 
-  if (!sensor->initialized || sensor->adc_handle == NULL) {
+  if (!sensor->initialized) {
     return ESP_ERR_INVALID_STATE;
   }
 
-  return adc_oneshot_read(sensor->adc_handle,
-                          sensor->channel,
-                          raw_value);
+  return adc_shared_service_read_hall_raw(raw_value);
 }

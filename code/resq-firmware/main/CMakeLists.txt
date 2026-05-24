@@ -7,6 +7,7 @@ idf_component_register(
 
     REQUIRES
         config
+        adc_shared_service
         runtime
         error_manager
         runtime_helpers
