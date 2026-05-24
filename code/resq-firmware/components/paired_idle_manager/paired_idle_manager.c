@@ -280,7 +280,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                 continue;
             }
 
-            if (!calibration_config->calibrated) {
+            /* Require calibrated flag plus manager readiness and validated adaptive thresholds */
+            if (!calibration_config->calibrated || !calibration_manager_is_ready() || !calibration_config_validate(calibration_config)) {
                 runtime_helpers_publish_command_result_from_command(network_config,
                                                                     visible_state,
                                                                     &command,

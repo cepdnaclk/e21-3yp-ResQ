@@ -9,10 +9,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
-/* thresholds */
-#define COMPRESSION_START_THRESHOLD 0.15f
-#define FULL_PRESS_THRESHOLD 0.85f
-#define RECOIL_THRESHOLD 0.10f
+static int32_t calib_abs_i32(int32_t v)
+{
+    return v < 0 ? -v : v;
+}
+
+static int32_t calib_max_i32(int32_t a, int32_t b)
+{
+    return a >= b ? a : b;
+}
+
+/* thresholds are adaptive and derived from calibration_config_t at runtime */
 
 #define CPR_SENSOR_1_SIDE_LABEL "LEFT"
 #define CPR_SENSOR_2_SIDE_LABEL "RIGHT"
@@ -113,26 +120,30 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
 
     s_last_sample_ms = sample->ts_ms;
 
-    /* compute hall progress */
-    int32_t hall_range = s_calib.hall_full_press - s_calib.hall_baseline;
+    /* compute hall progress using adaptive calibration fields */
     float progress = 0.0f;
-    if (hall_range != 0) {
-        progress = (sample->hall_raw - s_calib.hall_baseline) / (float)hall_range;
+    int32_t hall_range_raw = s_calib.hall_range_raw;
+    int32_t hall_dir = s_calib.hall_direction == 0 ? 1 : s_calib.hall_direction;
+
+    int32_t hall_delta_now = (sample->hall_raw - s_calib.hall_baseline) * hall_dir;
+    if (hall_range_raw > 0) {
+        progress = (float)hall_delta_now / (float)hall_range_raw;
     }
-    /* clamp between 0 and 1 */
     progress = clampf(progress, 0.0f, 1.0f);
     s_depth_progress = progress;
 
     /* pressures */
-    int32_t p1_delta = sample->pressure_1_raw - s_calib.bladder_1_pressure;
-    int32_t p2_delta = sample->pressure_2_raw - s_calib.bladder_2_pressure;
+    int32_t p1_delta_signed = sample->pressure_1_raw - s_calib.pressure_1_baseline;
+    int32_t p2_delta_signed = sample->pressure_2_raw - s_calib.pressure_2_baseline;
+    int32_t p1_delta = calib_abs_i32(p1_delta_signed);
+    int32_t p2_delta = calib_abs_i32(p2_delta_signed);
 
-    /* hand placement */
-    const int32_t min_contact = 10; /* arbitrary small threshold */
-    if (abs(p1_delta) < min_contact && abs(p2_delta) < min_contact) {
+    /* hand placement using adaptive contact and balance thresholds */
+    if (calib_max_i32(p1_delta, p2_delta) < s_calib.pressure_contact_threshold) {
         strncpy(s_hand_placement, "NO_CONTACT", sizeof(s_hand_placement) - 1);
     } else {
-        if (abs(p1_delta - p2_delta) <= (int)(0.2f * (abs(p1_delta) + abs(p2_delta) + 1))) {
+        int32_t balance_pct = (int32_t)(calib_abs_i32(p1_delta - p2_delta) * 100 / calib_max_i32(1, (p1_delta + p2_delta)));
+        if (balance_pct <= s_calib.pressure_balance_allowed_pct) {
             strncpy(s_hand_placement, "CENTER", sizeof(s_hand_placement) - 1);
         } else if (p1_delta > p2_delta) {
             strncpy(s_hand_placement, CPR_SENSOR_1_SIDE_LABEL, sizeof(s_hand_placement) - 1);
@@ -145,7 +156,8 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     int64_t now = sample->ts_ms;
     switch (s_state) {
         case WAITING_FOR_COMPRESSION:
-            if (progress >= COMPRESSION_START_THRESHOLD) {
+            /* compression start when adaptive hall start delta reached */
+            if (hall_delta_now >= s_calib.hall_start_delta) {
                 /* new compression started */
                 s_state = COMPRESSING;
                 /* start new compression and update rate based on start-to-start interval */
@@ -168,34 +180,28 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
             break;
 
         case COMPRESSING:
-            if (progress >= FULL_PRESS_THRESHOLD) {
+            /* use adaptive full-press threshold */
+            if (hall_delta_now >= s_calib.hall_full_delta_threshold) {
                 s_state = FULL_PRESS_REACHED;
                 /* evaluate pressure-based validity */
                 bool pressure_ok = false;
-                int32_t p1_full_delta = s_calib.bladder_1_full_press - s_calib.bladder_1_pressure;
-                int32_t p2_full_delta = s_calib.bladder_2_full_press - s_calib.bladder_2_pressure;
+                    /* pressure validity using absolute adaptive threshold */
+                    if (calib_max_i32(p1_delta, p2_delta) >= s_calib.pressure_valid_threshold) {
+                        pressure_ok = true;
+                    }
 
-                if (p1_full_delta != 0) {
-                    float p1_prog = (sample->pressure_1_raw - s_calib.bladder_1_pressure) / (float)p1_full_delta;
-                    if (p1_prog >= 0.75f) pressure_ok = true;
-                }
-                if (p2_full_delta != 0) {
-                    float p2_prog = (sample->pressure_2_raw - s_calib.bladder_2_pressure) / (float)p2_full_delta;
-                    if (p2_prog >= 0.75f) pressure_ok = true;
-                }
-
-                if (pressure_ok) {
-                    s_valid_compressions++;
-                }
+                    if (pressure_ok) {
+                        s_valid_compressions++;
+                    }
             }
-            if (progress < RECOIL_THRESHOLD) {
-                /* canceled shallow */
-                s_state = WAITING_FOR_COMPRESSION;
-            }
+                if (hall_delta_now <= s_calib.hall_recoil_delta) {
+                    /* canceled shallow or recoil detected too early */
+                    s_state = WAITING_FOR_COMPRESSION;
+                }
             break;
 
         case FULL_PRESS_REACHED:
-            if (progress < FULL_PRESS_THRESHOLD) {
+            if (hall_delta_now < s_calib.hall_full_delta_threshold) {
                 /* begin releasing phase */
                 s_state = RELEASING;
             }
@@ -203,12 +209,12 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
 
         case RELEASING:
             /* proper recoil handling */
-            if (progress <= RECOIL_THRESHOLD) {
+            if (hall_delta_now <= s_calib.hall_recoil_delta) {
                 /* good recoil */
                 s_recoil_ok_count++;
                 s_last_compression_end_ms = now;
                 s_state = WAITING_FOR_COMPRESSION;
-            } else if (progress >= COMPRESSION_START_THRESHOLD && progress > s_prev_progress) {
+            } else if (s_calib.hall_range_raw > 0 && progress >= ((float)s_calib.hall_start_delta / (float)s_calib.hall_range_raw) && progress > s_prev_progress) {
                 /* new compression before full recoil */
                 s_incomplete_recoil_count++;
                 /* start new compression (counted as a new compression start) */
@@ -257,7 +263,12 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->valid_compressions = s_valid_compressions;
     out_snapshot->recoil_ok_count = s_recoil_ok_count;
     out_snapshot->incomplete_recoil_count = s_incomplete_recoil_count;
-    out_snapshot->depth_ok = (s_depth_progress >= FULL_PRESS_THRESHOLD);
+    /* depth_ok determined by adaptive hall full-press threshold */
+    out_snapshot->depth_ok = false;
+    if (s_calib.hall_range_raw > 0 && s_calib.hall_full_delta_threshold > 0) {
+        float full_pct = (float)s_calib.hall_full_delta_threshold / (float)s_calib.hall_range_raw;
+        out_snapshot->depth_ok = (s_depth_progress >= full_pct);
+    }
     out_snapshot->recoil_ok = (s_recoil_ok_count > 0);
     strncpy(out_snapshot->hand_placement, s_hand_placement, sizeof(out_snapshot->hand_placement) - 1);
     out_snapshot->pressure_balance_pct = 0.0f;

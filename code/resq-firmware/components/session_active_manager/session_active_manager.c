@@ -122,7 +122,7 @@ resq_state_t session_active_manager_start(network_config_t *network_config,
         return RESQ_STATE_READY_FOR_SESSION;
     }
 
-    if (!calibration_config->calibrated || !calibration_manager_is_ready()) {
+    if (!calibration_config->calibrated || !calibration_manager_is_ready() || !calibration_config_validate(calibration_config)) {
         if (cmd != NULL) {
             runtime_helpers_publish_command_result_from_command(network_config,
                                                                 RESQ_STATE_READY_FOR_SESSION,

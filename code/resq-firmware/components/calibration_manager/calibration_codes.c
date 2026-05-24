@@ -24,7 +24,7 @@ static const calibration_reason_entry_t REASON_TABLE[] = {
     {
         CAL_REASON_INVALID_HALL_DELTA,
         "INVALID_HALL_DELTA",
-        "Hall delta value is invalid",
+        "Hall delta value is invalid or too small",
         CAL_ACTION_SEND_VALID_PAYLOAD
     },
     {
@@ -79,6 +79,36 @@ static const calibration_reason_entry_t REASON_TABLE[] = {
         CAL_REASON_SENSOR_STUCK_OR_NOISE,
         "SENSOR_STUCK_OR_NOISE",
         "Sensor is stuck, disconnected, or too noisy",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
+        CAL_REASON_HALL_RANGE_TOO_SMALL,
+        "HALL_RANGE_TOO_SMALL",
+        "Hall sensor movement range is too small for reliable detection",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
+        CAL_REASON_HALL_NOISE_TOO_HIGH,
+        "HALL_NOISE_TOO_HIGH",
+        "Hall sensor noise is too high for calibration",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
+        CAL_REASON_PRESSURE_RANGE_TOO_SMALL,
+        "PRESSURE_RANGE_TOO_SMALL",
+        "Pressure sensors show insufficient full-press range",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
+        CAL_REASON_PRESSURE_NOISE_TOO_HIGH,
+        "PRESSURE_NOISE_TOO_HIGH",
+        "Pressure sensor noise is too high for calibration",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
+        CAL_REASON_ADAPTIVE_THRESHOLD_INVALID,
+        "ADAPTIVE_THRESHOLD_INVALID",
+        "Derived adaptive thresholds are invalid",
         CAL_ACTION_CHECK_SENSOR_AND_RETRY
     },
     {
