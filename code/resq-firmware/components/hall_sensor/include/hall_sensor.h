@@ -1,15 +1,14 @@
 #pragma once
 
-#include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
 #include <stdbool.h>
+#include "esp_adc/adc_oneshot.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct {
-  adc_oneshot_unit_handle_t adc_handle;
   adc_channel_t channel;
   bool initialized;
 } hall_sensor_t;
