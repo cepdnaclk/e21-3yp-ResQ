@@ -22,6 +22,8 @@ extern "C" {
 #define CALIBRATION_PRESSURE_TOLERANCE_RAW      100
 #define CALIBRATION_HALL_TOLERANCE_RAW          20
 #define CALIBRATION_AVERAGE_SAMPLE_COUNT        5
+/* Percentage of expected hall range required to consider full-press (prototype tuning) */
+#define CALIBRATION_FULL_PRESS_RATIO_PCT        60
 
 /* =========================================================
  * Public API

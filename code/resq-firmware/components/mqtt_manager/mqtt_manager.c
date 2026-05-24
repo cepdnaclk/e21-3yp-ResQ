@@ -364,6 +364,15 @@ esp_err_t mqtt_manager_publish_status(resq_state_t state,
     bool calibrated = (calibration_config && calibration_config->calibrated);
     cJSON_AddBoolToObject(root, "calibrated", calibrated);
 
+    if (calibration_config) {
+        if (calibration_config->profile_id[0] != '\0') {
+            cJSON_AddStringToObject(root, "profile_id", calibration_config->profile_id);
+        }
+        cJSON_AddNumberToObject(root, "hall_range_raw", calibration_config->hall_range_raw);
+        cJSON_AddNumberToObject(root, "pressure_contact_threshold", calibration_config->pressure_contact_threshold);
+        cJSON_AddNumberToObject(root, "pressure_valid_threshold", calibration_config->pressure_valid_threshold);
+    }
+
     cJSON_AddStringToObject(root, "ip", ip ? ip : "");
 
     int64_t ts_ms = esp_timer_get_time() / 1000;

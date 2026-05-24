@@ -27,7 +27,13 @@ void calibration_config_set_defaults(calibration_config_t *config)
 
     memset(config, 0, sizeof(calibration_config_t));
 
+    /* Preserve explicit safe defaults for new adaptive fields */
     config->calibrated = false;
+    config->hall_direction = 0;
+    config->pressure_balance_allowed_pct = 25; /* default 25% */
+    config->calibration_sample_count = 30;
+    config->calibration_window_ms = 2000;
+    config->calibrated_at_ms = 0;
 }
 
 /**
@@ -72,11 +78,10 @@ bool calibration_config_validate(calibration_config_t *config)
 
     bool valid = true;
 
-    if (config->hall_baseline <= 0) {
-        valid = false;
-    }
+    const int32_t MIN_HALL_RANGE = 30;
+    const int32_t MIN_PRESSURE_RANGE = 300;
 
-    if (config->hall_delta <= 0) {
+    if (config->hall_baseline <= 0) {
         valid = false;
     }
 
@@ -84,23 +89,56 @@ bool calibration_config_validate(calibration_config_t *config)
         valid = false;
     }
 
+    /* derived/collected hall range */
+    if (config->hall_range_raw <= MIN_HALL_RANGE) {
+        valid = false;
+    }
+
+    if (!(config->hall_direction == 1 || config->hall_direction == -1)) {
+        valid = false;
+    }
+
+    if (config->hall_start_delta <= 0) {
+        valid = false;
+    }
+
+    if (config->hall_full_delta_threshold <= config->hall_start_delta) {
+        valid = false;
+    }
+
+    if (config->hall_recoil_delta <= 0) {
+        valid = false;
+    }
+
     if (config->ref_pressure <= 0) {
         valid = false;
     }
 
-    if (config->bladder_1_pressure <= 0) {
+    if (config->bladder_1_pressure <= 0 || config->bladder_2_pressure <= 0) {
         valid = false;
     }
 
-    if (config->bladder_2_pressure <= 0) {
+    if (config->bladder_1_full_press <= 0 || config->bladder_2_full_press <= 0) {
         valid = false;
     }
 
-    if (config->bladder_1_full_press <= 0) {
+    if (config->pressure_1_range_raw <= MIN_PRESSURE_RANGE || config->pressure_2_range_raw <= MIN_PRESSURE_RANGE) {
         valid = false;
     }
 
-    if (config->bladder_2_full_press <= 0) {
+    if (config->pressure_contact_threshold <= 0) {
+        valid = false;
+    }
+
+    if (config->pressure_valid_threshold <= config->pressure_contact_threshold) {
+        valid = false;
+    }
+
+    if (config->pressure_balance_allowed_pct < 5 || config->pressure_balance_allowed_pct > 60) {
+        valid = false;
+    }
+
+    if (config->calibrated && config->calibrated_at_ms <= 0) {
         valid = false;
     }
 

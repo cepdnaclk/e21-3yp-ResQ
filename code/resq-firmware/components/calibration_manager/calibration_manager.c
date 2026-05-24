@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -136,6 +137,359 @@ static bool calibration_is_within_tolerance(int32_t reading,
                                             int32_t tolerance)
 {
     return calibration_abs_diff(reading, target) <= tolerance;
+}
+
+/**
+ * @brief Detect 24-bit ADC saturation sentinel values used by HX710.
+ */
+static bool calibration_is_saturated_24bit(int32_t value)
+{
+    return value > 8300000 || value < -8300000;
+}
+
+/* Calibration signal stats type (full definition needed by functions that access fields) */
+typedef struct calibration_signal_stats_t {
+    int64_t sum;
+    int32_t mean;
+    int32_t min;
+    int32_t max;
+    int32_t noise_pp;
+    int32_t last;
+    int valid_count;
+} calibration_signal_stats_t;
+
+/* Forward prototypes for static helpers defined later */
+static void calibration_stats_init(calibration_signal_stats_t *s);
+static void calibration_stats_update(calibration_signal_stats_t *s, int32_t value);
+static void calibration_stats_finalize(calibration_signal_stats_t *s);
+static int32_t calibration_max_i32(int32_t a, int32_t b);
+static int32_t calibration_min_i32(int32_t a, int32_t b);
+static int32_t calibration_abs_i32(int32_t v);
+static int32_t calibration_adaptive_pressure_tolerance(int32_t target, int32_t noise_raw);
+static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range, int32_t noise_raw);
+static esp_err_t calibration_read_hall_average(int32_t *out_value);
+static esp_err_t calibration_read_pressure_average(gpio_num_t sck_pin, gpio_num_t dout_pin, int32_t *out_value);
+static calibration_reason_id_t calibration_validate_derived_thresholds(void);
+static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_t *out_v1, int32_t *out_v2);
+static bool calibration_is_saturated_24bit(int32_t value);
+
+
+
+
+/* Collect rest statistics for Hall and the three pressure sensors.
+ * Caller must ensure s_calibration_config.calibration_sample_count and
+ * calibration_window_ms are set to sensible values (defaults provided).
+ */
+static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall_stats,
+                                               calibration_signal_stats_t *p0_stats,
+                                               calibration_signal_stats_t *p1_stats,
+                                               calibration_signal_stats_t *p2_stats)
+{
+    if (!hall_stats || !p0_stats || !p1_stats || !p2_stats) return ESP_ERR_INVALID_ARG;
+
+    calibration_stats_init(hall_stats);
+    calibration_stats_init(p0_stats);
+    calibration_stats_init(p1_stats);
+    calibration_stats_init(p2_stats);
+
+    int sample_count = s_calibration_config.calibration_sample_count > 0 ? s_calibration_config.calibration_sample_count : 30;
+    int window_ms = s_calibration_config.calibration_window_ms > 0 ? s_calibration_config.calibration_window_ms : 2000;
+    int delay_ms = window_ms / sample_count;
+    if (delay_ms < 5) delay_ms = 5;
+
+    for (int i = 0; i < sample_count && s_running; i++) {
+        int32_t hv = 0;
+        esp_err_t err = calibration_read_hall_average(&hv);
+        if (err != ESP_OK) return err;
+        calibration_stats_update(hall_stats, hv);
+
+        int32_t v0 = 0, v1 = 0, v2 = 0;
+        err = hx710_read_3_shared_sck(BOARD_HX710_SHARED_SCK,
+                                      BOARD_HX710_0_DOUT,
+                                      BOARD_HX710_1_DOUT,
+                                      BOARD_HX710_2_DOUT,
+                                      &v0, &v1, &v2);
+        if (err != ESP_OK) return err;
+
+        calibration_stats_update(p0_stats, v0);
+        calibration_stats_update(p1_stats, v1);
+        calibration_stats_update(p2_stats, v2);
+
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+
+    calibration_stats_finalize(hall_stats);
+    calibration_stats_finalize(p0_stats);
+    calibration_stats_finalize(p1_stats);
+    calibration_stats_finalize(p2_stats);
+
+    return ESP_OK;
+}
+
+/* Collect full-press stats: wait for the Hall to move in either direction
+ * and capture peak hall and bladder pressures at full compression.
+ */
+static esp_err_t calibration_collect_full_press_stats(int32_t expected_delta,
+                                                     int32_t *out_hall_match,
+                                                     int32_t *out_b1_full,
+                                                     int32_t *out_b2_full,
+                                                     calibration_signal_stats_t *rest_hall_stats)
+{
+    if (out_hall_match == NULL || out_b1_full == NULL || out_b2_full == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Make the expected delta direction-safe and validate it's large enough */
+    int32_t expected_range = calibration_abs_i32(expected_delta);
+    if (expected_range < 50) {
+        ESP_LOGW(TAG, "Expected hall delta too small for full-press capture: %ld", (long)expected_range);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* compute initial adaptive thresholds using expected range and measured noise */
+    int32_t hall_noise = rest_hall_stats ? rest_hall_stats->noise_pp : 0;
+    int32_t hall_noise_margin = calibration_max_i32(hall_noise * 4, 20);
+
+    int32_t start_thresh = calibration_max_i32((expected_range * 15) / 100, hall_noise_margin);
+    int32_t full_thresh = calibration_max_i32((expected_range * CALIBRATION_FULL_PRESS_RATIO_PCT) / 100, start_thresh + hall_noise_margin);
+    int32_t recoil_thresh = calibration_max_i32((expected_range * 10) / 100, hall_noise_margin);
+
+    ESP_LOGI(TAG, "Adaptive detection: start=%ld full=%ld recoil=%ld noise=%ld",
+             (long)start_thresh, (long)full_thresh, (long)recoil_thresh, (long)hall_noise);
+
+    int elapsed_ms = 0;
+    int32_t peak_delta = 0;
+    int32_t peak_hall_value = s_calibration_config.hall_baseline;
+    int peak_dir = 0;
+    int last_log_ms = -500; /* throttle live logs to every 500ms */
+
+    while (s_running && elapsed_ms < CALIBRATION_MAX_WAIT_MS) {
+        int32_t hv = 0;
+        esp_err_t err = calibration_read_hall_average(&hv);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Hall read failed during full-press capture: %s", esp_err_to_name(err));
+            vTaskDelay(pdMS_TO_TICKS(CALIBRATION_POLL_DELAY_MS));
+            elapsed_ms += CALIBRATION_POLL_DELAY_MS;
+            continue;
+        }
+
+        int32_t delta = calibration_abs_i32(hv - s_calibration_config.hall_baseline);
+        if (delta > peak_delta) {
+            peak_delta = delta;
+            peak_hall_value = hv;
+            peak_dir = (hv > s_calibration_config.hall_baseline) ? 1 : -1;
+        }
+
+        /* Throttled live logging for debugging during full-press wait */
+        if ((elapsed_ms - last_log_ms) >= 500) {
+            ESP_LOGI(TAG,
+                     "Hall full-press wait: hall=%ld baseline=%ld delta=%ld peak_delta=%ld required=%ld elapsed=%d",
+                     (long)hv,
+                     (long)s_calibration_config.hall_baseline,
+                     (long)delta,
+                     (long)peak_delta,
+                     (long)full_thresh,
+                     elapsed_ms);
+            last_log_ms = elapsed_ms;
+        }
+
+        if (peak_delta >= full_thresh) {
+            ESP_LOGI(TAG, "Detected full press: peak_delta=%ld peak_hall=%ld",
+                     (long)peak_delta, (long)peak_hall_value);
+            /* capture synchronized averaged pressure values for all three sensors */
+            int32_t v0 = 0, v1 = 0, v2 = 0;
+            err = calibration_read_three_pressure_average(&v0, &v1, &v2);
+            if (err != ESP_OK) return err;
+
+            *out_b1_full = v1;
+            *out_b2_full = v2;
+            *out_hall_match = peak_hall_value;
+            s_calibration_config.hall_direction = peak_dir;
+            return ESP_OK;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(CALIBRATION_POLL_DELAY_MS));
+        elapsed_ms += CALIBRATION_POLL_DELAY_MS;
+    }
+
+    ESP_LOGE(TAG,
+             "Hall full press timeout: peak_delta=%ld peak_hall=%ld baseline=%ld required=%ld",
+             (long)peak_delta,
+             (long)peak_hall_value,
+             (long)s_calibration_config.hall_baseline,
+             (long)full_thresh);
+
+    return ESP_ERR_TIMEOUT;
+}
+
+/* Derive adaptive thresholds and populate s_calibration_config accordingly. */
+static void calibration_derive_adaptive_thresholds(const calibration_signal_stats_t *hall_stats,
+                                                   const calibration_signal_stats_t *p0_stats,
+                                                   const calibration_signal_stats_t *p1_stats,
+                                                   const calibration_signal_stats_t *p2_stats,
+                                                   int32_t matched_hall_full,
+                                                   int32_t matched_b1_full,
+                                                   int32_t matched_b2_full)
+{
+    if (hall_stats == NULL || p0_stats == NULL || p1_stats == NULL || p2_stats == NULL) return;
+
+    /* Hall baseline and noise */
+    s_calibration_config.hall_baseline = hall_stats->mean;
+    s_calibration_config.hall_noise_raw = hall_stats->noise_pp;
+
+    /* Pressure baselines and noise */
+    s_calibration_config.pressure_0_baseline = p0_stats->mean;
+    s_calibration_config.pressure_1_baseline = p1_stats->mean;
+    s_calibration_config.pressure_2_baseline = p2_stats->mean;
+
+    s_calibration_config.pressure_0_noise_raw = p0_stats->noise_pp;
+    s_calibration_config.pressure_1_noise_raw = p1_stats->noise_pp;
+    s_calibration_config.pressure_2_noise_raw = p2_stats->noise_pp;
+
+    /* Captured full-press values */
+    s_calibration_config.hall_full_press = matched_hall_full;
+    s_calibration_config.bladder_1_full_press = matched_b1_full;
+    s_calibration_config.bladder_2_full_press = matched_b2_full;
+
+    /* hall range & direction */
+    s_calibration_config.hall_range_raw = calibration_abs_i32(matched_hall_full - s_calibration_config.hall_baseline);
+    s_calibration_config.hall_direction = (matched_hall_full > s_calibration_config.hall_baseline) ? 1 : -1;
+
+    int32_t hall_noise_margin = calibration_max_i32(s_calibration_config.hall_noise_raw * 4, 20);
+
+    s_calibration_config.hall_start_delta = calibration_max_i32((s_calibration_config.hall_range_raw * 15) / 100, hall_noise_margin);
+    s_calibration_config.hall_full_delta_threshold = calibration_max_i32((s_calibration_config.hall_range_raw * 85) / 100,
+                                                                        s_calibration_config.hall_start_delta + hall_noise_margin);
+    s_calibration_config.hall_recoil_delta = calibration_max_i32((s_calibration_config.hall_range_raw * 10) / 100, hall_noise_margin);
+    s_calibration_config.hall_tolerance_raw = calibration_adaptive_hall_tolerance(s_calibration_config.hall_range_raw,
+                                                                                  s_calibration_config.hall_noise_raw);
+
+    /* pressure ranges: compute from measured baselines (not host-provided expected values) */
+    s_calibration_config.pressure_1_range_raw = calibration_abs_i32(s_calibration_config.bladder_1_full_press - s_calibration_config.pressure_1_baseline);
+    s_calibration_config.pressure_2_range_raw = calibration_abs_i32(s_calibration_config.bladder_2_full_press - s_calibration_config.pressure_2_baseline);
+
+    int32_t max_noise = calibration_max_i32(s_calibration_config.pressure_1_noise_raw, s_calibration_config.pressure_2_noise_raw);
+    int32_t pressure_contact_min = 100;
+    s_calibration_config.pressure_contact_threshold = calibration_max_i32(max_noise * 5, pressure_contact_min);
+
+    /* Use the smaller reliable pressure range for pressure_valid_threshold when both sensors are used */
+    int32_t min_range = calibration_max_i32(1, calibration_min_i32(s_calibration_config.pressure_1_range_raw, s_calibration_config.pressure_2_range_raw));
+    s_calibration_config.pressure_valid_threshold = calibration_max_i32((min_range * 70) / 100,
+                                                                       s_calibration_config.pressure_contact_threshold);
+
+    /* sample/window already set in config; record timestamp */
+    s_calibration_config.calibrated_at_ms = (int64_t)(esp_timer_get_time() / 1000);
+
+    ESP_LOGI(TAG, "Derived adaptive thresholds: hall_range=%ld start=%ld full=%ld recoil=%ld p1_range=%ld p2_range=%ld p_valid=%ld p_contact=%ld",
+             (long)s_calibration_config.hall_range_raw,
+             (long)s_calibration_config.hall_start_delta,
+             (long)s_calibration_config.hall_full_delta_threshold,
+             (long)s_calibration_config.hall_recoil_delta,
+             (long)s_calibration_config.pressure_1_range_raw,
+             (long)s_calibration_config.pressure_2_range_raw,
+             (long)s_calibration_config.pressure_valid_threshold,
+             (long)s_calibration_config.pressure_contact_threshold);
+
+}
+
+/* Validate derived adaptive thresholds and return a calibration reason id on failure */
+static calibration_reason_id_t calibration_validate_derived_thresholds(void)
+{
+    const int32_t MIN_HALL_RANGE = 30;
+    const int32_t MIN_PRESSURE_RANGE = 300;
+
+    if (s_calibration_config.hall_range_raw < MIN_HALL_RANGE) {
+        return CAL_REASON_HALL_RANGE_TOO_SMALL;
+    }
+
+    if ((int64_t)s_calibration_config.hall_noise_raw * 4 >= (int64_t)s_calibration_config.hall_range_raw) {
+        return CAL_REASON_HALL_NOISE_TOO_HIGH;
+    }
+
+    if (s_calibration_config.hall_start_delta <= 0) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+    if (s_calibration_config.hall_full_delta_threshold <= s_calibration_config.hall_start_delta) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+    if (s_calibration_config.hall_recoil_delta <= 0) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+    if (s_calibration_config.hall_recoil_delta >= s_calibration_config.hall_start_delta) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+
+    if (s_calibration_config.pressure_1_range_raw < MIN_PRESSURE_RANGE) return CAL_REASON_PRESSURE_RANGE_TOO_SMALL;
+    if (s_calibration_config.pressure_2_range_raw < MIN_PRESSURE_RANGE) return CAL_REASON_PRESSURE_RANGE_TOO_SMALL;
+
+    int32_t max_pressure_noise = calibration_max_i32(s_calibration_config.pressure_1_noise_raw, s_calibration_config.pressure_2_noise_raw);
+    if (s_calibration_config.pressure_contact_threshold <= max_pressure_noise) return CAL_REASON_PRESSURE_NOISE_TOO_HIGH;
+
+    if (s_calibration_config.pressure_valid_threshold <= s_calibration_config.pressure_contact_threshold) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+
+    if (s_calibration_config.pressure_valid_threshold > calibration_max_i32(s_calibration_config.pressure_1_range_raw, s_calibration_config.pressure_2_range_raw)) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+
+    if (s_calibration_config.pressure_balance_allowed_pct < 5 || s_calibration_config.pressure_balance_allowed_pct > 60) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+
+    return CAL_REASON_NONE;
+}
+
+/* =========================================================
+ * Calibration statistics helpers
+ * ========================================================= */
+static void calibration_stats_init(calibration_signal_stats_t *s)
+{
+    if (s == NULL) return;
+    s->sum = 0;
+    s->mean = 0;
+    s->min = INT32_MAX;
+    s->max = INT32_MIN;
+    s->noise_pp = 0;
+    s->last = 0;
+    s->valid_count = 0;
+}
+
+static void calibration_stats_update(calibration_signal_stats_t *s, int32_t value)
+{
+    if (s == NULL) return;
+    s->sum += value;
+    s->last = value;
+    if (value < s->min) s->min = value;
+    if (value > s->max) s->max = value;
+    s->valid_count++;
+}
+
+static void calibration_stats_finalize(calibration_signal_stats_t *s)
+{
+    if (s == NULL || s->valid_count == 0) return;
+    s->mean = (int32_t)(s->sum / s->valid_count);
+    s->noise_pp = s->max - s->min;
+}
+
+static int32_t calibration_max_i32(int32_t a, int32_t b)
+{
+    return a >= b ? a : b;
+}
+
+static int32_t calibration_min_i32(int32_t a, int32_t b)
+{
+    return a <= b ? a : b;
+}
+
+static int32_t calibration_abs_i32(int32_t v)
+{
+    return v < 0 ? -v : v;
+}
+
+/* Adaptive tolerance helpers (used during calibration decisions) */
+static int32_t calibration_adaptive_pressure_tolerance(int32_t target, int32_t noise_raw)
+{
+    int32_t pct_tol = (abs(target) * 8) / 100;
+    int32_t noise_tol = noise_raw * 5;
+    int32_t min_tol = 100;
+    int32_t t = calibration_max_i32(min_tol, calibration_max_i32(pct_tol, noise_tol));
+    return t;
+}
+
+static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range, int32_t noise_raw)
+{
+    int32_t pct_tol = (abs(hall_range) * 5) / 100;
+    int32_t noise_tol = noise_raw * 4;
+    int32_t min_tol = 20;
+    int32_t t = calibration_max_i32(min_tol, calibration_max_i32(pct_tol, noise_tol));
+    return t;
 }
 
 /**
@@ -506,213 +860,149 @@ static void calibration_manager_task(void *arg)
     int32_t matched_bladder_2_pressure = 0;
 
     /* -----------------------------------------------------
-     * Step 1: Match pressure sensor 0 with ref_pressure
+     * Step 1: Collect rest statistics first (hall + all pressures at rest)
      * ----------------------------------------------------- */
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
-    esp_err_t err = calibration_wait_for_pressure_target(
-        "pressure_sensor_0",
-        BOARD_HX710_SHARED_SCK,
-        BOARD_HX710_0_DOUT,
-        s_calibration_config.ref_pressure,
-        CALIBRATION_PRESSURE_TOLERANCE_RAW,
-        &matched_ref_pressure);
+    calibration_signal_stats_t hall_stats, p0_stats, p1_stats, p2_stats;
 
+    esp_err_t err = calibration_collect_rest_stats(&hall_stats, &p0_stats, &p1_stats, &p2_stats);
     if (err != ESP_OK) {
-        if (err == ESP_ERR_INVALID_RESPONSE) {
-            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
-        } else {
-            calibration_manager_fail(CAL_REASON_REF_PRESSURE_TIMEOUT);
-        }
+        ESP_LOGE(TAG, "Failed to collect rest stats: %s", esp_err_to_name(err));
+        calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
         goto task_exit;
     }
 
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
+    /* Store measured baselines and noise */
+    s_calibration_config.hall_baseline = hall_stats.mean;
+    s_calibration_config.hall_noise_raw = hall_stats.noise_pp;
 
-    /*
-     * ref_pressure is target from LocalHub.
-     * matched_ref_pressure is observed value.
-     * For this first version we keep the target value in config.
-     */
+    s_calibration_config.pressure_0_baseline = p0_stats.mean;
+    s_calibration_config.pressure_1_baseline = p1_stats.mean;
+    s_calibration_config.pressure_2_baseline = p2_stats.mean;
+
+    s_calibration_config.pressure_0_noise_raw = p0_stats.noise_pp;
+    s_calibration_config.pressure_1_noise_raw = p1_stats.noise_pp;
+    s_calibration_config.pressure_2_noise_raw = p2_stats.noise_pp;
+
+    ESP_LOGI(TAG, "Rest stats: hall_mean=%ld noise_pp=%ld p0_mean=%ld p1_mean=%ld p2_mean=%ld",
+             (long)hall_stats.mean, (long)hall_stats.noise_pp,
+             (long)p0_stats.mean, (long)p1_stats.mean, (long)p2_stats.mean);
+
+    /* Pressure saturation checks for rest stats: fail early if sensors are saturated */
+    if (calibration_is_saturated_24bit(s_calibration_config.pressure_1_baseline) ||
+        calibration_is_saturated_24bit(s_calibration_config.pressure_2_baseline)) {
+        ESP_LOGW(TAG, "Pressure sensor saturated at rest: p1=%ld p2=%ld",
+                 (long)s_calibration_config.pressure_1_baseline,
+                 (long)s_calibration_config.pressure_2_baseline);
+        calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+        goto task_exit;
+    }
+
+    /* Hall rest stability checks (direction-safe, reason-correct) */
+    int32_t expected_hall_delta = calibration_abs_i32(s_calibration_config.hall_delta);
+    if (expected_hall_delta < 50) {
+        calibration_manager_fail(CAL_REASON_INVALID_HALL_DELTA);
+        goto task_exit;
+    }
+
+    if (s_calibration_config.hall_noise_raw > 80) {
+        calibration_manager_fail(CAL_REASON_HALL_NOISE_TOO_HIGH);
+        goto task_exit;
+    }
+
+    if ((int64_t)s_calibration_config.hall_noise_raw * 5 > (int64_t)expected_hall_delta) {
+        calibration_manager_fail(CAL_REASON_ADAPTIVE_THRESHOLD_INVALID);
+        goto task_exit;
+    }
 
     /* -----------------------------------------------------
-     * Step 2: Match pressure sensor 1 with bladder_1_pressure
+     * Step 2: Ensure pressure baselines match host targets (use adaptive tolerance)
+     * If baseline is not within tolerance, wait for the operator to adjust target.
      * ----------------------------------------------------- */
-
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
-
-    err = calibration_wait_for_pressure_target(
-        "pressure_sensor_1",
-        BOARD_HX710_SHARED_SCK,
-        BOARD_HX710_1_DOUT,
-        s_calibration_config.bladder_1_pressure,
-        CALIBRATION_PRESSURE_TOLERANCE_RAW,
-        &matched_bladder_1_pressure);
-
-    if (err != ESP_OK) {
-        if (err == ESP_ERR_INVALID_RESPONSE) {
-            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
-        } else {
-            calibration_manager_fail(CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
-        }
-        goto task_exit;
+    int32_t tol0 = calibration_adaptive_pressure_tolerance(s_calibration_config.ref_pressure, p0_stats.noise_pp);
+    if (calibration_is_within_tolerance(s_calibration_config.pressure_0_baseline, s_calibration_config.ref_pressure, tol0)) {
+        matched_ref_pressure = s_calibration_config.pressure_0_baseline;
+    } else {
+        ESP_LOGW(TAG, "Ref pressure baseline not within tolerance, proceeding without waiting: baseline=%ld target=%ld tol=%ld",
+                 (long)s_calibration_config.pressure_0_baseline,
+                 (long)s_calibration_config.ref_pressure,
+                 (long)tol0);
+        /* Proceed using observed baseline to avoid blocking full-press detection */
+        matched_ref_pressure = s_calibration_config.pressure_0_baseline;
     }
 
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
-
-    /* -----------------------------------------------------
-     * Step 3: Match pressure sensor 2 with bladder_2_pressure
-     * ----------------------------------------------------- */
-
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
-
-    err = calibration_wait_for_pressure_target(
-        "pressure_sensor_2",
-        BOARD_HX710_SHARED_SCK,
-        BOARD_HX710_2_DOUT,
-        s_calibration_config.bladder_2_pressure,
-        CALIBRATION_PRESSURE_TOLERANCE_RAW,
-        &matched_bladder_2_pressure);
-
-    if (err != ESP_OK) {
-        if (err == ESP_ERR_INVALID_RESPONSE) {
-            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
-        } else {
-            calibration_manager_fail(CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
-        }
-        goto task_exit;
+    int32_t tol1 = calibration_adaptive_pressure_tolerance(s_calibration_config.bladder_1_pressure, p1_stats.noise_pp);
+    if (calibration_is_within_tolerance(s_calibration_config.pressure_1_baseline, s_calibration_config.bladder_1_pressure, tol1)) {
+        matched_bladder_1_pressure = s_calibration_config.pressure_1_baseline;
+    } else {
+        ESP_LOGW(TAG, "Bladder 1 baseline not within tolerance, proceeding without waiting: baseline=%ld target=%ld tol=%ld",
+                 (long)s_calibration_config.pressure_1_baseline,
+                 (long)s_calibration_config.bladder_1_pressure,
+                 (long)tol1);
+        matched_bladder_1_pressure = s_calibration_config.pressure_1_baseline;
     }
 
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
+    int32_t tol2 = calibration_adaptive_pressure_tolerance(s_calibration_config.bladder_2_pressure, p2_stats.noise_pp);
+    if (calibration_is_within_tolerance(s_calibration_config.pressure_2_baseline, s_calibration_config.bladder_2_pressure, tol2)) {
+        matched_bladder_2_pressure = s_calibration_config.pressure_2_baseline;
+    } else {
+        ESP_LOGW(TAG, "Bladder 2 baseline not within tolerance, proceeding without waiting: baseline=%ld target=%ld tol=%ld",
+                 (long)s_calibration_config.pressure_2_baseline,
+                 (long)s_calibration_config.bladder_2_pressure,
+                 (long)tol2);
+        matched_bladder_2_pressure = s_calibration_config.pressure_2_baseline;
+    }
 
-    /*
-     * Store the matched baseline bladder pressure values.
-     * These are close to the host-provided targets but represent
-     * the actual accepted sensor readings.
-     */
+    /* Persist matched bladder targets (observed values) */
+    s_calibration_config.ref_pressure = matched_ref_pressure;
     s_calibration_config.bladder_1_pressure = matched_bladder_1_pressure;
     s_calibration_config.bladder_2_pressure = matched_bladder_2_pressure;
 
     /* -----------------------------------------------------
-     * Step 4: Capture Hall baseline at rest position
+     * Step 6: Collect full-press stats (adaptive, direction-safe)
      * ----------------------------------------------------- */
+    int32_t matched_hall_full = 0;
+    int32_t matched_b1_full = 0;
+    int32_t matched_b2_full = 0;
 
-    int32_t hall_baseline = 0;
-
-    err = calibration_read_hall_average(&hall_baseline);
-    if (err != ESP_OK) {
-        calibration_manager_fail(CAL_REASON_HALL_BASELINE_READ_FAILED);
-        goto task_exit;
-    }
-
-    s_calibration_config.hall_baseline = hall_baseline;
-
-    ESP_LOGI(TAG,
-             "Hall baseline captured: %ld",
-             (long)s_calibration_config.hall_baseline);
-
+    /* Publish progress and prompt operator before waiting for full press */
     publish_calibration_progress(CAL_REASON_NONE,
                                  RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
+                                 CAL_ACTION_WAIT_OR_CANCEL);
+    ESP_LOGI(TAG, "Waiting for Hall full press: ask operator to press and hold full compression now");
 
-    /* -----------------------------------------------------
-     * Step 5: Calculate expected full-press Hall value
-     *
-     * According to your diagram:
-     * hall_baseline - hall_delta == read_hall_value()
-     * ----------------------------------------------------- */
-
-    s_calibration_config.hall_full_press =
-        s_calibration_config.hall_baseline -
-        s_calibration_config.hall_delta;
-
-    ESP_LOGI(TAG,
-             "Hall full press target calculated: baseline=%ld delta=%ld full_press=%ld",
-             (long)s_calibration_config.hall_baseline,
-             (long)s_calibration_config.hall_delta,
-             (long)s_calibration_config.hall_full_press);
-
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
-
-    /* -----------------------------------------------------
-     * Step 6: Wait for instructor compression until Hall matches
-     * ----------------------------------------------------- */
-
-    int32_t matched_hall_full_press = 0;
-
-    err = calibration_wait_for_hall_target(
-        s_calibration_config.hall_full_press,
-        CALIBRATION_HALL_TOLERANCE_RAW,
-        &matched_hall_full_press);
+    err = calibration_collect_full_press_stats(s_calibration_config.hall_delta,
+                                               &matched_hall_full,
+                                               &matched_b1_full,
+                                               &matched_b2_full,
+                                               &hall_stats);
 
     if (err != ESP_OK) {
-        calibration_manager_fail(CAL_REASON_HALL_FULL_PRESS_TIMEOUT);
-        goto task_exit;
-    }
-
-    /*
-     * Store the actual matched full-press Hall value.
-     * This is more realistic than storing only the calculated target.
-     */
-    s_calibration_config.hall_full_press = matched_hall_full_press;
-
-    publish_calibration_progress(CAL_REASON_NONE,
-                                 RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
-
-    /* -----------------------------------------------------
-     * Step 7: Capture full-compression pressure sensor values
-     * ----------------------------------------------------- */
-
-    err = calibration_read_pressure_average(
-        BOARD_HX710_SHARED_SCK,
-        BOARD_HX710_1_DOUT,
-        &s_calibration_config.bladder_1_full_press);
-
-    if (err != ESP_OK) {
-        if (err == ESP_ERR_INVALID_RESPONSE) {
-            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+        if (err == ESP_ERR_INVALID_ARG) {
+            calibration_manager_fail(CAL_REASON_INVALID_HALL_DELTA);
+        } else if (err == ESP_ERR_TIMEOUT) {
+            calibration_manager_fail(CAL_REASON_HALL_FULL_PRESS_TIMEOUT);
         } else {
             calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
         }
         goto task_exit;
     }
 
-    err = calibration_read_pressure_average(
-        BOARD_HX710_SHARED_SCK,
-        BOARD_HX710_2_DOUT,
-        &s_calibration_config.bladder_2_full_press);
+    ESP_LOGI(TAG, "Captured full-press: hall=%ld b1=%ld b2=%ld",
+             (long)matched_hall_full, (long)matched_b1_full, (long)matched_b2_full);
 
-    if (err != ESP_OK) {
-        if (err == ESP_ERR_INVALID_RESPONSE) {
-            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
-        } else {
-            calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
-        }
+    /* Derive adaptive thresholds and store in s_calibration_config */
+    calibration_derive_adaptive_thresholds(&hall_stats, &p0_stats, &p1_stats, &p2_stats,
+                                           matched_hall_full, matched_b1_full, matched_b2_full);
+
+    /* Validate derived adaptive thresholds and fail with a specific reason if invalid */
+    calibration_reason_id_t vreason = calibration_validate_derived_thresholds();
+    if (vreason != CAL_REASON_NONE) {
+        calibration_manager_fail(vreason);
         goto task_exit;
     }
 
-    ESP_LOGI(TAG,
-             "Full press captured: bladder1=%ld bladder2=%ld",
-             (long)s_calibration_config.bladder_1_full_press,
-             (long)s_calibration_config.bladder_2_full_press);
-
-    /* -----------------------------------------------------
-     * Step 8: Validate and save
-     * ----------------------------------------------------- */
+    /* Final save */
+    s_calibration_config.calibrated = true;
 
     err = calibration_manager_save_success();
     if (err != ESP_OK) {
@@ -864,6 +1154,14 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     /* Reset diagnostic arrays for this calibration run */
     memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
     memset(s_last_hx710_raw, 0, sizeof(s_last_hx710_raw));
+
+    /* Debug: log the received host calibration payload values */
+    ESP_LOGI(TAG, "Calibration payload: hall_delta=%ld ref_pressure=%ld bladder_1=%ld bladder_2=%ld balance_pct=%d",
+             (long)s_calibration_config.hall_delta,
+             (long)s_calibration_config.ref_pressure,
+             (long)s_calibration_config.bladder_1_pressure,
+             (long)s_calibration_config.bladder_2_pressure,
+             s_calibration_config.pressure_balance_allowed_pct);
 
     s_running = true;
 
@@ -1036,6 +1334,8 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
     cJSON *ref_pressure = cJSON_GetObjectItemCaseSensitive(root, "ref_pressure");
     cJSON *bladder_1_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_1_pressure");
     cJSON *bladder_2_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_2_pressure");
+    cJSON *profile_id = cJSON_GetObjectItemCaseSensitive(root, "profile_id");
+    cJSON *pressure_balance_allowed_pct = cJSON_GetObjectItemCaseSensitive(root, "pressure_balance_allowed_pct");
 
     /* Require either request_id (preferred) or legacy command_id, and numeric fields. */
     if ((!cJSON_IsString(command_id) || command_id->valuestring == NULL) ||
@@ -1079,6 +1379,18 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
     out_config->bladder_2_pressure = (int32_t)bladder_2_pressure->valuedouble;
     out_config->calibrated = false;
 
+    if (cJSON_IsString(profile_id) && profile_id->valuestring != NULL) {
+        strncpy(out_config->profile_id, profile_id->valuestring, sizeof(out_config->profile_id) - 1);
+        out_config->profile_id[sizeof(out_config->profile_id) - 1] = '\0';
+    }
+
+    if (cJSON_IsNumber(pressure_balance_allowed_pct)) {
+        int32_t pct = (int32_t)pressure_balance_allowed_pct->valuedouble;
+        if (pct >= 5 && pct <= 60) {
+            out_config->pressure_balance_allowed_pct = pct;
+        }
+    }
+
 exit:
     cJSON_Delete(root);
     return result;
@@ -1100,35 +1412,123 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
         event_id = 4002;
     }
 
-    char payload[512];
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"event_id\":%d," 
-                           "\"reply_id\":\"%s\"," 
-                           "\"status\":\"%s\"," 
-                           "\"result\":\"%s\"," 
-                           "\"reason_id\":%d," 
-                           "\"state\":\"%s\"," 
-                           "\"action_id\":%d," 
-                           "\"ts_ms\":%lld"
-                           "}",
-                           event_id,
-                           reply_id,
-                           status != NULL ? status : "",
-                           result != NULL ? result : "",
-                           (int)reason_id,
-                           resq_state_to_string(state),
-                           (int)action_id,
-                           (long long)(esp_timer_get_time() / 1000));
+    char payload[1024];
+    if (result != NULL && strcmp(result, "PASS") == 0) {
+        int written = snprintf(payload,
+                               sizeof(payload),
+                               "{"
+                               "\"event_id\":%d," 
+                               "\"reply_id\":\"%s\"," 
+                               "\"status\":\"%s\"," 
+                               "\"result\":\"%s\"," 
+                               "\"reason_id\":%d," 
+                               "\"state\":\"%s\"," 
+                               "\"action_id\":%d," 
+                               "\"hall_baseline\":%d," 
+                               "\"hall_full_press\":%d," 
+                               "\"hall_range_raw\":%d," 
+                               "\"hall_start_delta\":%d," 
+                               "\"hall_full_delta_threshold\":%d," 
+                               "\"hall_recoil_delta\":%d," 
+                               "\"pressure_1_range_raw\":%d," 
+                               "\"pressure_2_range_raw\":%d," 
+                               "\"pressure_contact_threshold\":%d," 
+                               "\"pressure_valid_threshold\":%d," 
+                               "\"pressure_balance_allowed_pct\":%d," 
+                               "\"ts_ms\":%lld"
+                               "}",
+                               event_id,
+                               reply_id,
+                               status != NULL ? status : "",
+                               result != NULL ? result : "",
+                               (int)reason_id,
+                               resq_state_to_string(state),
+                               (int)action_id,
+                               (int)s_calibration_config.hall_baseline,
+                               (int)s_calibration_config.hall_full_press,
+                               (int)s_calibration_config.hall_range_raw,
+                               (int)s_calibration_config.hall_start_delta,
+                               (int)s_calibration_config.hall_full_delta_threshold,
+                               (int)s_calibration_config.hall_recoil_delta,
+                               (int)s_calibration_config.pressure_1_range_raw,
+                               (int)s_calibration_config.pressure_2_range_raw,
+                               (int)s_calibration_config.pressure_contact_threshold,
+                               (int)s_calibration_config.pressure_valid_threshold,
+                               (int)s_calibration_config.pressure_balance_allowed_pct,
+                               (long long)(esp_timer_get_time() / 1000));
 
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        return ESP_ERR_INVALID_SIZE;
+        if (written <= 0 || written >= (int)sizeof(payload)) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        if (!mqtt_manager_is_connected()) {
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
+    } else {
+        int written = snprintf(payload,
+                               sizeof(payload),
+                               "{"
+                               "\"event_id\":%d," 
+                               "\"reply_id\":\"%s\"," 
+                               "\"status\":\"%s\"," 
+                               "\"result\":\"%s\"," 
+                               "\"reason_id\":%d," 
+                               "\"state\":\"%s\"," 
+                               "\"action_id\":%d," 
+                               "\"ts_ms\":%lld"
+                               "}",
+                               event_id,
+                               reply_id,
+                               status != NULL ? status : "",
+                               result != NULL ? result : "",
+                               (int)reason_id,
+                               resq_state_to_string(state),
+                               (int)action_id,
+                               (long long)(esp_timer_get_time() / 1000));
+
+        if (written <= 0 || written >= (int)sizeof(payload)) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        if (!mqtt_manager_is_connected()) {
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
     }
 
-    if (!mqtt_manager_is_connected()) {
-        return ESP_ERR_INVALID_STATE;
+    
+}
+
+/* Read all three HX710 sensors and average them together in a synchronized way. */
+static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_t *out_v1, int32_t *out_v2)
+{
+    if (out_v0 == NULL || out_v1 == NULL || out_v2 == NULL) return ESP_ERR_INVALID_ARG;
+
+    int64_t sum0 = 0, sum1 = 0, sum2 = 0;
+
+    for (int i = 0; i < CALIBRATION_AVERAGE_SAMPLE_COUNT; i++) {
+        int32_t v0 = 0, v1 = 0, v2 = 0;
+        esp_err_t err = hx710_read_3_shared_sck(
+            BOARD_HX710_SHARED_SCK,
+            BOARD_HX710_0_DOUT,
+            BOARD_HX710_1_DOUT,
+            BOARD_HX710_2_DOUT,
+            &v0, &v1, &v2);
+        if (err != ESP_OK) return err;
+
+        sum0 += v0;
+        sum1 += v1;
+        sum2 += v2;
+
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
+    *out_v0 = (int32_t)(sum0 / CALIBRATION_AVERAGE_SAMPLE_COUNT);
+    *out_v1 = (int32_t)(sum1 / CALIBRATION_AVERAGE_SAMPLE_COUNT);
+    *out_v2 = (int32_t)(sum2 / CALIBRATION_AVERAGE_SAMPLE_COUNT);
+
+    return ESP_OK;
 }

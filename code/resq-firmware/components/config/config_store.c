@@ -38,6 +38,35 @@
 
 #define NVS_KEY_CALIBRATED          "calibrated"
 
+/* Additional adaptive calibration NVS keys */
+#define NVS_KEY_PROFILE_ID          "profile_id"
+#define NVS_KEY_HALL_NOISE          "hall_noise"
+#define NVS_KEY_HALL_DIRECTION      "hall_dir"
+#define NVS_KEY_HALL_RANGE          "hall_range"
+#define NVS_KEY_HALL_START_DELTA    "hall_start"
+#define NVS_KEY_HALL_FULL_DELTA     "hall_full_delta"
+#define NVS_KEY_HALL_RECOIL         "hall_recoil"
+#define NVS_KEY_HALL_TOLERANCE      "hall_tol"
+
+#define NVS_KEY_PRESSURE0_BASE      "p0_base"
+#define NVS_KEY_PRESSURE1_BASE      "p1_base"
+#define NVS_KEY_PRESSURE2_BASE      "p2_base"
+
+#define NVS_KEY_PRESSURE0_NOISE     "p0_noise"
+#define NVS_KEY_PRESSURE1_NOISE     "p1_noise"
+#define NVS_KEY_PRESSURE2_NOISE     "p2_noise"
+
+#define NVS_KEY_PRESSURE1_RANGE     "p1_range"
+#define NVS_KEY_PRESSURE2_RANGE     "p2_range"
+
+#define NVS_KEY_PRESSURE_CONTACT    "p_contact"
+#define NVS_KEY_PRESSURE_VALID      "p_valid"
+#define NVS_KEY_PRESSURE_BALANCE_PCT "p_balance_pct"
+
+#define NVS_KEY_CAL_SAMPLES         "cal_samples"
+#define NVS_KEY_CAL_WINDOW_MS       "cal_window_ms"
+#define NVS_KEY_CALIBRATED_AT_MS    "calibrated_at"
+
 /**
  * @brief Open ResQ NVS namespace.
  */
@@ -257,6 +286,19 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
     nvs_get_i32(handle, NVS_KEY_HALL_DELTA, &config->hall_delta);
     nvs_get_i32(handle, NVS_KEY_HALL_FULL_PRESS, &config->hall_full_press);
 
+    /* adaptive fields (optional) */
+    {
+        size_t _req = sizeof(config->profile_id);
+        nvs_get_str(handle, NVS_KEY_PROFILE_ID, config->profile_id, &_req);
+    }
+    nvs_get_i32(handle, NVS_KEY_HALL_NOISE, &config->hall_noise_raw);
+    nvs_get_i32(handle, NVS_KEY_HALL_DIRECTION, &config->hall_direction);
+    nvs_get_i32(handle, NVS_KEY_HALL_RANGE, &config->hall_range_raw);
+    nvs_get_i32(handle, NVS_KEY_HALL_START_DELTA, &config->hall_start_delta);
+    nvs_get_i32(handle, NVS_KEY_HALL_FULL_DELTA, &config->hall_full_delta_threshold);
+    nvs_get_i32(handle, NVS_KEY_HALL_RECOIL, &config->hall_recoil_delta);
+    nvs_get_i32(handle, NVS_KEY_HALL_TOLERANCE, &config->hall_tolerance_raw);
+
     nvs_get_i32(handle, NVS_KEY_REF_PRESSURE, &config->ref_pressure);
 
     nvs_get_i32(handle, NVS_KEY_BLADDER1_PRESSURE, &config->bladder_1_pressure);
@@ -264,6 +306,28 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
 
     nvs_get_i32(handle, NVS_KEY_BLADDER1_FULL, &config->bladder_1_full_press);
     nvs_get_i32(handle, NVS_KEY_BLADDER2_FULL, &config->bladder_2_full_press);
+
+    nvs_get_i32(handle, NVS_KEY_PRESSURE0_BASE, &config->pressure_0_baseline);
+    nvs_get_i32(handle, NVS_KEY_PRESSURE1_BASE, &config->pressure_1_baseline);
+    nvs_get_i32(handle, NVS_KEY_PRESSURE2_BASE, &config->pressure_2_baseline);
+
+    nvs_get_i32(handle, NVS_KEY_PRESSURE0_NOISE, &config->pressure_0_noise_raw);
+    nvs_get_i32(handle, NVS_KEY_PRESSURE1_NOISE, &config->pressure_1_noise_raw);
+    nvs_get_i32(handle, NVS_KEY_PRESSURE2_NOISE, &config->pressure_2_noise_raw);
+
+    nvs_get_i32(handle, NVS_KEY_PRESSURE1_RANGE, &config->pressure_1_range_raw);
+    nvs_get_i32(handle, NVS_KEY_PRESSURE2_RANGE, &config->pressure_2_range_raw);
+
+    nvs_get_i32(handle, NVS_KEY_PRESSURE_CONTACT, &config->pressure_contact_threshold);
+    nvs_get_i32(handle, NVS_KEY_PRESSURE_VALID, &config->pressure_valid_threshold);
+    nvs_get_i32(handle, NVS_KEY_PRESSURE_BALANCE_PCT, &config->pressure_balance_allowed_pct);
+
+    nvs_get_i32(handle, NVS_KEY_CAL_SAMPLES, &config->calibration_sample_count);
+    nvs_get_i32(handle, NVS_KEY_CAL_WINDOW_MS, &config->calibration_window_ms);
+
+    int64_t tmp64 = 0;
+    nvs_get_i64(handle, NVS_KEY_CALIBRATED_AT_MS, &tmp64);
+    config->calibrated_at_ms = tmp64;
 
     uint8_t calibrated = 0;
     nvs_get_u8(handle, NVS_KEY_CALIBRATED, &calibrated);
@@ -297,6 +361,25 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     err = nvs_set_i32(handle, NVS_KEY_HALL_FULL_PRESS, config->hall_full_press);
     if (err != ESP_OK) goto exit;
 
+    /* adaptive fields */
+    err = nvs_set_str(handle, NVS_KEY_PROFILE_ID, config->profile_id);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_HALL_NOISE, config->hall_noise_raw);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_HALL_DIRECTION, config->hall_direction);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_HALL_RANGE, config->hall_range_raw);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_HALL_START_DELTA, config->hall_start_delta);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_HALL_FULL_DELTA, config->hall_full_delta_threshold);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_HALL_RECOIL, config->hall_recoil_delta);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_HALL_TOLERANCE, config->hall_tolerance_raw);
+    if (err != ESP_OK) goto exit;
+
     err = nvs_set_i32(handle, NVS_KEY_REF_PRESSURE, config->ref_pressure);
     if (err != ESP_OK) goto exit;
 
@@ -310,6 +393,40 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     if (err != ESP_OK) goto exit;
 
     err = nvs_set_i32(handle, NVS_KEY_BLADDER2_FULL, config->bladder_2_full_press);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE0_BASE, config->pressure_0_baseline);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE1_BASE, config->pressure_1_baseline);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE2_BASE, config->pressure_2_baseline);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE0_NOISE, config->pressure_0_noise_raw);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE1_NOISE, config->pressure_1_noise_raw);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE2_NOISE, config->pressure_2_noise_raw);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE1_RANGE, config->pressure_1_range_raw);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE2_RANGE, config->pressure_2_range_raw);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE_CONTACT, config->pressure_contact_threshold);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE_VALID, config->pressure_valid_threshold);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE_BALANCE_PCT, config->pressure_balance_allowed_pct);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_CAL_SAMPLES, config->calibration_sample_count);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_CAL_WINDOW_MS, config->calibration_window_ms);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i64(handle, NVS_KEY_CALIBRATED_AT_MS, config->calibrated_at_ms);
     if (err != ESP_OK) goto exit;
 
     err = nvs_set_u8(handle, NVS_KEY_CALIBRATED,
@@ -371,6 +488,31 @@ esp_err_t config_store_clear_calibration(void)
     nvs_erase_key(handle, NVS_KEY_BLADDER1_FULL);
     nvs_erase_key(handle, NVS_KEY_BLADDER2_FULL);
     nvs_erase_key(handle, NVS_KEY_CALIBRATED);
+
+    /* erase adaptive fields */
+    nvs_erase_key(handle, NVS_KEY_PROFILE_ID);
+    nvs_erase_key(handle, NVS_KEY_HALL_NOISE);
+    nvs_erase_key(handle, NVS_KEY_HALL_DIRECTION);
+    nvs_erase_key(handle, NVS_KEY_HALL_RANGE);
+    nvs_erase_key(handle, NVS_KEY_HALL_START_DELTA);
+    nvs_erase_key(handle, NVS_KEY_HALL_FULL_DELTA);
+    nvs_erase_key(handle, NVS_KEY_HALL_RECOIL);
+    nvs_erase_key(handle, NVS_KEY_HALL_TOLERANCE);
+
+    nvs_erase_key(handle, NVS_KEY_PRESSURE0_BASE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE1_BASE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE2_BASE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE0_NOISE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE1_NOISE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE2_NOISE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE1_RANGE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE2_RANGE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE_CONTACT);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE_VALID);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE_BALANCE_PCT);
+    nvs_erase_key(handle, NVS_KEY_CAL_SAMPLES);
+    nvs_erase_key(handle, NVS_KEY_CAL_WINDOW_MS);
+    nvs_erase_key(handle, NVS_KEY_CALIBRATED_AT_MS);
 
     err = nvs_commit(handle);
     nvs_close(handle);

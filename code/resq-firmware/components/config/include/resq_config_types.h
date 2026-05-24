@@ -78,6 +78,39 @@ typedef struct
 
     bool calibrated;                // becomes true if all values are valid and present
 
+    /* New adaptive calibration fields (preserve above fields for backwards
+     * compatibility). These values are derived from sampled statistics during
+     * calibration and used at runtime for adaptive thresholds. */
+    char profile_id[32];
+
+    int32_t hall_noise_raw;
+    int32_t hall_direction; /* +1 or -1 */
+    int32_t hall_range_raw;
+    int32_t hall_start_delta;
+    int32_t hall_full_delta_threshold;
+    int32_t hall_recoil_delta;
+    int32_t hall_tolerance_raw;
+
+    int32_t pressure_0_baseline;
+    int32_t pressure_1_baseline;
+    int32_t pressure_2_baseline;
+
+    int32_t pressure_0_noise_raw;
+    int32_t pressure_1_noise_raw;
+    int32_t pressure_2_noise_raw;
+
+    int32_t pressure_1_range_raw;
+    int32_t pressure_2_range_raw;
+
+    int32_t pressure_contact_threshold;
+    int32_t pressure_valid_threshold;
+    int32_t pressure_balance_allowed_pct;
+
+    int32_t calibration_sample_count;
+    int32_t calibration_window_ms;
+
+    int64_t calibrated_at_ms;
+
 } calibration_config_t;
 
 /**
