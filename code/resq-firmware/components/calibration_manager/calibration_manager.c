@@ -29,6 +29,10 @@
 #define CALIBRATION_POLL_DELAY_MS               50
 #define CALIBRATION_MAX_WAIT_MS                 30000
 
+/* Stuck-zero detection: consider values very close to zero as suspicious */
+#define CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW    8
+#define CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT  3
+
 /* Private variables */
 static const char *TAG = "calibration_manager";
 
@@ -39,6 +43,12 @@ static calibration_config_t s_calibration_config;
 static hall_sensor_t s_hall_sensor;
 
 static network_config_t s_network_config;
+
+/* Track consecutive near-zero readings per HX710 sensor (indices 0..2) */
+static int s_hx710_zero_streaks[3] = {0, 0, 0};
+
+/* Last raw triplet from the shared HX710 read (for logging) */
+static int32_t s_last_hx710_raw[3] = {0, 0, 0};
 
 /* current command id for the running calibration */
 static char s_command_id[64] = {0};
@@ -69,6 +79,9 @@ static calibration_reason_id_t s_last_failure_reason = CAL_REASON_NONE;
 static calibration_action_id_t s_last_failure_action = CAL_ACTION_NONE;
 static calibration_config_t s_last_host_params;
 static bool s_has_last_host_params = false;
+
+/* Forward declaration for failure helper used by earlier functions */
+static void calibration_manager_fail(calibration_reason_id_t reason_id);
 
 /* =========================================================
  * Small internal helper functions
@@ -151,6 +164,41 @@ static esp_err_t calibration_read_pressure_once(gpio_num_t sck_pin,
 
     if (err != ESP_OK) {
         return err;
+    }
+
+    /* Save last raw triplet for higher-level logging */
+    s_last_hx710_raw[0] = v0;
+    s_last_hx710_raw[1] = v1;
+    s_last_hx710_raw[2] = v2;
+
+    /* Log all three raw sensor values (decimal + hex) to make stuck bit patterns visible */
+    ESP_LOGD(TAG,
+             "p0=%ld hex=0x%06X p1=%ld hex=0x%06X p2=%ld hex=0x%06X",
+             (long)v0, (unsigned int)((uint32_t)v0 & 0xFFFFFF),
+             (long)v1, (unsigned int)((uint32_t)v1 & 0xFFFFFF),
+             (long)v2, (unsigned int)((uint32_t)v2 & 0xFFFFFF));
+
+    /* Update near-zero streak counters for each sensor */
+    int32_t vals[3] = { v0, v1, v2 };
+    for (int i = 0; i < 3; i++) {
+        if (vals[i] >= -CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW && vals[i] <= CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW) {
+            s_hx710_zero_streaks[i]++;
+        } else {
+            s_hx710_zero_streaks[i] = 0;
+        }
+
+        /* If a sensor is observed near-zero repeatedly, log and for sensors 1/2 fail fast */
+        if (s_hx710_zero_streaks[i] >= CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT) {
+            if (i == 0) {
+                ESP_LOGW(TAG, "pressure_sensor_0 appears stuck or near zero; check DOUT wiring/GPIO%d/HX710 module", (int)BOARD_HX710_0_DOUT);
+            } else if (i == 1) {
+                ESP_LOGE(TAG, "pressure_sensor_1 appears stuck at zero; check DOUT wiring/GPIO%d/HX710 module", (int)BOARD_HX710_1_DOUT);
+                return ESP_ERR_INVALID_RESPONSE;
+            } else if (i == 2) {
+                ESP_LOGE(TAG, "pressure_sensor_2 appears stuck at zero; check DOUT wiring/GPIO%d/HX710 module", (int)BOARD_HX710_2_DOUT);
+                return ESP_ERR_INVALID_RESPONSE;
+            }
+        }
     }
 
     if (dout_pin == BOARD_HX710_0_DOUT) {
@@ -265,16 +313,29 @@ static esp_err_t calibration_wait_for_pressure_target(const char *label,
                      label,
                      esp_err_to_name(err));
 
+            /* Propagate stuck-zero detection immediately to caller; caller will decide failure mapping */
+            if (err == ESP_ERR_INVALID_RESPONSE) {
+                return err;
+            }
+
             vTaskDelay(pdMS_TO_TICKS(CALIBRATION_POLL_DELAY_MS));
             elapsed_ms += CALIBRATION_POLL_DELAY_MS;
             continue;
         }
 
+        /* Log current selected value */
         ESP_LOGI(TAG,
                  "%s current=%ld target=%ld",
                  label,
                  (long)current_value,
                  (long)target_value);
+
+        /* Also log the last raw triplet at DEBUG level so hex patterns are available when needed */
+        ESP_LOGD(TAG,
+                 "p0=%ld hex=0x%06X p1=%ld hex=0x%06X p2=%ld hex=0x%06X",
+                 (long)s_last_hx710_raw[0], (unsigned int)((uint32_t)s_last_hx710_raw[0] & 0xFFFFFF),
+                 (long)s_last_hx710_raw[1], (unsigned int)((uint32_t)s_last_hx710_raw[1] & 0xFFFFFF),
+                 (long)s_last_hx710_raw[2], (unsigned int)((uint32_t)s_last_hx710_raw[2] & 0xFFFFFF));
 
         if (calibration_is_within_tolerance(current_value,
                                             target_value,
@@ -459,7 +520,11 @@ static void calibration_manager_task(void *arg)
         &matched_ref_pressure);
 
     if (err != ESP_OK) {
-        calibration_manager_fail(CAL_REASON_REF_PRESSURE_TIMEOUT);
+        if (err == ESP_ERR_INVALID_RESPONSE) {
+            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+        } else {
+            calibration_manager_fail(CAL_REASON_REF_PRESSURE_TIMEOUT);
+        }
         goto task_exit;
     }
 
@@ -490,7 +555,11 @@ static void calibration_manager_task(void *arg)
         &matched_bladder_1_pressure);
 
     if (err != ESP_OK) {
-        calibration_manager_fail(CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
+        if (err == ESP_ERR_INVALID_RESPONSE) {
+            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+        } else {
+            calibration_manager_fail(CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
+        }
         goto task_exit;
     }
 
@@ -515,7 +584,11 @@ static void calibration_manager_task(void *arg)
         &matched_bladder_2_pressure);
 
     if (err != ESP_OK) {
-        calibration_manager_fail(CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
+        if (err == ESP_ERR_INVALID_RESPONSE) {
+            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+        } else {
+            calibration_manager_fail(CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
+        }
         goto task_exit;
     }
 
@@ -610,7 +683,11 @@ static void calibration_manager_task(void *arg)
         &s_calibration_config.bladder_1_full_press);
 
     if (err != ESP_OK) {
-        calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
+        if (err == ESP_ERR_INVALID_RESPONSE) {
+            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+        } else {
+            calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
+        }
         goto task_exit;
     }
 
@@ -620,7 +697,11 @@ static void calibration_manager_task(void *arg)
         &s_calibration_config.bladder_2_full_press);
 
     if (err != ESP_OK) {
-        calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
+        if (err == ESP_ERR_INVALID_RESPONSE) {
+            calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+        } else {
+            calibration_manager_fail(CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED);
+        }
         goto task_exit;
     }
 
@@ -779,6 +860,10 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     memcpy(&s_network_config, network_config, sizeof(network_config_t));
     strncpy(s_command_id, command_id, sizeof(s_command_id) - 1);
     s_command_id[sizeof(s_command_id) - 1] = '\0';
+
+    /* Reset diagnostic arrays for this calibration run */
+    memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
+    memset(s_last_hx710_raw, 0, sizeof(s_last_hx710_raw));
 
     s_running = true;
 

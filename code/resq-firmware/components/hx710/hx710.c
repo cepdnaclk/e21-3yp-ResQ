@@ -6,6 +6,9 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 
+/* Timeout for HX710 ready (DOUT low) waiting loop, in vTaskDelay ticks */
+#define HX710_READY_TIMEOUT_TICKS 150
+
 esp_err_t hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
 {
   esp_err_t err;
@@ -56,7 +59,7 @@ esp_err_t hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
 int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
 {
   int timeout_ticks = 0;
-  const int max_wait_ticks = 50;
+  const int max_wait_ticks = HX710_READY_TIMEOUT_TICKS;
 
   while (gpio_get_level(dout_pin) == 1) {
     vTaskDelay(1);
@@ -185,9 +188,15 @@ esp_err_t hx710_read_3_shared_sck(gpio_num_t sck_pin,
   err = gpio_config(&dout_conf);
   if (err != ESP_OK) goto _cleanup;
 
+  /* Diagnostic: log DOUT pin levels before waiting for ready */
+  ESP_LOGD(TAG, "DOUT initial levels before ready: dout0(GPIO%d)=%d dout1(GPIO%d)=%d dout2(GPIO%d)=%d",
+           dout0_pin, gpio_get_level(dout0_pin),
+           dout1_pin, gpio_get_level(dout1_pin),
+           dout2_pin, gpio_get_level(dout2_pin));
+
   /* Wait until all three DOUT pins go low (sensor ready) */
   int timeout_ticks = 0;
-  const int max_wait_ticks = 50;
+  const int max_wait_ticks = HX710_READY_TIMEOUT_TICKS;
 
   while (gpio_get_level(dout0_pin) == 1 ||
          gpio_get_level(dout1_pin) == 1 ||
@@ -196,6 +205,10 @@ esp_err_t hx710_read_3_shared_sck(gpio_num_t sck_pin,
     timeout_ticks++;
     if (timeout_ticks > max_wait_ticks) {
       ESP_LOGW(TAG, "Timeout waiting for all HX710 sensors ready");
+      /* On timeout, log each DOUT level separately for diagnostics */
+      ESP_LOGW(TAG, "DOUT0 (GPIO%d) level=%d", dout0_pin, gpio_get_level(dout0_pin));
+      ESP_LOGW(TAG, "DOUT1 (GPIO%d) level=%d", dout1_pin, gpio_get_level(dout1_pin));
+      ESP_LOGW(TAG, "DOUT2 (GPIO%d) level=%d", dout2_pin, gpio_get_level(dout2_pin));
       err = ESP_ERR_TIMEOUT;
       goto _cleanup;
     }
@@ -235,6 +248,13 @@ esp_err_t hx710_read_3_shared_sck(gpio_num_t sck_pin,
   *out0 = hx710_sign_extend_24(raw0);
   *out1 = hx710_sign_extend_24(raw1);
   *out2 = hx710_sign_extend_24(raw2);
+
+  /* Debug builds: show decimal and hex representations of the raw sensor values */
+  ESP_LOGD(TAG,
+           "hx710 read results: p0=%ld hex=0x%06X p1=%ld hex=0x%06X p2=%ld hex=0x%06X",
+           (long)*out0, (unsigned int)(raw0 & 0xFFFFFF),
+           (long)*out1, (unsigned int)(raw1 & 0xFFFFFF),
+           (long)*out2, (unsigned int)(raw2 & 0xFFFFFF));
 
   err = ESP_OK;
 
