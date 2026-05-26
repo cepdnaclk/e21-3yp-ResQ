@@ -1,3 +1,5 @@
+import { getStoredToken } from "./tokenStore";
+
 // This file handles the API calls related to manikin pairing and provisioning.
 // "Provisioning" means giving a new manikin its network and identity settings
 // so it can join the local hub for the first time.
@@ -17,6 +19,11 @@ function getPairRequestUrl(): string {
   return `http://${window.location.hostname}:18080/api/manikins/pair-request`;
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // Asks the backend to create a pairing request for the given deviceId.
 // The backend returns a one-time token that the manikin will use
 // to confirm its identity during provisioning.
@@ -28,6 +35,7 @@ export async function requestManikinPairing(
     credentials: "include",   // sends the login session cookie so the backend knows who you are
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
     },
     body: JSON.stringify({ deviceId }),
   });

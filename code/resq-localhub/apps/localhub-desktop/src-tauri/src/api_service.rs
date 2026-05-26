@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::{
+    net::{SocketAddr, TcpListener},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -18,8 +19,16 @@ pub struct ApiServiceStatus {
 }
 
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
+const BACKEND_PORT: u16 = 18080;
 
 impl ApiServiceState {
+    fn is_port_in_use(port: u16) -> bool {
+        let ipv4_addr = SocketAddr::from(([127, 0, 0, 1], port));
+        let ipv6_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port));
+
+        TcpListener::bind(ipv4_addr).is_err() || TcpListener::bind(ipv6_addr).is_err()
+    }
+
     fn backend_dir() -> Result<PathBuf, String> {
         let backend_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(BACKEND_RELATIVE_PATH);
 
@@ -42,10 +51,19 @@ impl ApiServiceState {
                 running: true,
                 pid: Some(child.id()),
             },
-            None => ApiServiceStatus {
-                running: false,
-                pid: None,
-            },
+            None => {
+                if Self::is_port_in_use(BACKEND_PORT) {
+                    ApiServiceStatus {
+                        running: true,
+                        pid: None,
+                    }
+                } else {
+                    ApiServiceStatus {
+                        running: false,
+                        pid: None,
+                    }
+                }
+            }
         }
     }
 
@@ -98,6 +116,13 @@ impl ApiServiceState {
         let current_status = Self::snapshot_status(&mut child_slot);
         if current_status.running {
             return Ok(current_status);
+        }
+
+        if Self::is_port_in_use(BACKEND_PORT) {
+            return Ok(ApiServiceStatus {
+                running: true,
+                pid: None,
+            });
         }
 
         let backend_dir = Self::backend_dir()?;

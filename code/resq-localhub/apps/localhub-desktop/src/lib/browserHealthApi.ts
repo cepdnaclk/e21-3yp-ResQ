@@ -15,7 +15,7 @@ export interface BrowserHealthResponse {
 /**
  * Construct the backend API URL from the current window location.
  * 
- * When accessed via http://<selected-host>:1420/instructor from a browser,
+ * When accessed via http://<selected-host>:1430/instructor from a browser,
  * this will construct http://<selected-host>:18080/api/hub/health
  * 
  * @returns The full health check URL

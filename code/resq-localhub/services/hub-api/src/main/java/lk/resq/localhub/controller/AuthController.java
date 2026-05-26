@@ -1,17 +1,10 @@
 package lk.resq.localhub.controller;
 
-import lk.resq.localhub.model.ApiErrorResponse;
-import lk.resq.localhub.model.AuthBootstrapResponse;
-import lk.resq.localhub.model.AuthStatusResponse;
-import lk.resq.localhub.model.AuthTokenIssue;
-import lk.resq.localhub.model.AuthUser;
-import lk.resq.localhub.model.CreateFirstAdminRequest;
-import lk.resq.localhub.model.CreateUserRequest;
-import lk.resq.localhub.model.LoginRequest;
-import lk.resq.localhub.model.LoginResponse;
-import lk.resq.localhub.service.AuthService;
-import lk.resq.localhub.service.ForbiddenException;
-import lk.resq.localhub.service.UnauthorizedException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -24,11 +17,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.servlet.http.HttpServletRequest;
-
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
+import lk.resq.localhub.model.ApiErrorResponse;
+import lk.resq.localhub.model.AuthBootstrapResponse;
+import lk.resq.localhub.model.AuthStatusResponse;
+import lk.resq.localhub.model.AuthTokenIssue;
+import lk.resq.localhub.model.AuthUser;
+import lk.resq.localhub.model.CreateFirstAdminRequest;
+import lk.resq.localhub.model.CreateUserRequest;
+import lk.resq.localhub.model.LoginRequest;
+import lk.resq.localhub.model.LoginResponse;
+import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.ForbiddenException;
+import lk.resq.localhub.service.UnauthorizedException;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -148,7 +148,7 @@ public class AuthController {
                     .path("/")
                     .maxAge(maxAgeSeconds)
                     .build();
-            LoginResponse response = new LoginResponse(issue.user(), issue.expiresAt());
+                LoginResponse response = new LoginResponse(issue.user(), issue.token(), issue.expiresAt());
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())
                     .body(response);

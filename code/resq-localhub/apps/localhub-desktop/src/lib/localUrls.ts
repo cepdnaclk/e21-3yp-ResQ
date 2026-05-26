@@ -11,8 +11,8 @@ export type AccessUrls = {
 };
 
 export const DEFAULT_LOCAL_URL_OPTIONS: LocalUrlOptions = {
-  instructorPort: 1420,
-  traineePort: 1421,
+  instructorPort: 1430,
+  traineePort: 1430,
   instructorPath: "/",
   traineePath: "/",
 };

@@ -13,7 +13,7 @@ import {
 /**
  * Browser-safe Trainee Dashboard.
  *
- * This page is served at http://<host>:1420/trainee and can be opened
+ * This page is served at http://<host>:1430/trainee and can be opened
  * in any browser on the LAN without depending on Tauri APIs.
  */
 

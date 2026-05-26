@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "lk.resq.localhub",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm exec vite --host 127.0.0.1 --port 1430",
+    "beforeBuildCommand": "pnpm build",
+    "devUrl": "http://127.0.0.1:1430",
     "frontendDist": "../dist"
   },
   "app": {

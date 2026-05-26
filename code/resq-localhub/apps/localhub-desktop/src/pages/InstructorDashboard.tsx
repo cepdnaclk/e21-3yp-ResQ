@@ -11,11 +11,13 @@ import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHe
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
 import {
-  fetchManikinInventory,
-  getLiveManikinsStreamUrl,
-  type ManikinInventoryEntry,
-  type ManikinLiveSummary,
-} from "../lib/browserManikinsApi";
+                  fetchManikinInventory,
+                  getLiveManikinsStreamUrl,
+                  type ManikinInventoryEntry,
+                  type ManikinLiveSummary,
+                } from "../lib/browserManikinsApi";
+import DeviceCard from "../components/DeviceCard";
+import SessionReviewPanel from "../components/SessionReviewPanel";
 import {
   fetchTrainees,
   createTrainee,
@@ -40,7 +42,7 @@ type HeatmapDay = {
 /**
  * Browser-safe Instructor Dashboard.
  *
- * This page is served at http://<host>:1420/instructor and can be opened
+ * This page is served at http://<host>:1430/instructor and can be opened
  * in any browser on the LAN without depending on Tauri APIs.
  */
 
@@ -834,7 +836,6 @@ export default function InstructorDashboard({
                 <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
                   {currentUser.role}
                 </span>
-<<<<<<< HEAD
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <Button
                     variant="ghost"
@@ -846,25 +847,6 @@ export default function InstructorDashboard({
                     Logout
                   </Button>
                 </div>
-=======
-                <button
-                  type="button"
-                  onClick={() => {
-                    logout().finally(() => window.location.assign("/login"));
-                  }}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    color: "#0f172a",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  Logout
-                </button>
->>>>>>> fe21a35f11b356403c72e78dea33f296a370528f
               </>
             ) : null}
             {!embeddedInDesktop ? (
@@ -1058,85 +1040,30 @@ export default function InstructorDashboard({
 
               <div style={{ display: "grid", gap: "10px" }}>
                 {inventoryItems.map((entry) => (
-                  <Card key={entry.deviceId}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-                      <div>
-                        <p style={{ margin: 0, fontWeight: 700, color: "#0f172a" }}>{entry.deviceId}</p>
-                        <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>
-                          {entry.ip ?? "No IP"} • {entry.fw ?? "No firmware"}
-                        </p>
-                      </div>
-                      <Badge variant="status" className={`status-badge--${getInventoryBadgeTone(entry.status)}`}>
-                        {entry.status}
-                      </Badge>
-                    </div>
-
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      State: {entry.rawStatus ?? entry.state ?? "unknown"} • Last seen: {formatInventoryLastSeen(entry.lastSeen)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Session: {entry.activeSessionId ?? "-"} • Trainee: {entry.activeTraineeId ?? "-"} • Scenario: {entry.activeSessionScenario ?? "-"}
-                    </p>
-                  </Card>
+                  <DeviceCard key={entry.deviceId} entry={entry} />
                 ))}
               </div>
             </div>
           )}
         </Card>
 
-        <Card className="card" aria-labelledby="recent-sessions-title">
-          <h2 id="recent-sessions-title" className="card__title">
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7h18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 3v18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            <span>Recent Sessions</span>
-          </h2>
-          {recentSessionsLoading ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>No completed sessions yet.</p>
-            </div>
-          ) : recentSessionsError ? (
-            <Alert variant="danger" title={recentSessionsError ? "Unable to load completed sessions" : "Recent Sessions"} detail={recentSessionsError} />
-          ) : recentSessions.length === 0 ? (
-            <div className="card card--dashed" aria-live="polite">
-              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <p style={{ marginTop: 8 }}>No completed sessions yet.</p>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {recentSessions.map((session) => (
-                <article
-                  key={session.sessionId}
-                  className="card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleViewDetails(session.sessionId)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleViewDetails(session.sessionId);
-                    }
-                  }}
-                  style={{ cursor: "pointer" }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-                    <div>
-                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{formatSummaryDateTime(session.startedAt)}</p>
-                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>Manikin {session.deviceId}</p>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Duration {session.summary.durationSeconds}s
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Started {formatSummaryDateTime(session.startedAt)} • Ended {formatSummaryDateTime(session.endedAt)}
-                    </p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+        <Card className="card" aria-labelledby="session-review-title">
+          <SessionReviewPanel
+            sessions={recentSessions}
+            loading={recentSessionsLoading}
+            error={recentSessionsError}
+            selectedSessionId={expandedSessionId}
+            selectedSession={expandedSessionDetail}
+            selectedSessionLoading={expandedSessionLoading}
+            selectedSessionError={expandedSessionError}
+            onOpenSession={handleViewDetails}
+            onCloseSession={() => {
+              setExpandedSessionId(null);
+              setExpandedSessionDetail(null);
+              setExpandedSessionError(null);
+              setExpandedSessionLoading(false);
+            }}
+          />
         </Card>
 
         <div className="inventory-live-bridge" aria-hidden="false">
@@ -1474,31 +1401,27 @@ export default function InstructorDashboard({
                         </p>
                         <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
                           Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
-                        </p>
-<<<<<<< HEAD
-                        <div
-                          style={{
-                            marginTop: "4px",
-                            padding: "10px",
-                            borderRadius: "8px",
-                            border: "1px solid #dbe3ee",
-                            background: "#ffffff",
-                            display: "grid",
-                            justifyItems: "center",
-                            gap: "8px",
-                          }}
-                        >
-                          <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                            Student Dashboard QR
                           </p>
-                          <QR value={traineeLink ?? buildTraineeLandingUrl()} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
-                          <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
-                            Scan to open the trainee dashboard. The QR updates to the active session when one starts.
-                          </p>
-                        </div>
-=======
-                        {/* QR removed: Trainee dashboard QR omitted */}
->>>>>>> fe21a35f11b356403c72e78dea33f296a370528f
+                          <div
+                            style={{
+                              marginTop: "4px",
+                              padding: "10px",
+                              borderRadius: "8px",
+                              border: "1px solid #dbe3ee",
+                              background: "#ffffff",
+                              display: "grid",
+                              justifyItems: "center",
+                              gap: "8px",
+                            }}
+                          >
+                            <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
+                              Student Dashboard QR
+                            </p>
+                            <QR value={traineeLink ?? buildTraineeLandingUrl()} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+                            <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
+                              Scan to open the trainee dashboard. The QR updates to the active session when one starts.
+                            </p>
+                          </div>
                         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                           <Button
                             onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
@@ -1527,65 +1450,6 @@ export default function InstructorDashboard({
           ) : null}
         </section>
 
-        {expandedSessionId ? (
-          <div
-            className="story-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="session-details-title"
-            onClick={() => {
-              setExpandedSessionId(null);
-              setExpandedSessionDetail(null);
-              setExpandedSessionError(null);
-              setExpandedSessionLoading(false);
-            }}
-          >
-            <div className="story-modal__panel" onClick={(event) => event.stopPropagation()}>
-              <h3 id="session-details-title" className="story-modal__title">
-                Session details
-              </h3>
-              {expandedSessionLoading ? (
-                <div style={{ display: "grid", gap: 8 }}>
-                  <Skeleton className="skeleton--shimmer" />
-                  <Skeleton className="skeleton--shimmer" />
-                  <Skeleton className="skeleton--shimmer" />
-                </div>
-              ) : expandedSessionError ? (
-                <p className="story-modal__copy" style={{ color: "#b91c1c" }}>
-                  {expandedSessionError}
-                </p>
-              ) : expandedSessionDetail ? (
-                <div style={{ display: "grid", gap: 6 }}>
-                  <p className="story-modal__copy">Manikin: {expandedSessionDetail.deviceId}</p>
-                  <p className="story-modal__copy">Trainee: {expandedSessionDetail.traineeId ?? "-"}</p>
-                  <p className="story-modal__copy">Started: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
-                  <p className="story-modal__copy">Ended: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
-                  <p className="story-modal__copy">Duration: {expandedSessionDetail.summary.durationSeconds}s</p>
-                  <p className="story-modal__copy">Score: {expandedSessionDetail.summary.score}</p>
-                  <p className="story-modal__copy">Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
-                  <p className="story-modal__copy">Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
-                  <p className="story-modal__copy">Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
-                  <p className="story-modal__copy">Pauses: {expandedSessionDetail.summary.pausesCount}</p>
-                </div>
-              ) : null}
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setExpandedSessionId(null);
-                    setExpandedSessionDetail(null);
-                    setExpandedSessionError(null);
-                    setExpandedSessionLoading(false);
-                  }}
-                >
-                  Close
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { AUTH_PERMISSION_RULES } from "@resq/shared";
 import { useAuth } from "../auth/AuthContext";
 import { generateAccessUrls } from "../lib/accessUrls";
 import QrPanel from "../components/QrPanel";
+import ProvisioningPanel from "../components/ProvisioningPanel";
 import { Skeleton } from "../components/ui";
 import {
   fetchHubHealth,
@@ -419,6 +420,10 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
 
       <section className="rounded-3xl border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-4 shadow-sm">
         <QrPanel instructorUrl={instructorUrl} unavailableMessage={qrUnavailableMessage} />
+      </section>
+
+      <section style={{ marginTop: 14 }}>
+        <ProvisioningPanel />
       </section>
 
       <section className="surface-grid">

@@ -28,6 +28,10 @@ export type SessionSummary = {
   pausesCount: number;
   score: number;
   latestFlags: string | null;
+  sampleCount?: number;
+  validCompressions?: number;
+  totalCompressions?: number;
+  compressionRateSeries?: number[];
 };
 
 export type CompletedSession = {
@@ -40,6 +44,10 @@ export type CompletedSession = {
   scenario: string | null;
   notes: string | null;
   summary: SessionSummary;
+  sampleCount?: number;
+  validCompressions?: number;
+  totalCompressions?: number;
+  compressionRateSeries?: number[];
 };
 
 export type SessionEndRequest = {
@@ -90,12 +98,19 @@ export type ApiErrorResponse = {
   error: string;
 };
 
+import { getStoredToken } from "./tokenStore";
+
 function getSessionsBaseUrl(): string {
   return `http://${window.location.hostname}:18080/api/sessions`;
 }
 
 function getSessionsExportBaseUrl(): string {
   return `http://${window.location.hostname}:18080/api/export/sessions`;
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -114,10 +129,11 @@ function getErrorMessage(error: unknown): string {
 export async function startSession(request: SessionStartRequest): Promise<SessionStartResponse> {
   const response = await fetch(`${getSessionsBaseUrl()}/start`, {
     method: "POST",
-    credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
     },
+    credentials: "include",
     body: JSON.stringify(request),
   });
 
@@ -132,10 +148,11 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
 export async function endSession(request: SessionEndRequest): Promise<SessionEndResponse> {
   const response = await fetch(`${getSessionsBaseUrl()}/end`, {
     method: "POST",
-    credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders(),
     },
+    credentials: "include",
     body: JSON.stringify(request),
   });
 
@@ -149,6 +166,7 @@ export async function endSession(request: SessionEndRequest): Promise<SessionEnd
 
 export async function fetchSessionLive(sessionId: string): Promise<SessionLiveView | null> {
   const response = await fetch(`${getSessionsBaseUrl()}/live/${encodeURIComponent(sessionId)}`, {
+    headers: authHeaders(),
     credentials: "include",
   });
 
@@ -170,6 +188,7 @@ export function getSessionLiveStreamUrl(sessionId: string): string {
 
 export async function fetchCompletedSession(sessionId: string): Promise<CompletedSession> {
   const response = await fetch(`${getSessionsBaseUrl()}/${encodeURIComponent(sessionId)}`, {
+    headers: authHeaders(),
     credentials: "include",
   });
 
@@ -183,6 +202,7 @@ export async function fetchCompletedSession(sessionId: string): Promise<Complete
 
 export async function fetchCompletedSessions(): Promise<CompletedSession[]> {
   const response = await fetch(getSessionsBaseUrl(), {
+    headers: authHeaders(),
     credentials: "include",
   });
 

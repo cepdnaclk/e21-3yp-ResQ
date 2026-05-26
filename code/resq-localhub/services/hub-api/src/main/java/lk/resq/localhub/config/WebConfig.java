@@ -15,7 +15,10 @@ public class WebConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(
                         "http://localhost:1420",
                         "http://127.0.0.1:1420",
+                "http://localhost:1430",
+                "http://127.0.0.1:1430",
                         "http://*:1420",
+                "http://*:1430",
                         "tauri://localhost"
                 )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")

@@ -80,11 +80,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function login(request: LoginRequest) {
     const response = await loginRequest(request);
-    // backend sets HttpOnly cookie; optional token support if stored elsewhere
-    // mark that a session likely exists; backend uses HttpOnly cookie
     try {
-      setStoredToken("session");
-      setToken("session");
+      setStoredToken(response.token);
+      setToken(response.token);
     } catch {}
     setCurrentUser(response.user);
     return response;
@@ -93,8 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function setupFirstAdmin(request: CreateFirstAdminRequest) {
     const response = await setupFirstAdminRequest(request);
     try {
-      setStoredToken("session");
-      setToken("session");
+      setStoredToken(response.token);
+      setToken(response.token);
     } catch {}
     setCurrentUser(response.user);
     return response;
@@ -104,8 +102,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // alias for setupFirstAdminRequest - backend uses /setup
     const response = await setupFirstAdminRequest(request);
     try {
-      setStoredToken("session");
-      setToken("session");
+      setStoredToken(response.token);
+      setToken(response.token);
     } catch {}
     setCurrentUser(response.user);
     return response;

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port 1420",
+    "dev": "vite --port 1430",
     "build": "tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
+    "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",

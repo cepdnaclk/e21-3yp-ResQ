@@ -13,7 +13,7 @@
 
 // Frontend port (Vite dev server or Tauri frontend)
 // Both instructor and trainee browser-safe dashboards are served from this port
-export const FRONTEND_PORT = 1420;
+export const FRONTEND_PORT = 1430;
 
 export interface AccessUrls {
   instructorUrl: string | null;
@@ -24,8 +24,8 @@ export interface AccessUrls {
  * Generate instructor and trainee dashboard URLs from a chosen host/IP.
  * 
  * Both URLs point to the frontend port with browser-safe routes:
- * - Instructor: http://<host>:1420/instructor
- * - Trainee: http://<host>:1420/trainee
+ * - Instructor: http://<host>:1430/instructor
+ * - Trainee: http://<host>:1430/trainee
  * 
  * These routes do not depend on Tauri APIs and are safe to open in any browser.
  * 

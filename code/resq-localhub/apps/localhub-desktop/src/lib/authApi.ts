@@ -78,7 +78,11 @@ export async function createFirstAdmin(request: CreateFirstAdminRequest): Promis
 }
 
 export async function fetchCurrentUser(): Promise<AuthUser | null> {
+  const token = getStoredToken();
   const response = await fetch(`${getAuthBaseUrl()}/me`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     credentials: "include",
   });
 
@@ -94,8 +98,12 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
 }
 
 export async function logout(): Promise<void> {
+  const token = getStoredToken();
   await fetch(`${getAuthBaseUrl()}/logout`, {
     method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     credentials: "include",
   });
 }

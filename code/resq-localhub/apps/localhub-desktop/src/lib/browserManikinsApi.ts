@@ -1,3 +1,5 @@
+import { getStoredToken } from "./tokenStore";
+
 export type ManikinLiveSummary = {
   deviceId: string;
   online: boolean;
@@ -43,8 +45,14 @@ export function getLiveManikinsStreamUrl(): string {
   return `http://${window.location.hostname}:18080/api/stream/manikins/live`;
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function fetchLiveManikins(): Promise<ManikinLiveSummary[]> {
   const response = await fetch(getLiveManikinsUrl(), {
+    headers: authHeaders(),
     credentials: "include",
   });
 
@@ -156,6 +164,7 @@ function normalizeInventoryEntry(value: unknown): ManikinInventoryEntry | null {
 
 async function fetchInventoryFrom(path: string): Promise<ManikinInventoryEntry[]> {
   const response = await fetch(path, {
+    headers: authHeaders(),
     credentials: "include",
   });
 

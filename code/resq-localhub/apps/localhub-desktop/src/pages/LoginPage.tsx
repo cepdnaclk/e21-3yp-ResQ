@@ -33,7 +33,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
       return;
     }
 
-    const target = currentUser.role === "TRAINEE" ? "/trainee" : "/instructor";
+    const target = currentUser.role === "TRAINEE" ? "/trainee" : "/";
     window.location.assign(target);
   }, [currentUser]);
 
@@ -68,7 +68,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
           password,
         };
         const response = await setupFirstAdmin(request);
-        const target = response.user.role === "TRAINEE" ? "/trainee" : "/instructor";
+        const target = response.user.role === "TRAINEE" ? "/trainee" : "/";
         window.location.assign(target);
         return;
       }

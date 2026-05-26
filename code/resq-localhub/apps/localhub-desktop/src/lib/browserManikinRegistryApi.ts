@@ -1,3 +1,5 @@
+import { getStoredToken } from "./tokenStore";
+
 // This file handles the manikin registry API — the management view
 // that shows all known devices with their current status.
 // This is separate from browserManikinsApi.ts which handles the
@@ -21,11 +23,17 @@ function getManikinsRegistryUrl(): string {
   return `http://${window.location.hostname}:18080/api/manikins`;
 }
 
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // Fetches all known manikins from the registry.
 // Unlike the live stream, this is a simple one-time fetch —
 // the caller can refresh it periodically if needed.
 export async function fetchManikinRegistry(): Promise<ManikinRegistryEntry[]> {
   const response = await fetch(getManikinsRegistryUrl(), {
+    headers: authHeaders(),
     credentials: "include",  // sends session cookie for authentication
   });
 
