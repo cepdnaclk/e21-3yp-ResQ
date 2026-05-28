@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import confetti from "canvas-confetti";
 import { useAuth } from "../auth/AuthContext";
 import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
 import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
@@ -149,6 +150,181 @@ function IndicatorBadge({
   );
 }
 
+function WifiSignalIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M2.25 6.5C4.28 4.4 6.93 3.25 9 3.25c2.07 0 4.72 1.15 6.75 3.25" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M4.9 9.1c1.4-1.45 2.96-2.16 4.1-2.16 1.14 0 2.7.71 4.1 2.16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7.45 11.6c.73-.76 1.14-.97 1.55-.97.41 0 .82.21 1.55.97" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="9" cy="13.8" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function WarningIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M9 2.5 1.8 15h14.4L9 2.5Z" fill="currentColor" opacity="0.18" />
+      <path d="M9 6v4.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="9" cy="12.9" r="0.9" fill="currentColor" />
+      <path d="M9 2.5 1.8 15h14.4L9 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DeviceMetricIcon({ kind }: { kind: "id" | "seen" | "calibrated" }) {
+  if (kind === "id") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <rect x="2" y="2" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M4 4h4M4 6h4M4 8h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "seen") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.4" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M6 3.4v2.9l2 1.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M2.2 6.2 4.6 8.6 9.8 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Sparkline({ seed }: { seed: string }) {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash << 5) - hash + seed.charCodeAt(index);
+    hash |= 0;
+  }
+
+  const series = Array.from({ length: 10 }, (_, index) => {
+    const base = Math.abs((hash + index * 37) % 14);
+    return 6 + base;
+  });
+
+  const width = 72;
+  const height = 18;
+  const step = width / (series.length - 1);
+  const path = series.map((value, index) => `${index === 0 ? "M" : "L"} ${index * step} ${height - value}`).join(" ");
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path d={path} fill="none" stroke="#60a5fa" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StatusDot({
+  label,
+  status,
+}: {
+  label: string;
+  status: "ready" | "online" | "offline" | "neutral";
+}) {
+  return (
+    <span className={`device-status ${status === "ready" ? "device-status--ready" : ""}`}>
+      <span className={`device-status__dot device-status__dot--${status}`} aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function Chip({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <span className="device-chip">
+      <span className="device-chip__icon">{icon}</span>
+      <span>{children}</span>
+    </span>
+  );
+}
+
+function ProgressRing({ value }: { value: number }) {
+  const size = 36;
+  const stroke = 4;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference - (Math.max(0, Math.min(100, value)) / 100) * circumference;
+
+  return (
+    <svg className="device-progress" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-label={`Calibration progress ${Math.round(value)}%`} role="img">
+      <circle cx={size / 2} cy={size / 2} r={radius} stroke="#dbeafe" strokeWidth={stroke} fill="none" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        stroke="#16a34a"
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={dashOffset}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        fill="none"
+      />
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="device-progress__label">
+        {Math.round(value)}%
+      </text>
+    </svg>
+  );
+}
+
+function progressFromId(progressId: unknown): number {
+  if (typeof progressId === "number" && Number.isFinite(progressId)) {
+    return Math.max(0, Math.min(100, progressId));
+  }
+
+  if (typeof progressId === "string") {
+    const numeric = Number(progressId);
+    if (!Number.isNaN(numeric)) {
+      return Math.max(0, Math.min(100, numeric));
+    }
+
+    let hash = 0;
+    for (let index = 0; index < progressId.length; index += 1) {
+      hash = (hash << 5) - hash + progressId.charCodeAt(index);
+      hash |= 0;
+    }
+    return Math.abs(hash) % 101;
+  }
+
+  return 0;
+}
+
+function triggerRegistrationConfetti() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const duration = 1250;
+  const end = Date.now() + duration;
+  const base = {
+    startVelocity: 32,
+    spread: 70,
+    ticks: 70,
+    gravity: 1.05,
+    scalar: 0.95,
+    origin: { y: 0.72 },
+  };
+
+  const frame = () => {
+    confetti({ ...base, particleCount: 16, origin: { x: 0.2, y: 0.72 } });
+    confetti({ ...base, particleCount: 16, origin: { x: 0.8, y: 0.72 } });
+
+    if (Date.now() < end) {
+      window.requestAnimationFrame(frame);
+    }
+  };
+
+  frame();
+}
+
 type SessionActionState = "idle" | "starting" | "ending";
 type CalibrationActionState = "idle" | "starting" | "cancelling";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
@@ -278,6 +454,9 @@ export default function InstructorDashboard({
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
   const [registryError, setRegistryError] = useState<string | null>(null);
+  const [expandedDeviceDetails, setExpandedDeviceDetails] = useState<Record<string, boolean>>({});
+  const registryDeviceIdsRef = useRef<Set<string>>(new Set());
+  const registryHasLoadedRef = useRef(false);
 
   useEffect(() => {
     if (manikins.length === 0) {
@@ -367,6 +546,16 @@ export default function InstructorDashboard({
     async function loadRegistry() {
       try {
         const entries = await fetchManikinRegistry();
+        const nextIds = new Set(entries.map((entry) => entry.deviceId));
+        const hasNewDevice = registryHasLoadedRef.current && entries.some((entry) => !registryDeviceIdsRef.current.has(entry.deviceId));
+
+        registryDeviceIdsRef.current = nextIds;
+        registryHasLoadedRef.current = true;
+
+        if (hasNewDevice) {
+          triggerRegistrationConfetti();
+        }
+
         setRegistry(entries);
         setRegistryError(null);
       } catch (error) {
@@ -483,6 +672,12 @@ export default function InstructorDashboard({
     loadRegistry();
     connectManikinStream();
 
+    function handleDeviceRegistered() {
+      triggerRegistrationConfetti();
+    }
+
+    window.addEventListener("resq:device-registered", handleDeviceRegistered as EventListener);
+
     const healthInterval = setInterval(loadHealth, 5000);
     const serviceInfoInterval = setInterval(loadServiceInfo, 10000);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
@@ -501,6 +696,7 @@ export default function InstructorDashboard({
       clearInterval(serviceInfoInterval);
       clearInterval(recentSessionsInterval);
       clearInterval(registryInterval);
+      window.removeEventListener("resq:device-registered", handleDeviceRegistered as EventListener);
     };
   }, []);
 
@@ -895,6 +1091,8 @@ export default function InstructorDashboard({
     ? JSON.stringify(provisioningPayload, null, 2)
     : "";
   const provisioningUrlText = provisioningUrl ?? "";
+  const provisioningBackendUrl = (provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url || "").trim();
+  const backendUrlHasLocalhost = provisioningBackendUrl.toLowerCase().includes("localhost");
 
   return (
     <div style={styles.container}>
@@ -971,15 +1169,33 @@ export default function InstructorDashboard({
             </p>
           )}
         </section>
-        <section style={styles.card}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>
-            Firmware Provisioning
-          </h2>
-          <p style={{ margin: "0 0 14px 0", color: "#64748b", fontSize: "0.9rem" }}>
-            Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
-          </p>
+        <section style={{ ...styles.card, ...styles.provisioningCard }} className="provisioning-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: "0 0 6px 0", fontSize: "1.1rem", fontWeight: 600 }}>
+                Firmware Provisioning
+              </h2>
+              <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
+                Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
+              </p>
+            </div>
 
-          <ol style={{ margin: "0 0 14px 18px", padding: 0, color: "#475569", fontSize: "0.86rem", lineHeight: 1.5 }}>
+            <div className="provisioning-help" tabIndex={0}>
+              <button
+                type="button"
+                className="provisioning-help__trigger"
+                aria-describedby="provisioning-help-tooltip"
+              >
+                Need help?
+              </button>
+              <div id="provisioning-help-tooltip" className="provisioning-help__tooltip" role="tooltip">
+                <span>Follow the checklist below to generate the QR and provision the device.</span>
+                <span className="provisioning-help__arrow" aria-hidden="true">↓</span>
+              </div>
+            </div>
+          </div>
+
+          <ol className="provisioning-steps" style={{ margin: "0 0 14px 18px", padding: 0, color: "#475569", fontSize: "0.86rem", lineHeight: 1.5 }}>
             <li>Power on ESP in provisioning mode.</li>
             <li>Connect phone to the ESP Wi-Fi, for example "ResQ Setup".</li>
             <li>Scan this QR.</li>
@@ -989,96 +1205,117 @@ export default function InstructorDashboard({
           </ol>
 
           <div style={{ display: "grid", gap: "8px", marginBottom: "12px" }}>
-            <input
-              type="text"
-              placeholder="ESP setup base URL"
-              value={espSetupBaseUrl}
-              onChange={(e) => {
-                setEspSetupBaseUrl(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="text"
-              placeholder="ESP provision path"
-              value={espProvisionPath}
-              onChange={(e) => {
-                setEspProvisionPath(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Wi-Fi SSID"
-              value={provisioningWifiSsid}
-              onChange={(e) => {
-                setProvisioningWifiSsid(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="password"
-              placeholder="Wi-Fi password"
-              value={provisioningWifiPassword}
-              onChange={(e) => {
-                setProvisioningWifiPassword(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Backend base URL"
-              value={provisioningBackendBaseUrl}
-              onChange={(e) => {
-                setProvisioningBackendBaseUrl(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>ESP setup base URL</span>
+              <input
+                type="text"
+                placeholder="ESP setup base URL"
+                value={espSetupBaseUrl}
+                onChange={(e) => {
+                  setEspSetupBaseUrl(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>ESP provision path</span>
+              <input
+                type="text"
+                placeholder="ESP provision path"
+                value={espProvisionPath}
+                onChange={(e) => {
+                  setEspProvisionPath(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>
+                <span style={{ color: "#2563eb", display: "inline-flex" }} aria-hidden="true"><WifiSignalIcon /></span>
+                Wi-Fi SSID
+              </span>
+              <input
+                type="text"
+                placeholder="Wi-Fi SSID"
+                value={provisioningWifiSsid}
+                onChange={(e) => {
+                  setProvisioningWifiSsid(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>Wi-Fi password</span>
+              <input
+                type="password"
+                placeholder="Wi-Fi password"
+                value={provisioningWifiPassword}
+                onChange={(e) => {
+                  setProvisioningWifiPassword(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>
+                Backend base URL
+                {backendUrlHasLocalhost ? <span className="provisioning-warning-icon" aria-hidden="true"><WarningIcon /></span> : null}
+              </span>
+              <input
+                type="text"
+                placeholder="Backend base URL"
+                value={provisioningBackendBaseUrl}
+                onChange={(e) => {
+                  setProvisioningBackendBaseUrl(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
             <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#334155", fontSize: "0.88rem" }}>
               <input
                 type="checkbox"
@@ -1145,7 +1382,7 @@ export default function InstructorDashboard({
           ) : null}
 
           {provisioningPayload && provisioningUrl ? (
-            <div style={{
+            <div className="provisioning-qr-panel" style={{
               padding: "14px",
               borderRadius: "10px",
               border: "1px solid #e2e8f0",
@@ -1425,39 +1662,41 @@ export default function InstructorDashboard({
                 const startReadinessBlocked = startBlockedByReadiness(readiness);
                 const startDisabled = actionState !== "idle" || startReadinessBlocked;
                 const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
+                const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
+                const calibrationProgress = progressFromId(readiness?.progressId);
+                const isCalibrating = effectiveFirmwareState === "CALIBRATING";
 
                 return (
                   <article
                     key={manikin.deviceId}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "10px",
-                      padding: "12px",
-                      background: "#ffffff",
-                      display: "grid",
-                      gap: "8px",
-                    }}
+                    className="device-card"
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <h3 style={{ margin: 0, fontSize: "1rem" }}>{manikin.deviceId}</h3>
-                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                        <span
-                          style={{
-                            fontSize: "0.76rem",
-                            fontWeight: 700,
-                            borderRadius: "999px",
-                            padding: "3px 8px",
-                            background: manikin.online ? "#dcfce7" : "#fee2e2",
-                            color: manikin.online ? "#166534" : "#991b1b",
-                          }}
-                        >
-                          {manikin.online ? "Online" : "Offline"}
-                        </span>
+                    <div className="device-card__top">
+                      <div className="device-card__identity">
+                        <div className="device-card__title-row">
+                          <h3 style={{ margin: 0, fontSize: "1rem" }}>{manikin.deviceId}</h3>
+                          <Sparkline seed={manikin.deviceId} />
+                        </div>
+                        <div className="device-card__chips">
+                          <Chip icon={<DeviceMetricIcon kind="id" />}>{manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}</Chip>
+                          <Chip icon={<DeviceMetricIcon kind="seen" />}>{manikin.lastSeen ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}` : "Never seen"}</Chip>
+                          <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.calibrated ? "Calibrated" : "Not calibrated"}</Chip>
+                        </div>
+                      </div>
+                      <div className="device-card__status-row">
+                        <StatusDot label={manikin.online ? "Online" : "Offline"} status={manikin.online ? "online" : "offline"} />
                         <SessionStateBadge active={active} />
                       </div>
                     </div>
 
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {effectiveFirmwareState}</p>
+
+                    {isCalibrating ? (
+                      <div className="device-card__calibration">
+                        <ProgressRing value={calibrationProgress} />
+                        <span style={{ fontSize: "0.82rem", color: "#475569", fontWeight: 600 }}>Calibration in progress</span>
+                      </div>
+                    ) : null}
                     <InstructorLiveMetrics
                       deviceId={manikin.deviceId}
                       sessionId={activeSession?.sessionId ?? null}
@@ -1717,44 +1956,71 @@ export default function InstructorDashboard({
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       {currentUser && currentUser.role !== "TRAINEE" ? (
                         !active ? (
-                        <button
-                          type="button"
-                          onClick={() => handleStartSession(manikin.deviceId)}
-                          disabled={startDisabled}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: "6px",
-                            border: "1px solid #0f172a",
-                            background: startDisabled ? "#e2e8f0" : "#0f172a",
-                            color: startDisabled ? "#64748b" : "#ffffff",
-                            cursor: startDisabled ? "not-allowed" : "pointer",
-                            fontWeight: 600,
-                          }}
-                          title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
-                        >
-                          Start Session
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStartSession(manikin.deviceId)}
+                            disabled={startDisabled}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #0f172a",
+                              background: startDisabled ? "#e2e8f0" : "#0f172a",
+                              color: startDisabled ? "#64748b" : "#ffffff",
+                              cursor: startDisabled ? "not-allowed" : "pointer",
+                              fontWeight: 600,
+                            }}
+                            title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
+                          >
+                            Start Session
+                          </button>
                         ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
-                          disabled={actionState !== "idle"}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: "6px",
-                            border: "1px solid #991b1b",
-                            background: actionState !== "idle" ? "#e2e8f0" : "#991b1b",
-                            color: actionState !== "idle" ? "#64748b" : "#ffffff",
-                            cursor: actionState !== "idle" ? "not-allowed" : "pointer",
-                            fontWeight: 600,
-                          }}
-                        >
-                          End Session
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
+                            disabled={actionState !== "idle"}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #991b1b",
+                              background: actionState !== "idle" ? "#e2e8f0" : "#991b1b",
+                              color: actionState !== "idle" ? "#64748b" : "#ffffff",
+                              cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                              fontWeight: 600,
+                            }}
+                          >
+                            End Session
+                          </button>
                         )
                       ) : (
                         <></>
                       )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="device-card__details-toggle"
+                      onClick={() =>
+                        setExpandedDeviceDetails((current) => ({
+                          ...current,
+                          [manikin.deviceId]: !current[manikin.deviceId],
+                        }))
+                      }
+                    >
+                      {isExpanded ? "Hide technical details" : "Show technical details"}
+                    </button>
+
+                    <div className={`device-card__details ${isExpanded ? "device-card__details--open" : ""}`}>
+                      <div className="device-card__details-inner">
+                        <div style={{ display: "grid", gap: 4, fontSize: "0.84rem", color: "#334155" }}>
+                          <div>Device ID: {manikin.deviceId}</div>
+                          <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
+                          <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
+                          <div>Progress ID: {readiness?.progressId ?? "-"}</div>
+                          <div>Firmware state: {readiness?.firmwareState ?? "-"}</div>
+                          <div>Reason: {readiness?.reasonId ?? "-"}</div>
+                          <div>Action: {readiness?.actionId ?? "-"}</div>
+                        </div>
+                      </div>
                     </div>
 
                     {active ? (
@@ -1845,6 +2111,11 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #e5e7eb",
     padding: "18px",
     boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08), 0 8px 24px rgba(15, 23, 42, 0.04)",
+  },
+  provisioningCard: {
+    background: "linear-gradient(145deg, var(--provisioning-card-start) 0%, var(--provisioning-card-end) 100%)",
+    border: "1px solid var(--provisioning-card-border)",
+    boxShadow: "var(--provisioning-card-shadow)",
   },
 };
 

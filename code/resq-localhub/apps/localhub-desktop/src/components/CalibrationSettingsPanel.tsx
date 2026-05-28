@@ -5,11 +5,13 @@ import {
   deactivateCalibrationProfile,
   getCalibrationProfiles,
   getDefaultCalibrationProfile,
+  getReadiness,
   setDefaultCalibrationProfile,
   updateCalibrationProfile,
   type CalibrationProfileRequest,
   type CalibrationProfileResponse,
   type FirmwareCalibrationStartPayload,
+  type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
 
 type CalibrationSettingsPanelProps = {
@@ -29,6 +31,12 @@ type FormState = {
   description: string;
 };
 
+type FieldConfig = {
+  key: keyof Pick<FormState, "hallDelta" | "refPressure" | "bladder1Pressure" | "bladder2Pressure">;
+  label: string;
+  icon: React.ReactNode;
+};
+
 const blankForm: FormState = {
   name: "",
   hallDelta: "",
@@ -37,6 +45,53 @@ const blankForm: FormState = {
   bladder2Pressure: "",
   description: "",
 };
+
+const FIELD_MAX = 200;
+
+const CALIBRATION_FIELDS: FieldConfig[] = [
+  {
+    key: "hallDelta",
+    label: "Hall Delta",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M2 7h2M10 7h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M4.25 7a2.75 2.75 0 1 1 5.5 0 2.75 2.75 0 1 1-5.5 0Z" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M7 4.8v1.75" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    key: "refPressure",
+    label: "Reference Pressure",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M7 2.5a4.5 4.5 0 1 0 4.5 4.5H9.4a2.4 2.4 0 1 1-2.4-2.4V2.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        <path d="M7 7l2.2-1.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    key: "bladder1Pressure",
+    label: "Bladder 1 Pressure",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <rect x="2.2" y="3" width="9.6" height="8" rx="2" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M4 6h6M4 8h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    key: "bladder2Pressure",
+    label: "Bladder 2 Pressure",
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M3 10V6.5A4 4 0 0 1 7 2.5h1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        <path d="M8.5 2.5 9.8 3.8 8.5 5.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="3" y="6.5" width="8" height="5" rx="2" stroke="currentColor" strokeWidth="1.2" />
+      </svg>
+    ),
+  },
+];
 
 export function CalibrationSettingsPanel({
   devices,
@@ -50,8 +105,10 @@ export function CalibrationSettingsPanel({
   const [form, setForm] = useState<FormState>(blankForm);
   const [loading, setLoading] = useState(true);
   const [savingState, setSavingState] = useState<"idle" | "saving" | "defaulting" | "deactivating" | "running">("idle");
+  const [saveAcknowledged, setSaveAcknowledged] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveReadiness, setLiveReadiness] = useState<FirmwareReadinessResponse | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.profileId === selectedProfileId) ?? null,
@@ -65,6 +122,8 @@ export function CalibrationSettingsPanel({
 
   const activeProfileCount = profiles.filter((profile) => profile.active).length;
   const formValidity = validateForm(form);
+  const calibrationProgress = progressFromId(liveReadiness?.progressId ?? null);
+  const calibrationRunning = liveReadiness?.firmwareState === "CALIBRATING";
   const canRunCalibration = Boolean(
     selectedDeviceId &&
     selectedProfile &&
@@ -162,6 +221,45 @@ export function CalibrationSettingsPanel({
     }
   }, [devices, onSelectedDeviceChange, selectedDeviceId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function pollReadiness() {
+      if (!selectedDeviceId) {
+        setLiveReadiness(null);
+        return;
+      }
+
+      try {
+        const readiness = await getReadiness(selectedDeviceId);
+        if (!cancelled) {
+          setLiveReadiness(readiness);
+        }
+      } catch {
+        if (!cancelled) {
+          setLiveReadiness(null);
+        }
+      }
+    }
+
+    void pollReadiness();
+    const interval = window.setInterval(pollReadiness, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [selectedDeviceId]);
+
+  useEffect(() => {
+    if (!saveAcknowledged) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setSaveAcknowledged(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [saveAcknowledged]);
+
   async function reloadProfiles(preferredProfileId?: string | null) {
     setLoading(true);
     setError(null);
@@ -228,6 +326,7 @@ export function CalibrationSettingsPanel({
         ? await updateCalibrationProfile(selectedProfile.profileId, request)
         : await createCalibrationProfile(request);
       await reloadProfiles(response.profileId);
+      setSaveAcknowledged(true);
       setMessage(`Saved calibration profile ${response.name}`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save calibration profile.");
@@ -313,9 +412,10 @@ export function CalibrationSettingsPanel({
   const formDisabled = loading || savingState !== "idle";
   const selectedDeviceLabel = selectedDevice ? `${selectedDevice.deviceId}${selectedDevice.online ? "" : " (offline)"}` : "No live device selected";
   const selectedProfileLabel = selectedProfile ? selectedProfile.name : "New profile";
+  const saveButtonLabel = saveAcknowledged ? "Saved!" : savingState === "saving" ? "Saving..." : selectedProfile ? "Save Profile" : "Create Profile";
 
   return (
-    <section style={panelStyle}>
+    <section style={getPanelStyle(Boolean(selectedProfile))}>
       <div style={headerStyle}>
         <div>
           <h2 style={titleStyle}>Calibration Settings</h2>
@@ -327,6 +427,8 @@ export function CalibrationSettingsPanel({
           {loading ? "Reloading..." : "Reload"}
         </button>
       </div>
+
+      <div className="calibration-panel__pattern" aria-hidden="true" />
 
       <div style={gridStyle}>
         <label style={fieldStyle}>
@@ -373,26 +475,39 @@ export function CalibrationSettingsPanel({
       </div>
 
       <div style={gridStyle}>
-        <label style={fieldStyle}>
+        <label style={{ ...fieldStyle, gridColumn: "1 / -1" }}>
           <span style={labelStyle}>Name</span>
           <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} disabled={formDisabled} style={inputStyle} placeholder="Adult Basic" />
         </label>
-        <label style={fieldStyle}>
-          <span style={labelStyle}>Hall Delta</span>
-          <input value={form.hallDelta} onChange={(event) => setForm((current) => ({ ...current, hallDelta: event.target.value }))} disabled={formDisabled} style={inputStyle} inputMode="numeric" type="number" min="1" />
-        </label>
-        <label style={fieldStyle}>
-          <span style={labelStyle}>Reference Pressure</span>
-          <input value={form.refPressure} onChange={(event) => setForm((current) => ({ ...current, refPressure: event.target.value }))} disabled={formDisabled} style={inputStyle} inputMode="numeric" type="number" min="1" />
-        </label>
-        <label style={fieldStyle}>
-          <span style={labelStyle}>Bladder 1 Pressure</span>
-          <input value={form.bladder1Pressure} onChange={(event) => setForm((current) => ({ ...current, bladder1Pressure: event.target.value }))} disabled={formDisabled} style={inputStyle} inputMode="numeric" type="number" min="1" />
-        </label>
-        <label style={fieldStyle}>
-          <span style={labelStyle}>Bladder 2 Pressure</span>
-          <input value={form.bladder2Pressure} onChange={(event) => setForm((current) => ({ ...current, bladder2Pressure: event.target.value }))} disabled={formDisabled} style={inputStyle} inputMode="numeric" type="number" min="1" />
-        </label>
+
+        {CALIBRATION_FIELDS.map((field) => {
+          const value = form[field.key];
+          const numericValue = Number(value) || 0;
+          const percent = Math.max(0, Math.min(100, (numericValue / FIELD_MAX) * 100));
+
+          return (
+            <div key={field.key} style={fieldStyle}>
+              <span style={labelStyle}>{field.label}</span>
+              <div style={comboRowStyle}>
+                <div style={fieldIconStyle}>{field.icon}</div>
+                <input
+                  value={value}
+                  onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}
+                  disabled={formDisabled}
+                  style={numericInputStyle}
+                  inputMode="numeric"
+                  type="number"
+                  min="1"
+                  max={FIELD_MAX}
+                />
+              </div>
+              <div style={gaugeTrackStyle} aria-hidden="true">
+                <div style={{ ...gaugeFillStyle, width: `${percent}%` }} />
+              </div>
+            </div>
+          );
+        })}
+
         <label style={{ ...fieldStyle, gridColumn: "1 / -1" }}>
           <span style={labelStyle}>Description</span>
           <input value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} disabled={formDisabled} style={inputStyle} placeholder="Optional description" />
@@ -400,8 +515,15 @@ export function CalibrationSettingsPanel({
       </div>
 
       <div style={buttonRowStyle}>
-        <button type="button" onClick={handleSaveProfile} disabled={loading || savingState !== "idle" || !formValidity.ok} style={primaryButtonStyle(loading || savingState !== "idle" || !formValidity.ok)}>
-          {savingState === "saving" ? "Saving..." : selectedProfile ? "Save Profile" : "Create Profile"}
+        <button type="button" onClick={handleSaveProfile} disabled={loading || savingState !== "idle" || !formValidity.ok} className={`save-profile-button ${saveAcknowledged ? "save-profile-button--saved" : ""}`} style={primaryButtonStyle(loading || savingState !== "idle" || !formValidity.ok)}>
+          {saveAcknowledged ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span aria-hidden="true">✓</span>
+              Saved!
+            </span>
+          ) : (
+            saveButtonLabel
+          )}
         </button>
         <button type="button" onClick={handleSetDefault} disabled={loading || savingState !== "idle" || !selectedProfile || selectedProfile.defaultProfile} style={secondaryButtonStyle(loading || savingState !== "idle" || !selectedProfile || selectedProfile.defaultProfile)}>
           {savingState === "defaulting" ? "Setting..." : "Set Default"}
@@ -420,6 +542,19 @@ export function CalibrationSettingsPanel({
       {message ? <p style={messageStyle}>{message}</p> : null}
       {error ? <p style={errorStyle}>{error}</p> : null}
       {!formValidity.ok ? <p style={hintStyle}>{formValidity.message}</p> : null}
+
+      {calibrationRunning ? (
+        <div style={calibrationStatusStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={calibrationStatusLabelStyle}>Applying calibration – please wait</span>
+            <span style={calibrationStatusValueStyle}>{Math.round(calibrationProgress)}%</span>
+          </div>
+          <div style={calibrationProgressTrackStyle}>
+            <div style={{ ...calibrationProgressFillStyle, width: `${calibrationProgress}%` }} />
+          </div>
+        </div>
+      ) : null}
+
       {selectedProfile ? (
         <p style={hintStyle}>
           Run Calibration uses the saved profile values for {selectedProfile.name}. Save edits before running if you changed any fields.
@@ -604,3 +739,105 @@ const hintStyle: CSSProperties = {
   fontSize: "0.82rem",
   color: "#64748b",
 };
+
+function progressFromId(progressId: number | null): number {
+  if (progressId === null || progressId === undefined) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, progressId));
+}
+
+const comboRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "auto minmax(0, 1fr)",
+  gap: "8px",
+  alignItems: "center",
+};
+
+const fieldIconStyle: CSSProperties = {
+  width: 30,
+  height: 30,
+  borderRadius: "999px",
+  display: "inline-grid",
+  placeItems: "center",
+  color: "#1d4ed8",
+  background: "rgba(219, 234, 254, 0.9)",
+  border: "1px solid rgba(147, 197, 253, 0.5)",
+  flex: "none",
+};
+
+const numericInputStyle: CSSProperties = {
+  ...inputStyle,
+  minWidth: 0,
+};
+
+const gaugeTrackStyle: CSSProperties = {
+  marginTop: 6,
+  height: 8,
+  borderRadius: 999,
+  background: "rgba(226, 232, 240, 0.95)",
+  overflow: "hidden",
+};
+
+const gaugeFillStyle: CSSProperties = {
+  height: "100%",
+  borderRadius: 999,
+  background: "linear-gradient(90deg, #60a5fa 0%, #2563eb 100%)",
+  transition: "width 180ms ease",
+};
+
+const calibrationStatusStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  padding: "12px 14px",
+  borderRadius: 12,
+  border: "1px solid rgba(37, 99, 235, 0.16)",
+  background: "rgba(239, 246, 255, 0.95)",
+};
+
+const calibrationStatusLabelStyle: CSSProperties = {
+  fontSize: "0.86rem",
+  color: "#1e3a8a",
+  fontWeight: 700,
+};
+
+const calibrationStatusValueStyle: CSSProperties = {
+  fontSize: "0.8rem",
+  color: "#1d4ed8",
+  fontWeight: 800,
+};
+
+const calibrationProgressTrackStyle: CSSProperties = {
+  height: 10,
+  borderRadius: 999,
+  background: "rgba(191, 219, 254, 0.8)",
+  overflow: "hidden",
+};
+
+const calibrationProgressFillStyle: CSSProperties = {
+  height: "100%",
+  borderRadius: 999,
+  background: "linear-gradient(90deg, #22c55e 0%, #2563eb 100%)",
+  transition: "width 220ms ease",
+};
+
+function getPanelStyle(hasSelectedProfile: boolean): CSSProperties {
+  return {
+    borderRadius: "12px",
+    padding: "14px",
+    display: "grid",
+    gap: "12px",
+    position: "relative",
+    overflow: "hidden",
+    background:
+      "radial-gradient(circle at top left, rgba(148, 163, 184, 0.12) 0 1px, transparent 1px) 0 0 / 14px 14px, linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+    border: hasSelectedProfile ? "1px solid transparent" : "1px solid #cbd5e1",
+    boxShadow: hasSelectedProfile ? "0 0 0 1px rgba(96, 165, 250, 0.22), 0 16px 40px rgba(37, 99, 235, 0.08)" : "0 10px 24px rgba(15, 23, 42, 0.05)",
+    backgroundClip: hasSelectedProfile ? "padding-box, border-box" : undefined,
+    backgroundOrigin: hasSelectedProfile ? "padding-box, border-box" : undefined,
+    backgroundImage: hasSelectedProfile
+      ? "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%), linear-gradient(135deg, rgba(59, 130, 246, 0.85), rgba(34, 197, 94, 0.55))"
+      : undefined,
+  };
+}

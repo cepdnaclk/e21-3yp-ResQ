@@ -26,8 +26,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    // Keep legacy page class; do not apply dark mode
     document.documentElement.classList.add("sim-theater");
+    document.documentElement.classList.toggle("dark", theme === "dark");
     // Save preference
     window.localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);

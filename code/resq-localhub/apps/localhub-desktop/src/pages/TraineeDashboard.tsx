@@ -1,4 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import {
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  ReferenceArea,
+  ReferenceLine,
+  Tooltip,
+} from "recharts";
 import { useAuth } from "../auth/AuthContext";
 import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
 import { useLiveSession } from "../hooks/useLiveSession";
@@ -100,7 +115,6 @@ const WAITING_SESSION_TIPS = [
 type SensorPoint = {
   ts: number;
   depthMm: number | null;
-  depthProgress: number | null;
   rateCpm: number | null;
   pauseS: number | null;
   recoilOk: boolean | null;
@@ -417,7 +431,6 @@ export default function TraineeDashboard({
       {
         ts: Date.now(),
         depthMm: metric.depthMm,
-        depthProgress: metric.depthProgress ?? null,
         rateCpm: metric.rateCpm,
         pauseS: metric.pauseS,
         recoilOk: metric.recoilOk,
@@ -437,16 +450,6 @@ export default function TraineeDashboard({
     }
 
     return `${value.toFixed(1)} ${suffix}`;
-  }
-
-  function depthMetric(depthMm: number | null | undefined, depthProgress: number | null | undefined): string {
-    if (depthMm !== null && depthMm !== undefined) {
-      return `${depthMm.toFixed(1)} mm`;
-    }
-    if (depthProgress !== null && depthProgress !== undefined) {
-      return `${Math.round(depthProgress * 100)} %`;
-    }
-    return "-";
   }
 
   function formatTime(value: string | null): string {
@@ -470,7 +473,7 @@ export default function TraineeDashboard({
     window.location.assign("/");
   }
 
-  const depthSeries = sensorHistory.map((point) => point.depthMm ?? (point.depthProgress === null ? null : point.depthProgress * 100));
+  const depthSeries = sensorHistory.map((point) => point.depthMm);
   const rateSeries = sensorHistory.map((point) => point.rateCpm);
   const pauseSeries = sensorHistory.map((point) => point.pauseS);
   const recoilSeries = sensorHistory.map((point) => point.recoilOk);
@@ -479,12 +482,6 @@ export default function TraineeDashboard({
   const balanceSeries = sensorHistory.map(() => session?.pressureBalancePct ?? null);
   const latestBalance = session?.pressureBalancePct ?? null;
   const latestSkewed = session?.pressureSkewed ?? null;
-  const liveMetric = liveState.latestMetric;
-  const liveDepth = depthMetric(session?.latestDepthMm ?? liveMetric?.depthMm, session?.latestDepthProgress ?? liveMetric?.depthProgress);
-  const liveRate = metric(session?.latestRateCpm ?? liveMetric?.rateCpm ?? null, "cpm");
-  const liveRecoil = session?.latestRecoilOk ?? liveMetric?.recoilOk ?? null;
-  const livePause = metric(session?.latestPauseS ?? liveMetric?.pauseS ?? null, "s");
-  const livePressureBalance = session?.pressureBalancePct ?? liveMetric?.pressureBalancePct ?? null;
   const recentFlags = sensorHistory
     .map((point) => point.flags)
     .filter((value): value is string => Boolean(value && value.trim()))
@@ -691,14 +688,13 @@ export default function TraineeDashboard({
                   </p>
                 ) : null}
                 <div style={{ display: "grid", gap: "6px", marginBottom: "16px" }}>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {liveDepth}</p>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {liveRate}</p>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {liveRecoil === null ? "-" : liveRecoil ? "OK" : "Not OK"}</p>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {livePause}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(session.latestDepthMm, "mm")}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(session.latestRateCpm, "cpm")}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {session.latestRecoilOk === null ? "-" : session.latestRecoilOk ? "OK" : "Not OK"}</p>
+                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(session.latestPauseS, "s")}</p>
                   <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                    Pressure Balance: {livePressureBalance === null ? "-" : `${livePressureBalance.toFixed(1)} %`}
+                    Pressure Balance: {session.pressureBalancePct === null ? "-" : `${session.pressureBalancePct.toFixed(1)} %`}
                   </p>
-                  <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Firmware: {liveState.firmwareState ?? liveMetric?.firmwareState ?? session.state ?? "-"}</p>
                   <p style={{ margin: 0, color: session.pressureSkewed === null ? "#475569" : session.pressureSkewed ? "#991b1b" : "#166534", fontSize: "0.88rem", fontWeight: 600 }}>
                     Pressure: {session.pressureSkewed === null ? "-" : session.pressureSkewed ? "Skewed" : "Even"}
                   </p>
@@ -723,9 +719,9 @@ export default function TraineeDashboard({
                     <RecoilTimeline values={recoilSeries} />
                   </div>
                   <div style={{ marginTop: "10px", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px", background: "#f8fafc" }}>
-                    <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                      Live Balance: {latestBalance === null ? "-" : `${latestBalance.toFixed(1)}%`} | Status: {latestSkewed === null ? "-" : latestSkewed ? "Skewed" : "Even"}
-                    </p>
+                    <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+                        <PressureBalanceGauge value={latestBalance} skewed={latestSkewed} />
+                      </div>
                     <p style={{ margin: "0 0 6px 0", fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>Recent Flags / Feedback</p>
                     {recentFlags.length === 0 ? (
                       <p style={{ margin: 0, fontSize: "0.82rem", color: "#64748b" }}>No feedback flags yet</p>
@@ -749,6 +745,15 @@ export default function TraineeDashboard({
                       </div>
                     )}
                   </div>
+                    <ChartsSection
+                      depthSeries={depthSeries}
+                      rateSeries={rateSeries}
+                      pauseSeries={pauseSeries}
+                      recoilSeries={recoilSeries}
+                      pressureValue={session?.pressureBalancePct ?? null}
+                      validCompressions={liveState.latestMetric?.validCompressionCount ?? null}
+                      totalCompressions={liveState.latestMetric?.compressionCount ?? null}
+                    />
                 </div>
               </section>
             )}
@@ -812,3 +817,177 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08), 0 8px 24px rgba(15, 23, 42, 0.04)",
   },
 };
+
+/* Charts and helpers */
+function ChartsSection({
+  depthSeries,
+  rateSeries,
+  pauseSeries,
+  recoilSeries,
+  pressureValue,
+  validCompressions,
+  totalCompressions,
+}: {
+  depthSeries: Array<number | null>;
+  rateSeries: Array<number | null>;
+  pauseSeries: Array<number | null>;
+  recoilSeries: Array<boolean | null>;
+  pressureValue: number | null;
+  validCompressions: number | null;
+  totalCompressions: number | null;
+}) {
+  const depthData = useMemo(() => {
+    return depthSeries.slice(-20).map((v, i) => ({ x: i, value: v ?? null }));
+  }, [depthSeries]);
+
+  const rateData = useMemo(() => rateSeries.slice(-20).map((v, i) => ({ x: i, value: v ?? null })), [rateSeries]);
+
+  const pauseData = useMemo(() => pauseSeries.slice(-15).map((v, i) => ({ x: i, value: v ?? null })), [pauseSeries]);
+
+  const recoilCounts = useMemo(() => {
+    const good = recoilSeries.filter((v) => v === true).length;
+    const bad = recoilSeries.filter((v) => v === false).length;
+    return { good, bad };
+  }, [recoilSeries]);
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "12px", marginTop: "12px" }}>
+      <Box title="Depth Trend">
+        <DepthAreaChart data={depthData} />
+      </Box>
+      <Box title="Rate Trend">
+        <RateLineChart data={rateData} />
+      </Box>
+      <Box title="Pause Pattern">
+        <PauseBarChart data={pauseData} />
+      </Box>
+      <Box title="Recoil Quality">
+        <RecoilDonut good={recoilCounts.good} bad={recoilCounts.bad} />
+      </Box>
+      <Box title="Pressure Balance">
+        <PressureBalanceGauge value={pressureValue} />
+      </Box>
+      <Box title="Compression Quality">
+        <CompressionQualityRing valid={validCompressions} total={totalCompressions} />
+      </Box>
+    </div>
+  );
+}
+
+function Box({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ borderRadius: 10, background: "#f3f4f6", padding: 10 }}>
+      <p style={{ margin: "0 0 8px 0", fontSize: "0.85rem", fontWeight: 700, color: "#0f172a" }}>{title}</p>
+      <div style={{ height: 150 }}>{children}</div>
+    </div>
+  );
+}
+
+function DepthAreaChart({ data }: { data: Array<{ x: number; value: number | null }> }) {
+  const chartData = data.map((d) => ({ ...d, value: d.value ?? 0 }));
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+        <defs>
+          <linearGradient id="depthGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#bfdbfe" stopOpacity={0.8} />
+            <stop offset="100%" stopColor="#f8fafc" stopOpacity={0.2} />
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="value" stroke="#0ea5e9" fill="url(#depthGrad)" strokeWidth={2} dot={false} />
+        <ReferenceLine y={50} stroke="#0284c7" strokeDasharray="3 3" />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function RateLineChart({ data }: { data: Array<{ x: number; value: number | null }> }) {
+  const chartData = data.map((d) => ({ ...d, value: d.value ?? 0 }));
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+        <ReferenceArea {...({ y1: 100, y2: 120, fill: "#bbf7d0" } as any)} />
+        <Line type="monotone" dataKey="value" stroke="#16a34a" strokeWidth={2} dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function PauseBarChart({ data }: { data: Array<{ x: number; value: number | null }> }) {
+  const chartData = data.map((d) => ({ ...d, value: d.value ?? 0 }));
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+        <Bar dataKey="value">
+          {chartData.map((entry, index) => {
+            const v = entry.value;
+            const color = v > 10 ? "#dc2626" : v >= 5 ? "#f59e0b" : "#10b981";
+            return <Cell key={`cell-${index}`} fill={color} />;
+          })}
+        </Bar>
+        <Tooltip />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function RecoilDonut({ good, bad }: { good: number; bad: number }) {
+  const total = good + bad || 1;
+  const percent = Math.round((good / total) * 100);
+  const data = [
+    { name: "Good", value: good },
+    { name: "Incomplete", value: bad },
+  ];
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie data={data} dataKey="value" innerRadius="60%" outerRadius="80%" startAngle={90} endAngle={-270}>
+            <Cell key="cell-good" fill="#16a34a" />
+            <Cell key="cell-bad" fill="#f59e0b" />
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
+      <div style={{ position: "relative", left: "-60%", fontWeight: 700, color: "#0f172a" }}>{percent}% good</div>
+    </div>
+  );
+}
+
+function PressureBalanceGauge({ value, skewed }: { value: number | null; skewed?: boolean | null }) {
+  const display = value === null ? "-" : `${value.toFixed(1)}%`;
+  const position = value === null ? 50 : Math.max(0, Math.min(100, (value + 100) / 2));
+  const centerGreenMin = 40; // maps to -20
+  const centerGreenMax = 60; // maps to +20
+  const isOk = position >= centerGreenMin && position <= centerGreenMax;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "#0f172a" }}>Balance: {display}</div>
+      <div style={{ position: "relative", width: 220, height: 18, background: "#e6eef6", borderRadius: 8 }}>
+        <div style={{ position: "absolute", left: `${centerGreenMin}%`, right: `${100 - centerGreenMax}%`, top: 0, bottom: 0, background: "#d1fae5", borderRadius: 8 }} />
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${position}%`, background: isOk ? "#60a5fa" : "#fca5a5", borderRadius: 8, opacity: 0.18 }} />
+        <div style={{ position: "absolute", left: `${position}%`, top: -6, width: 2, height: 30, background: "#0f172a", transform: "translateX(-50%)" }} />
+      </div>
+    </div>
+  );
+}
+
+function CompressionQualityRing({ valid, total }: { valid: number | null; total: number | null }) {
+  if (!total || total === 0 || valid === null) {
+    return <div style={{ color: "#64748b" }}>Waiting for data...</div>;
+  }
+  const pct = Math.round((valid / total) * 100);
+  const radius = 28;
+  const stroke = 6;
+  const normalized = pct / 100;
+  const dash = 2 * Math.PI * radius;
+  const offset = dash * (1 - normalized);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <svg width={radius * 2} height={radius * 2} viewBox={`0 0 ${radius * 2} ${radius * 2}`}>
+        <circle cx={radius} cy={radius} r={radius} stroke="#e5e7eb" strokeWidth={stroke} fill="none" />
+        <circle cx={radius} cy={radius} r={radius} stroke="#16a34a" strokeWidth={stroke} fill="none" strokeDasharray={`${dash} ${dash}`} strokeDashoffset={offset} transform={`rotate(-90 ${radius} ${radius})`} strokeLinecap="round" />
+      </svg>
+      <div style={{ fontWeight: 700, color: "#0f172a" }}>{pct}%</div>
+    </div>
+  );
+}
