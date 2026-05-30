@@ -149,8 +149,8 @@ export function FirmwareDiagnosticsPanel({ deviceId, readiness, liveSummary }: F
   }, [liveTail, recentCommands.length, recentEvents.length, recentDebugSnapshots.length]);
 
   return (
-    <details style={{ border: "1px solid #e2e8f0", borderRadius: "8px", background: "#f8fafc", padding: "10px" }}>
-      <summary style={{ cursor: "pointer", fontWeight: 700, color: "#334155" }}>Firmware Diagnostics</summary>
+    <details style={{ border: "1px solid var(--line)", borderRadius: "8px", background: "var(--surface-soft)", padding: "10px" }}>
+      <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--text)" }}>Firmware Diagnostics</summary>
       <div style={{ display: "grid", gap: "10px", marginTop: "10px" }}>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           <button
@@ -198,10 +198,10 @@ export function FirmwareDiagnosticsPanel({ deviceId, readiness, liveSummary }: F
         <Section title="Recent Commands & Events">
           <div className="diagnostics-log-shell">
             <div className="diagnostics-log-shell__header">
-              <div>
-                <div style={{ fontSize: "0.82rem", fontWeight: 800, color: "#e2e8f0" }}>Live Tail</div>
-                <div style={{ fontSize: "0.74rem", color: "#94a3b8" }}>Auto-scrolls to the newest row when enabled.</div>
-              </div>
+                <div>
+                  <div style={{ fontSize: "0.82rem", fontWeight: 800, color: "var(--card-fg)" }}>Live Tail</div>
+                  <div style={{ fontSize: "0.74rem", color: "var(--muted)" }}>Auto-scrolls to the newest row when enabled.</div>
+                </div>
               <label className="diagnostics-toggle">
                 <input type="checkbox" checked={liveTail} onChange={(event) => setLiveTail(event.target.checked)} />
                 <span>Live Tail</span>
@@ -297,7 +297,7 @@ function ReadinessBlock({
   return (
     <div className={`readiness-block ${calibrationNeeded ? "readiness-block--needs-calibration" : ""} ${glowReady ? "readiness-block--glow" : ""}`}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <div className={`readiness-block__icon ${ready ? "readiness-block__icon--ready" : "readiness-block__icon--not-ready"}`}>
             {ready ? <ReadyIcon /> : <NotReadyIcon />}
           </div>
@@ -305,7 +305,7 @@ function ReadinessBlock({
             <div style={{ fontSize: "0.74rem", fontWeight: 800, color: ready ? "#166534" : "#b91c1c", textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Readiness
             </div>
-            <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "#0f172a" }}>{statusLabel}</div>
+            <div style={{ fontSize: "0.92rem", fontWeight: 700, color: "var(--text)" }}>{statusLabel}</div>
           </div>
         </div>
 
@@ -323,12 +323,12 @@ function ReadinessBlock({
 
         <div style={{ display: "grid", gap: 8 }}>
           <div style={readinessInfoRowStyle}>
-            <span style={readinessInfoLabelStyle}>State</span>
-            <span style={readinessInfoValueStyle}>{readiness?.firmwareState ?? "-"}</span>
+            <span style={{ ...readinessInfoLabelStyle, color: "var(--muted)" }}>State</span>
+            <span style={{ ...readinessInfoValueStyle, color: "var(--text)" }}>{readiness?.firmwareState ?? "-"}</span>
           </div>
           <div style={readinessInfoRowStyle}>
-            <span style={readinessInfoLabelStyle}>Status</span>
-            <span style={readinessInfoValueStyle}>{ready ? "Ready" : "Not ready"}</span>
+            <span style={{ ...readinessInfoLabelStyle, color: "var(--muted)" }}>Status</span>
+            <span style={{ ...readinessInfoValueStyle, color: "var(--text)" }}>{ready ? "Ready" : "Not ready"}</span>
           </div>
           <div style={cubeRowStyle} className="readiness-cube-row">
             <span style={readinessInfoLabelStyle}>Raw IDs</span>
@@ -498,7 +498,7 @@ function snapshotToTree(snapshot: FirmwareDeviceDiagnosticsResponse["recentDebug
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div style={{ display: "grid", gap: "6px" }}>
-      <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#334155" }}>{title}</div>
+      <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--text)" }}>{title}</div>
       <div style={{ display: "grid", gap: "6px" }}>{children}</div>
     </div>
   );
@@ -529,16 +529,16 @@ function EventRow({ event }: { event: FirmwareDeviceDiagnosticsResponse["recentE
 }
 
 function EmptyText({ text }: { text: string }) {
-  return <div style={{ fontSize: "0.82rem", color: "#64748b" }}>{text}</div>;
+  return <div style={{ fontSize: "0.82rem", color: "var(--muted)" }}>{text}</div>;
 }
 
 function buttonStyle(disabled: boolean): CSSProperties {
   return {
     padding: "6px 10px",
     borderRadius: "6px",
-    border: "1px solid #cbd5e1",
-    background: disabled ? "#e2e8f0" : "#ffffff",
-    color: disabled ? "#94a3b8" : "#334155",
+    border: "1px solid var(--line)",
+    background: disabled ? "var(--surface-soft)" : "var(--surface-strong)",
+    color: disabled ? "var(--muted)" : "var(--text)",
     cursor: disabled ? "not-allowed" : "pointer",
     fontWeight: 700,
     fontSize: "0.82rem",
@@ -547,27 +547,27 @@ function buttonStyle(disabled: boolean): CSSProperties {
 
 const gridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-  gap: "8px",
+  gridTemplateColumns: "minmax(260px, 360px) repeat(auto-fit, minmax(140px, 1fr))",
+  gap: "12px",
 };
 
 const entryStyle: CSSProperties = {
   padding: "8px",
   borderRadius: "8px",
-  border: "1px solid #e2e8f0",
-  background: "#ffffff",
+  border: "1px solid var(--line)",
+  background: "var(--surface-strong)",
 };
 
 const entryTitleStyle: CSSProperties = {
   fontSize: "0.82rem",
   fontWeight: 700,
-  color: "#0f172a",
+  color: "var(--text)",
 };
 
 const entryMetaStyle: CSSProperties = {
   marginTop: "3px",
   fontSize: "0.76rem",
-  color: "#475569",
+  color: "var(--muted)",
 };
 
 const readinessInfoRowStyle: CSSProperties = {
@@ -579,14 +579,14 @@ const readinessInfoRowStyle: CSSProperties = {
 };
 
 const readinessInfoLabelStyle: CSSProperties = {
-  color: "#64748b",
+  color: "var(--muted)",
   fontWeight: 700,
   textTransform: "uppercase",
   letterSpacing: "0.06em",
 };
 
 const readinessInfoValueStyle: CSSProperties = {
-  color: "#0f172a",
+  color: "var(--text)",
   fontWeight: 700,
 };
 
@@ -602,8 +602,8 @@ const timelineTrackStyle: CSSProperties = {
   alignItems: "center",
   padding: "12px 10px 14px",
   borderRadius: 12,
-  background: "rgba(255, 255, 255, 0.72)",
-  border: "1px solid #dbe7f3",
+  background: "var(--surface-soft)",
+  border: "1px solid var(--line)",
   overflow: "hidden",
 };
 

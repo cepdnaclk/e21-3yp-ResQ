@@ -188,6 +188,50 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
   const [copyLanIpState, setCopyLanIpState] = useState<"idle" | "copied">("idle");
 
+  useEffect(() => {
+    function isTextInput(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      const tagName = target.tagName.toLowerCase();
+      return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isTextInput(event.target)) {
+        return;
+      }
+
+      const shortcutKey = event.key.toLowerCase();
+      const modifierPressed = event.ctrlKey || event.metaKey;
+
+      if (!modifierPressed) {
+        return;
+      }
+
+      if (shortcutKey === "r") {
+        event.preventDefault();
+        void refreshAllState();
+        return;
+      }
+
+      if (shortcutKey === "i") {
+        event.preventDefault();
+        handleOpenInstructorDashboard();
+        return;
+      }
+
+      if (shortcutKey === "t") {
+        event.preventDefault();
+        handleOpenTraineeDashboard();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   function updateBrokerUi(service: BrokerServiceStatus) {
     setBrokerState(service);
     setBrokerUiState({

@@ -12,28 +12,18 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const THEME_STORAGE_KEY = "resq-theme";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    // Get theme from localStorage or use system preference
-    const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === "dark" || saved === "light") {
-      return saved;
-    }
-    // Check system preference
-    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      return "dark";
-    }
-    return "light";
-  });
+  // Force light theme; dark mode removed
+  const [theme, setTheme] = useState<Theme>(() => "light");
 
   useEffect(() => {
     document.documentElement.classList.add("sim-theater");
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    // Save preference
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
+    // Dark mode removed; ensure `dark` class is not present
+    document.documentElement.classList.remove("dark");
+  }, []);
 
   function toggleTheme() {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+    // No-op: theme is fixed to light
+    return;
   }
 
   return (

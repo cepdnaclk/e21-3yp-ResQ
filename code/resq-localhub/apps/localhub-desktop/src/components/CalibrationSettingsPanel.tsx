@@ -93,6 +93,8 @@ const CALIBRATION_FIELDS: FieldConfig[] = [
   },
 ];
 
+import CalibrationIcon from "./icons/CalibrationIcon";
+
 export function CalibrationSettingsPanel({
   devices,
   selectedDeviceId,
@@ -146,14 +148,13 @@ export function CalibrationSettingsPanel({
           getCalibrationProfiles(),
           getDefaultCalibrationProfile(),
         ]);
-
         if (cancelled) {
           return;
         }
 
         setProfiles(allProfiles);
 
-        const keepSelection = preferredProfileId && allProfiles.some((profile) => profile.profileId === preferredProfileId)
+        const nextSelection = preferredProfileId && allProfiles.some((profile) => profile.profileId === preferredProfileId)
           ? preferredProfileId
           : selectedProfileId && allProfiles.some((profile) => profile.profileId === selectedProfileId)
             ? selectedProfileId
@@ -163,7 +164,7 @@ export function CalibrationSettingsPanel({
               ?? allProfiles[0]?.profileId
               ?? null;
 
-        setSelectedProfileId(keepSelection);
+        setSelectedProfileId(nextSelection);
         setMessage(allProfiles.length === 0 ? "No calibration profiles found." : `Loaded ${allProfiles.length} calibration profile(s).`);
       } catch (loadError) {
         if (!cancelled) {
@@ -418,7 +419,7 @@ export function CalibrationSettingsPanel({
     <section style={getPanelStyle(Boolean(selectedProfile))}>
       <div style={headerStyle}>
         <div>
-          <h2 style={titleStyle}>Calibration Settings</h2>
+           <h2 style={titleStyle}>Calibration Settings <CalibrationIcon size={18} /></h2>
           <p style={subtitleStyle}>
             Edit local calibration profiles and run calibration against the selected live device.
           </p>

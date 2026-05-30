@@ -46,6 +46,11 @@ import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { QRCodeSVG as QR } from "qrcode.react";
+import ProvisioningIcon from "../components/icons/ProvisioningIcon";
+import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
+import LiveManikinsIcon from "../components/icons/LiveManikinsIcon";
+import HubHeartbeat from "../components/icons/HubHeartbeat";
+import CalibrationIcon from "../components/icons/CalibrationIcon";
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -161,6 +166,7 @@ function WifiSignalIcon() {
   );
 }
 
+// Using shared `HubHeartbeat` component for consistent animation and styling.
 function WarningIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -1153,7 +1159,10 @@ export default function InstructorDashboard({
       <div style={styles.content}>
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <HubHeartbeat state={healthLoading ? "checking" : health?.ok ? "ok" : "down"} size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
+            </div>
             <HealthStatusBadge health={healthLoading ? null : health} />
           </div>
           <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
@@ -1172,9 +1181,12 @@ export default function InstructorDashboard({
         <section style={{ ...styles.card, ...styles.provisioningCard }} className="provisioning-card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
             <div>
-              <h2 style={{ margin: "0 0 6px 0", fontSize: "1.1rem", fontWeight: 600 }}>
-                Firmware Provisioning
-              </h2>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <ProvisioningIcon size={18} />
+                <h2 style={{ margin: "0 0 6px 0", fontSize: "1.1rem", fontWeight: 600 }}>
+                  Firmware Provisioning
+                </h2>
+              </div>
               <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
                 Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
               </p>
@@ -1481,9 +1493,12 @@ export default function InstructorDashboard({
             alignItems: "center",
             marginBottom: "12px",
           }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>
-              Device Registry
-            </h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <DeviceRegistryIcon size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>
+                Device Registry
+              </h2>
+            </div>
             {/* Show a live count badge — only after loading is complete */}
             {!registryLoading && !registryError ? (
               <span style={{
@@ -1621,7 +1636,10 @@ export default function InstructorDashboard({
 
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <LiveManikinsIcon size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
+            </div>
             <LiveStreamStatusBadge state={manikinsStreamState} />
           </div>
           {manikinsLoading ? (
@@ -1737,8 +1755,9 @@ export default function InstructorDashboard({
                         >
                           {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
                         </button>
-                        <span style={{ fontSize: "0.78rem", color: "#64748b", alignSelf: "center" }}>
-                          Use Calibration Settings to start a run.
+                        <span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "0.78rem", color: "#64748b", alignSelf: "center" }}>
+                          <CalibrationIcon size={14} />
+                          <span>Use Calibration Settings to start a run.</span>
                         </span>
                       </div>
                     </div>
@@ -2024,35 +2043,32 @@ export default function InstructorDashboard({
                     </div>
 
                     {active ? (
-                      <div style={{ display: "grid", gap: "4px", background: "#f8fafc", borderRadius: "8px", padding: "10px" }}>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
-                          Session: {activeSession!.sessionId}
-                        </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
-                          Trainee: {activeSession!.traineeId ?? "-"}
-                        </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
-                        </p>
-                        {/* QR removed: Trainee dashboard QR omitted */}
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <div style={{ display: "grid", gap: "8px", background: "linear-gradient(180deg,#ffffff,#f7fbff)", borderRadius: "12px", padding: "12px", border: "1px solid #e6f0fb", boxShadow: "0 8px 20px rgba(13,42,86,0.06)" }}>
+                        <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Session</div>
+                          <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a", wordBreak: "break-all" }}>{activeSession!.sessionId}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Trainee</div>
+                          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>{activeSession!.traineeId ?? "-"}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Trainee Link</div>
+                          <div style={{ background: "#0f172a", color: "#ffffff", padding: "8px 12px", borderRadius: 10, fontWeight: 800 }}>
+                            {traineeLink ?? buildTraineeLandingUrl()}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                           <button
                             type="button"
                             onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
-                            style={{
-                              padding: "8px 12px",
-                              borderRadius: "6px",
-                              border: "1px solid #0f172a",
-                              background: "#0f172a",
-                              color: "#ffffff",
-                              fontWeight: 600,
-                              cursor: "pointer",
-                            }}
+                            className="cta-royal"
+                            aria-label="Open trainee dashboard in app"
                           >
                             Open Trainee Dashboard (In-App)
                           </button>
                           {traineeLink ? (
-                            <a href={traineeLink} style={linkButtonStyle}>
+                            <a href={traineeLink} style={{ padding: "8px 12px", borderRadius: 8, background: "#f1f5f9", color: "#0f172a", fontWeight: 700, textDecoration: "none" }}>
                               Open Trainee Link
                             </a>
                           ) : null}
@@ -2061,9 +2077,15 @@ export default function InstructorDashboard({
                     ) : null}
 
                     {sessionMessageByDevice[manikin.deviceId] ? (
-                      <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>
-                        {sessionMessageByDevice[manikin.deviceId]}
-                      </p>
+                      <div style={{ marginTop: 6 }}>
+                        {sessionMessageByDevice[manikin.deviceId].includes("Calibration requested") ? (
+                          <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 999, background: "#fff1f2", color: "#b91c1c", fontWeight: 800, fontSize: "0.86rem" }}>
+                            {sessionMessageByDevice[manikin.deviceId]}
+                          </span>
+                        ) : (
+                          <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>{sessionMessageByDevice[manikin.deviceId]}</p>
+                        )}
+                      </div>
                     ) : null}
                   </article>
                 );

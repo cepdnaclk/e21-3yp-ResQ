@@ -187,17 +187,22 @@ function Notice({ text, tone }: { text: string; tone: "warn" | "error" }) {
 }
 
 function MetricCard({ label, value, muted }: { label: string; value: string; muted: boolean }) {
+  const key = label.toLowerCase().replace(/\s+/g, "-");
   return (
     <div
+      className={`metric-card metric-card--${key}`}
       style={{
-        padding: "10px",
-        borderRadius: "8px",
-        border: "1px solid #e2e8f0",
-        background: muted ? "#f8fafc" : "#ffffff",
+        padding: "14px",
+        borderRadius: "12px",
+        border: "1px solid #e8eef6",
+        background: muted ? "#fbfbfd" : "#ffffff",
+        boxShadow: muted ? "none" : "0 6px 18px rgba(15,23,42,0.06)",
       }}
+      role="group"
+      aria-label={label}
     >
-      <p style={{ margin: 0, color: "#64748b", fontSize: "0.74rem", fontWeight: 700, textTransform: "uppercase" }}>{label}</p>
-      <p style={{ margin: "4px 0 0 0", color: muted ? "#64748b" : "#0f172a", fontSize: "1rem", fontWeight: 800 }}>{value}</p>
+      <p className="metric-card__label" style={{ margin: 0 }}>{label}</p>
+      <p className="metric-card__value" style={{ margin: "6px 0 0 0", color: muted ? "#64748b" : "#0f172a" }}>{value}</p>
     </div>
   );
 }

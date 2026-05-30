@@ -18,6 +18,8 @@ type LocalSessionReviewPanelProps = {
   onRefresh: () => void;
 };
 
+import SessionReviewIcon from "../components/icons/SessionReviewIcon";
+
 export function LocalSessionReviewPanel({
   latestEndedSession,
   sessions,
@@ -85,9 +87,12 @@ export function LocalSessionReviewPanel({
   return (
     <section style={styles.card}>
       <div style={styles.headerRow}>
-        <div>
-          <h2 style={styles.heading}>Local Session Review</h2>
-          <p style={styles.subheading}>Review recent local and simulator sessions, then export a clean demo package.</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <SessionReviewIcon size={18} />
+          <div>
+            <h2 style={styles.heading}>Local Session Review</h2>
+            <p style={styles.subheading}>Review recent local and simulator sessions, then export a clean demo package.</p>
+          </div>
         </div>
         <div style={styles.headerActions}>
           <div style={styles.viewToggle}>

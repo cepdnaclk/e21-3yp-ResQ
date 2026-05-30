@@ -181,7 +181,7 @@ export default function App() {
   }
 
   return (
-    <div className="command-shell">
+    <div className={`command-shell ${page === "home" ? "command-shell--home" : ""}`}>
       <div className="command-shell__parallax" aria-hidden="true" />
       <header className="command-shell__topbar command-shell__topbar--sticky">
         <div className="app-shell__brand">
@@ -259,11 +259,11 @@ export default function App() {
         </main>
       </div>
 
-      <div className="command-shell__quick-actions">
-        <button type="button" className="command-shell__quick-actions-fab" onClick={() => setQuickActionsOpen((current) => !current)}>
+      <div className="command-shell__quick-actions" aria-hidden={false}>
+        <button type="button" className="command-shell__quick-actions-fab" onClick={() => setQuickActionsOpen((current) => !current)} aria-expanded={quickActionsOpen} aria-controls="quick-actions-panel">
           Quick Actions
         </button>
-        <div className={`command-shell__quick-actions-panel ${quickActionsOpen ? "command-shell__quick-actions-panel--open" : ""}`}>
+        <div id="quick-actions-panel" className={`command-shell__quick-actions-panel ${quickActionsOpen ? "command-shell__quick-actions-panel--open" : ""}`}>
           <button type="button" className="command-shell__quick-action" onClick={refreshAll}>Refresh All</button>
           <button type="button" className="command-shell__quick-action" onClick={copyDiagnostics}>Copy Diagnostics</button>
           <button type="button" className="command-shell__quick-action" onClick={goHome}>Go Home</button>
