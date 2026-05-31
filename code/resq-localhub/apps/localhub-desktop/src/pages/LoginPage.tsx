@@ -93,13 +93,35 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
     : null;
 
   return (
-    <section style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: "2rem", background: "var(--page-bg)" }}>
+    <section
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        padding: "2rem",
+        background: "linear-gradient(180deg, #02182d 0%, #00172b 100%)",
+      }}
+    >
       {/* Logo - Enlarged */}
       <div style={{ position: "absolute", top: "1.5rem", left: "50%", transform: "translateX(-50%)" }}>
         <img src="/resq-logo-dark-512.png" alt="ResQ" style={{ height: "240px", objectFit: "contain" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
       </div>
 
-      <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: "420px", border: "1px solid rgba(17, 38, 63, 0.08)", borderRadius: "1.5rem", padding: "1.25rem", background: "rgba(255, 255, 255, 0.92)", boxShadow: "0 24px 70px rgba(25, 62, 104, 0.08)", display: "grid", gap: "0.75rem", marginTop: "14rem" }}>
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          width: "100%",
+          maxWidth: "420px",
+          border: "1px solid rgba(17, 38, 63, 0.08)",
+          borderRadius: "1.5rem",
+          padding: "1.25rem",
+          background: "rgba(255, 255, 255, 0.94)",
+          boxShadow: "0 24px 70px rgba(0, 0, 0, 0.18)",
+          display: "grid",
+          gap: "0.75rem",
+          marginTop: "14rem",
+        }}
+      >
         <div>
           <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.02em" }}>ResQ Local Hub</h1>
           <p style={{ margin: "6px 0 0", color: "var(--muted)", fontSize: "0.9rem" }}>{helperText}</p>
