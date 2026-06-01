@@ -2078,13 +2078,21 @@ export default function InstructorDashboard({
 
                     {sessionMessageByDevice[manikin.deviceId] ? (
                       <div style={{ marginTop: 6 }}>
-                        {sessionMessageByDevice[manikin.deviceId].includes("Calibration requested") ? (
-                          <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 999, background: "#fff1f2", color: "#b91c1c", fontWeight: 800, fontSize: "0.86rem" }}>
-                            {sessionMessageByDevice[manikin.deviceId]}
-                          </span>
-                        ) : (
-                          <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>{sessionMessageByDevice[manikin.deviceId]}</p>
-                        )}
+                        {(() => {
+                          const deviceMessage = sessionMessageByDevice[manikin.deviceId];
+
+                          if (!deviceMessage) {
+                            return null;
+                          }
+
+                          return deviceMessage.includes("Calibration requested") ? (
+                            <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 999, background: "#fff1f2", color: "#b91c1c", fontWeight: 800, fontSize: "0.86rem" }}>
+                              {deviceMessage}
+                            </span>
+                          ) : (
+                            <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>{deviceMessage}</p>
+                          );
+                        })()}
                       </div>
                     ) : null}
                   </article>
