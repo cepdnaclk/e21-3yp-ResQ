@@ -1,200 +1,123 @@
-# ResQ Local Hub (Rewrite)
+# ResQ Local Hub
 
-This repository contains the new **ResQ Local Hub** foundation.
+This folder contains the ResQ Local Hub workspace used for local development and demoing the full stack (desktop UI, backend API, and local MQTT broker).
 
-It is a Windows-first desktop application intended for an instructor PC to manage local services and run local-first sessions, even without internet.
+This README reflects the current repository layout and the most common developer workflows.
 
-## Stack (Initial Foundation)
+## What this workspace contains
 
-- Desktop shell: Tauri
-- Frontend: React + Vite + TypeScript
-- Backend API: Spring Boot (Java 17)
-- Local database direction: SQLite (to be wired in next steps)
-- Local messaging direction: Mosquitto MQTT broker
+- apps/localhub-desktop: Tauri desktop application (React + Vite + TypeScript, Rust shell)
+- services/hub-api: Spring Boot backend (Java)
+- packages/shared: Cross-package TypeScript utilities
+- infra/mosquitto: Mosquitto configuration files for local development
+- scripts: helper scripts (see below)
 
-## Product Direction
+Top-level files you can expect:
 
-- Sessions should work locally without internet.
-- Data is stored locally first.
-- Cloud sync is planned later when connectivity is available.
-- Docker is optional later for contributors and deployment experiments, but not required now.
-- Repository structure is designed to be open-source friendly in future.
+- .env.example
+- .gitignore
+- README.md (this file)
+- package.json
+- pnpm-lock.yaml (single lockfile for the workspace)
 
-## Repository Layout
+## Minimal repository structure
 
-- `apps/localhub-desktop`: Tauri desktop app (React UI + Rust shell)
-- `services/hub-api`: Spring Boot backend service
-- `infra/mosquitto`: local Mosquitto configuration
-- `docs`: architecture and planning notes
+code/resq-localhub/
+  apps/
+    localhub-desktop/
+      src/
+      src-tauri/
+      public/
+      package.json
+      tsconfig.json
+      vite.config.ts
+  services/
+    hub-api/
+      src/
+      pom.xml
+      mvnw
+      mvnw.cmd
+  packages/
+    shared/
+      src/
+      package.json
+  infra/
+    mosquitto/
+      mosquitto.conf
+      mosquitto.dev.conf
+      mosquitto.final-demo.conf
+      acl.final-demo
+      passwords.example
+  scripts/
+    test-live-fallback.ps1
+    start-localhub-dev.ps1
+  .env.example
+  .gitignore
+  README.md
+  package.json
+  pnpm-lock.yaml
 
-## Repository Structure
+## Quick start: Desktop development
 
-resq-localhub/
-   apps/
-      localhub-desktop/
-   services/
-      hub-api/
-   packages/
-      shared/
-   infra/
-      mosquitto/
-   scripts/
-      local-demo/
-      firmware-simulator/
-      mqtt/
-      health/
-   test-fixtures/
-      firmware/
-         mqtt/
-   docs/
-      archive/
-
-Notes:
-- **pnpm** is the canonical package manager for this repository. The root `pnpm-lock.yaml` is the single source of truth for JS/TS deps.
-- MQTT sample JSON fixtures live under `test-fixtures/firmware/mqtt`.
-- Temporary prompts and patch files are archived under `docs/archive`.
-
-## Quick Start
-
-For a Windows-first local demo path, start with:
-
-- Run the desktop in dev mode from the repo root (Tauri manages backend and broker lifecycle):
+From the workspace root, develop the desktop using `pnpm`:
 
 ```powershell
+cd code/resq-localhub
+pnpm install
 pnpm run desktop:tauri:dev
 ```
 
-- See the `docs/` folder for runbooks and smoke tests (if present).
+Note: this project uses `pnpm` as the canonical package manager. Do not create or commit `package-lock.json` or other npm lockfiles.
 
-### 1) Backend API
+## Run full local dev stack
+
+You can start the full local development stack (Mosquitto broker, Spring Boot backend, and the Tauri desktop) with a single command from the workspace root:
+
+```powershell
+pnpm run dev:localhub
+```
+
+This runs the `scripts/start-localhub-dev.ps1` launcher which:
+
+- starts the Mosquitto broker (in a new PowerShell window)
+- starts the Spring Boot backend (`mvnw.cmd spring-boot:run`) in a new PowerShell window
+- runs the desktop dev server (`pnpm run desktop:tauri:dev`) in the current terminal
+
+If `mosquitto` cannot be resolved from PATH, the launcher will attempt `C:\\Program Files\\mosquitto\\mosquitto.exe` and will fail with a clear message if neither is available.
+
+## Desktop developer workflow (single service)
+
+- Start only the backend (in separate terminal):
 
 ```powershell
 cd services/hub-api
-./mvnw spring-boot:run
+.\\mvnw.cmd spring-boot:run
 ```
 
-Health endpoint:
-
-```text
-GET http://localhost:18080/api/hub/health
-```
-
-The desktop Home page checks this endpoint on load, so the backend should be running before you open the app if you want to see live API status.
-
-The desktop Home page also includes `Start API` and `Stop API` buttons that launch and stop the backend from the Tauri app during development.
-
-For broker lifecycle control from the desktop app, Mosquitto path resolution is:
-
-- `MOSQUITTO_EXE` environment variable (if set), otherwise `mosquitto` from PATH
-- `MOSQUITTO_CONF` environment variable (if set), otherwise `infra/mosquitto/mosquitto.conf`
-
-Local Mosquitto exposes two development listeners:
-
-- TCP MQTT on `1883` for ESP32 devices and the backend subscriber
-- MQTT-over-WebSocket on `9001` for future browser dashboard display clients
-
-To verify the broker config directly:
-
-```powershell
-mosquitto -c infra/mosquitto/mosquitto.conf -v
-Test-NetConnection localhost -Port 1883
-Test-NetConnection localhost -Port 9001
-```
-
-The LAN Info card now reads hostname and primary local IPv4 from Tauri. If no non-loopback IPv4 is found, it shows `Not detected`.
-
-When auto-detection cannot find a usable LAN IP, use Setup to save a manual LAN IP override. Home will then use the manual value.
-
-### VS Code setup
-
-This repository includes recommended VS Code extensions in `.vscode/extensions.json`.
-
-Personal editor settings should not be committed. If you want local workspace settings, copy:
-
-`.vscode/settings.example.json`
-
-to:
-
-`.vscode/settings.json`
-
-Then adjust it locally as needed.
-
-### 2) Desktop App
+- Start only the desktop UI (in a terminal):
 
 ```powershell
 cd apps/localhub-desktop
 pnpm install
-pnpm run tauri:dev
+pnpm run desktop:tauri:dev
 ```
 
-## Current Scope
+## Tests and verification
 
-This repository now implements the following core features for local hub usage:
+- Typecheck the workspace TypeScript: `pnpm run typecheck`
+- Build the desktop: `pnpm run desktop:build`
+- Run desktop tests: `pnpm run desktop:test`
+- Run backend tests: `pnpm run backend:test`
+- Create Tauri desktop build: `pnpm run desktop:tauri:build`
 
-- Role-based authentication (ADMIN / INSTRUCTOR / TRAINEE) with local SQLite storage
-- User management, first-run ADMIN setup, and session bootstrapping
-- Session lifecycle: create, start, end, and export session data (instructor flow)
-- Calibration profiles and diagnostics pages
-- Local MQTT broker integration (Mosquitto) for device + backend messaging
-- Tauri desktop build and packaging (MSI / NSIS installers)
+## Current scope
 
-No full pairing/session/cloud workflow is implemented yet.
+Full cloud sync is not implemented yet. Firmware-to-LocalHub end-to-end validation and final pairing workflow hardening are still in progress.
 
-## Role-Based Authentication
+## Notes and housekeeping
 
-The local hub uses **offline-first, role-based authentication** with three roles:
+- Keep only the root `pnpm-lock.yaml` in `code/resq-localhub` — do not commit additional lockfiles per workspace package.
+- Do not commit `node_modules` or backend `target/` artifacts.
+- The `infra/mosquitto` folder contains the broker configs used for development and demos; do not remove these files.
 
-- **ADMIN**: Full system control. Can create and manage user accounts, view diagnostics, and perform all instructor actions.
-- **INSTRUCTOR**: Manages sessions and manikins. Can start/end sessions, pair devices, monitor live performance, and export session data.
-- **TRAINEE**: Participates in sessions. Can view their assigned session results and live performance while active.
-
-### User Creation Flow
-
-1. **First Run**: When the app starts and no users exist, it shows a **"First Run Setup"** screen to create the initial ADMIN account.
-
-2. **Admin User Management**: After signing in as ADMIN, open the **"Users"** tab to:
-   - View all existing users (ADMIN, INSTRUCTOR, TRAINEE)
-   - Create new INSTRUCTOR or TRAINEE accounts with username, display name, password, and role
-   - Disable user accounts (preventing them from signing in)
-
-3. **Login**: All users sign in with their username and password on the login screen.
-
-### Authorization Enforcement
-
-- **Backend**: Protected API endpoints check user role using `AuthService.requireRole(...)` and return `401 Unauthorized` for missing credentials or `403 Forbidden` for insufficient privileges.
-- **Frontend**: Route guards (`ProtectedRoute`, `RoleBasedRoute`) prevent unauthorized access and show an "Access Denied" page for insufficient roles.
-- **Audit Logging**: Login attempts, user creation, session start/end, and exports are recorded in the local SQLite audit log.
-
-### Session & Data Access Control
-
-- **ADMIN/INSTRUCTOR** can list, start, end, and export any session.
-- **TRAINEE** can only view their own session results and live performance (matched by username).
-- Public health endpoint (`/api/hub/health`) requires no authentication.
-
-## Auth Smoke Test
-
-Use these checks after pulling the auth slice:
-
-1. Start the backend from `services/hub-api`.
-2. Start the desktop app from `apps/localhub-desktop`.
-3. Open the app with no existing auth cookie and confirm the first-run ADMIN setup screen appears.
-4. Create the first ADMIN user, then confirm the app lands on the instructor flow.
-5. Sign in as ADMIN, open the **"Users"** tab, and create an INSTRUCTOR and a TRAINEE account.
-6. Log out and sign back in as INSTRUCTOR. Confirm you can open instructor views, start/end sessions, and export data. Diagnostics tab should be hidden.
-7. Log out and sign in as TRAINEE. Confirm you can only open the trainee view and get access denied on instructor routes.
-8. Log out as TRAINEE (no current session) and confirm the trainee dashboard shows "No active sessions".
-9. Confirm a direct unauthenticated request to `/api/sessions` returns `401` and a TRAINEE request to `/api/sessions/list` returns `403`.
-10. Confirm `GET /api/hub/health` still responds without auth.
-11. Run `pnpm exec tsc --noEmit` in `apps/localhub-desktop` and `./mvnw -q -DskipTests compile` in `services/hub-api`.
-
-## Next Steps
-
-See:
-
-- `docs/architecture-overview.md`
-- `docs/open-source-plan.md`
-- `docs/development-plan.md`
-- `docs/local-demo-runbook.md`
-- `docs/local-firmware-simulator-smoke-test.md`
-- `docs/real-esp32-localhub-integration-smoke-test.md`
-- `docs/localhub-firmware-integration-handoff.md`
+If you find any broken links in this README, please open a PR updating them to the current paths.

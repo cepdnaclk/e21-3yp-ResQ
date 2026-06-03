@@ -11,6 +11,9 @@
 		"desktop:build": "pnpm --filter localhub-desktop run build",
 		"desktop:test": "pnpm --filter localhub-desktop run test",
 		"desktop:tauri:dev": "pnpm --filter localhub-desktop tauri dev",
-		"desktop:tauri:build": "pnpm --filter localhub-desktop tauri build"
+		"desktop:tauri:build": "pnpm --filter localhub-desktop tauri build",
+		"backend:test": "cd services/hub-api && .\\mvnw.cmd test",
+		"verify": "pnpm run typecheck && pnpm run desktop:build && pnpm run desktop:test && pnpm run backend:test",
+		"dev:localhub": "powershell -ExecutionPolicy Bypass -File ./scripts/start-localhub-dev.ps1"
 	}
 }
