@@ -103,6 +103,20 @@ The LAN Info card now reads hostname and primary local IPv4 from Tauri. If no no
 
 When auto-detection cannot find a usable LAN IP, use Setup to save a manual LAN IP override. Home will then use the manual value.
 
+### VS Code setup
+
+This repository includes recommended VS Code extensions in `.vscode/extensions.json`.
+
+Personal editor settings should not be committed. If you want local workspace settings, copy:
+
+`.vscode/settings.example.json`
+
+to:
+
+`.vscode/settings.json`
+
+Then adjust it locally as needed.
+
 ### 2) Desktop App
 
 ```powershell

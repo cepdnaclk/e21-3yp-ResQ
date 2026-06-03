@@ -28,8 +28,9 @@ target/
 
 # IDE / editor
 .idea/
-.vscode/
 *.iml
+# Keep shareable VS Code files in the repository. Ignore only personal settings.
+.vscode/settings.json
 
 # OS
 Thumbs.db
