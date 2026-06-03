@@ -1,6 +1,7 @@
 # Logs
 *.log
 logs/
+docs/
 
 # Environment files
 .env
@@ -35,3 +36,5 @@ target/
 # OS
 Thumbs.db
 .DS_Store
+*.sqlite
+*.db

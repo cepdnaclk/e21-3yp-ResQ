@@ -56,9 +56,9 @@ Invoke-ResqGet "/api/hub/health" | Out-Null
 
 if (-not $SkipPublish) {
     Write-Host "Publishing heartbeat, status, and metric-first telemetry for $DeviceId / $SessionId ..."
-    & "$PSScriptRoot\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Sample heartbeat
-    & "$PSScriptRoot\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Sample status
-    & "$PSScriptRoot\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Sample metric-first
+    & "$PSScriptRoot\mqtt\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Sample heartbeat
+    & "$PSScriptRoot\mqtt\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Sample status
+    & "$PSScriptRoot\mqtt\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Sample metric-first
     Start-Sleep -Milliseconds 800
 }
 
@@ -77,10 +77,10 @@ Assert-Condition ($sessionSnapshot.latestMetric.rateCpm -eq 110) "Session latest
 
 if ($IncludeInvalidSamples) {
     Write-Host "Publishing invalid samples; these should not replace the selected live metric ..."
-    & "$PSScriptRoot\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 2 -Sample wrong-session
-    & "$PSScriptRoot\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 3 -Sample wrong-device
-    & "$PSScriptRoot\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 4 -Sample incomplete
-    & "$PSScriptRoot\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 5 -Sample malformed
+    & "$PSScriptRoot\mqtt\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 2 -Sample wrong-session
+    & "$PSScriptRoot\mqtt\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 3 -Sample wrong-device
+    & "$PSScriptRoot\mqtt\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 4 -Sample incomplete
+    & "$PSScriptRoot\mqtt\publish-sample-telemetry.ps1" -BrokerHost $BrokerHost -BrokerPort $BrokerPort -DeviceId $DeviceId -SessionId $SessionId -Seq 5 -Sample malformed
     Start-Sleep -Milliseconds 800
 
     $afterInvalid = Invoke-ResqGet "/api/sessions/live/$SessionId"

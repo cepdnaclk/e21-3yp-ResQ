@@ -27,6 +27,33 @@ It is a Windows-first desktop application intended for an instructor PC to manag
 - `infra/mosquitto`: local Mosquitto configuration
 - `docs`: architecture and planning notes
 
+## Repository Structure
+
+resq-localhub/
+   apps/
+      localhub-desktop/
+   services/
+      hub-api/
+   packages/
+      shared/
+   infra/
+      mosquitto/
+   scripts/
+      local-demo/
+      firmware-simulator/
+      mqtt/
+      health/
+   test-fixtures/
+      firmware/
+         mqtt/
+   docs/
+      archive/
+
+Notes:
+- **pnpm** is the canonical package manager for this repository. The root `pnpm-lock.yaml` is the single source of truth for JS/TS deps.
+- MQTT sample JSON fixtures live under `test-fixtures/firmware/mqtt`.
+- Temporary prompts and patch files are archived under `docs/archive`.
+
 ## Quick Start
 
 For a Windows-first local demo path, start with:

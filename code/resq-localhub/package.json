@@ -1,4 +1,7 @@
 {
+	"scripts": {
+		"typecheck": "pnpm --filter localhub-desktop exec tsc --noEmit"
+	},
 	"dependencies": {
 		"qrcode.react": "^4.2.0"
 	},
