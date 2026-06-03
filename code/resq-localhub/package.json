@@ -1,11 +1,16 @@
 {
+	"name": "resq-localhub-workspace",
+	"private": true,
+	"packageManager": "pnpm@10.33.2",
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	],
 	"scripts": {
-		"typecheck": "pnpm --filter localhub-desktop exec tsc --noEmit"
-	},
-	"dependencies": {
-		"qrcode.react": "^4.2.0"
-	},
-	"devDependencies": {
-		"@tauri-apps/cli": "^2.11.0"
+		"typecheck": "pnpm --filter localhub-desktop exec tsc --noEmit",
+		"desktop:build": "pnpm --filter localhub-desktop run build",
+		"desktop:test": "pnpm --filter localhub-desktop run test",
+		"desktop:tauri:dev": "pnpm --filter localhub-desktop tauri dev",
+		"desktop:tauri:build": "pnpm --filter localhub-desktop tauri build"
 	}
 }

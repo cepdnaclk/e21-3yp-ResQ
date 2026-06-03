@@ -107,18 +107,20 @@ When auto-detection cannot find a usable LAN IP, use Setup to save a manual LAN 
 
 ```powershell
 cd apps/localhub-desktop
-npm install
-npm run tauri:dev
+pnpm install
+pnpm run tauri:dev
 ```
 
 ## Current Scope
 
-This first pass only creates a clean, runnable skeleton:
+This repository now implements the following core features for local hub usage:
 
-- Basic desktop pages and placeholder panels
-- One Tauri command wiring example (`get_app_info`)
-- One API health endpoint (`/api/hub/health`)
-- Base Mosquitto config for local usage
+- Role-based authentication (ADMIN / INSTRUCTOR / TRAINEE) with local SQLite storage
+- User management, first-run ADMIN setup, and session bootstrapping
+- Session lifecycle: create, start, end, and export session data (instructor flow)
+- Calibration profiles and diagnostics pages
+- Local MQTT broker integration (Mosquitto) for device + backend messaging
+- Tauri desktop build and packaging (MSI / NSIS installers)
 
 No full pairing/session/cloud workflow is implemented yet.
 

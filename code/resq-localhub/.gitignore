@@ -1,7 +1,6 @@
 # Logs
 *.log
 logs/
-docs/
 
 # Environment files
 .env
@@ -18,7 +17,6 @@ coverage/
 # Tauri / Rust
 src-tauri/target/
 **/target/
-Cargo.lock
 
 # Java / Maven
 *.class
