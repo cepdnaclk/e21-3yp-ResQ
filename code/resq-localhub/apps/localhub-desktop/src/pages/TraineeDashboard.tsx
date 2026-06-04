@@ -223,12 +223,13 @@ function Sparkline({
   label,
 }: {
   values: Array<number | null>;
-  color: string;
   label: string;
+  color: string;
 }) {
   const width = 420;
   const height = 110;
   const padding = 10;
+
   const numeric = values.filter((value): value is number => value !== null && Number.isFinite(value));
 
   if (numeric.length === 0) {
@@ -248,13 +249,13 @@ function Sparkline({
   let hasPoint = false;
   let path = "";
 
-  for (let i = 0; i < values.length; i += 1) {
-    const value = values[i];
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
     if (value === null || !Number.isFinite(value)) {
       continue;
     }
 
-    const x = padding + i * step;
+    const x = padding + index * step;
     const normalized = (value - min) / span;
     const y = height - padding - normalized * (height - padding * 2);
     path += `${hasPoint ? " L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
@@ -287,7 +288,7 @@ function RecoilTimeline({ values }: { values: Array<boolean | null> }) {
             style={{
               height: "12px",
               borderRadius: "3px",
-              background: value === null ? "#e2e8f0" : value ? "#16a34a" : "#dc2626",
+              background: value === null ? "#cbd5e1" : value ? "#22c55e" : "#ef4444",
             }}
             title={value === null ? "No sample" : value ? "Recoil OK" : "Recoil Not OK"}
           />
@@ -1258,12 +1259,13 @@ function RateLineChart({ data }: { data: Array<{ x: number; value: number | null
           activeDot={{ r: 5, stroke: "#dcfce7", strokeWidth: 2, fill: "#16a34a" }}
           dot={(props: any) => {
             const { cx, cy, index, payload } = props;
-            if (index !== chartData.length - 1) {
-              return null;
-            }
             const value = Number(payload?.value ?? 0);
             const fill = value >= 100 && value <= 120 ? "#16a34a" : "#ef4444";
-            return <circle cx={cx} cy={cy} r={4} stroke="#ecfdf5" strokeWidth={1.5} fill={fill} />;
+            return index !== chartData.length - 1 ? (
+              <circle cx={cx} cy={cy} r={0} fill="transparent" stroke="transparent" />
+            ) : (
+              <circle cx={cx} cy={cy} r={4} stroke="#ecfdf5" strokeWidth={1.5} fill={fill} />
+            );
           }}
           style={{ filter: "url(#rateGlow)" }}
         />
