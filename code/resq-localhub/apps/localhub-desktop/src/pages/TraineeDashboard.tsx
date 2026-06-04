@@ -18,8 +18,6 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
 import { useLiveSession } from "../hooks/useLiveSession";
-import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
-import HubHeartbeat from "../components/icons/HubHeartbeat";
 import RadarManikin from "../components/icons/RadarManikin";
 import CounterFlip from "../components/icons/CounterFlip";
 import {
@@ -34,53 +32,7 @@ import {
  * in any browser on the LAN without depending on Tauri APIs.
  */
 
-function HealthStatusBadge({ health }: { health: BrowserHealthResponse | null }) {
-  if (!health) {
-    return (
-      <span style={{
-        display: "inline-block",
-        padding: "4px 10px",
-        borderRadius: "999px",
-        fontSize: "0.8rem",
-        fontWeight: 600,
-        background: "#e2e8f0",
-        color: "#334155",
-      }}>
-        Checking...
-      </span>
-    );
-  }
 
-  if (health.ok) {
-    return (
-      <span style={{
-        display: "inline-block",
-        padding: "4px 10px",
-        borderRadius: "999px",
-        fontSize: "0.8rem",
-        fontWeight: 600,
-        background: "#dcfce7",
-        color: "#166534",
-      }}>
-        Healthy
-      </span>
-    );
-  }
-
-  return (
-    <span style={{
-      display: "inline-block",
-      padding: "4px 10px",
-      borderRadius: "999px",
-      fontSize: "0.8rem",
-      fontWeight: 600,
-      background: "#fee2e2",
-      color: "#991b1b",
-    }}>
-      Unreachable
-    </span>
-  );
-}
 
 function SessionStatusBadge({ active }: { active: boolean }) {
   return (
@@ -480,8 +432,6 @@ export default function TraineeDashboard({
   initialSessionId = null,
 }: TraineeDashboardProps) {
   const { currentUser, logout } = useAuth();
-  const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
-  const [healthLoading, setHealthLoading] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionLiveView | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -515,18 +465,7 @@ export default function TraineeDashboard({
     setCprProfile(inferProfileFromScenario(session?.scenario));
   }, [session?.scenario]);
 
-  useEffect(() => {
-    async function loadHealth() {
-      setHealthLoading(true);
-      const result = await fetchBrowserHealth();
-      setHealth(result);
-      setHealthLoading(false);
-    }
 
-    loadHealth();
-    const interval = setInterval(loadHealth, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (!sessionId) {
@@ -812,30 +751,7 @@ export default function TraineeDashboard({
               Assigned manikin live performance for one active session
             </p>
           </div>
-          {currentUser && embeddedInDesktop ? (
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
-                {currentUser.role}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  logout().finally(() => window.location.assign("/login"));
-                }}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #cbd5e1",
-                  background: "#ffffff",
-                  color: "#0f172a",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Logout
-              </button>
-            </div>
-          ) : null}
+
           {!embeddedInDesktop ? (
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
               {currentUser?.role !== "TRAINEE" ? (
@@ -900,28 +816,7 @@ export default function TraineeDashboard({
       </header>
 
       <div style={styles.content}>
-        {/* Hub Status Card - Always visible */}
-        <section style={styles.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <HubHeartbeat state={healthLoading ? "checking" : health?.ok ? "ok" : "down"} size={18} />
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
-            </div>
-            <HealthStatusBadge health={healthLoading ? null : health} />
-          </div>
-          <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
-            {healthLoading
-              ? "Checking hub connectivity..."
-              : health?.ok
-                ? "Backend is running and responding to health checks."
-                : "Unable to reach the hub backend. Check that the API service is running."}
-          </p>
-          {health?.timestamp && (
-            <p style={{ margin: "8px 0 0 0", color: "#9ca3af", fontSize: "0.8rem" }}>
-              Last update: {new Date(health.timestamp).toLocaleTimeString()}
-            </p>
-          )}
-        </section>
+
 
         {/* Session Details Card - Only when sessionId exists and loading or session data available */}
         {sessionId && (sessionLoading || !sessionError) && (
@@ -1308,13 +1203,13 @@ function DepthAreaChart({ data }: { data: Array<{ x: number; value: number | nul
         <CartesianGrid strokeDasharray="3 3" stroke="#dbeafe" opacity={0.65} />
         <XAxis dataKey="x" hide />
         <YAxis domain={[35, 70]} hide={true} width={30} tickLine={false} axisLine={false} />
-        <ReferenceArea y1={50} y2={60} fill="#dbeafe" fillOpacity={0.5} />
+        <ReferenceArea {...({ y1: 50, y2: 60, fill: "#dbeafe", fillOpacity: 0.5 } as any)} />
         <ReferenceLine y={50} stroke="#0ea5e9" strokeDasharray="4 4" strokeWidth={1.5} />
         <ReferenceLine y={60} stroke="#0ea5e9" strokeDasharray="4 4" strokeWidth={1.5} />
         <Tooltip
           cursor={{ stroke: "#38bdf8", strokeWidth: 1, strokeDasharray: "3 3" }}
           contentStyle={{ borderRadius: 8, border: "1px solid #bae6fd", background: "#082f49", color: "#e0f2fe", fontSize: 12, fontWeight: 700 }}
-          formatter={(value: number) => [`${value.toFixed(1)} mm`, "Depth"]}
+          formatter={(value: any) => [`${Number(value).toFixed(1)} mm`, "Depth"]}
           labelFormatter={() => "Live"}
         />
         <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={10}>
@@ -1346,13 +1241,13 @@ function RateLineChart({ data }: { data: Array<{ x: number; value: number | null
         <CartesianGrid strokeDasharray="3 3" stroke="#dcfce7" opacity={0.7} />
         <XAxis dataKey="x" hide />
         <YAxis domain={[80, 140]} hide={true} width={30} tickLine={false} axisLine={false} />
-        <ReferenceArea y1={100} y2={120} fill="#bbf7d0" fillOpacity={0.55} />
+        <ReferenceArea {...({ y1: 100, y2: 120, fill: "#bbf7d0", fillOpacity: 0.55 } as any)} />
         <ReferenceLine y={100} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1.5} />
         <ReferenceLine y={120} stroke="#16a34a" strokeDasharray="4 4" strokeWidth={1.5} />
         <Tooltip
           cursor={{ stroke: "#22c55e", strokeWidth: 1, strokeDasharray: "3 3" }}
           contentStyle={{ borderRadius: 8, border: "1px solid #86efac", background: "#052e16", color: "#dcfce7", fontSize: 12, fontWeight: 700 }}
-          formatter={(value: number) => [`${value.toFixed(1)} cpm`, "Rate"]}
+          formatter={(value: any) => [`${Number(value).toFixed(1)} cpm`, "Rate"]}
           labelFormatter={() => "Live"}
         />
         <Line
@@ -1360,7 +1255,6 @@ function RateLineChart({ data }: { data: Array<{ x: number; value: number | null
           dataKey="value"
           stroke="url(#rateStroke)"
           strokeWidth={3}
-          dot={false}
           activeDot={{ r: 5, stroke: "#dcfce7", strokeWidth: 2, fill: "#16a34a" }}
           dot={(props: any) => {
             const { cx, cy, index, payload } = props;
