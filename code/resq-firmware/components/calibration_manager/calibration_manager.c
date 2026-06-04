@@ -174,6 +174,10 @@ static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range, int32_t n
 static esp_err_t calibration_read_hall_average(int32_t *out_value);
 static esp_err_t calibration_read_pressure_average(gpio_num_t sck_pin, gpio_num_t dout_pin, int32_t *out_value);
 static calibration_reason_id_t calibration_validate_derived_thresholds(void);
+static calibration_reason_id_t calibration_validate_pressure_rest_health(
+    const calibration_signal_stats_t *p0_stats,
+    const calibration_signal_stats_t *p1_stats,
+    const calibration_signal_stats_t *p2_stats);
 static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_t *out_v1, int32_t *out_v2);
 static bool calibration_is_saturated_24bit(int32_t value);
 
