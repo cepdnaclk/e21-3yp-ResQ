@@ -30,6 +30,10 @@
 #define CALIBRATION_POLL_DELAY_MS               50
 #define CALIBRATION_MAX_WAIT_MS                 30000
 
+/* Minimum valid samples for rest baseline calculation and saturated limits */
+#define CALIBRATION_MIN_VALID_REST_SAMPLES      25
+#define CALIBRATION_MAX_SATURATED_SAMPLES       3
+
 /* Stuck-zero detection: consider values very close to zero as suspicious */
 #define CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW    8
 #define CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT  3
@@ -192,10 +196,15 @@ static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall
     calibration_stats_init(p1_stats);
     calibration_stats_init(p2_stats);
 
-    int sample_count = s_calibration_config.calibration_sample_count > 0 ? s_calibration_config.calibration_sample_count : 30;
+    int sample_count = s_calibration_config.calibration_sample_count > 0 ? s_calibration_config.calibration_sample_count : 40;
+    if (sample_count < 40) sample_count = 40;
     int window_ms = s_calibration_config.calibration_window_ms > 0 ? s_calibration_config.calibration_window_ms : 2000;
     int delay_ms = window_ms / sample_count;
     if (delay_ms < 5) delay_ms = 5;
+
+    int saturated_count_p0 = 0;
+    int saturated_count_p1 = 0;
+    int saturated_count_p2 = 0;
 
     for (int i = 0; i < sample_count && s_running; i++) {
         int32_t hv = 0;
@@ -211,17 +220,48 @@ static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall
                                       &v0, &v1, &v2);
         if (err != ESP_OK) return err;
 
-        calibration_stats_update(p0_stats, v0);
-        calibration_stats_update(p1_stats, v1);
-        calibration_stats_update(p2_stats, v2);
+        /* Skip saturated samples when accumulating baselines; count them for diagnostics */
+        if (calibration_is_saturated_24bit(v0)) {
+            saturated_count_p0++;
+        } else {
+            calibration_stats_update(p0_stats, v0);
+        }
+
+        if (calibration_is_saturated_24bit(v1)) {
+            saturated_count_p1++;
+        } else {
+            calibration_stats_update(p1_stats, v1);
+        }
+
+        if (calibration_is_saturated_24bit(v2)) {
+            saturated_count_p2++;
+        } else {
+            calibration_stats_update(p2_stats, v2);
+        }
 
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 
+    /* Finalize only if we have enough valid samples */
     calibration_stats_finalize(hall_stats);
     calibration_stats_finalize(p0_stats);
     calibration_stats_finalize(p1_stats);
     calibration_stats_finalize(p2_stats);
+
+    if (p0_stats->valid_count < CALIBRATION_MIN_VALID_REST_SAMPLES ||
+        p1_stats->valid_count < CALIBRATION_MIN_VALID_REST_SAMPLES ||
+        p2_stats->valid_count < CALIBRATION_MIN_VALID_REST_SAMPLES) {
+        ESP_LOGW(TAG, "Insufficient valid rest samples: v0=%d v1=%d v2=%d",
+                 p0_stats->valid_count, p1_stats->valid_count, p2_stats->valid_count);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    if (saturated_count_p1 > CALIBRATION_MAX_SATURATED_SAMPLES ||
+        saturated_count_p2 > CALIBRATION_MAX_SATURATED_SAMPLES) {
+        ESP_LOGW(TAG, "Excessive saturated rest samples: p1_sat=%d p2_sat=%d",
+                 saturated_count_p1, saturated_count_p2);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
 
     return ESP_OK;
 }
@@ -860,9 +900,17 @@ static void calibration_manager_task(void *arg)
     int32_t matched_bladder_2_pressure = 0;
 
     /* -----------------------------------------------------
-     * Step 1: Collect rest statistics first (hall + all pressures at rest)
+     * Step 1: Allow settling, then collect rest statistics first
+     * (hall + all pressures at rest)
      * ----------------------------------------------------- */
     calibration_signal_stats_t hall_stats, p0_stats, p1_stats, p2_stats;
+
+    ESP_LOGI(TAG, "Calibration baseline settling: release chest and keep manikin still");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_WAIT_OR_CANCEL);
+
+    vTaskDelay(pdMS_TO_TICKS(2000));
 
     esp_err_t err = calibration_collect_rest_stats(&hall_stats, &p0_stats, &p1_stats, &p2_stats);
     if (err != ESP_OK) {
@@ -887,13 +935,12 @@ static void calibration_manager_task(void *arg)
              (long)hall_stats.mean, (long)hall_stats.noise_pp,
              (long)p0_stats.mean, (long)p1_stats.mean, (long)p2_stats.mean);
 
-    /* Pressure saturation checks for rest stats: fail early if sensors are saturated */
-    if (calibration_is_saturated_24bit(s_calibration_config.pressure_1_baseline) ||
-        calibration_is_saturated_24bit(s_calibration_config.pressure_2_baseline)) {
-        ESP_LOGW(TAG, "Pressure sensor saturated at rest: p1=%ld p2=%ld",
-                 (long)s_calibration_config.pressure_1_baseline,
-                 (long)s_calibration_config.pressure_2_baseline);
-        calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
+    /* Pressure health validation for rest stats: map to specific reasons */
+    calibration_reason_id_t pressure_health_reason =
+        calibration_validate_pressure_rest_health(&p0_stats, &p1_stats, &p2_stats);
+
+    if (pressure_health_reason != CAL_REASON_NONE) {
+        calibration_manager_fail(pressure_health_reason);
         goto task_exit;
     }
 
@@ -1129,16 +1176,21 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     }
 
     /*
-     * Clear previous calibration values.
-     * Then copy only the host-provided target parameters.
+     * Copy host-provided parameters into runtime config while ensuring
+     * runtime-calculated fields are set to safe defaults.
      */
     calibration_config_set_defaults(&s_calibration_config);
 
-    s_calibration_config.ref_pressure = host_params->ref_pressure;
-    s_calibration_config.bladder_1_pressure = host_params->bladder_1_pressure;
-    s_calibration_config.bladder_2_pressure = host_params->bladder_2_pressure;
-    s_calibration_config.hall_delta = host_params->hall_delta;
+    /* Copy parsed host parameters first */
+    memcpy(&s_calibration_config, host_params, sizeof(calibration_config_t));
+
+    /* Then force runtime-calculated fields to safe values */
     s_calibration_config.calibrated = false;
+    s_calibration_config.hall_baseline = 0;
+    s_calibration_config.hall_full_press = 0;
+    s_calibration_config.bladder_1_full_press = 0;
+    s_calibration_config.bladder_2_full_press = 0;
+    s_calibration_config.calibrated_at_ms = 0;
 
     /* save host params so BUTTON_1 retry can reuse them */
     memcpy(&s_last_host_params, host_params, sizeof(s_last_host_params));
@@ -1531,4 +1583,30 @@ static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_
     *out_v2 = (int32_t)(sum2 / CALIBRATION_AVERAGE_SAMPLE_COUNT);
 
     return ESP_OK;
+}
+
+/* Validate pressure sensors at rest and return a meaningful calibration reason on failure */
+static calibration_reason_id_t calibration_validate_pressure_rest_health(
+    const calibration_signal_stats_t *p0,
+    const calibration_signal_stats_t *p1,
+    const calibration_signal_stats_t *p2)
+{
+    if (!p0 || !p1 || !p2) {
+        return CAL_REASON_SENSOR_STUCK_OR_NOISE;
+    }
+
+    /* Full-scale or near full-scale readings usually mean saturation or floating DOUT */
+    if (calibration_is_saturated_24bit(p0->mean) ||
+        calibration_is_saturated_24bit(p1->mean) ||
+        calibration_is_saturated_24bit(p2->mean)) {
+        return CAL_REASON_PRESSURE_SENSOR_SATURATED;
+    }
+
+    /* Simple noise check: if peak-to-peak noise is too large for bladder sensors, report noisy pressure */
+    const int32_t max_allowed_noise = 500; /* practical MVP threshold */
+    if (p1->noise_pp > max_allowed_noise || p2->noise_pp > max_allowed_noise) {
+        return CAL_REASON_PRESSURE_NOISE_TOO_HIGH;
+    }
+
+    return CAL_REASON_NONE;
 }
