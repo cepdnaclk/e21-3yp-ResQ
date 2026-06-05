@@ -199,7 +199,16 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                  resq_state_to_string(visible_state));
 
         if (strcmp(command_suffix, "cmd/debug") == 0) {
-            esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
+            char reply_id[128] = {0};
+            esp_err_t id_err = resq_command_extract_request_id(
+                command.payload,
+                reply_id,
+                sizeof(reply_id));
+            esp_err_t debug_err = id_err == ESP_OK
+                ? runtime_helpers_publish_state_snapshot(network_config,
+                                                         calibration_config,
+                                                         reply_id)
+                : id_err;
 
             if (debug_err != ESP_OK) {
                 runtime_helpers_publish_command_result_from_command(network_config,
@@ -216,7 +225,7 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                                                                 &command,
                                                                 command_suffix,
                                                                 "ACK",
-                                                                "debug_published");
+                                                                "state_snapshot_published");
             continue;
         }
 

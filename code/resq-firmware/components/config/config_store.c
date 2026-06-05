@@ -67,6 +67,14 @@
 #define NVS_KEY_CAL_WINDOW_MS       "cal_window_ms"
 #define NVS_KEY_CALIBRATED_AT_MS    "calibrated_at"
 
+/* OTA metadata NVS keys (NVS keys must be 15 characters or fewer). */
+#define NVS_KEY_FORCE_PROVISIONING   "force_prov"
+#define NVS_KEY_OTA_RESULT           "ota_result"
+#define NVS_KEY_OTA_VERSION          "ota_version"
+#define NVS_KEY_OTA_ERROR            "ota_error"
+#define NVS_KEY_OTA_BYTES            "ota_bytes"
+#define NVS_KEY_OTA_FAILED_PHASE     "ota_phase"
+
 /**
  * @brief Open ResQ NVS namespace.
  */
@@ -440,6 +448,157 @@ exit:
     return err;
 }
 
+esp_err_t config_store_load_ota_metadata(ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(metadata, 0, sizeof(*metadata));
+    strncpy(metadata->last_result, "NONE", sizeof(metadata->last_result) - 1);
+
+    nvs_handle_t handle;
+    esp_err_t err = config_store_open(NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t force_provisioning = 0;
+    nvs_get_u8(handle, NVS_KEY_FORCE_PROVISIONING, &force_provisioning);
+    metadata->force_provisioning = force_provisioning != 0;
+
+    nvs_get_string_safe(handle,
+                        NVS_KEY_OTA_RESULT,
+                        metadata->last_result,
+                        sizeof(metadata->last_result));
+    nvs_get_string_safe(handle,
+                        NVS_KEY_OTA_VERSION,
+                        metadata->last_version,
+                        sizeof(metadata->last_version));
+    nvs_get_i32(handle, NVS_KEY_OTA_ERROR, &metadata->last_error_id);
+    nvs_get_i32(handle, NVS_KEY_OTA_BYTES, &metadata->last_bytes_written);
+    nvs_get_string_safe(handle,
+                        NVS_KEY_OTA_FAILED_PHASE,
+                        metadata->last_failed_phase,
+                        sizeof(metadata->last_failed_phase));
+
+    nvs_close(handle);
+
+    if (metadata->last_result[0] == '\0') {
+        strncpy(metadata->last_result,
+                "NONE",
+                sizeof(metadata->last_result) - 1);
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t config_store_save_ota_metadata(const ota_metadata_t *metadata)
+{
+    if (metadata == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle;
+    esp_err_t err = config_store_open(NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(handle,
+                     NVS_KEY_FORCE_PROVISIONING,
+                     metadata->force_provisioning ? 1 : 0);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_str(handle, NVS_KEY_OTA_RESULT, metadata->last_result);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_str(handle, NVS_KEY_OTA_VERSION, metadata->last_version);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_OTA_ERROR, metadata->last_error_id);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_i32(handle, NVS_KEY_OTA_BYTES, metadata->last_bytes_written);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_set_str(handle,
+                      NVS_KEY_OTA_FAILED_PHASE,
+                      metadata->last_failed_phase);
+    if (err != ESP_OK) goto exit;
+
+    err = nvs_commit(handle);
+
+exit:
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t config_store_take_force_provisioning(bool *force_provisioning)
+{
+    if (force_provisioning == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *force_provisioning = false;
+
+    nvs_handle_t handle;
+    esp_err_t err = config_store_open(NVS_READWRITE, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t force = 0;
+    err = nvs_get_u8(handle, NVS_KEY_FORCE_PROVISIONING, &force);
+    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+        nvs_close(handle);
+        return err;
+    }
+
+    *force_provisioning = force != 0;
+
+    if (*force_provisioning) {
+        err = nvs_set_u8(handle, NVS_KEY_FORCE_PROVISIONING, 0);
+        if (err == ESP_OK) {
+            err = nvs_commit(handle);
+        }
+    } else {
+        err = ESP_OK;
+    }
+
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t config_store_clear_ota_metadata(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = config_store_open(NVS_READWRITE, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    nvs_erase_key(handle, NVS_KEY_FORCE_PROVISIONING);
+    nvs_erase_key(handle, NVS_KEY_OTA_RESULT);
+    nvs_erase_key(handle, NVS_KEY_OTA_VERSION);
+    nvs_erase_key(handle, NVS_KEY_OTA_ERROR);
+    nvs_erase_key(handle, NVS_KEY_OTA_BYTES);
+    nvs_erase_key(handle, NVS_KEY_OTA_FAILED_PHASE);
+
+    err = nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
 /**
  * @brief Clear network/provisioning values only.
  */
@@ -535,5 +694,5 @@ esp_err_t config_store_clear_all(void)
         return err;
     }
 
-    return ESP_OK;
+    return config_store_clear_ota_metadata();
 }

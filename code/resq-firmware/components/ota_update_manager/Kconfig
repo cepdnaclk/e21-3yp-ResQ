@@ -1,0 +1,15 @@
+menu "ResQ OTA update"
+
+config RESQ_OTA_ACCESS_KEY
+    string "OTA access key"
+    default "resq-ota-key"
+    help
+        Access key required by POST /update/login. Override this default for
+        deployed devices.
+
+config RESQ_OTA_TOKEN_TTL_SECONDS
+    int "OTA session token lifetime in seconds"
+    range 30 1800
+    default 300
+
+endmenu

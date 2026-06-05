@@ -6,6 +6,8 @@
 #include "resq_config_types.h"
 #include "states.h"
 #include "mqtt_manager.h"
+#include <stdint.h>
+
 #include "mqtt_topics.h"
 
 #ifdef __cplusplus
@@ -86,6 +88,19 @@ esp_err_t resq_command_extract_request_id(const char *payload, char *out, size_t
  * @brief Publish a debug snapshot (raw sensor readings) to debug topic.
  */
 esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config);
+
+/* Record a state transition for STATE_SNAPSHOT diagnostics. */
+void runtime_helpers_record_state(resq_state_t state);
+
+resq_state_t runtime_helpers_get_current_state(void);
+resq_state_t runtime_helpers_get_previous_state(void);
+int64_t runtime_helpers_get_state_entered_at_ms(void);
+
+/* Publish a full STATE_SNAPSHOT JSON to the debug topic. */
+esp_err_t runtime_helpers_publish_state_snapshot(
+    const network_config_t *network_config,
+    const calibration_config_t *calibration_config,
+    const char *reply_id);
 
 #ifdef __cplusplus
 }

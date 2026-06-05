@@ -12,6 +12,7 @@ idf_component_register(
         error_manager
         runtime_helpers
         provisioning_manager
+        ota_update_manager
         wifi_manager
         backend_register_client
         mqtt_manager

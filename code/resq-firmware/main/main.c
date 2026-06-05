@@ -17,6 +17,7 @@
 #include "config_store.h"
 #include "mqtt_manager.h"
 #include "provisioning_manager.h"
+#include "ota_update_manager.h"
 #include "resq_config_types.h"
 #include "status_indicator.h"
 #include "error_manager.h"
@@ -59,6 +60,7 @@ static backend_registration_result_t s_backend_result;
 
 static volatile resq_state_t g_current_state = RESQ_STATE_BOOT;
 static bool g_has_entered_state = false;
+static bool g_reset_for_ota = false;
 
 static bool g_components_initialized = false;
 
@@ -81,6 +83,7 @@ static resq_state_t run_backend_registering_state(void);
 static resq_state_t run_mqtt_connecting_state(void);
 static resq_state_t run_paired_idle_state(void);
 static resq_state_t run_ready_for_session_state(void);
+static resq_state_t run_ota_update_state(void);
 static resq_state_t run_calibration_fail_state(void);
 static resq_state_t run_error_state(void);
 static resq_state_t run_session_interrupted_state(void);
@@ -141,6 +144,7 @@ static void enter_state(resq_state_t state)
 
     g_current_state = state;
     g_has_entered_state = true;
+    runtime_helpers_record_state(state);
 
     ESP_LOGI(TAG, "Entering state: %s", resq_state_to_string(state));
 
@@ -167,6 +171,14 @@ static esp_err_t initialize_components_once(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
                  "config_store_init failed: %s",
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    err = ota_update_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "ota_update_manager_init failed: %s",
                  esp_err_to_name(err));
         return err;
     }
@@ -422,6 +434,21 @@ static resq_state_t run_boot_state(void)
  */
 static resq_state_t run_config_check_state(void)
 {
+    bool force_provisioning = false;
+    esp_err_t force_err =
+        config_store_take_force_provisioning(&force_provisioning);
+    if (force_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "Failed to read force_prov flag: %s",
+                 esp_err_to_name(force_err));
+    }
+
+    if (force_provisioning) {
+        ESP_LOGI(TAG,
+                 "Post-OTA force_prov flag set. Entering provisioning.");
+        return RESQ_STATE_PROVISIONING;
+    }
+
     bool network_ok = network_config_validate(&g_network_cfg);
 
     if (!network_ok) {
@@ -458,6 +485,12 @@ static resq_state_t run_provisioning_state(void)
              "Provisioning portal active. Connect to ESP AP and open http://192.168.4.1/");
 
     while (!provisioning_manager_has_saved_config()) {
+        if (ota_update_manager_has_pending_request()) {
+            ESP_LOGI(TAG,
+                     "Authenticated OTA upload detected; entering OTA_UPDATE");
+            return RESQ_STATE_OTA_UPDATE;
+        }
+
         system_button_action_t action =
             system_button_manager_poll(RESQ_STATE_PROVISIONING);
 
@@ -492,7 +525,6 @@ static resq_state_t run_provisioning_state(void)
      * Reload from NVS so runtime config matches what was saved.
      */
     network_config_set_defaults(&g_network_cfg);
-
     err = config_store_load_network(&g_network_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
@@ -513,6 +545,23 @@ static resq_state_t run_provisioning_state(void)
              g_network_cfg.backend_base_url);
 
     return RESQ_STATE_WIFI_CONNECTING;
+}
+
+static resq_state_t run_ota_update_state(void)
+{
+    resq_state_t next_state = ota_update_manager_run();
+
+    if (next_state == RESQ_STATE_RESETTING) {
+        g_reset_for_ota = true;
+        provisioning_manager_stop();
+        ESP_LOGI(TAG,
+                 "OTA completed. Moving to RESETTING without clearing config.");
+    } else if (next_state == RESQ_STATE_PROVISIONING) {
+        ESP_LOGW(TAG,
+                 "OTA failed. Returning to provisioning for retry.");
+    }
+
+    return next_state;
 }
 
 /**
@@ -773,7 +822,9 @@ static resq_state_t run_error_state(void)
 
 static resq_state_t run_resetting_state(void)
 {
-    ESP_LOGW(TAG, "Entering RESETTING state: factory reset and reboot");
+    ESP_LOGW(TAG,
+             "Entering RESETTING state: %s reboot",
+             g_reset_for_ota ? "post-OTA" : "factory-reset");
 
     status_indicator_set_state(RESQ_STATE_RESETTING);
 
@@ -805,16 +856,20 @@ static resq_state_t run_resetting_state(void)
         vTaskDelay(pdMS_TO_TICKS(300));
     }
 
-    /*
-     * Clear persistent configuration.
-     * This should clear Wi-Fi/backend/calibration.
-     * It should not need to clear MQTT host/port because those must not be stored.
-     */
-    esp_err_t err = config_store_clear_all();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "config_store_clear_all failed: %s", esp_err_to_name(err));
+    if (!g_reset_for_ota) {
+        /*
+         * Factory reset clears provisioning, calibration, and OTA metadata.
+         * A post-OTA reset preserves all config and the one-shot force_prov flag.
+         */
+        esp_err_t err = config_store_clear_all();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG,
+                     "config_store_clear_all failed: %s",
+                     esp_err_to_name(err));
+        }
     }
 
+    provisioning_manager_stop();
     vTaskDelay(pdMS_TO_TICKS(200));
 
     esp_restart();
@@ -944,6 +999,10 @@ void app_main(void)
             next_state = run_provisioning_state();
             break;
 
+        case RESQ_STATE_OTA_UPDATE:
+            next_state = run_ota_update_state();
+            break;
+
         case RESQ_STATE_FLUSH_CONFIG:
             next_state = run_flush_config_state();
             break;
@@ -1042,6 +1101,7 @@ static bool state_handles_system_buttons_internally(resq_state_t state)
 {
     switch (state) {
     case RESQ_STATE_PROVISIONING:
+    case RESQ_STATE_OTA_UPDATE:
     case RESQ_STATE_PAIRED_IDLE:
     case RESQ_STATE_READY_FOR_SESSION:
     case RESQ_STATE_CALIBRATING:

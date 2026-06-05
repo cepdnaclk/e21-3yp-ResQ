@@ -18,6 +18,7 @@ typedef enum
     RESQ_STATE_CALIBRATING,
     RESQ_STATE_CALIBRATION_FAIL,
     RESQ_STATE_READY_FOR_SESSION,
+    RESQ_STATE_OTA_UPDATE,
     RESQ_STATE_SESSION_ACTIVE,
     RESQ_STATE_SESSION_INTERRUPTED,
     RESQ_STATE_ERROR,
@@ -52,6 +53,8 @@ static inline const char *resq_state_to_string(resq_state_t state)
         return "CALIBRATION_FAIL";
     case RESQ_STATE_READY_FOR_SESSION:
         return "READY_FOR_SESSION";
+    case RESQ_STATE_OTA_UPDATE:
+        return "OTA_UPDATE";
     case RESQ_STATE_SESSION_ACTIVE:
         return "SESSION_ACTIVE";
     case RESQ_STATE_SESSION_INTERRUPTED:

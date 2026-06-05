@@ -1,17 +1,17 @@
 idf_component_register(
     SRCS
-        "provisioning_manager.c"
+        "ota_update_manager.c"
 
     INCLUDE_DIRS
         "include"
 
     REQUIRES
-        esp_wifi
-        esp_netif
-        esp_event
+        app_update
+        esp_app_format
         esp_http_server
+        esp_timer
+        freertos
         cjson
         config
-        esp_hw_support
-        ota_update_manager
+        mqtt_manager
 )

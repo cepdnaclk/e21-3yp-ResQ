@@ -15,6 +15,7 @@
 #include "esp_random.h"
 
 #include "config_store.h"
+#include "ota_update_manager.h"
 
 /* =========================================================
  * Provisioning manager configuration
@@ -834,6 +835,16 @@ static esp_err_t start_http_server(void)
     httpd_register_uri_handler(s_http_server, &provision_uri);
     httpd_register_uri_handler(s_http_server, &provision_ack_uri);
 
+    err = ota_update_manager_register_http_handlers(s_http_server);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "Failed to register OTA HTTP routes: %s",
+                 esp_err_to_name(err));
+        httpd_stop(s_http_server);
+        s_http_server = NULL;
+        return err;
+    }
+
     ESP_LOGI(TAG, "Provisioning HTTP server started");
 
     return ESP_OK;
@@ -845,6 +856,7 @@ static esp_err_t stop_http_server(void)
         return ESP_OK;
     }
 
+    ota_update_manager_http_server_stopped(s_http_server);
     esp_err_t err = httpd_stop(s_http_server);
     s_http_server = NULL;
 

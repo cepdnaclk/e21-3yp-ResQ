@@ -115,6 +115,9 @@ static status_led_pattern_t get_state_pattern(resq_state_t state)
     case RESQ_STATE_READY_FOR_SESSION:
         return (status_led_pattern_t){LED_PATTERN_OFF, LED_PATTERN_ON};
 
+    case RESQ_STATE_OTA_UPDATE:
+        return (status_led_pattern_t){LED_PATTERN_BLINK_FAST, LED_PATTERN_ON};
+
     case RESQ_STATE_SESSION_ACTIVE:
         return (status_led_pattern_t){LED_PATTERN_ON, LED_PATTERN_ON};
 

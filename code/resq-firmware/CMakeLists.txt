@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
+if(NOT DEFINED IDF_TARGET)
+	set(IDF_TARGET "esp32c3")
+endif()
+
 # On Windows, when using the cross-toolchain the default C/C++ standard
 # libraries detected by CMake may contain MSVC import libs (kernel32.lib,
 # user32.lib, ...). The riscv32-esp-elf linker doesn't use those and will

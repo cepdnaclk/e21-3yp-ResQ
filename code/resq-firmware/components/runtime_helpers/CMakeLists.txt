@@ -12,4 +12,8 @@ idf_component_register(
         hx710
         hall_sensor
         esp_driver_gpio
+        esp_app_format
+        ota_update_manager
+        session_manager
+        wifi_manager
 )
