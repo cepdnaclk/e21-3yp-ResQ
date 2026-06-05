@@ -24,7 +24,7 @@
 #include "cJSON.h"
 
 /* Calibration manager configuration */
-#define CALIBRATION_TASK_STACK_SIZE             4096
+#define CALIBRATION_TASK_STACK_SIZE             6144
 #define CALIBRATION_TASK_PRIORITY               5
 
 #define CALIBRATION_POLL_DELAY_MS               50
@@ -33,6 +33,13 @@
 /* Minimum valid samples for rest baseline calculation and saturated limits */
 #define CALIBRATION_MIN_VALID_REST_SAMPLES      25
 #define CALIBRATION_MAX_SATURATED_SAMPLES       3
+#define CALIBRATION_MAX_STATS_SAMPLES           64
+#define CALIBRATION_NOISE_TRIM_PERCENT          10
+
+/* Noise margins used to keep runtime thresholds above normal sensor jitter. */
+#define CALIBRATION_HALL_NOISE_MARGIN_MULTIPLIER       4
+#define CALIBRATION_PRESSURE_CONTACT_NOISE_MULTIPLIER  4
+#define CALIBRATION_PRESSURE_MIN_SNR_MULTIPLIER        5
 
 /* Stuck-zero detection: consider values very close to zero as suspicious */
 #define CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW    8
@@ -157,15 +164,17 @@ typedef struct calibration_signal_stats_t {
     int32_t mean;
     int32_t min;
     int32_t max;
-    int32_t noise_pp;
+    int32_t noise_pp; /* trimmed peak-to-peak spread, resistant to isolated spikes */
     int32_t last;
     int valid_count;
+    int32_t samples[CALIBRATION_MAX_STATS_SAMPLES];
 } calibration_signal_stats_t;
 
 /* Forward prototypes for static helpers defined later */
 static void calibration_stats_init(calibration_signal_stats_t *s);
 static void calibration_stats_update(calibration_signal_stats_t *s, int32_t value);
 static void calibration_stats_finalize(calibration_signal_stats_t *s);
+static void calibration_sort_i32(int32_t *values, int count);
 static int32_t calibration_max_i32(int32_t a, int32_t b);
 static int32_t calibration_min_i32(int32_t a, int32_t b);
 static int32_t calibration_abs_i32(int32_t v);
@@ -180,9 +189,10 @@ static calibration_reason_id_t calibration_validate_pressure_rest_health(
     const calibration_signal_stats_t *p2_stats);
 static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_t *out_v1, int32_t *out_v2);
 static bool calibration_is_saturated_24bit(int32_t value);
-
-
-
+static calibration_reason_id_t calibration_validate_pressure_rest_health(
+    const calibration_signal_stats_t *p0,
+    const calibration_signal_stats_t *p1,
+    const calibration_signal_stats_t *p2);
 
 /* Collect rest statistics for Hall and the three pressure sensors.
  * Caller must ensure s_calibration_config.calibration_sample_count and
@@ -202,6 +212,11 @@ static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall
 
     int sample_count = s_calibration_config.calibration_sample_count > 0 ? s_calibration_config.calibration_sample_count : 40;
     if (sample_count < 40) sample_count = 40;
+    if (sample_count > CALIBRATION_MAX_STATS_SAMPLES) {
+        ESP_LOGW(TAG, "Calibration sample count %d capped at %d",
+                 sample_count, CALIBRATION_MAX_STATS_SAMPLES);
+        sample_count = CALIBRATION_MAX_STATS_SAMPLES;
+    }
     int window_ms = s_calibration_config.calibration_window_ms > 0 ? s_calibration_config.calibration_window_ms : 2000;
     int delay_ms = window_ms / sample_count;
     if (delay_ms < 5) delay_ms = 5;
@@ -246,6 +261,10 @@ static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 
+    if (!s_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     /* Finalize only if we have enough valid samples */
     calibration_stats_finalize(hall_stats);
     calibration_stats_finalize(p0_stats);
@@ -260,10 +279,11 @@ static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall
         return ESP_ERR_INVALID_RESPONSE;
     }
 
-    if (saturated_count_p1 > CALIBRATION_MAX_SATURATED_SAMPLES ||
+    if (saturated_count_p0 > CALIBRATION_MAX_SATURATED_SAMPLES ||
+        saturated_count_p1 > CALIBRATION_MAX_SATURATED_SAMPLES ||
         saturated_count_p2 > CALIBRATION_MAX_SATURATED_SAMPLES) {
-        ESP_LOGW(TAG, "Excessive saturated rest samples: p1_sat=%d p2_sat=%d",
-                 saturated_count_p1, saturated_count_p2);
+        ESP_LOGW(TAG, "Excessive saturated rest samples: p0_sat=%d p1_sat=%d p2_sat=%d",
+                 saturated_count_p0, saturated_count_p1, saturated_count_p2);
         return ESP_ERR_INVALID_RESPONSE;
     }
 
@@ -292,11 +312,23 @@ static esp_err_t calibration_collect_full_press_stats(int32_t expected_delta,
 
     /* compute initial adaptive thresholds using expected range and measured noise */
     int32_t hall_noise = rest_hall_stats ? rest_hall_stats->noise_pp : 0;
-    int32_t hall_noise_margin = calibration_max_i32(hall_noise * 4, 20);
+    int32_t hall_noise_margin = calibration_max_i32(
+        hall_noise * CALIBRATION_HALL_NOISE_MARGIN_MULTIPLIER, 20);
+    int32_t hall_hysteresis = calibration_max_i32(hall_noise * 2, 10);
 
     int32_t start_thresh = calibration_max_i32((expected_range * 15) / 100, hall_noise_margin);
-    int32_t full_thresh = calibration_max_i32((expected_range * CALIBRATION_FULL_PRESS_RATIO_PCT) / 100, start_thresh + hall_noise_margin);
-    int32_t recoil_thresh = calibration_max_i32((expected_range * 10) / 100, hall_noise_margin);
+    int32_t full_thresh = calibration_max_i32(
+        (expected_range * CALIBRATION_FULL_PRESS_RATIO_PCT) / 100,
+        start_thresh + hall_hysteresis);
+    if (full_thresh > expected_range) {
+        full_thresh = expected_range;
+    }
+    int32_t recoil_thresh = calibration_max_i32(
+        (expected_range * 10) / 100,
+        calibration_max_i32(hall_noise * 2, 10));
+    if (recoil_thresh >= start_thresh) {
+        recoil_thresh = calibration_max_i32(1, start_thresh / 2);
+    }
 
     ESP_LOGI(TAG, "Adaptive detection: start=%ld full=%ld recoil=%ld noise=%ld",
              (long)start_thresh, (long)full_thresh, (long)recoil_thresh, (long)hall_noise);
@@ -399,12 +431,26 @@ static void calibration_derive_adaptive_thresholds(const calibration_signal_stat
     s_calibration_config.hall_range_raw = calibration_abs_i32(matched_hall_full - s_calibration_config.hall_baseline);
     s_calibration_config.hall_direction = (matched_hall_full > s_calibration_config.hall_baseline) ? 1 : -1;
 
-    int32_t hall_noise_margin = calibration_max_i32(s_calibration_config.hall_noise_raw * 4, 20);
+    int32_t hall_noise_margin = calibration_max_i32(
+        s_calibration_config.hall_noise_raw * CALIBRATION_HALL_NOISE_MARGIN_MULTIPLIER,
+        20);
+    int32_t hall_hysteresis = calibration_max_i32(
+        s_calibration_config.hall_noise_raw * 2,
+        10);
 
     s_calibration_config.hall_start_delta = calibration_max_i32((s_calibration_config.hall_range_raw * 15) / 100, hall_noise_margin);
     s_calibration_config.hall_full_delta_threshold = calibration_max_i32((s_calibration_config.hall_range_raw * 85) / 100,
-                                                                        s_calibration_config.hall_start_delta + hall_noise_margin);
-    s_calibration_config.hall_recoil_delta = calibration_max_i32((s_calibration_config.hall_range_raw * 10) / 100, hall_noise_margin);
+                                                                        s_calibration_config.hall_start_delta + hall_hysteresis);
+    if (s_calibration_config.hall_full_delta_threshold > s_calibration_config.hall_range_raw) {
+        s_calibration_config.hall_full_delta_threshold = s_calibration_config.hall_range_raw;
+    }
+    s_calibration_config.hall_recoil_delta = calibration_max_i32(
+        (s_calibration_config.hall_range_raw * 10) / 100,
+        calibration_max_i32(s_calibration_config.hall_noise_raw * 2, 10));
+    if (s_calibration_config.hall_recoil_delta >= s_calibration_config.hall_start_delta) {
+        s_calibration_config.hall_recoil_delta =
+            calibration_max_i32(1, s_calibration_config.hall_start_delta / 2);
+    }
     s_calibration_config.hall_tolerance_raw = calibration_adaptive_hall_tolerance(s_calibration_config.hall_range_raw,
                                                                                   s_calibration_config.hall_noise_raw);
 
@@ -414,12 +460,15 @@ static void calibration_derive_adaptive_thresholds(const calibration_signal_stat
 
     int32_t max_noise = calibration_max_i32(s_calibration_config.pressure_1_noise_raw, s_calibration_config.pressure_2_noise_raw);
     int32_t pressure_contact_min = 100;
-    s_calibration_config.pressure_contact_threshold = calibration_max_i32(max_noise * 5, pressure_contact_min);
+    s_calibration_config.pressure_contact_threshold = calibration_max_i32(
+        max_noise * CALIBRATION_PRESSURE_CONTACT_NOISE_MULTIPLIER,
+        pressure_contact_min);
 
     /* Use the smaller reliable pressure range for pressure_valid_threshold when both sensors are used */
     int32_t min_range = calibration_max_i32(1, calibration_min_i32(s_calibration_config.pressure_1_range_raw, s_calibration_config.pressure_2_range_raw));
     s_calibration_config.pressure_valid_threshold = calibration_max_i32((min_range * 70) / 100,
-                                                                       s_calibration_config.pressure_contact_threshold);
+                                                                       s_calibration_config.pressure_contact_threshold +
+                                                                           calibration_max_i32(max_noise, 1));
 
     /* sample/window already set in config; record timestamp */
     s_calibration_config.calibrated_at_ms = (int64_t)(esp_timer_get_time() / 1000);
@@ -452,6 +501,7 @@ static calibration_reason_id_t calibration_validate_derived_thresholds(void)
 
     if (s_calibration_config.hall_start_delta <= 0) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
     if (s_calibration_config.hall_full_delta_threshold <= s_calibration_config.hall_start_delta) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+    if (s_calibration_config.hall_full_delta_threshold > s_calibration_config.hall_range_raw) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
     if (s_calibration_config.hall_recoil_delta <= 0) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
     if (s_calibration_config.hall_recoil_delta >= s_calibration_config.hall_start_delta) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
 
@@ -459,11 +509,17 @@ static calibration_reason_id_t calibration_validate_derived_thresholds(void)
     if (s_calibration_config.pressure_2_range_raw < MIN_PRESSURE_RANGE) return CAL_REASON_PRESSURE_RANGE_TOO_SMALL;
 
     int32_t max_pressure_noise = calibration_max_i32(s_calibration_config.pressure_1_noise_raw, s_calibration_config.pressure_2_noise_raw);
-    if (s_calibration_config.pressure_contact_threshold <= max_pressure_noise) return CAL_REASON_PRESSURE_NOISE_TOO_HIGH;
+    int32_t min_pressure_range = calibration_min_i32(
+        s_calibration_config.pressure_1_range_raw,
+        s_calibration_config.pressure_2_range_raw);
+    if ((int64_t)max_pressure_noise * CALIBRATION_PRESSURE_MIN_SNR_MULTIPLIER >=
+        (int64_t)min_pressure_range) {
+        return CAL_REASON_PRESSURE_NOISE_TOO_HIGH;
+    }
 
     if (s_calibration_config.pressure_valid_threshold <= s_calibration_config.pressure_contact_threshold) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
 
-    if (s_calibration_config.pressure_valid_threshold > calibration_max_i32(s_calibration_config.pressure_1_range_raw, s_calibration_config.pressure_2_range_raw)) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
+    if (s_calibration_config.pressure_valid_threshold > min_pressure_range) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
 
     if (s_calibration_config.pressure_balance_allowed_pct < 5 || s_calibration_config.pressure_balance_allowed_pct > 60) return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
 
@@ -483,23 +539,59 @@ static void calibration_stats_init(calibration_signal_stats_t *s)
     s->noise_pp = 0;
     s->last = 0;
     s->valid_count = 0;
+    memset(s->samples, 0, sizeof(s->samples));
 }
 
 static void calibration_stats_update(calibration_signal_stats_t *s, int32_t value)
 {
     if (s == NULL) return;
+    if (s->valid_count >= CALIBRATION_MAX_STATS_SAMPLES) return;
     s->sum += value;
     s->last = value;
     if (value < s->min) s->min = value;
     if (value > s->max) s->max = value;
+    s->samples[s->valid_count] = value;
     s->valid_count++;
 }
 
 static void calibration_stats_finalize(calibration_signal_stats_t *s)
 {
     if (s == NULL || s->valid_count == 0) return;
-    s->mean = (int32_t)(s->sum / s->valid_count);
-    s->noise_pp = s->max - s->min;
+
+    calibration_sort_i32(s->samples, s->valid_count);
+
+    int trim_count = (s->valid_count * CALIBRATION_NOISE_TRIM_PERCENT) / 100;
+    if ((s->valid_count - (trim_count * 2)) < 5) {
+        trim_count = 0;
+    }
+
+    int first = trim_count;
+    int last = s->valid_count - trim_count - 1;
+    int64_t robust_sum = 0;
+    for (int i = first; i <= last; i++) {
+        robust_sum += s->samples[i];
+    }
+
+    int robust_count = last - first + 1;
+    s->mean = (int32_t)(robust_sum / robust_count);
+
+    int64_t robust_span = (int64_t)s->samples[last] - (int64_t)s->samples[first];
+    s->noise_pp = robust_span > INT32_MAX ? INT32_MAX : (int32_t)robust_span;
+}
+
+static void calibration_sort_i32(int32_t *values, int count)
+{
+    if (values == NULL || count < 2) return;
+
+    for (int i = 1; i < count; i++) {
+        int32_t current = values[i];
+        int j = i - 1;
+        while (j >= 0 && values[j] > current) {
+            values[j + 1] = values[j];
+            j--;
+        }
+        values[j + 1] = current;
+    }
 }
 
 static int32_t calibration_max_i32(int32_t a, int32_t b)
@@ -916,8 +1008,15 @@ static void calibration_manager_task(void *arg)
 
     vTaskDelay(pdMS_TO_TICKS(2000));
 
+    if (!s_running) {
+        goto task_exit;
+    }
+
     esp_err_t err = calibration_collect_rest_stats(&hall_stats, &p0_stats, &p1_stats, &p2_stats);
     if (err != ESP_OK) {
+        if (!s_running) {
+            goto task_exit;
+        }
         ESP_LOGE(TAG, "Failed to collect rest stats: %s", esp_err_to_name(err));
         calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
         goto task_exit;
@@ -935,9 +1034,23 @@ static void calibration_manager_task(void *arg)
     s_calibration_config.pressure_1_noise_raw = p1_stats.noise_pp;
     s_calibration_config.pressure_2_noise_raw = p2_stats.noise_pp;
 
-    ESP_LOGI(TAG, "Rest stats: hall_mean=%ld noise_pp=%ld p0_mean=%ld p1_mean=%ld p2_mean=%ld",
-             (long)hall_stats.mean, (long)hall_stats.noise_pp,
-             (long)p0_stats.mean, (long)p1_stats.mean, (long)p2_stats.mean);
+    ESP_LOGI(TAG,
+             "Rest stats (trimmed): hall_mean=%ld noise=%ld raw_span=%ld "
+             "p0_mean=%ld noise=%ld raw_span=%ld "
+             "p1_mean=%ld noise=%ld raw_span=%ld "
+             "p2_mean=%ld noise=%ld raw_span=%ld",
+             (long)hall_stats.mean,
+             (long)hall_stats.noise_pp,
+             (long)((int64_t)hall_stats.max - hall_stats.min),
+             (long)p0_stats.mean,
+             (long)p0_stats.noise_pp,
+             (long)((int64_t)p0_stats.max - p0_stats.min),
+             (long)p1_stats.mean,
+             (long)p1_stats.noise_pp,
+             (long)((int64_t)p1_stats.max - p1_stats.min),
+             (long)p2_stats.mean,
+             (long)p2_stats.noise_pp,
+             (long)((int64_t)p2_stats.max - p2_stats.min));
 
     /* Pressure health validation for rest stats: map to specific reasons */
     calibration_reason_id_t pressure_health_reason =
@@ -955,13 +1068,8 @@ static void calibration_manager_task(void *arg)
         goto task_exit;
     }
 
-    if (s_calibration_config.hall_noise_raw > 80) {
+    if ((int64_t)s_calibration_config.hall_noise_raw * 5 >= (int64_t)expected_hall_delta) {
         calibration_manager_fail(CAL_REASON_HALL_NOISE_TOO_HIGH);
-        goto task_exit;
-    }
-
-    if ((int64_t)s_calibration_config.hall_noise_raw * 5 > (int64_t)expected_hall_delta) {
-        calibration_manager_fail(CAL_REASON_ADAPTIVE_THRESHOLD_INVALID);
         goto task_exit;
     }
 
@@ -1179,22 +1287,34 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
         return ESP_ERR_INVALID_ARG;
     }
 
-    /*
-     * Copy host-provided parameters into runtime config while ensuring
-     * runtime-calculated fields are set to safe defaults.
-     */
+    /* Start from firmware defaults, then copy only host-controlled fields. */
     calibration_config_set_defaults(&s_calibration_config);
 
-    /* Copy parsed host parameters first */
-    memcpy(&s_calibration_config, host_params, sizeof(calibration_config_t));
+    s_calibration_config.ref_pressure = host_params->ref_pressure;
+    s_calibration_config.bladder_1_pressure = host_params->bladder_1_pressure;
+    s_calibration_config.bladder_2_pressure = host_params->bladder_2_pressure;
+    s_calibration_config.hall_delta = host_params->hall_delta;
 
-    /* Then force runtime-calculated fields to safe values */
-    s_calibration_config.calibrated = false;
-    s_calibration_config.hall_baseline = 0;
-    s_calibration_config.hall_full_press = 0;
-    s_calibration_config.bladder_1_full_press = 0;
-    s_calibration_config.bladder_2_full_press = 0;
-    s_calibration_config.calibrated_at_ms = 0;
+    if (host_params->profile_id[0] != '\0') {
+        strncpy(s_calibration_config.profile_id,
+                host_params->profile_id,
+                sizeof(s_calibration_config.profile_id) - 1);
+        s_calibration_config.profile_id[sizeof(s_calibration_config.profile_id) - 1] = '\0';
+    }
+    if (host_params->pressure_balance_allowed_pct >= 5 &&
+        host_params->pressure_balance_allowed_pct <= 60) {
+        s_calibration_config.pressure_balance_allowed_pct =
+            host_params->pressure_balance_allowed_pct;
+    }
+    if (host_params->calibration_sample_count > 0) {
+        s_calibration_config.calibration_sample_count =
+            calibration_min_i32(host_params->calibration_sample_count,
+                                CALIBRATION_MAX_STATS_SAMPLES);
+    }
+    if (host_params->calibration_window_ms > 0) {
+        s_calibration_config.calibration_window_ms =
+            host_params->calibration_window_ms;
+    }
 
     /* save host params so BUTTON_1 retry can reuse them */
     memcpy(&s_last_host_params, host_params, sizeof(s_last_host_params));
@@ -1366,6 +1486,8 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
         }
         return ESP_ERR_INVALID_ARG;
     }
+
+    calibration_config_set_defaults(out_config);
 
     if (out_command_id != NULL && out_command_id_len > 0) {
         out_command_id[0] = '\0';
@@ -1606,11 +1728,10 @@ static calibration_reason_id_t calibration_validate_pressure_rest_health(
         return CAL_REASON_PRESSURE_SENSOR_SATURATED;
     }
 
-    /* Simple noise check: if peak-to-peak noise is too large for bladder sensors, report noisy pressure */
-    const int32_t max_allowed_noise = 500; /* practical MVP threshold */
-    if (p1->noise_pp > max_allowed_noise || p2->noise_pp > max_allowed_noise) {
-        return CAL_REASON_PRESSURE_NOISE_TOO_HIGH;
-    }
-
+    /*
+     * Pressure noise is validated against the measured full-press range later.
+     * Raw-unit limits here are sensor-specific and previously caused a single
+     * transient sample to reject an otherwise stable calibration.
+     */
     return CAL_REASON_NONE;
 }
