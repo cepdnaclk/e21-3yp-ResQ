@@ -98,26 +98,6 @@ export default function HomePage({
   // Filtered by role so instructors see instructor actions, etc.
   const quickActions: QuickAction[] = [
     {
-      id: "instructor",
-      title: "Instructor Dashboard",
-      description:
-        "Monitor live CPR sessions, manage manikins, and review trainee performance in real time.",
-      buttonLabel: "Open Dashboard",
-      variant: "primary",
-      onClick: () => navigateTo("/instructor"),
-      roles: ["ADMIN", "INSTRUCTOR"],
-    },
-    {
-      id: "trainee",
-      title: "Trainee Dashboard",
-      description:
-        "View your own live session feedback, coaching cues, and performance history.",
-      buttonLabel: "Open Dashboard",
-      variant: "secondary",
-      onClick: () => navigateTo("/trainee"),
-      roles: ["ADMIN", "INSTRUCTOR", "TRAINEE"],
-    },
-    {
       id: "help",
       title: "Help & Getting Started",
       description:
