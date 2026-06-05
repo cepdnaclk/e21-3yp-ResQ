@@ -200,22 +200,19 @@ export default function HomePage({
           </div>
 
           <div className="hero-panel__actions">
-            {currentUser?.role !== "TRAINEE" && (
-              <button
-                type="button"
-                className="button button--primary"
-                onClick={() => navigateTo("/instructor")}
-              >
-                Open Instructor Dashboard
-              </button>
-            )}
             <button
               type="button"
-              className="button button--secondary"
-              onClick={() => navigateTo("/trainee")}
+              className="button button--primary"
+              onClick={() =>
+                navigateTo(
+                  currentUser?.role === "TRAINEE" ? "/trainee" : "/instructor"
+                )
+              }
             >
-              Open Trainee Dashboard
-            </button>
+              {currentUser?.role === "TRAINEE"
+                ? "Open My Dashboard"
+                : "Open Instructor Dashboard"}
+            </button>      
           </div>
         </div>
 

@@ -7,13 +7,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 function getRoleIcon(role: UserRole): string {
   switch (role) {
     case "ADMIN":
-      return "👤";
+      return "AD";
     case "INSTRUCTOR":
-      return "📋";
+      return "IN";
     case "TRAINEE":
-      return "🎓";
+      return "TR";
     default:
-      return "👤";
+      return "US";
   }
 }
 
@@ -159,7 +159,7 @@ export default function AdminUsersPage() {
               (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)";
             }}
           >
-            ✨ Add New User
+            Add New User
           </button>
         </div>
 
@@ -196,7 +196,7 @@ export default function AdminUsersPage() {
             gap: "10px",
           }}
         >
-          <span style={{ fontSize: "1.2rem" }}>⚠️</span>
+          
           <div>{error}</div>
         </div>
       )}
@@ -212,7 +212,6 @@ export default function AdminUsersPage() {
             boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
           }}
         >
-          <div style={{ fontSize: "2rem", marginBottom: "12px" }}>⏳</div>
           <p style={{ color: "#64748b", fontSize: "1rem", margin: 0 }}>Loading users...</p>
         </div>
       ) : (
@@ -229,7 +228,6 @@ export default function AdminUsersPage() {
                   boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
                 }}
               >
-                <div style={{ fontSize: "3rem", marginBottom: "16px" }}>👥</div>
                 <p style={{ color: "#64748b", fontSize: "1.1rem", margin: "0 0 8px 0", fontWeight: 500 }}>No users yet</p>
                 <p style={{ color: "#94a3b8", fontSize: "0.95rem", margin: 0 }}>Click "Add New User" to get started</p>
               </div>
@@ -367,7 +365,7 @@ export default function AdminUsersPage() {
                               : "0 4px 12px rgba(239, 68, 68, 0.2)";
                           }}
                         >
-                          {isDisabled ? "✅ Enable User" : "🔒 Disable User"}
+                          {isDisabled ? "Enable User" : "Disable User"}
                         </button>
                       )}
                       {(isCurrentUser || isAdmin) && (
@@ -388,7 +386,7 @@ export default function AdminUsersPage() {
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>✨ Create New User</DialogTitle>
+            <DialogTitle>Create New User</DialogTitle>
             <DialogDescription>Add a new user account to your system</DialogDescription>
           </DialogHeader>
 
@@ -400,7 +398,7 @@ export default function AdminUsersPage() {
             }}
           >
             <label style={{ display: "grid", gap: "8px" }}>
-              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>👤 Username</span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>Username</span>
               <input
                 type="text"
                 value={formUsername}
@@ -427,7 +425,7 @@ export default function AdminUsersPage() {
             </label>
 
             <label style={{ display: "grid", gap: "8px" }}>
-              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>📝 Display Name</span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>Display Name</span>
               <input
                 type="text"
                 value={formDisplayName}
@@ -454,7 +452,7 @@ export default function AdminUsersPage() {
             </label>
 
             <label style={{ display: "grid", gap: "8px" }}>
-              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>🎓 Role</span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>Role</span>
               <select
                 value={formRole}
                 onChange={(e) => setFormRole(e.target.value as UserRole)}
@@ -475,13 +473,13 @@ export default function AdminUsersPage() {
                   (e.currentTarget as HTMLSelectElement).style.boxShadow = "none";
                 }}
               >
-                <option value="INSTRUCTOR">📋 Instructor</option>
-                <option value="TRAINEE">🎓 Trainee</option>
+                <option value="INSTRUCTOR">Instructor</option>
+                <option value="TRAINEE">Trainee</option>
               </select>
             </label>
 
             <label style={{ display: "grid", gap: "8px" }}>
-              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>🔐 Password</span>
+              <span style={{ fontSize: "0.95rem", fontWeight: 600, color: "#0f172a" }}>Password</span>
               <input
                 type="password"
                 value={formPassword}
@@ -523,7 +521,6 @@ export default function AdminUsersPage() {
                   alignItems: "flex-start",
                 }}
               >
-                <span>⚠️</span>
                 <div>{formError}</div>
               </div>
             )}
@@ -585,7 +582,7 @@ export default function AdminUsersPage() {
                   }
                 }}
               >
-                {formBusy ? "⏳ Creating..." : "✨ Create User"}
+                {formBusy ? "Creating..." : "Create User"}
               </button>
             </DialogFooter>
           </form>
