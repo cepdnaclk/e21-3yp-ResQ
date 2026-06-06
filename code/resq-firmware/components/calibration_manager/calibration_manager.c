@@ -30,11 +30,16 @@
 #define CALIBRATION_POLL_DELAY_MS               50
 #define CALIBRATION_MAX_WAIT_MS                 30000
 
-/* Minimum valid samples for rest baseline calculation and saturated limits */
-#define CALIBRATION_MIN_VALID_REST_SAMPLES      25
-#define CALIBRATION_MAX_SATURATED_SAMPLES       3
+/* Stable sampling configuration. */
+#define CALIBRATION_REST_OBSERVATIONS           60
+#define CALIBRATION_MAX_INVALID_PERCENT         20
 #define CALIBRATION_MAX_STATS_SAMPLES           64
 #define CALIBRATION_NOISE_TRIM_PERCENT          10
+#define CALIBRATION_HALL_AVERAGE_SAMPLE_COUNT   20
+#define CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT 20
+#define CALIBRATION_FULL_PRESS_HOLD_SAMPLES     5
+#define CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES  20
+#define CALIBRATION_CAPTURE_SAMPLE_DELAY_MS     20
 
 /* Noise margins used to keep runtime thresholds above normal sensor jitter. */
 #define CALIBRATION_HALL_NOISE_MARGIN_MULTIPLIER       4
@@ -170,6 +175,13 @@ typedef struct calibration_signal_stats_t {
     int32_t samples[CALIBRATION_MAX_STATS_SAMPLES];
 } calibration_signal_stats_t;
 
+typedef struct calibration_sample_t {
+    int32_t hall;
+    int32_t p0;
+    int32_t p1;
+    int32_t p2;
+} calibration_sample_t;
+
 /* Forward prototypes for static helpers defined later */
 static void calibration_stats_init(calibration_signal_stats_t *s);
 static void calibration_stats_update(calibration_signal_stats_t *s, int32_t value);
@@ -181,6 +193,8 @@ static int32_t calibration_abs_i32(int32_t v);
 static int32_t calibration_adaptive_pressure_tolerance(int32_t target, int32_t noise_raw);
 static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range, int32_t noise_raw);
 static esp_err_t calibration_read_hall_average(int32_t *out_value);
+static esp_err_t calibration_validate_pressure_triplet(int32_t v0, int32_t v1, int32_t v2);
+static esp_err_t calibration_read_valid_sample(calibration_sample_t *out_sample);
 static esp_err_t calibration_read_pressure_average(gpio_num_t sck_pin, gpio_num_t dout_pin, int32_t *out_value);
 static calibration_reason_id_t calibration_validate_derived_thresholds(void);
 static calibration_reason_id_t calibration_validate_pressure_rest_health(
@@ -188,6 +202,11 @@ static calibration_reason_id_t calibration_validate_pressure_rest_health(
     const calibration_signal_stats_t *p1_stats,
     const calibration_signal_stats_t *p2_stats);
 static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_t *out_v1, int32_t *out_v2);
+static esp_err_t calibration_capture_full_press_batch(int hall_direction,
+                                                      int32_t hold_boundary,
+                                                      int32_t *out_hall,
+                                                      int32_t *out_p1,
+                                                      int32_t *out_p2);
 static bool calibration_is_saturated_24bit(int32_t value);
 static calibration_reason_id_t calibration_validate_pressure_rest_health(
     const calibration_signal_stats_t *p0,
@@ -210,52 +229,46 @@ static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall
     calibration_stats_init(p1_stats);
     calibration_stats_init(p2_stats);
 
-    int sample_count = s_calibration_config.calibration_sample_count > 0 ? s_calibration_config.calibration_sample_count : 40;
-    if (sample_count < 40) sample_count = 40;
+    int sample_count = s_calibration_config.calibration_sample_count > 0
+                           ? s_calibration_config.calibration_sample_count
+                           : CALIBRATION_REST_OBSERVATIONS;
+    if (sample_count < CALIBRATION_REST_OBSERVATIONS) {
+        sample_count = CALIBRATION_REST_OBSERVATIONS;
+    }
     if (sample_count > CALIBRATION_MAX_STATS_SAMPLES) {
         ESP_LOGW(TAG, "Calibration sample count %d capped at %d",
                  sample_count, CALIBRATION_MAX_STATS_SAMPLES);
         sample_count = CALIBRATION_MAX_STATS_SAMPLES;
     }
+    s_calibration_config.calibration_sample_count = sample_count;
+
     int window_ms = s_calibration_config.calibration_window_ms > 0 ? s_calibration_config.calibration_window_ms : 2000;
     int delay_ms = window_ms / sample_count;
     if (delay_ms < 5) delay_ms = 5;
 
-    int saturated_count_p0 = 0;
-    int saturated_count_p1 = 0;
-    int saturated_count_p2 = 0;
+    int max_attempts = (sample_count * 100 +
+                        (100 - CALIBRATION_MAX_INVALID_PERCENT) - 1) /
+                       (100 - CALIBRATION_MAX_INVALID_PERCENT);
+    int attempts = 0;
+    int valid = 0;
 
-    for (int i = 0; i < sample_count && s_running; i++) {
-        int32_t hv = 0;
-        esp_err_t err = calibration_read_hall_average(&hv);
-        if (err != ESP_OK) return err;
-        calibration_stats_update(hall_stats, hv);
+    while (valid < sample_count && attempts < max_attempts && s_running) {
+        calibration_sample_t sample = {0};
+        attempts++;
 
-        int32_t v0 = 0, v1 = 0, v2 = 0;
-        err = hx710_read_3_shared_sck(BOARD_HX710_SHARED_SCK,
-                                      BOARD_HX710_0_DOUT,
-                                      BOARD_HX710_1_DOUT,
-                                      BOARD_HX710_2_DOUT,
-                                      &v0, &v1, &v2);
-        if (err != ESP_OK) return err;
-
-        /* Skip saturated samples when accumulating baselines; count them for diagnostics */
-        if (calibration_is_saturated_24bit(v0)) {
-            saturated_count_p0++;
+        esp_err_t err = calibration_read_valid_sample(&sample);
+        if (err == ESP_OK) {
+            calibration_stats_update(hall_stats, sample.hall);
+            calibration_stats_update(p0_stats, sample.p0);
+            calibration_stats_update(p1_stats, sample.p1);
+            calibration_stats_update(p2_stats, sample.p2);
+            valid++;
         } else {
-            calibration_stats_update(p0_stats, v0);
-        }
-
-        if (calibration_is_saturated_24bit(v1)) {
-            saturated_count_p1++;
-        } else {
-            calibration_stats_update(p1_stats, v1);
-        }
-
-        if (calibration_is_saturated_24bit(v2)) {
-            saturated_count_p2++;
-        } else {
-            calibration_stats_update(p2_stats, v2);
+            ESP_LOGW(TAG,
+                     "Discarding invalid rest observation %d/%d: %s",
+                     attempts,
+                     max_attempts,
+                     esp_err_to_name(err));
         }
 
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
@@ -265,33 +278,132 @@ static esp_err_t calibration_collect_rest_stats(calibration_signal_stats_t *hall
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Finalize only if we have enough valid samples */
+    if (valid < sample_count) {
+        ESP_LOGW(TAG,
+                 "Insufficient valid rest observations: valid=%d required=%d attempts=%d max_attempts=%d",
+                 valid,
+                 sample_count,
+                 attempts,
+                 max_attempts);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
     calibration_stats_finalize(hall_stats);
     calibration_stats_finalize(p0_stats);
     calibration_stats_finalize(p1_stats);
     calibration_stats_finalize(p2_stats);
 
-    if (p0_stats->valid_count < CALIBRATION_MIN_VALID_REST_SAMPLES ||
-        p1_stats->valid_count < CALIBRATION_MIN_VALID_REST_SAMPLES ||
-        p2_stats->valid_count < CALIBRATION_MIN_VALID_REST_SAMPLES) {
-        ESP_LOGW(TAG, "Insufficient valid rest samples: v0=%d v1=%d v2=%d",
-                 p0_stats->valid_count, p1_stats->valid_count, p2_stats->valid_count);
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-
-    if (saturated_count_p0 > CALIBRATION_MAX_SATURATED_SAMPLES ||
-        saturated_count_p1 > CALIBRATION_MAX_SATURATED_SAMPLES ||
-        saturated_count_p2 > CALIBRATION_MAX_SATURATED_SAMPLES) {
-        ESP_LOGW(TAG, "Excessive saturated rest samples: p0_sat=%d p1_sat=%d p2_sat=%d",
-                 saturated_count_p0, saturated_count_p1, saturated_count_p2);
-        return ESP_ERR_INVALID_RESPONSE;
-    }
+    ESP_LOGI(TAG,
+             "Collected stable rest observations: valid=%d attempts=%d invalid=%d",
+             valid,
+             attempts,
+             attempts - valid);
 
     return ESP_OK;
 }
 
-/* Collect full-press stats: wait for the Hall to move in either direction
- * and capture peak hall and bladder pressures at full compression.
+static esp_err_t calibration_capture_full_press_batch(int hall_direction,
+                                                      int32_t hold_boundary,
+                                                      int32_t *out_hall,
+                                                      int32_t *out_p1,
+                                                      int32_t *out_p2)
+{
+    if ((hall_direction != 1 && hall_direction != -1) ||
+        out_hall == NULL ||
+        out_p1 == NULL ||
+        out_p2 == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    calibration_signal_stats_t hall_stats;
+    calibration_signal_stats_t p0_stats;
+    calibration_signal_stats_t p1_stats;
+    calibration_signal_stats_t p2_stats;
+    calibration_stats_init(&hall_stats);
+    calibration_stats_init(&p0_stats);
+    calibration_stats_init(&p1_stats);
+    calibration_stats_init(&p2_stats);
+
+    const int max_attempts =
+        (CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES * 100 +
+         (100 - CALIBRATION_MAX_INVALID_PERCENT) - 1) /
+        (100 - CALIBRATION_MAX_INVALID_PERCENT);
+    int attempts = 0;
+    int valid = 0;
+
+    while (valid < CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES &&
+           attempts < max_attempts &&
+           s_running) {
+        calibration_sample_t sample = {0};
+        attempts++;
+
+        esp_err_t err = calibration_read_valid_sample(&sample);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "Discarding invalid full-press observation %d/%d: %s",
+                     attempts,
+                     max_attempts,
+                     esp_err_to_name(err));
+            vTaskDelay(pdMS_TO_TICKS(CALIBRATION_CAPTURE_SAMPLE_DELAY_MS));
+            continue;
+        }
+
+        int32_t directional_delta =
+            (sample.hall - s_calibration_config.hall_baseline) * hall_direction;
+        if (directional_delta < hold_boundary) {
+            ESP_LOGW(TAG,
+                     "Full press released during capture: delta=%ld boundary=%ld valid=%d",
+                     (long)directional_delta,
+                     (long)hold_boundary,
+                     valid);
+            return ESP_ERR_INVALID_STATE;
+        }
+
+        calibration_stats_update(&hall_stats, sample.hall);
+        calibration_stats_update(&p0_stats, sample.p0);
+        calibration_stats_update(&p1_stats, sample.p1);
+        calibration_stats_update(&p2_stats, sample.p2);
+        valid++;
+
+        vTaskDelay(pdMS_TO_TICKS(CALIBRATION_CAPTURE_SAMPLE_DELAY_MS));
+    }
+
+    if (!s_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (valid < CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES) {
+        ESP_LOGW(TAG,
+                 "Insufficient valid full-press observations: valid=%d required=%d attempts=%d",
+                 valid,
+                 CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES,
+                 attempts);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    calibration_stats_finalize(&hall_stats);
+    calibration_stats_finalize(&p0_stats);
+    calibration_stats_finalize(&p1_stats);
+    calibration_stats_finalize(&p2_stats);
+
+    *out_hall = hall_stats.mean;
+    *out_p1 = p1_stats.mean;
+    *out_p2 = p2_stats.mean;
+
+    ESP_LOGI(TAG,
+             "Stable full-press batch: hall=%ld p1=%ld p2=%ld hall_noise=%ld p1_noise=%ld p2_noise=%ld",
+             (long)hall_stats.mean,
+             (long)p1_stats.mean,
+             (long)p2_stats.mean,
+             (long)hall_stats.noise_pp,
+             (long)p1_stats.noise_pp,
+             (long)p2_stats.noise_pp);
+
+    return ESP_OK;
+}
+
+/* Collect full-press stats: require a sustained Hall threshold crossing, then
+ * capture a stable trimmed batch while the operator continues holding.
  */
 static esp_err_t calibration_collect_full_press_stats(int32_t expected_delta,
                                                      int32_t *out_hall_match,
@@ -333,59 +445,97 @@ static esp_err_t calibration_collect_full_press_stats(int32_t expected_delta,
     ESP_LOGI(TAG, "Adaptive detection: start=%ld full=%ld recoil=%ld noise=%ld",
              (long)start_thresh, (long)full_thresh, (long)recoil_thresh, (long)hall_noise);
 
-    int elapsed_ms = 0;
+    int64_t started_ms = esp_timer_get_time() / 1000;
     int32_t peak_delta = 0;
     int32_t peak_hall_value = s_calibration_config.hall_baseline;
-    int peak_dir = 0;
+    int hold_count = 0;
+    int hold_dir = 0;
     int last_log_ms = -500; /* throttle live logs to every 500ms */
+    int32_t hold_boundary = calibration_max_i32(1, full_thresh - hall_hysteresis);
 
-    while (s_running && elapsed_ms < CALIBRATION_MAX_WAIT_MS) {
-        int32_t hv = 0;
-        esp_err_t err = calibration_read_hall_average(&hv);
+    while (s_running) {
+        int elapsed_ms = (int)((esp_timer_get_time() / 1000) - started_ms);
+        if (elapsed_ms >= CALIBRATION_MAX_WAIT_MS) {
+            break;
+        }
+
+        calibration_sample_t sample = {0};
+        esp_err_t err = calibration_read_valid_sample(&sample);
         if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Hall read failed during full-press capture: %s", esp_err_to_name(err));
+            hold_count = 0;
+            hold_dir = 0;
+            ESP_LOGW(TAG, "Sensor read failed during full-press wait: %s", esp_err_to_name(err));
             vTaskDelay(pdMS_TO_TICKS(CALIBRATION_POLL_DELAY_MS));
-            elapsed_ms += CALIBRATION_POLL_DELAY_MS;
             continue;
         }
 
+        int32_t hv = sample.hall;
         int32_t delta = calibration_abs_i32(hv - s_calibration_config.hall_baseline);
+        int sample_dir = hv >= s_calibration_config.hall_baseline ? 1 : -1;
         if (delta > peak_delta) {
             peak_delta = delta;
             peak_hall_value = hv;
-            peak_dir = (hv > s_calibration_config.hall_baseline) ? 1 : -1;
+        }
+
+        if (delta >= full_thresh) {
+            if (hold_count == 0 || sample_dir == hold_dir) {
+                hold_dir = sample_dir;
+                hold_count++;
+            } else {
+                hold_dir = sample_dir;
+                hold_count = 1;
+            }
+        } else {
+            hold_count = 0;
+            hold_dir = 0;
         }
 
         /* Throttled live logging for debugging during full-press wait */
         if ((elapsed_ms - last_log_ms) >= 500) {
             ESP_LOGI(TAG,
-                     "Hall full-press wait: hall=%ld baseline=%ld delta=%ld peak_delta=%ld required=%ld elapsed=%d",
+                     "Hall full-press wait: hall=%ld baseline=%ld delta=%ld peak_delta=%ld required=%ld hold=%d/%d elapsed=%d",
                      (long)hv,
                      (long)s_calibration_config.hall_baseline,
                      (long)delta,
                      (long)peak_delta,
                      (long)full_thresh,
+                     hold_count,
+                     CALIBRATION_FULL_PRESS_HOLD_SAMPLES,
                      elapsed_ms);
             last_log_ms = elapsed_ms;
         }
 
-        if (peak_delta >= full_thresh) {
-            ESP_LOGI(TAG, "Detected full press: peak_delta=%ld peak_hall=%ld",
-                     (long)peak_delta, (long)peak_hall_value);
-            /* capture synchronized averaged pressure values for all three sensors */
-            int32_t v0 = 0, v1 = 0, v2 = 0;
-            err = calibration_read_three_pressure_average(&v0, &v1, &v2);
-            if (err != ESP_OK) return err;
+        if (hold_count >= CALIBRATION_FULL_PRESS_HOLD_SAMPLES) {
+            ESP_LOGI(TAG,
+                     "Full press confirmed; capturing %d stable observations above delta %ld",
+                     CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES,
+                     (long)hold_boundary);
 
-            *out_b1_full = v1;
-            *out_b2_full = v2;
-            *out_hall_match = peak_hall_value;
-            s_calibration_config.hall_direction = peak_dir;
-            return ESP_OK;
+            err = calibration_capture_full_press_batch(hold_dir,
+                                                       hold_boundary,
+                                                       out_hall_match,
+                                                       out_b1_full,
+                                                       out_b2_full);
+            if (err == ESP_OK) {
+                s_calibration_config.hall_direction = hold_dir;
+                return ESP_OK;
+            }
+
+            if (!s_running) {
+                return ESP_ERR_INVALID_STATE;
+            }
+
+            if (err == ESP_ERR_INVALID_STATE) {
+                ESP_LOGW(TAG, "Full press was not held; waiting for another stable press");
+                hold_count = 0;
+                hold_dir = 0;
+                continue;
+            }
+
+            return err;
         }
 
         vTaskDelay(pdMS_TO_TICKS(CALIBRATION_POLL_DELAY_MS));
-        elapsed_ms += CALIBRATION_POLL_DELAY_MS;
     }
 
     ESP_LOGE(TAG,
@@ -628,6 +778,81 @@ static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range, int32_t n
     return t;
 }
 
+static esp_err_t calibration_validate_pressure_triplet(int32_t v0, int32_t v1, int32_t v2)
+{
+    s_last_hx710_raw[0] = v0;
+    s_last_hx710_raw[1] = v1;
+    s_last_hx710_raw[2] = v2;
+
+    if (calibration_is_saturated_24bit(v0) ||
+        calibration_is_saturated_24bit(v1) ||
+        calibration_is_saturated_24bit(v2)) {
+        memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    int32_t values[3] = {v0, v1, v2};
+    for (int i = 0; i < 3; i++) {
+        if (values[i] >= -CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW &&
+            values[i] <= CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW) {
+            s_hx710_zero_streaks[i]++;
+        } else {
+            s_hx710_zero_streaks[i] = 0;
+        }
+
+        if (s_hx710_zero_streaks[i] == CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT) {
+            if (i == 0) {
+                ESP_LOGW(TAG,
+                         "pressure_sensor_0 appears stuck or near zero; check DOUT wiring/GPIO%d/HX710 module",
+                         (int)BOARD_HX710_0_DOUT);
+            } else if (i == 1) {
+                ESP_LOGE(TAG,
+                         "pressure_sensor_1 appears stuck at zero; check DOUT wiring/GPIO%d/HX710 module",
+                         (int)BOARD_HX710_1_DOUT);
+            } else {
+                ESP_LOGE(TAG,
+                         "pressure_sensor_2 appears stuck at zero; check DOUT wiring/GPIO%d/HX710 module",
+                         (int)BOARD_HX710_2_DOUT);
+            }
+        }
+
+        if (i > 0 &&
+            s_hx710_zero_streaks[i] >= CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
+
+    return ESP_OK;
+}
+
+static esp_err_t calibration_read_valid_sample(calibration_sample_t *out_sample)
+{
+    if (out_sample == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = calibration_read_hall_average(&out_sample->hall);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = hx710_read_3_shared_sck(BOARD_HX710_SHARED_SCK,
+                                  BOARD_HX710_0_DOUT,
+                                  BOARD_HX710_1_DOUT,
+                                  BOARD_HX710_2_DOUT,
+                                  &out_sample->p0,
+                                  &out_sample->p1,
+                                  &out_sample->p2);
+    if (err != ESP_OK) {
+        memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
+        return err;
+    }
+
+    return calibration_validate_pressure_triplet(out_sample->p0,
+                                                 out_sample->p1,
+                                                 out_sample->p2);
+}
+
 /**
  * @brief Read HX710 safely and convert timeout into ESP error.
  */
@@ -656,11 +881,6 @@ static esp_err_t calibration_read_pressure_once(gpio_num_t sck_pin,
         return err;
     }
 
-    /* Save last raw triplet for higher-level logging */
-    s_last_hx710_raw[0] = v0;
-    s_last_hx710_raw[1] = v1;
-    s_last_hx710_raw[2] = v2;
-
     /* Log all three raw sensor values (decimal + hex) to make stuck bit patterns visible */
     ESP_LOGD(TAG,
              "p0=%ld hex=0x%06X p1=%ld hex=0x%06X p2=%ld hex=0x%06X",
@@ -668,27 +888,9 @@ static esp_err_t calibration_read_pressure_once(gpio_num_t sck_pin,
              (long)v1, (unsigned int)((uint32_t)v1 & 0xFFFFFF),
              (long)v2, (unsigned int)((uint32_t)v2 & 0xFFFFFF));
 
-    /* Update near-zero streak counters for each sensor */
-    int32_t vals[3] = { v0, v1, v2 };
-    for (int i = 0; i < 3; i++) {
-        if (vals[i] >= -CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW && vals[i] <= CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW) {
-            s_hx710_zero_streaks[i]++;
-        } else {
-            s_hx710_zero_streaks[i] = 0;
-        }
-
-        /* If a sensor is observed near-zero repeatedly, log and for sensors 1/2 fail fast */
-        if (s_hx710_zero_streaks[i] >= CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT) {
-            if (i == 0) {
-                ESP_LOGW(TAG, "pressure_sensor_0 appears stuck or near zero; check DOUT wiring/GPIO%d/HX710 module", (int)BOARD_HX710_0_DOUT);
-            } else if (i == 1) {
-                ESP_LOGE(TAG, "pressure_sensor_1 appears stuck at zero; check DOUT wiring/GPIO%d/HX710 module", (int)BOARD_HX710_1_DOUT);
-                return ESP_ERR_INVALID_RESPONSE;
-            } else if (i == 2) {
-                ESP_LOGE(TAG, "pressure_sensor_2 appears stuck at zero; check DOUT wiring/GPIO%d/HX710 module", (int)BOARD_HX710_2_DOUT);
-                return ESP_ERR_INVALID_RESPONSE;
-            }
-        }
+    err = calibration_validate_pressure_triplet(v0, v1, v2);
+    if (err != ESP_OK) {
+        return err;
     }
 
     if (dout_pin == BOARD_HX710_0_DOUT) {
@@ -719,7 +921,7 @@ static esp_err_t calibration_read_pressure_average(gpio_num_t sck_pin,
 
     int64_t sum = 0;
 
-    for (int i = 0; i < CALIBRATION_AVERAGE_SAMPLE_COUNT; i++) {
+    for (int i = 0; i < CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT; i++) {
         int32_t value = 0;
 
         esp_err_t err = calibration_read_pressure_once(sck_pin,
@@ -733,7 +935,7 @@ static esp_err_t calibration_read_pressure_average(gpio_num_t sck_pin,
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    *out_value = (int32_t)(sum / CALIBRATION_AVERAGE_SAMPLE_COUNT);
+    *out_value = (int32_t)(sum / CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT);
 
     return ESP_OK;
 }
@@ -752,7 +954,7 @@ static esp_err_t calibration_read_hall_average(int32_t *out_value)
 
     int64_t sum = 0;
 
-    for (int i = 0; i < CALIBRATION_AVERAGE_SAMPLE_COUNT; i++) {
+    for (int i = 0; i < CALIBRATION_HALL_AVERAGE_SAMPLE_COUNT; i++) {
         int raw_value = 0;
 
         esp_err_t err = hall_sensor_read_raw(&s_hall_sensor, &raw_value);
@@ -764,7 +966,7 @@ static esp_err_t calibration_read_hall_average(int32_t *out_value)
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    *out_value = (int32_t)(sum / CALIBRATION_AVERAGE_SAMPLE_COUNT);
+    *out_value = (int32_t)(sum / CALIBRATION_HALL_AVERAGE_SAMPLE_COUNT);
 
     return ESP_OK;
 }
@@ -1687,7 +1889,7 @@ static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_
 
     int64_t sum0 = 0, sum1 = 0, sum2 = 0;
 
-    for (int i = 0; i < CALIBRATION_AVERAGE_SAMPLE_COUNT; i++) {
+    for (int i = 0; i < CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT; i++) {
         int32_t v0 = 0, v1 = 0, v2 = 0;
         esp_err_t err = hx710_read_3_shared_sck(
             BOARD_HX710_SHARED_SCK,
@@ -1704,9 +1906,9 @@ static esp_err_t calibration_read_three_pressure_average(int32_t *out_v0, int32_
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    *out_v0 = (int32_t)(sum0 / CALIBRATION_AVERAGE_SAMPLE_COUNT);
-    *out_v1 = (int32_t)(sum1 / CALIBRATION_AVERAGE_SAMPLE_COUNT);
-    *out_v2 = (int32_t)(sum2 / CALIBRATION_AVERAGE_SAMPLE_COUNT);
+    *out_v0 = (int32_t)(sum0 / CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT);
+    *out_v1 = (int32_t)(sum1 / CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT);
+    *out_v2 = (int32_t)(sum2 / CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT);
 
     return ESP_OK;
 }
