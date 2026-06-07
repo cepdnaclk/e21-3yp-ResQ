@@ -31,6 +31,9 @@ target/
 .idea/
 .vscode/
 *.iml
+.copilot/
+.github/
+.codex/
 
 # OS
 Thumbs.db
