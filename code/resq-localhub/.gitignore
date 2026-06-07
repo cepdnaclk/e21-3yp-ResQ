@@ -1,6 +1,9 @@
 # Logs
 *.log
 logs/
+prompt_change.txt
+scripts/
+
 
 # Environment files
 .env

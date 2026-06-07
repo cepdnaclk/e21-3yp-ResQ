@@ -40,6 +40,7 @@ public class ActiveSessionService {
     private final LiveStreamService liveStreamService;
     private final TraineeRecordsRepository traineeRecordsRepository;
     private final FirmwareCalibrationService firmwareCalibrationService;
+    private final SyncQueueService syncQueueService;
 
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
@@ -47,7 +48,8 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
@@ -55,6 +57,7 @@ public class ActiveSessionService {
         this.liveStreamService = liveStreamService;
         this.traineeRecordsRepository = traineeRecordsRepository;
         this.firmwareCalibrationService = firmwareCalibrationService;
+        this.syncQueueService = syncQueueService;
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -196,6 +199,12 @@ public class ActiveSessionService {
         SessionEndResponse response = toCompletedResponse(state, summary);
 
         localSessionRepository.save(response);
+        try {
+            syncQueueService.enqueueSessionSummary(response);
+            logger.info("Queued session {} for later cloud sync", state.sessionId);
+        } catch (RuntimeException error) {
+            logger.warn("Saved completed session {} locally but failed to queue it for cloud sync", state.sessionId, error);
+        }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
         liveStreamService.publishSessionLive(state.sessionId, null);
         publishInstructorLiveSnapshot();

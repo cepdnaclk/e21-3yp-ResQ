@@ -10,6 +10,8 @@ import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
+import lk.resq.localhub.service.SyncQueueRepository;
+import lk.resq.localhub.service.SyncQueueService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -261,13 +263,19 @@ class ActiveSessionServiceTest {
           profileService,
                 registry
         );
+        SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
+          Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        syncQueueRepository.initialize();
+        SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, objectMapper);
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-                firmwareCalibrationService
+          firmwareCalibrationService,
+          syncQueueService
         );
         return new ServiceFixture(service, registry);
     }

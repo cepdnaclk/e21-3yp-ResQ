@@ -19,6 +19,8 @@ import lk.resq.localhub.service.LocalAuthRepository;
 import lk.resq.localhub.service.LocalSessionRepository;
 import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttCommandPublisherService;
+import lk.resq.localhub.service.SyncQueueRepository;
+import lk.resq.localhub.service.SyncQueueService;
 import lk.resq.localhub.service.TraineeRecordsRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -65,6 +67,22 @@ class SessionControllerTest {
         String csvBody = requireBody(csvResponse.getBody());
         assertThat(csvBody).contains("sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress");
         assertThat(csvBody).contains("0.76");
+    }
+
+    @Test
+    void endingSessionCreatesSinglePendingSyncQueueItem() throws Exception {
+        Fixture fixture = newFixture();
+        SessionEndResponse completed = seedCompletedSession(fixture.service, "M01");
+
+        assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
+        assertThat(fixture.syncQueueRepository.findByEntity(lk.resq.localhub.model.SyncEntityType.SESSION_SUMMARY, completed.sessionId()))
+                .isPresent();
+        assertThat(fixture.syncQueueRepository.findRecent(10).get(0).syncStatus())
+                .isEqualTo(lk.resq.localhub.model.SyncStatus.PENDING);
+
+        fixture.syncQueueService.enqueueSessionSummary(completed);
+
+        assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
     }
 
     private static SessionEndResponse seedCompletedSession(ActiveSessionService service, String deviceId) throws Exception {
@@ -115,20 +133,24 @@ class SessionControllerTest {
         profileRepository.initialize();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry);
+        SyncQueueRepository syncQueueRepository = new SyncQueueRepository(Path.of("target", "session-controller-sync-" + UUID.randomUUID() + ".sqlite").toString());
+        syncQueueRepository.initialize();
+        SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, objectMapper);
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 publisher,
                 sessionRepository,
                 new NoopLiveStreamService(),
                 new TraineeRecordsRepository(),
-                calibrationService
+            calibrationService,
+            syncQueueService
         );
         AuthService authService = new AllowingAuthService(objectMapper);
         SessionController controller = new SessionController(service, authService, registry);
-        return new Fixture(service, controller);
+        return new Fixture(service, controller, syncQueueRepository, syncQueueService);
     }
 
-    private record Fixture(ActiveSessionService service, SessionController controller) {
+        private record Fixture(ActiveSessionService service, SessionController controller, SyncQueueRepository syncQueueRepository, SyncQueueService syncQueueService) {
     }
 
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {
