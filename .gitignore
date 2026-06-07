@@ -50,3 +50,7 @@ out/
 build/
 *.log
 node_modules copy/
+
+.copilot
+.github
+graphify-out
