@@ -34,7 +34,7 @@ public class ManikinRegistryService {
             state.lastSeen = Instant.now();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = firstText(payload, "state", "status", state.state);
+            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
@@ -48,7 +48,7 @@ public class ManikinRegistryService {
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = firstText(payload, "state", "status", state.state);
+            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.rssi = firstInt(payload, "rssi", state.rssi);
@@ -64,7 +64,7 @@ public class ManikinRegistryService {
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = firstText(payload, "state", "debugState", state.state);
+            state.state = canonicalFirmwareState(firstText(payload, "state", "debugState", state.state));
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.rssi = firstInt(payload, "rssi", state.rssi);
@@ -537,6 +537,24 @@ public class ManikinRegistryService {
             return node.asDouble();
         }
         return node;
+    }
+
+    private static String canonicalFirmwareState(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        return switch (trimmed.toLowerCase(Locale.ROOT)) {
+            case "pass", "passed", "ready", "ok" -> "READY_FOR_SESSION";
+            case "fail", "failed" -> "CALIBRATION_FAIL";
+            case "cancel", "cancelled", "canceled" -> "CALIBRATION_CANCELLED";
+            default -> trimmed;
+        };
     }
 
     private static class MutableManikinState {

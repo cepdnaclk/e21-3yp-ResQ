@@ -591,6 +591,10 @@ export default function InstructorDashboard({
     }
 
     const state = readiness?.firmwareState ?? "";
+    if (state === "READY_FOR_SESSION") {
+      return false;
+    }
+
     return (
       !readiness?.readyForSession ||
       state === "CALIBRATING" ||
