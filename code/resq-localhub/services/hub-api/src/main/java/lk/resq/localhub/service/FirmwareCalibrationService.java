@@ -149,14 +149,15 @@ public class FirmwareCalibrationService {
         String normalizedState = normalize(firmwareState);
         String normalizedResult = normalize(latestResult);
 
+        if ("READY_FOR_SESSION".equalsIgnoreCase(nullToBlank(normalizedState))) {
+            return true;
+        }
+
         if ("FAIL".equalsIgnoreCase(nullToBlank(normalizedResult)) || "CANCELLED".equalsIgnoreCase(nullToBlank(normalizedResult))) {
             return false;
         }
 
         if (normalizedState != null) {
-            if ("READY_FOR_SESSION".equalsIgnoreCase(normalizedState)) {
-                return true;
-            }
             if (
                     "CALIBRATING".equalsIgnoreCase(normalizedState) ||
                     "CALIBRATION_FAIL".equalsIgnoreCase(normalizedState) ||

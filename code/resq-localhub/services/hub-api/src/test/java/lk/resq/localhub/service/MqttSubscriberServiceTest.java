@@ -9,6 +9,8 @@ import lk.resq.localhub.model.firmware.FirmwareEventRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
+import lk.resq.localhub.service.SyncQueueRepository;
+import lk.resq.localhub.service.SyncQueueService;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MqttSubscriberServiceTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void parsesCanonicalAndLegacyFirmwareTopics() throws Exception {
@@ -239,13 +241,23 @@ class MqttSubscriberServiceTest {
             profileService,
                 registry
         );
+        SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
+            Path.of("target", "mqtt-subscriber-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        syncQueueRepository.initialize();
+        SyncQueueService syncQueueService = new SyncQueueService(
+                syncQueueRepository,
+                objectMapper,
+                new CloudSessionSummaryPayloadMapper()
+        );
         ActiveSessionService activeSessionService = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-                firmwareCalibrationService
+            firmwareCalibrationService,
+            syncQueueService
         );
 
         MqttSubscriberService subscriber = new MqttSubscriberService(

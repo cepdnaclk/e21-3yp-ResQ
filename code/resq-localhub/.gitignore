@@ -1,6 +1,9 @@
 # Logs
 *.log
 logs/
+prompt_change.txt
+scripts/
+
 
 # Environment files
 .env
@@ -31,7 +34,21 @@ target/
 .idea/
 .vscode/
 *.iml
+.codex/*
+!.copilot/skills/
+.copilot/skills/*
+!.copilot/skills/graphify/
+!.copilot/skills/graphify/**
+
+.github/
+.codex/*
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/graphify/
+!.codex/skills/graphify/**
 
 # OS
 Thumbs.db
 .DS_Store
+
+.docs/*

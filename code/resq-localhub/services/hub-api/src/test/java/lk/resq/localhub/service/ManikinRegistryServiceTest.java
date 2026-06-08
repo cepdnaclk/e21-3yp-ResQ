@@ -117,10 +117,13 @@ class ManikinRegistryServiceTest {
         registry.updateFromHeartbeat("M01", heartbeat);
         registry.updateFromEvent("M01", event);
 
+        ManikinLiveSummary liveSummary = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(liveSummary.state()).isEqualTo("READY_FOR_SESSION");
+
         SessionLiveView session = registry.getSessionLiveView("S-STATE").orElseThrow();
         assertThat(session.deviceId()).isEqualTo("M01");
         assertThat(session.manikinId()).isEqualTo("MK-01");
-        assertThat(session.state()).isEqualTo("ready");
+        assertThat(session.state()).isEqualTo("READY_FOR_SESSION");
         assertThat(session.ip()).isEqualTo("192.168.1.44");
         assertThat(session.rssi()).isEqualTo(-61);
         assertThat(session.battery()).isEqualTo(92);

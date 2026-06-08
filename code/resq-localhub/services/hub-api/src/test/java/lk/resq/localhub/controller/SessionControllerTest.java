@@ -19,6 +19,8 @@ import lk.resq.localhub.service.LocalAuthRepository;
 import lk.resq.localhub.service.LocalSessionRepository;
 import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttCommandPublisherService;
+import lk.resq.localhub.service.SyncQueueRepository;
+import lk.resq.localhub.service.SyncQueueService;
 import lk.resq.localhub.service.TraineeRecordsRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -67,6 +69,31 @@ class SessionControllerTest {
         assertThat(csvBody).contains("0.76");
     }
 
+    @Test
+    void endingSessionCreatesSinglePendingSyncQueueItem() throws Exception {
+        Fixture fixture = newFixture();
+        SessionEndResponse completed = seedCompletedSession(fixture.service, "M01");
+
+        assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
+        var queueItem = fixture.syncQueueRepository
+                .findByEntity(lk.resq.localhub.model.SyncEntityType.SESSION_SUMMARY, completed.sessionId())
+                .orElseThrow();
+        assertThat(queueItem.syncStatus())
+                .isEqualTo(lk.resq.localhub.model.SyncStatus.PENDING);
+        assertThat(queueItem.retryCount()).isZero();
+
+        var payload = new ObjectMapper().findAndRegisterModules().readTree(queueItem.payloadJson());
+        assertThat(payload.path("contractVersion").asText()).isEqualTo("resq.cloud.session-summary.v1");
+        assertThat(payload.path("entityType").asText()).isEqualTo("SESSION_SUMMARY");
+        assertThat(payload.path("localSessionId").asText()).isEqualTo(completed.sessionId());
+        assertThat(payload.path("source").asText()).isEqualTo("LOCALHUB");
+        assertThat(payload.path("generatedAt").isTextual()).isTrue();
+
+        fixture.syncQueueService.enqueueSessionSummary(completed);
+
+        assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
+    }
+
     private static SessionEndResponse seedCompletedSession(ActiveSessionService service, String deviceId) throws Exception {
         SessionStartResponse started = service.startSession(new SessionStartRequest(
                 deviceId,
@@ -100,7 +127,7 @@ class SessionControllerTest {
     }
 
     private static Fixture newFixture() throws Exception {
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         LocalSessionRepository sessionRepository = new LocalSessionRepository(Path.of("target", "session-controller-test-" + UUID.randomUUID() + ".sqlite").toString());
         sessionRepository.initialize();
         MqttCommandPublisherService publisher = new NoopMqttCommandPublisherService();
@@ -115,20 +142,28 @@ class SessionControllerTest {
         profileRepository.initialize();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry);
+        SyncQueueRepository syncQueueRepository = new SyncQueueRepository(Path.of("target", "session-controller-sync-" + UUID.randomUUID() + ".sqlite").toString());
+        syncQueueRepository.initialize();
+        SyncQueueService syncQueueService = new SyncQueueService(
+                syncQueueRepository,
+                objectMapper,
+                new lk.resq.localhub.service.CloudSessionSummaryPayloadMapper()
+        );
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 publisher,
                 sessionRepository,
                 new NoopLiveStreamService(),
                 new TraineeRecordsRepository(),
-                calibrationService
+            calibrationService,
+            syncQueueService
         );
         AuthService authService = new AllowingAuthService(objectMapper);
         SessionController controller = new SessionController(service, authService, registry);
-        return new Fixture(service, controller);
+        return new Fixture(service, controller, syncQueueRepository, syncQueueService);
     }
 
-    private record Fixture(ActiveSessionService service, SessionController controller) {
+        private record Fixture(ActiveSessionService service, SessionController controller, SyncQueueRepository syncQueueRepository, SyncQueueService syncQueueService) {
     }
 
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {

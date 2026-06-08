@@ -8,11 +8,15 @@ import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
+import lk.resq.localhub.service.SyncQueueRepository;
+import lk.resq.localhub.service.SyncQueueService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ActiveSessionServiceTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void validatesTelemetryAgainstActiveSessionAndDeviceBinding() throws Exception {
@@ -236,6 +240,50 @@ class ActiveSessionServiceTest {
                 .hasMessageContaining("not ready");
     }
 
+    @Test
+    void allowsSessionStartWhenFirmwareIsReadyDespiteFailedCalibration() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        fixture.repository.saveCalibrationResult(new FirmwareCalibrationResultRecord(
+                0,
+                "M01",
+                null,
+                null,
+                null,
+                4002,
+                "FAIL",
+                "COMPLETED",
+                12,
+                "12345",
+                8,
+                "CALIBRATION_FAIL",
+                false,
+                100L,
+                Instant.now(),
+                "{}"
+        ));
+        fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "READY_FOR_SESSION",
+                  "session_active": false,
+                  "calibrated": false
+                }
+                """));
+
+        SessionStartResponse session = fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Ready firmware",
+                null
+        ));
+
+        assertThat(session.deviceId()).isEqualTo("M01");
+        assertThat(session.active()).isTrue();
+    }
+
     private ActiveSessionService newService() throws Exception {
         return newServiceFixture().service;
     }
@@ -261,15 +309,25 @@ class ActiveSessionServiceTest {
           profileService,
                 registry
         );
+        SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
+          Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        syncQueueRepository.initialize();
+        SyncQueueService syncQueueService = new SyncQueueService(
+                syncQueueRepository,
+                objectMapper,
+                new CloudSessionSummaryPayloadMapper()
+        );
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-                firmwareCalibrationService
+          firmwareCalibrationService,
+          syncQueueService
         );
-        return new ServiceFixture(service, registry);
+        return new ServiceFixture(service, registry, firmwareRepository);
     }
 
     private JsonNode telemetry(String deviceId, String sessionId, long seq, double depthMm, double rateCpm) throws Exception {
@@ -348,6 +406,10 @@ class ActiveSessionServiceTest {
         }
     }
 
-    private record ServiceFixture(ActiveSessionService service, ManikinRegistryService registry) {
+    private record ServiceFixture(
+            ActiveSessionService service,
+            ManikinRegistryService registry,
+            FirmwarePersistenceRepository repository
+    ) {
     }
 }
