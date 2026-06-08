@@ -14,6 +14,8 @@ static calibration_config_t metrics_calibration(void)
         .hall_recoil_delta = 100,
         .pressure_1_baseline = 1000,
         .pressure_2_baseline = 1000,
+        .pressure_1_range_raw = 1000,
+        .pressure_2_range_raw = 1000,
         .pressure_contact_threshold = 100,
         .pressure_valid_threshold = 500,
         .pressure_balance_allowed_pct = 20,
@@ -64,6 +66,7 @@ TEST_CASE("CPR metrics tracks valid compression recoil depth and rate", "[metric
     TEST_ASSERT_EQUAL(1, snapshot.recoil_ok_count);
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 120.0f, snapshot.rate_cpm);
     TEST_ASSERT_EQUAL_STRING("CENTER", snapshot.hand_placement);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, snapshot.pressure_balance_pct);
 }
 
 TEST_CASE("CPR metrics classifies contact imbalance and clamps depth", "[metrics]")
@@ -77,8 +80,26 @@ TEST_CASE("CPR metrics classifies contact imbalance and clamps depth", "[metrics
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, snapshot.depth_progress);
     TEST_ASSERT_NOT_EQUAL(0, strcmp("CENTER", snapshot.hand_placement));
+    TEST_ASSERT_TRUE(snapshot.pressure_balance_pct < 50.0f);
 
     update(1000, 1050, 1050, 1100);
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
     TEST_ASSERT_EQUAL_STRING("NO_CONTACT", snapshot.hand_placement);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, snapshot.pressure_balance_pct);
+}
+
+TEST_CASE("CPR metrics normalizes pressure channels by calibrated range", "[metrics]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    calibration.pressure_1_range_raw = 1000;
+    calibration.pressure_2_range_raw = 500;
+    cpr_metrics_snapshot_t snapshot;
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1300, 1000);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL_STRING("CENTER", snapshot.hand_placement);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, snapshot.pressure_balance_pct);
 }
