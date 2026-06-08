@@ -4,3 +4,10 @@ server:
 spring:
   application:
     name: resq-cloud-api
+  datasource:
+    url: ${CLOUD_DB_URL:jdbc:postgresql://localhost:5432/resq_cloud}
+    username: ${CLOUD_DB_USERNAME:resq_cloud}
+    password: ${CLOUD_DB_PASSWORD:resq_cloud_dev}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true

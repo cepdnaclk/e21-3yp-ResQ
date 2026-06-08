@@ -18,7 +18,7 @@ public class CloudHealthController {
         response.put("status", "UP");
         response.put("service", "resq-cloud-api");
         response.put("version", "local-dev");
-        response.put("storageMode", "IN_MEMORY");
+        response.put("storageMode", "POSTGRESQL");
         response.put("timestamp", Instant.now());
         return response;
     }

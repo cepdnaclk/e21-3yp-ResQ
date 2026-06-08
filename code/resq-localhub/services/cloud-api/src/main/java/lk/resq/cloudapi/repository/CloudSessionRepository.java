@@ -7,7 +7,7 @@ import java.util.Optional;
 
 public interface CloudSessionRepository {
 
-    SaveResult saveIfAbsent(CloudSessionRecord record);
+    SaveResult save(CloudSessionRecord record);
 
     Optional<CloudSessionRecord> findByIdempotencyKey(String idempotencyKey);
 

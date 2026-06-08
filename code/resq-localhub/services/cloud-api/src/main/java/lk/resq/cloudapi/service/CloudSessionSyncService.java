@@ -36,8 +36,8 @@ public class CloudSessionSyncService {
                 now,
                 now
         );
-        CloudSessionRepository.SaveResult saved = repository.saveIfAbsent(candidate);
-        String result = saved.created() ? "CREATED" : "ALREADY_EXISTS";
+        CloudSessionRepository.SaveResult saved = repository.save(candidate);
+        String result = saved.created() ? "CREATED" : "UPDATED";
 
         return new CloudSessionSyncResponse(
                 true,
@@ -45,7 +45,7 @@ public class CloudSessionSyncService {
                 saved.record().cloudSessionId(),
                 idempotencyKey,
                 CloudSyncContractVersion.CURRENT,
-                saved.created() ? "Session summary accepted" : "Session summary already accepted"
+                saved.created() ? "Session summary accepted" : "Session summary updated"
         );
     }
 

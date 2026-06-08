@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -17,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
 class CloudApiIntegrationTest {
 
     @Autowired
@@ -25,11 +28,21 @@ class CloudApiIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private String localSessionId;
 
     @BeforeEach
     void setUp() {
+        jdbcTemplate.update("DELETE FROM cloud_session_summaries");
         localSessionId = "S-" + java.util.UUID.randomUUID();
+    }
+
+    @Test
+    void contextStarts() {
+        assertThat(mockMvc).isNotNull();
+        assertThat(jdbcTemplate).isNotNull();
     }
 
     @Test
@@ -38,7 +51,7 @@ class CloudApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.service").value("resq-cloud-api"))
-                .andExpect(jsonPath("$.storageMode").value("IN_MEMORY"));
+                .andExpect(jsonPath("$.storageMode").value("POSTGRESQL"));
     }
 
     @Test
@@ -52,6 +65,13 @@ class CloudApiIntegrationTest {
     @Test
     void validPayloadStoresCloudSessionRecord() throws Exception {
         JsonNode response = postValidPayload("HUB-STORE", localSessionId);
+        Integer rowCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cloud_session_summaries WHERE local_session_id = ?",
+                Integer.class,
+                localSessionId
+        );
+        assertThat(rowCount).isEqualTo(1);
+
         mockMvc.perform(get("/api/cloud/sessions/{id}", response.path("cloudSessionId").asText()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload.localSessionId").value(localSessionId));
@@ -64,7 +84,7 @@ class CloudApiIntegrationTest {
                         .contentType("application/json")
                         .content(validPayload("HUB-2", localSessionId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result").value("ALREADY_EXISTS"))
+                .andExpect(jsonPath("$.result").value("UPDATED"))
                 .andReturn().getResponse().getContentAsString());
 
         assertThat(second.path("cloudSessionId").asText()).isEqualTo(first.path("cloudSessionId").asText());
@@ -76,6 +96,41 @@ class CloudApiIntegrationTest {
                 .filter(record -> localSessionId.equals(record.path("payload").path("localSessionId").asText()))
                 .count();
         assertThat(matches).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cloud_session_summaries WHERE idempotency_key = ?",
+                Integer.class,
+                "HUB-2:" + localSessionId
+        )).isEqualTo(1);
+    }
+
+    @Test
+    void duplicatePayloadPreservesCloudSessionIdAndReceivedAt() throws Exception {
+        JsonNode first = postValidPayload("HUB-PRESERVE", localSessionId);
+        java.time.OffsetDateTime receivedAt = jdbcTemplate.queryForObject(
+                "SELECT received_at FROM cloud_session_summaries WHERE idempotency_key = ?",
+                java.time.OffsetDateTime.class,
+                "HUB-PRESERVE:" + localSessionId
+        );
+
+        Thread.sleep(5);
+        JsonNode second = objectMapper.readTree(mockMvc.perform(post("/api/sync/session-summaries")
+                        .contentType("application/json")
+                        .content(validPayload("HUB-PRESERVE", localSessionId).replace("\"score\": 92", "\"score\": 95")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("UPDATED"))
+                .andReturn().getResponse().getContentAsString());
+
+        assertThat(second.path("cloudSessionId").asText()).isEqualTo(first.path("cloudSessionId").asText());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT received_at FROM cloud_session_summaries WHERE idempotency_key = ?",
+                java.time.OffsetDateTime.class,
+                "HUB-PRESERVE:" + localSessionId
+        )).isEqualTo(receivedAt);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT score FROM cloud_session_summaries WHERE idempotency_key = ?",
+                Double.class,
+                "HUB-PRESERVE:" + localSessionId
+        )).isEqualTo(95.0);
     }
 
     @Test
