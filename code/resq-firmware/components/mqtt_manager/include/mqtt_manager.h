@@ -26,6 +26,13 @@ typedef struct
     int payload_len;
 } resq_mqtt_command_t;
 
+typedef enum {
+    MQTT_MANAGER_RECONNECT_IDLE = 0,
+    MQTT_MANAGER_RECONNECT_IN_PROGRESS,
+    MQTT_MANAGER_RECONNECT_CONNECTED,
+    MQTT_MANAGER_RECONNECT_FAILED
+} mqtt_manager_reconnect_status_t;
+
 esp_err_t mqtt_manager_wait_for_command(resq_mqtt_command_t *command,
                                         TickType_t timeout_ticks);
 
@@ -36,6 +43,10 @@ esp_err_t mqtt_manager_start(const char *device_id,
                             int mqtt_port);
 
 esp_err_t mqtt_manager_stop(void);
+
+esp_err_t mqtt_manager_reconnect_async(void);
+
+mqtt_manager_reconnect_status_t mqtt_manager_get_reconnect_status(void);
 
 bool mqtt_manager_is_connected(void);
 

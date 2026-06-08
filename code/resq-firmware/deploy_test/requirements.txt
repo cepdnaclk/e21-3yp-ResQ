@@ -1,0 +1,4 @@
+paho-mqtt==2.1.0
+pyserial==3.5
+pytest==8.4.2
+tomli==2.2.1; python_version < "3.11"

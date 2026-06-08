@@ -577,6 +577,9 @@ function validateForm(form: FormState): { ok: true; hallDelta: number; refPressu
   if (!hallDelta.ok) {
     return hallDelta;
   }
+  if (hallDelta.value < 50 || hallDelta.value > 4095) {
+    return { ok: false, message: "hallDelta must be between 50 and 4095" };
+  }
 
   const refPressure = parsePositive(form.refPressure, "refPressure must be greater than 0");
   if (!refPressure.ok) {

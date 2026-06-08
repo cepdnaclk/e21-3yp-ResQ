@@ -26,6 +26,18 @@ class CalibrationProfileServiceTest {
                 false
         ))).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("hallDelta");
+
+        assertThatThrownBy(() -> service.createProfile(new CalibrationProfileRequest(
+                "Invalid",
+                4096,
+                20100,
+                15000,
+                15000,
+                null,
+                true,
+                false
+        ))).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("4095");
     }
 
     @Test
@@ -33,7 +45,7 @@ class CalibrationProfileServiceTest {
         CalibrationProfileService service = newService();
         var created = service.createProfile(new CalibrationProfileRequest(
                 "Training Profile",
-                14000,
+                700,
                 20500,
                 15200,
                 15200,
@@ -44,7 +56,7 @@ class CalibrationProfileServiceTest {
 
         var updated = service.updateProfile(created.profileId(), new CalibrationProfileRequest(
                 "Training Profile v2",
-                14100,
+                710,
                 20600,
                 15300,
                 15300,

@@ -24,6 +24,8 @@ import java.util.Optional;
 @Repository
 public class CalibrationProfileRepository {
 
+    private static final int LEGACY_DEFAULT_HALL_DELTA = 13500;
+
     private final Path databasePath;
     private final String jdbcUrl;
 
@@ -63,7 +65,7 @@ public class CalibrationProfileRepository {
                     insertProfile(connection, new CalibrationProfileRecord(
                             "adult-basic",
                             "Adult Basic",
-                            13500,
+                            CalibrationConstraints.DEFAULT_HALL_DELTA,
                             20100,
                             15000,
                             15000,
@@ -74,6 +76,8 @@ public class CalibrationProfileRepository {
                             Instant.now().toString()
                     ));
                 }
+
+                migrateLegacyDefaultHallDelta(connection);
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize calibration profile store at " + databasePath, error);
@@ -248,6 +252,21 @@ public class CalibrationProfileRepository {
             try (ResultSet resultSet = statement.executeQuery()) {
                 return resultSet.next() ? resultSet.getInt(1) : 0;
             }
+        }
+    }
+
+    private void migrateLegacyDefaultHallDelta(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE calibration_profiles
+                SET hall_delta = ?,
+                    updated_at = ?
+                WHERE profile_id = 'adult-basic'
+                  AND hall_delta = ?
+                """)) {
+            statement.setInt(1, CalibrationConstraints.DEFAULT_HALL_DELTA);
+            statement.setString(2, Instant.now().toString());
+            statement.setInt(3, LEGACY_DEFAULT_HALL_DELTA);
+            statement.executeUpdate();
         }
     }
 

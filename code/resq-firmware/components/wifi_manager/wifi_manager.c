@@ -21,9 +21,12 @@ static esp_netif_t *s_sta_netif = NULL;
 
 static bool s_initialized = false;
 static bool s_connected = false;
+static bool s_reconnect_allowed = false;
 static int s_retry_count = 0;
 static int s_max_retries = WIFI_MANAGER_DEFAULT_MAX_RETRIES;
 static char s_ip_addr[16] = {0};
+static volatile wifi_manager_reconnect_status_t s_reconnect_status =
+    WIFI_MANAGER_RECONNECT_IDLE;
 
 static esp_event_handler_instance_t s_any_wifi_handler;
 static esp_event_handler_instance_t s_got_ip_handler;
@@ -59,11 +62,18 @@ static void wifi_event_handler(void *arg,
         s_connected = false;
         s_ip_addr[0] = '\0';
 
+        if (!s_reconnect_allowed) {
+            s_reconnect_status = WIFI_MANAGER_RECONNECT_IDLE;
+            return;
+        }
+
         if (s_retry_count < s_max_retries) {
             s_retry_count++;
+            s_reconnect_status = WIFI_MANAGER_RECONNECT_IN_PROGRESS;
             ESP_LOGW(TAG, "Wi-Fi disconnected, retry %d/%d", s_retry_count, s_max_retries);
             esp_wifi_connect();
         } else {
+            s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
             ESP_LOGE(TAG, "Wi-Fi failed after max retries");
             xEventGroupSetBits(s_wifi_events, WIFI_FAIL_BIT);
         }
@@ -76,6 +86,7 @@ static void wifi_event_handler(void *arg,
 
         s_retry_count = 0;
         s_connected = true;
+        s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
 
         snprintf(s_ip_addr, sizeof(s_ip_addr), IPSTR, IP2STR(&event->ip_info.ip));
 
@@ -135,6 +146,8 @@ esp_err_t wifi_manager_init(void)
     }
 
     s_initialized = true;
+    s_reconnect_allowed = false;
+    s_reconnect_status = WIFI_MANAGER_RECONNECT_IDLE;
     ESP_LOGI(TAG, "Wi-Fi manager initialized");
     return ESP_OK;
 }
@@ -153,6 +166,11 @@ esp_err_t wifi_manager_connect(const char *ssid,
         return err;
     }
 
+    if (s_connected) {
+        s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
+        return ESP_OK;
+    }
+
     if (max_retries <= 0) {
         s_max_retries = WIFI_MANAGER_DEFAULT_MAX_RETRIES;
     } else {
@@ -166,6 +184,8 @@ esp_err_t wifi_manager_connect(const char *ssid,
     xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
     s_retry_count = 0;
     s_connected = false;
+    s_reconnect_allowed = true;
+    s_reconnect_status = WIFI_MANAGER_RECONNECT_IN_PROGRESS;
     s_ip_addr[0] = '\0';
 
     wifi_config_t wifi_cfg = {0};
@@ -186,12 +206,14 @@ esp_err_t wifi_manager_connect(const char *ssid,
     }
 
     err = esp_wifi_start();
-    if (err != ESP_OK) {
+    if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+        s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
         return err;
     }
 
     err = esp_wifi_connect();
-    if (err != ESP_OK) {
+    if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+        s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
         return err;
     }
 
@@ -206,15 +228,18 @@ esp_err_t wifi_manager_connect(const char *ssid,
     );
 
     if (bits & WIFI_CONNECTED_BIT) {
+        s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
         ESP_LOGI(TAG, "Wi-Fi connected successfully");
         return ESP_OK;
     }
 
     if (bits & WIFI_FAIL_BIT) {
+        s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
         ESP_LOGE(TAG, "Wi-Fi connection failed");
         return ESP_FAIL;
     }
 
+    s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
     ESP_LOGE(TAG, "Wi-Fi connection timeout");
     return ESP_ERR_TIMEOUT;
 }
@@ -225,7 +250,8 @@ esp_err_t wifi_manager_disconnect(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Treat not-connected as success to simplify caller cleanup. */
+    s_reconnect_allowed = false;
+    s_reconnect_status = WIFI_MANAGER_RECONNECT_IDLE;
     s_connected = false;
     s_ip_addr[0] = '\0';
 
@@ -235,6 +261,40 @@ esp_err_t wifi_manager_disconnect(void)
     }
 
     return err;
+}
+
+esp_err_t wifi_manager_reconnect_async(int max_retries)
+{
+    if (!s_initialized || s_wifi_events == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (s_connected) {
+        s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
+        return ESP_OK;
+    }
+
+    s_max_retries = max_retries > 0
+        ? max_retries
+        : WIFI_MANAGER_DEFAULT_MAX_RETRIES;
+    s_retry_count = 0;
+    s_reconnect_allowed = true;
+    s_reconnect_status = WIFI_MANAGER_RECONNECT_IN_PROGRESS;
+
+    xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+
+    esp_err_t err = esp_wifi_connect();
+    if (err == ESP_OK || err == ESP_ERR_WIFI_CONN) {
+        return ESP_OK;
+    }
+
+    s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
+    return err;
+}
+
+wifi_manager_reconnect_status_t wifi_manager_get_reconnect_status(void)
+{
+    return s_reconnect_status;
 }
 
 bool wifi_manager_is_connected(void)

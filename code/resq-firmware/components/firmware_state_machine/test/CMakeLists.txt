@@ -1,0 +1,9 @@
+idf_component_register(
+    SRCS
+        "test_firmware_state_machine.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        unity
+        firmware_state_machine
+)
