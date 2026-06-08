@@ -23,3 +23,10 @@ resq:
   live:
     stale-after-seconds: ${RESQ_LIVE_STALE_AFTER_SECONDS:12}
     stale-check-interval-ms: ${RESQ_LIVE_STALE_CHECK_INTERVAL_MS:2000}
+  cloud-sync:
+    enabled: ${RESQ_CLOUD_SYNC_ENABLED:false}
+    base-url: ${RESQ_CLOUD_SYNC_BASE_URL:http://localhost:19080}
+    batch-size: ${RESQ_CLOUD_SYNC_BATCH_SIZE:10}
+    fixed-delay-ms: ${RESQ_CLOUD_SYNC_FIXED_DELAY_MS:30000}
+    request-timeout-ms: ${RESQ_CLOUD_SYNC_REQUEST_TIMEOUT_MS:5000}
+    max-retry-count: ${RESQ_CLOUD_SYNC_MAX_RETRY_COUNT:10}

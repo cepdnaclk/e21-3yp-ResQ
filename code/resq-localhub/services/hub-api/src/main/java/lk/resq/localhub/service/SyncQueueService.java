@@ -52,6 +52,26 @@ public class SyncQueueService {
         return syncQueueRepository.findRecent(limit);
     }
 
+    public List<SyncQueueItem> findRetryableItems(Instant now, int limit) {
+        return syncQueueRepository.findRetryableItems(now, limit);
+    }
+
+    public boolean markSyncing(String id, Instant attemptedAt) {
+        return syncQueueRepository.markSyncing(id, attemptedAt);
+    }
+
+    public void markSynced(String id, Instant syncedAt) {
+        syncQueueRepository.markSynced(id, syncedAt);
+    }
+
+    public void markRetryLater(String id, int retryCount, String lastError, Instant attemptedAt) {
+        syncQueueRepository.markRetryLater(id, retryCount, lastError, attemptedAt);
+    }
+
+    public void markFailed(String id, int retryCount, String lastError, Instant attemptedAt) {
+        syncQueueRepository.markFailed(id, retryCount, lastError, attemptedAt);
+    }
+
     private String toPayloadJson(CloudSessionSummarySyncPayload payload) {
         try {
             return objectMapper.writeValueAsString(payload);

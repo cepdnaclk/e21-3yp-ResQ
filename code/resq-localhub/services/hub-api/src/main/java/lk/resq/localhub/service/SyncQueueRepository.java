@@ -125,6 +125,96 @@ public class SyncQueueRepository {
         }
     }
 
+    public synchronized List<SyncQueueItem> findRetryableItems(Instant now, int limit) {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                SELECT id, entity_type, entity_id, payload_json, sync_status, retry_count, last_error, created_at, last_attempt_at, synced_at
+                FROM sync_queue
+                WHERE entity_type = ?
+                  AND sync_status IN (?, ?, ?)
+                ORDER BY created_at ASC, id ASC
+                """)) {
+            statement.setString(1, SyncEntityType.SESSION_SUMMARY.name());
+            statement.setString(2, SyncStatus.PENDING.name());
+            statement.setString(3, SyncStatus.RETRY_LATER.name());
+            statement.setString(4, SyncStatus.SYNCING.name());
+
+            List<SyncQueueItem> items = new ArrayList<>();
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next() && items.size() < Math.max(1, limit)) {
+                    SyncQueueItem item = mapRow(resultSet);
+                    if (isRetryable(item, now)) {
+                        items.add(item);
+                    }
+                }
+            }
+            return items;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to load retryable sync queue items", error);
+        }
+    }
+
+    public synchronized boolean markSyncing(String id, Instant attemptedAt) {
+        return updateStatus(id, SyncStatus.SYNCING, null, attemptedAt, null);
+    }
+
+    public synchronized void markSynced(String id, Instant syncedAt) {
+        updateStatus(id, SyncStatus.SYNCED, null, syncedAt, syncedAt);
+    }
+
+    public synchronized void markRetryLater(String id, int retryCount, String lastError, Instant attemptedAt) {
+        updateFailure(id, SyncStatus.RETRY_LATER, retryCount, lastError, attemptedAt);
+    }
+
+    public synchronized void markFailed(String id, int retryCount, String lastError, Instant attemptedAt) {
+        updateFailure(id, SyncStatus.FAILED, retryCount, lastError, attemptedAt);
+    }
+
+    private boolean updateStatus(
+            String id,
+            SyncStatus status,
+            String lastError,
+            Instant lastAttemptAt,
+            Instant syncedAt
+    ) {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                UPDATE sync_queue
+                SET sync_status = ?, last_error = ?, last_attempt_at = ?, synced_at = ?
+                WHERE id = ?
+                """)) {
+            statement.setString(1, status.name());
+            statement.setString(2, lastError);
+            setNullableInstant(statement, 3, lastAttemptAt);
+            setNullableInstant(statement, 4, syncedAt);
+            statement.setString(5, id);
+            return statement.executeUpdate() == 1;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to mark sync queue item " + id + " as " + status, error);
+        }
+    }
+
+    private void updateFailure(
+            String id,
+            SyncStatus status,
+            int retryCount,
+            String lastError,
+            Instant attemptedAt
+    ) {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                UPDATE sync_queue
+                SET sync_status = ?, retry_count = ?, last_error = ?, last_attempt_at = ?, synced_at = NULL
+                WHERE id = ?
+                """)) {
+            statement.setString(1, status.name());
+            statement.setInt(2, retryCount);
+            statement.setString(3, abbreviate(lastError));
+            statement.setString(4, attemptedAt.toString());
+            statement.setString(5, id);
+            statement.executeUpdate();
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to record sync failure for queue item " + id, error);
+        }
+    }
+
     private void bindItem(PreparedStatement statement, SyncQueueItem item) throws SQLException {
         statement.setString(1, item.id());
         statement.setString(2, item.entityType().name());
@@ -167,5 +257,23 @@ public class SyncQueueRepository {
 
     private static Instant parseInstant(String value) {
         return value == null ? null : Instant.parse(value);
+    }
+
+    private static boolean isRetryable(SyncQueueItem item, Instant now) {
+        if (item.syncStatus() == SyncStatus.PENDING) {
+            return true;
+        }
+        if (item.lastAttemptAt() == null) {
+            return true;
+        }
+        long retryDelayMs = Math.min(15 * 60_000L, 30_000L * Math.max(1, item.retryCount()));
+        return !item.lastAttemptAt().plusMillis(retryDelayMs).isAfter(now);
+    }
+
+    private static String abbreviate(String value) {
+        if (value == null || value.length() <= 1_000) {
+            return value;
+        }
+        return value.substring(0, 1_000);
     }
 }

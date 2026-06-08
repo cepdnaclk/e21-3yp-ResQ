@@ -1,5 +1,9 @@
 # ResQ Cloud API: Local Phase 3
 
+> Historical Phase 3 document. Phase 4 replaces the in-memory repository with
+> PostgreSQL. See [cloud-api-postgres.md](cloud-api-postgres.md) for current
+> setup and behavior.
+
 ## Purpose
 
 Phase 3 adds a separate Cloud API service that can receive the versioned
@@ -7,8 +11,8 @@ Phase 3 adds a separate Cloud API service that can receive the versioned
 skeleton for validating the HTTP contract and idempotency behavior before
 persistent cloud infrastructure is introduced.
 
-The Cloud API is local-only. It does not deploy to AWS, and LocalHub does not
-upload `sync_queue` items automatically.
+At Phase 3, the Cloud API was local-only and in-memory. It did not deploy to
+AWS, and LocalHub did not upload `sync_queue` items automatically.
 
 The service listens on port `19080` by default.
 
@@ -85,8 +89,8 @@ Until LocalHub has a stable hub identity, a null or blank `localHubId` uses:
 
 `UNASSIGNED_LOCAL_HUB + ":" + localSessionId`
 
-Posting the same key again returns `ALREADY_EXISTS` and the original
-`cloudSessionId`; it does not add a duplicate.
+In Phase 3, posting the same key returned `ALREADY_EXISTS` and the original
+`cloudSessionId`. Phase 4 updates the persisted row and returns `UPDATED`.
 
 The Phase 2 DTO shape is copied into this service to avoid coupling `cloud-api`
 to `hub-api` internals. A later phase may extract a shared contract module.
