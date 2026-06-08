@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -52,6 +53,14 @@ class CloudApiIntegrationTest {
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.service").value("resq-cloud-api"))
                 .andExpect(jsonPath("$.storageMode").value("POSTGRESQL"));
+    }
+
+    @Test
+    void cloudReadEndpointsAllowLocalDashboardOrigin() throws Exception {
+        mockMvc.perform(get("/api/cloud/health")
+                        .header("Origin", "http://localhost:1430"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:1430"));
     }
 
     @Test
