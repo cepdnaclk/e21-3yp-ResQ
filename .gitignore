@@ -52,3 +52,7 @@ build/
 node_modules copy/
 # Ignore local tauri Cargo.toml for localhub-desktop
 code/resq-localhub/apps/localhub-desktop/src-tauri/Cargo.toml
+
+.copilot
+.github
+graphify-out
