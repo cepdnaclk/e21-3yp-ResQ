@@ -36,7 +36,11 @@ target/
 *.iml
 .copilot/
 .github/
-.codex/
+.codex/*
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/graphify/
+!.codex/skills/graphify/**
 
 # OS
 Thumbs.db
