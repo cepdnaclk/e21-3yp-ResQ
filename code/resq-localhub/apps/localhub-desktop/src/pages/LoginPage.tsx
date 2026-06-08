@@ -88,8 +88,6 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
 
   const firstRunMessage = bootstrap?.requiresFirstAdmin
     ? "No users exist yet. Create the first ADMIN account to continue."
-    : bootstrap?.hasUsers === true
-    ? "First admin already exists. Please sign in."
     : null;
 
   return (

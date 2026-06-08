@@ -18,6 +18,8 @@ import {
 
 type HomePageProps = {
   manualLanIpOverride: string | null;
+  onOpenInstructorDashboard?: () => void;
+  onOpenTraineeDashboard?: () => void;
 };
 
 type ApiContract = {
@@ -160,7 +162,7 @@ function buttonStyle(disabled: boolean = false): React.CSSProperties {
   };
 }
 
-export default function HomePage({ manualLanIpOverride }: HomePageProps) {
+export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboard, onOpenTraineeDashboard }: HomePageProps) {
   const { currentUser } = useAuth();
   const [apiService, setApiService] = useState<ApiServiceStatus>({
     running: false,
@@ -438,10 +440,20 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   }
 
   function handleOpenInstructorDashboard() {
+    if (onOpenInstructorDashboard) {
+      onOpenInstructorDashboard();
+      return;
+    }
+
     window.location.assign("/instructor");
   }
 
   function handleOpenTraineeDashboard() {
+    if (onOpenTraineeDashboard) {
+      onOpenTraineeDashboard();
+      return;
+    }
+
     window.location.assign("/trainee");
   }
 

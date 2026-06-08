@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import confetti from "canvas-confetti";
 import { useAuth } from "../auth/AuthContext";
 import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
-import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
 import {
@@ -49,7 +48,6 @@ import { QRCodeSVG as QR } from "qrcode.react";
 import ProvisioningIcon from "../components/icons/ProvisioningIcon";
 import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
 import LiveManikinsIcon from "../components/icons/LiveManikinsIcon";
-import HubHeartbeat from "../components/icons/HubHeartbeat";
 import CalibrationIcon from "../components/icons/CalibrationIcon";
 
 /**
@@ -59,53 +57,7 @@ import CalibrationIcon from "../components/icons/CalibrationIcon";
  * in any browser on the LAN without depending on Tauri APIs.
  */
 
-function HealthStatusBadge({ health }: { health: BrowserHealthResponse | null }) {
-  if (!health) {
-    return (
-      <span style={{
-        display: "inline-block",
-        padding: "4px 10px",
-        borderRadius: "999px",
-        fontSize: "0.8rem",
-        fontWeight: 600,
-        background: "#e2e8f0",
-        color: "#334155",
-      }}>
-        Checking...
-      </span>
-    );
-  }
 
-  if (health.ok) {
-    return (
-      <span style={{
-        display: "inline-block",
-        padding: "4px 10px",
-        borderRadius: "999px",
-        fontSize: "0.8rem",
-        fontWeight: 600,
-        background: "#dcfce7",
-        color: "#166534",
-      }}>
-        Healthy
-      </span>
-    );
-  }
-
-  return (
-    <span style={{
-      display: "inline-block",
-      padding: "4px 10px",
-      borderRadius: "999px",
-      fontSize: "0.8rem",
-      fontWeight: 600,
-      background: "#fee2e2",
-      color: "#991b1b",
-    }}>
-      Unreachable
-    </span>
-  );
-}
 
 function SessionStateBadge({ active }: { active: boolean }) {
   return (
@@ -407,8 +359,6 @@ export default function InstructorDashboard({
   manualLanIpOverride = null,
 }: InstructorDashboardProps) {
   const { currentUser, logout } = useAuth();
-  const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
-  const [healthLoading, setHealthLoading] = useState(true);
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
@@ -506,12 +456,7 @@ export default function InstructorDashboard({
   }
 
   useEffect(() => {
-    async function loadHealth() {
-      setHealthLoading(true);
-      const result = await fetchBrowserHealth();
-      setHealth(result);
-      setHealthLoading(false);
-    }
+
 
     async function loadServiceInfo() {
       try {
@@ -670,7 +615,6 @@ export default function InstructorDashboard({
       };
     }
 
-    loadHealth();
     loadServiceInfo();
     loadManikins();
     loadRecentSessions();
@@ -684,7 +628,6 @@ export default function InstructorDashboard({
 
     window.addEventListener("resq:device-registered", handleDeviceRegistered as EventListener);
 
-    const healthInterval = setInterval(loadHealth, 5000);
     const serviceInfoInterval = setInterval(loadServiceInfo, 10000);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
     const registryInterval = setInterval(loadRegistry, 15000);
@@ -698,7 +641,6 @@ export default function InstructorDashboard({
         clearTimeout(reconnectTimer);
       }
       stopFallbackPolling();
-      clearInterval(healthInterval);
       clearInterval(serviceInfoInterval);
       clearInterval(recentSessionsInterval);
       clearInterval(registryInterval);
@@ -1161,27 +1103,7 @@ export default function InstructorDashboard({
       </header>
 
       <div style={styles.content}>
-        <section style={styles.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <HubHeartbeat state={healthLoading ? "checking" : health?.ok ? "ok" : "down"} size={18} />
-              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
-            </div>
-            <HealthStatusBadge health={healthLoading ? null : health} />
-          </div>
-          <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
-            {healthLoading
-              ? "Checking hub connectivity..."
-              : health?.ok
-                ? "Backend is running and responding to health checks."
-                : "Unable to reach the hub backend. Check that the API service is running."}
-          </p>
-          {health?.timestamp && (
-            <p style={{ margin: "8px 0 0 0", color: "#9ca3af", fontSize: "0.8rem" }}>
-              Last update: {new Date(health.timestamp).toLocaleTimeString()}
-            </p>
-          )}
-        </section>
+
         <section style={{ ...styles.card, ...styles.provisioningCard }} className="provisioning-card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
             <div>
