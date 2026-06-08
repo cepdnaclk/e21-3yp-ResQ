@@ -25,6 +25,8 @@ static const char *TAG = "mqtt_manager";
 
 static esp_mqtt_client_handle_t s_client = NULL;
 static bool s_connected = false;
+static volatile mqtt_manager_reconnect_status_t s_reconnect_status =
+    MQTT_MANAGER_RECONNECT_IDLE;
 static EventGroupHandle_t s_mqtt_events = NULL;
 static QueueHandle_t s_command_queue = NULL;
 
@@ -91,6 +93,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     switch ((esp_mqtt_event_id_t)event_id) {
         case MQTT_EVENT_CONNECTED: {
             s_connected = true;
+            s_reconnect_status = MQTT_MANAGER_RECONNECT_CONNECTED;
             ESP_LOGI(TAG, "MQTT connected");
 
             if (s_client && s_topic_cmd_wildcard[0] != '\0') {
@@ -105,6 +108,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         }
         case MQTT_EVENT_DISCONNECTED:
             s_connected = false;
+            s_reconnect_status = MQTT_MANAGER_RECONNECT_IN_PROGRESS;
             ESP_LOGW(TAG, "MQTT disconnected");
             break;
 
@@ -178,6 +182,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         }
 
         case MQTT_EVENT_ERROR:
+            s_reconnect_status = MQTT_MANAGER_RECONNECT_FAILED;
             ESP_LOGE(TAG, "MQTT error");
             if (s_mqtt_events) {
                 xEventGroupSetBits(s_mqtt_events, MQTT_FAIL_BIT);
@@ -208,6 +213,7 @@ esp_err_t mqtt_manager_init(void)
 
     s_client = NULL;
     s_connected = false;
+    s_reconnect_status = MQTT_MANAGER_RECONNECT_IDLE;
 
     return ESP_OK;
 }
@@ -251,6 +257,7 @@ esp_err_t mqtt_manager_start(const char *device_id,
     if (s_mqtt_events) {
         xEventGroupClearBits(s_mqtt_events, MQTT_CONNECTED_BIT | MQTT_FAIL_BIT);
     }
+    s_reconnect_status = MQTT_MANAGER_RECONNECT_IN_PROGRESS;
 
     esp_err_t reg_err = esp_mqtt_client_register_event(
         s_client,
@@ -262,6 +269,7 @@ esp_err_t mqtt_manager_start(const char *device_id,
     if (reg_err != ESP_OK) {
         esp_mqtt_client_destroy(s_client);
         s_client = NULL;
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_FAILED;
         return reg_err;
     }
 
@@ -270,6 +278,7 @@ esp_err_t mqtt_manager_start(const char *device_id,
         esp_mqtt_client_destroy(s_client);
         s_client = NULL;
         s_connected = false;
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_FAILED;
         return err;
     }
 
@@ -283,6 +292,7 @@ esp_err_t mqtt_manager_start(const char *device_id,
     );
 
     if (bits & MQTT_CONNECTED_BIT) {
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_CONNECTED;
         return ESP_OK;
     }
 
@@ -294,6 +304,7 @@ esp_err_t mqtt_manager_start(const char *device_id,
             s_client = NULL;
         }
         s_connected = false;
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_FAILED;
         return ESP_FAIL;
     }
 
@@ -304,6 +315,7 @@ esp_err_t mqtt_manager_start(const char *device_id,
         s_client = NULL;
     }
     s_connected = false;
+    s_reconnect_status = MQTT_MANAGER_RECONNECT_FAILED;
     return ESP_ERR_TIMEOUT;
 }
 
@@ -311,6 +323,7 @@ esp_err_t mqtt_manager_stop(void)
 {
     if (s_client == NULL) {
         s_connected = false;
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_IDLE;
         return ESP_OK;
     }
 
@@ -320,13 +333,42 @@ esp_err_t mqtt_manager_stop(void)
         esp_mqtt_client_destroy(s_client);
         s_client = NULL;
         s_connected = false;
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_IDLE;
         return err;
     }
 
     esp_mqtt_client_destroy(s_client);
     s_client = NULL;
     s_connected = false;
+    s_reconnect_status = MQTT_MANAGER_RECONNECT_IDLE;
     return ESP_OK;
+}
+
+esp_err_t mqtt_manager_reconnect_async(void)
+{
+    if (s_client == NULL || s_mqtt_events == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (s_connected) {
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_CONNECTED;
+        return ESP_OK;
+    }
+
+    xEventGroupClearBits(s_mqtt_events, MQTT_CONNECTED_BIT | MQTT_FAIL_BIT);
+    s_reconnect_status = MQTT_MANAGER_RECONNECT_IN_PROGRESS;
+
+    esp_err_t err = esp_mqtt_client_reconnect(s_client);
+    if (err != ESP_OK) {
+        s_reconnect_status = MQTT_MANAGER_RECONNECT_FAILED;
+    }
+
+    return err;
+}
+
+mqtt_manager_reconnect_status_t mqtt_manager_get_reconnect_status(void)
+{
+    return s_reconnect_status;
 }
 
 bool mqtt_manager_is_connected(void)
