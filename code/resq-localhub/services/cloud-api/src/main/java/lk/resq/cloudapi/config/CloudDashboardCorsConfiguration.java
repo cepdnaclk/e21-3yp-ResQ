@@ -10,6 +10,7 @@ public class CloudDashboardCorsConfiguration implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         addLocalDashboardMapping(registry, "/api/cloud/health", "GET");
+        addLocalDashboardMapping(registry, "/api/cloud/auth/**", "GET", "POST", "OPTIONS");
         addLocalDashboardMapping(registry, "/api/cloud/sessions/**", "GET");
         addLocalDashboardMapping(registry, "/api/cloud/users/**", "GET", "POST", "PATCH", "OPTIONS");
         addLocalDashboardMapping(registry, "/api/cloud/courses/**", "GET", "POST", "PATCH", "DELETE", "OPTIONS");
@@ -23,7 +24,7 @@ public class CloudDashboardCorsConfiguration implements WebMvcConfigurer {
         registry.addMapping(path)
                 .allowedOriginPatterns("http://localhost:*", "http://127.0.0.1:*")
                 .allowedMethods(methods)
-                .allowedHeaders("Accept", "Content-Type")
+                .allowedHeaders("Accept", "Content-Type", "Authorization")
                 .maxAge(3600);
     }
 }

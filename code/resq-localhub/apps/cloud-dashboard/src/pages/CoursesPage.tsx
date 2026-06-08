@@ -12,7 +12,7 @@ import { navigate } from "../router";
 
 const EMPTY_FORM = { courseCode: "", title: "", description: "", instructorId: "" };
 
-export function CoursesPage() {
+export function CoursesPage({ readOnly = false }: { readOnly?: boolean }) {
   const [courses, setCourses] = useState<CloudCourse[]>([]);
   const [users, setUsers] = useState<CloudUser[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -84,8 +84,8 @@ export function CoursesPage() {
 
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
 
-      <div className="management-layout">
-        <form className="form-card" onSubmit={submit}>
+      <div className={readOnly ? "management-layout management-layout--single" : "management-layout"}>
+        {!readOnly ? <form className="form-card" onSubmit={submit}>
           <div>
             <p className="eyebrow">New course</p>
             <h3>Create cloud course</h3>
@@ -110,7 +110,7 @@ export function CoursesPage() {
             </select>
           </label>
           <button className="button" disabled={isSaving}>{isSaving ? "Saving..." : "Create course"}</button>
-        </form>
+        </form> : null}
 
         <div className="management-list">
           {courses.length === 0 ? (
@@ -138,9 +138,11 @@ export function CoursesPage() {
                 >
                   View course
                 </a>
-                <button className="text-button" onClick={() => void toggleActive(course)}>
-                  {course.active ? "Deactivate" : "Activate"}
-                </button>
+                {!readOnly ? (
+                  <button className="text-button" onClick={() => void toggleActive(course)}>
+                    {course.active ? "Deactivate" : "Activate"}
+                  </button>
+                ) : null}
               </div>
             </article>
           ))}

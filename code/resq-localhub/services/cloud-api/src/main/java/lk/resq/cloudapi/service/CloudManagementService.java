@@ -7,11 +7,13 @@ import lk.resq.cloudapi.model.CloudUserRole;
 import lk.resq.cloudapi.model.CreateCloudCourseRequest;
 import lk.resq.cloudapi.model.CreateCloudEnrollmentRequest;
 import lk.resq.cloudapi.model.CreateCloudUserRequest;
+import lk.resq.cloudapi.model.UpdateCloudPasswordRequest;
 import lk.resq.cloudapi.repository.CloudManagementRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -30,9 +32,14 @@ public class CloudManagementService {
             Set.of("courseCode", "title", "description", "instructorId", "active");
 
     private final CloudManagementRepository repository;
+    private final PasswordEncoder passwordEncoder;
 
-    public CloudManagementService(CloudManagementRepository repository) {
+    public CloudManagementService(
+            CloudManagementRepository repository,
+            PasswordEncoder passwordEncoder
+    ) {
         this.repository = repository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
@@ -43,6 +50,7 @@ public class CloudManagementService {
         String displayName = requiredText(request.displayName(), "displayName");
         String email = optionalText(request.email());
         CloudUserRole role = parseRole(request.role());
+        String password = requiredPassword(request.password());
         ensureEmailAvailable(email, null);
         Instant now = Instant.now();
 
@@ -55,10 +63,20 @@ public class CloudManagementService {
                     true,
                     now,
                     now
-            ));
+            ), passwordEncoder.encode(password), now);
         } catch (DataIntegrityViolationException error) {
             throw conflict("A user with that email already exists");
         }
+    }
+
+    @Transactional
+    public void updateUserPassword(String userId, UpdateCloudPasswordRequest request) {
+        getUser(userId);
+        if (request == null) {
+            throw badRequest("Request body is required");
+        }
+        String password = requiredPassword(request.password());
+        repository.updatePassword(userId, passwordEncoder.encode(password), Instant.now());
     }
 
     public List<CloudUser> listUsers() {
@@ -288,6 +306,13 @@ public class CloudManagementService {
 
     private static String optionalText(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String requiredPassword(String value) {
+        if (value == null || value.length() < 8) {
+            throw badRequest("password must be at least 8 characters");
+        }
+        return value;
     }
 
     private static String asString(Object value, String field) {

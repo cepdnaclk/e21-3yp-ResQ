@@ -3,13 +3,19 @@ import {
   createCloudUser,
   fetchCloudUsers,
   updateCloudUser,
+  updateCloudUserPassword,
   type CloudUser,
   type CloudUserRole,
 } from "../api/cloudApi";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { formatDate } from "../lib/format";
 
-const EMPTY_FORM = { displayName: "", email: "", role: "TRAINEE" as CloudUserRole };
+const EMPTY_FORM = {
+  displayName: "",
+  email: "",
+  role: "TRAINEE" as CloudUserRole,
+  password: "",
+};
 
 export function UsersPage() {
   const [users, setUsers] = useState<CloudUser[]>([]);
@@ -46,11 +52,15 @@ export function UsersPage() {
           email: form.email.trim() || null,
           role: form.role,
         });
+        if (form.password) {
+          await updateCloudUserPassword(editingId, form.password);
+        }
       } else {
         await createCloudUser({
           displayName: form.displayName.trim(),
           email: form.email.trim() || undefined,
           role: form.role,
+          password: form.password,
         });
       }
       setForm(EMPTY_FORM);
@@ -69,6 +79,7 @@ export function UsersPage() {
       displayName: user.displayName,
       email: user.email || "",
       role: user.role,
+      password: "",
     });
   }
 
@@ -128,6 +139,16 @@ export function UsersPage() {
               <option value="INSTRUCTOR">Instructor</option>
               <option value="ADMIN">Admin</option>
             </select>
+          </label>
+          <label>
+            Password <span>{editingId ? "Leave blank to keep the current password" : "Minimum 8 characters"}</span>
+            <input
+              type="password"
+              minLength={8}
+              required={!editingId}
+              value={form.password}
+              onChange={(event) => setForm({ ...form, password: event.target.value })}
+            />
           </label>
           <div className="form-actions">
             <button className="button" disabled={isSaving}>

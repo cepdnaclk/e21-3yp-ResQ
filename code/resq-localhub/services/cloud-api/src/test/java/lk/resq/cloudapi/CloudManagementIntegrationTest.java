@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import lk.resq.cloudapi.service.CloudAdminBootstrap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -35,11 +37,18 @@ class CloudManagementIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private CloudAdminBootstrap adminBootstrap;
+
+    private String adminAuthorization;
+
     @BeforeEach
-    void cleanManagementTables() {
+    void cleanManagementTables() throws Exception {
         jdbcTemplate.update("DELETE FROM cloud_enrollments");
         jdbcTemplate.update("DELETE FROM cloud_courses");
         jdbcTemplate.update("DELETE FROM cloud_users");
+        adminBootstrap.ensureBootstrapAdmin();
+        adminAuthorization = login("admin@resq.local", "admin123");
     }
 
     @Test
@@ -47,6 +56,7 @@ class CloudManagementIntegrationTest {
         JsonNode user = createUser("Course Admin", "admin@resq.test", "ADMIN");
 
         mockMvc.perform(patch("/api/cloud/users/{id}", user.path("userId").asText())
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
                                 {"displayName":"Cloud Admin","active":false}
@@ -59,9 +69,10 @@ class CloudManagementIntegrationTest {
     @Test
     void invalidRoleIsRejected() throws Exception {
         mockMvc.perform(post("/api/cloud/users")
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
-                                {"displayName":"Invalid User","role":"OBSERVER"}
+                                {"displayName":"Invalid User","role":"OBSERVER","password":"password123"}
                                 """))
                 .andExpect(status().isBadRequest());
     }
@@ -71,9 +82,10 @@ class CloudManagementIntegrationTest {
         createUser("First User", "same@resq.test", "TRAINEE");
 
         mockMvc.perform(post("/api/cloud/users")
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
-                                {"displayName":"Second User","email":"same@resq.test","role":"TRAINEE"}
+                                {"displayName":"Second User","email":"same@resq.test","role":"TRAINEE","password":"password123"}
                                 """))
                 .andExpect(status().isConflict());
     }
@@ -93,6 +105,7 @@ class CloudManagementIntegrationTest {
         JsonNode trainee = createUser("Trainee One", null, "TRAINEE");
 
         mockMvc.perform(post("/api/cloud/courses")
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
                                 {
@@ -111,6 +124,10 @@ class CloudManagementIntegrationTest {
         enroll(course, trainee);
 
         mockMvc.perform(get("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText())
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].traineeId").value(trainee.path("userId").asText()))
                 .andExpect(jsonPath("$[0].traineeDisplayName").value("Trainee One"))
@@ -141,15 +158,18 @@ class CloudManagementIntegrationTest {
 
         mockMvc.perform(delete("/api/cloud/courses/{courseId}/enrollments/{traineeId}",
                         course.path("courseId").asText(),
-                        trainee.path("userId").asText()))
+                        trainee.path("userId").asText())
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isNoContent());
 
-        mockMvc.perform(get("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText()))
+        mockMvc.perform(get("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText())
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].active").value(false));
 
         enroll(course, trainee);
-        mockMvc.perform(get("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText()))
+        mockMvc.perform(get("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText())
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].active").value(true));
     }
@@ -160,6 +180,7 @@ class CloudManagementIntegrationTest {
         JsonNode course = createCourse(null, "CPR Practice", instructor.path("userId").asText());
 
         mockMvc.perform(post("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText())
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
                                 {"traineeId":"%s"}
@@ -173,6 +194,7 @@ class CloudManagementIntegrationTest {
         JsonNode course = createCourse("CPR-103", "CPR Practice", instructor.path("userId").asText());
 
         mockMvc.perform(patch("/api/cloud/courses/{id}", course.path("courseId").asText())
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
                                 {"instructorId":null,"active":false,"title":"Archived CPR Practice"}
@@ -202,12 +224,14 @@ class CloudManagementIntegrationTest {
     private JsonNode createUser(String displayName, String email, String role) throws Exception {
         String emailField = email == null ? "" : "\"email\":\"" + email + "\",";
         String response = mockMvc.perform(post("/api/cloud/users")
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
                                 {
                                   "displayName":"%s",
                                   %s
-                                  "role":"%s"
+                                  "role":"%s",
+                                  "password":"password123"
                                 }
                                 """.formatted(displayName, emailField, role)))
                 .andExpect(status().isCreated())
@@ -219,6 +243,7 @@ class CloudManagementIntegrationTest {
         String codeField = code == null ? "" : "\"courseCode\":\"" + code + "\",";
         String instructorField = instructorId == null ? "" : "\"instructorId\":\"" + instructorId + "\",";
         String response = mockMvc.perform(post("/api/cloud/courses")
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
                                 {
@@ -235,10 +260,22 @@ class CloudManagementIntegrationTest {
 
     private void enroll(JsonNode course, JsonNode trainee) throws Exception {
         mockMvc.perform(post("/api/cloud/courses/{id}/enrollments", course.path("courseId").asText())
+                        .header(AUTHORIZATION, adminAuthorization)
                         .contentType("application/json")
                         .content("""
                                 {"traineeId":"%s"}
                                 """.formatted(trainee.path("userId").asText())))
                 .andExpect(status().isCreated());
+    }
+
+    private String login(String email, String password) throws Exception {
+        String response = mockMvc.perform(post("/api/cloud/auth/login")
+                        .contentType("application/json")
+                        .content("""
+                                {"email":"%s","password":"%s"}
+                                """.formatted(email, password)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return "Bearer " + objectMapper.readTree(response).path("accessToken").asText();
     }
 }

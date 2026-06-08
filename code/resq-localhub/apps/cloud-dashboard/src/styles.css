@@ -59,6 +59,45 @@ button {
   box-shadow: var(--shadow);
 }
 
+.header-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.user-menu span {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
+.user-menu small {
+  color: #a8ccc6;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.user-menu button {
+  padding: 7px 10px;
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
 .site-header h1,
 .page-heading h2,
 .json-card h3,
@@ -456,6 +495,10 @@ td code {
   align-items: start;
 }
 
+.management-layout--single {
+  grid-template-columns: 1fr;
+}
+
 .form-card,
 .inline-form,
 .course-summary,
@@ -651,6 +694,86 @@ td code {
   text-align: center;
 }
 
+.login-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(57, 168, 149, 0.2), transparent 30rem),
+    #102d2d;
+}
+
+.login-card {
+  width: min(460px, 100%);
+  padding: 34px;
+  border-radius: 22px;
+  background: white;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.3);
+}
+
+.login-card h1 {
+  margin: 0;
+  color: var(--brand-dark);
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  letter-spacing: -0.045em;
+}
+
+.login-card > p:not(.eyebrow) {
+  margin: 12px 0 24px;
+  color: var(--muted);
+}
+
+.login-card form {
+  display: grid;
+  gap: 16px;
+}
+
+.login-card label {
+  display: grid;
+  gap: 7px;
+  color: #435269;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.login-card input {
+  width: 100%;
+  padding: 12px;
+  color: var(--ink);
+  border: 1px solid #cbd6e2;
+  border-radius: 10px;
+  outline: none;
+  font: inherit;
+}
+
+.login-card input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(39, 132, 118, 0.12);
+}
+
+.login-card .button {
+  margin-top: 4px;
+}
+
+.login-card small {
+  display: block;
+  margin-top: 20px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.login-error {
+  margin-bottom: 18px;
+  padding: 11px 13px;
+  color: var(--danger);
+  border: 1px solid #efc9c5;
+  border-radius: 10px;
+  background: var(--danger-light);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 footer {
   padding: 18px 24px;
   color: #68768a;
@@ -683,6 +806,20 @@ footer {
   .latest-card {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-items: start;
+  }
+
+  .user-menu {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .user-menu span {
+    text-align: left;
   }
 
   main {

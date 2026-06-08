@@ -6,5 +6,6 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  localStorage.clear();
   window.history.replaceState({}, "", "/sessions");
 });

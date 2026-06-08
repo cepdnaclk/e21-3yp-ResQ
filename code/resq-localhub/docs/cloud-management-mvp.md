@@ -6,9 +6,9 @@ Phase 7 adds local cloud-side management for users, courses, and course
 enrollments. It extends the existing PostgreSQL-backed `cloud-api` and the
 separate React cloud dashboard.
 
-This is a local development MVP. Authentication and production authorization
-are not enabled. The management pages do not control live sessions, devices,
-firmware, MQTT, or SSE behavior.
+Phase 8 adds local authentication and role-based authorization around these
+management pages. Production identity integration is still not enabled. See
+`docs/cloud-auth-rbac-local.md`.
 
 Existing session sync remains independent of these records. Synced session
 payloads may continue to contain null trainee or instructor identifiers.
@@ -75,8 +75,9 @@ The management pages are part of `apps/cloud-dashboard`:
 - `/management/courses/:courseId` shows course details and manages trainee
   enrollment.
 
-The dashboard displays a persistent notice that authentication is not enabled.
-The existing `/sessions` and `/analytics` routes remain available.
+The dashboard displays a persistent local-auth warning. The existing
+`/sessions` and `/analytics` routes remain available to administrators and
+instructors.
 
 ## Run PostgreSQL
 
@@ -147,7 +148,7 @@ pnpm build
 ## Out Of Scope
 
 - AWS deployment, SDKs, credentials, or secrets
-- Cognito, JWT, authentication, or production RBAC enforcement
+- Cognito, external identity providers, or production RBAC enforcement
 - Cloud user sign-in or password management
 - LocalHub roster synchronization
 - Live telemetry or training controls

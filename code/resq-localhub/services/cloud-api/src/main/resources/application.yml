@@ -11,3 +11,12 @@ spring:
     driver-class-name: org.postgresql.Driver
   flyway:
     enabled: true
+
+resq:
+  cloud-auth:
+    jwt-secret: ${RESQ_CLOUD_AUTH_JWT_SECRET:local-dev-change-me}
+    jwt-issuer: ${RESQ_CLOUD_AUTH_JWT_ISSUER:resq-cloud-api}
+    token-ttl-minutes: ${RESQ_CLOUD_AUTH_TOKEN_TTL_MINUTES:120}
+    bootstrap-admin-email: ${RESQ_CLOUD_BOOTSTRAP_ADMIN_EMAIL:admin@resq.local}
+    bootstrap-admin-password: ${RESQ_CLOUD_BOOTSTRAP_ADMIN_PASSWORD:admin123}
+    bootstrap-admin-name: ${RESQ_CLOUD_BOOTSTRAP_ADMIN_NAME:ResQ Admin}

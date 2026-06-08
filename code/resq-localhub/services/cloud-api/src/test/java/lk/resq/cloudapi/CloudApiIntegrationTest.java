@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.jdbc.core.JdbcTemplate;
+import lk.resq.cloudapi.service.CloudAdminBootstrap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -17,6 +18,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -32,11 +34,17 @@ class CloudApiIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private CloudAdminBootstrap adminBootstrap;
+
     private String localSessionId;
+    private String adminAuthorization;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         jdbcTemplate.update("DELETE FROM cloud_session_summaries");
+        adminBootstrap.ensureBootstrapAdmin();
+        adminAuthorization = login("admin@resq.local", "admin123");
         localSessionId = "S-" + java.util.UUID.randomUUID();
     }
 
@@ -82,6 +90,10 @@ class CloudApiIntegrationTest {
         assertThat(rowCount).isEqualTo(1);
 
         mockMvc.perform(get("/api/cloud/sessions/{id}", response.path("cloudSessionId").asText()))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/cloud/sessions/{id}", response.path("cloudSessionId").asText())
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.payload.localSessionId").value(localSessionId));
     }
@@ -98,7 +110,8 @@ class CloudApiIntegrationTest {
 
         assertThat(second.path("cloudSessionId").asText()).isEqualTo(first.path("cloudSessionId").asText());
 
-        JsonNode sessions = objectMapper.readTree(mockMvc.perform(get("/api/cloud/sessions"))
+        JsonNode sessions = objectMapper.readTree(mockMvc.perform(get("/api/cloud/sessions")
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString());
         long matches = java.util.stream.StreamSupport.stream(sessions.spliterator(), false)
@@ -168,7 +181,8 @@ class CloudApiIntegrationTest {
     void listSessionsReturnsStoredRecords() throws Exception {
         JsonNode created = postValidPayload("HUB-LIST", localSessionId);
 
-        mockMvc.perform(get("/api/cloud/sessions"))
+        mockMvc.perform(get("/api/cloud/sessions")
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.cloudSessionId == '%s')]".formatted(
                         created.path("cloudSessionId").asText())).exists());
@@ -177,7 +191,8 @@ class CloudApiIntegrationTest {
     @Test
     void getCloudSessionByCloudSessionIdReturnsRecord() throws Exception {
         JsonNode created = postValidPayload("HUB-CLOUD-LOOKUP", localSessionId);
-        mockMvc.perform(get("/api/cloud/sessions/{id}", created.path("cloudSessionId").asText()))
+        mockMvc.perform(get("/api/cloud/sessions/{id}", created.path("cloudSessionId").asText())
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.idempotencyKey").value("HUB-CLOUD-LOOKUP:" + localSessionId));
     }
@@ -186,7 +201,8 @@ class CloudApiIntegrationTest {
     void getSyncSessionByLocalIdentityReturnsRecord() throws Exception {
         JsonNode created = postValidPayload("HUB-LOCAL-LOOKUP", localSessionId);
         mockMvc.perform(get("/api/sync/session-summaries/{hubId}/{sessionId}",
-                        "HUB-LOCAL-LOOKUP", localSessionId))
+                        "HUB-LOCAL-LOOKUP", localSessionId)
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cloudSessionId").value(created.path("cloudSessionId").asText()));
     }
@@ -199,7 +215,8 @@ class CloudApiIntegrationTest {
                 .isEqualTo("UNASSIGNED_LOCAL_HUB:" + localSessionId);
 
         mockMvc.perform(get("/api/sync/session-summaries/{hubId}/{sessionId}",
-                        "UNASSIGNED_LOCAL_HUB", localSessionId))
+                        "UNASSIGNED_LOCAL_HUB", localSessionId)
+                        .header(AUTHORIZATION, adminAuthorization))
                 .andExpect(status().isOk());
     }
 
@@ -211,6 +228,17 @@ class CloudApiIntegrationTest {
                 .andExpect(jsonPath("$.accepted").value(true))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body);
+    }
+
+    private String login(String email, String password) throws Exception {
+        String response = mockMvc.perform(post("/api/cloud/auth/login")
+                        .contentType("application/json")
+                        .content("""
+                                {"email":"%s","password":"%s"}
+                                """.formatted(email, password)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return "Bearer " + objectMapper.readTree(response).path("accessToken").asText();
     }
 
     private static String validPayload(String localHubId, String sessionId) {

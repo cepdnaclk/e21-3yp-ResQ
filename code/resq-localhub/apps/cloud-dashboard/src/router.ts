@@ -13,9 +13,13 @@ export function routeFromPath(pathname: string):
   | { name: "users" }
   | { name: "courses" }
   | { name: "course-detail"; courseId: string }
+  | { name: "login" }
+  | { name: "profile" }
   | { name: "redirect" } {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   if (normalized === "/") return { name: "redirect" };
+  if (normalized === "/login") return { name: "login" };
+  if (normalized === "/me") return { name: "profile" };
   if (normalized === "/sessions") return { name: "sessions" };
   if (normalized === "/analytics") return { name: "analytics" };
   if (normalized === "/management/users") return { name: "users" };

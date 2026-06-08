@@ -1,3 +1,9 @@
+import {
+  clearAuthSession,
+  getAccessToken,
+  type CloudAuthSession,
+} from "../auth/authStorage";
+
 export interface CloudHealth {
   status: string;
   service: string;
@@ -83,6 +89,7 @@ export interface CreateCloudUserInput {
   displayName: string;
   email?: string;
   role: CloudUserRole;
+  password: string;
 }
 
 export interface UpdateCloudUserInput {
@@ -102,7 +109,12 @@ export interface CreateCloudCourseInput {
 const configuredBaseUrl = import.meta.env.VITE_CLOUD_API_BASE_URL?.trim();
 export const cloudApiBaseUrl = (configuredBaseUrl || "http://localhost:19080").replace(/\/+$/, "");
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  init: RequestInit = {},
+  requiresAuth = true,
+): Promise<T> {
+  const accessToken = requiresAuth ? getAccessToken() : null;
   let response: Response;
   try {
     response = await fetch(`${cloudApiBaseUrl}${path}`, {
@@ -110,6 +122,7 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
       headers: {
         Accept: "application/json",
         ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...init.headers,
       },
     });
@@ -120,6 +133,11 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
 
   if (!response.ok) {
     const detail = await response.text();
+    if (response.status === 401 && accessToken) {
+      clearAuthSession();
+      window.history.replaceState({}, "", "/login");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
     throw new CloudApiError(
       `Cloud API request failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
       response.status,
@@ -133,7 +151,22 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
 }
 
 export function fetchCloudHealth(): Promise<CloudHealth> {
-  return requestJson("/api/cloud/health");
+  return requestJson("/api/cloud/health", {}, false);
+}
+
+export function loginCloudUser(email: string, password: string): Promise<CloudAuthSession> {
+  return requestJson("/api/cloud/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  }, false);
+}
+
+export function fetchCurrentCloudUser(): Promise<CloudUser> {
+  return requestJson("/api/cloud/auth/me");
+}
+
+export function logoutCloudUser(): Promise<void> {
+  return requestJson("/api/cloud/auth/logout", { method: "POST" });
 }
 
 export function fetchCloudSessions(): Promise<CloudSessionRecord[]> {
@@ -156,6 +189,13 @@ export function updateCloudUser(userId: string, patch: UpdateCloudUserInput): Pr
   return requestJson(`/api/cloud/users/${encodeURIComponent(userId)}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+export function updateCloudUserPassword(userId: string, password: string): Promise<void> {
+  return requestJson(`/api/cloud/users/${encodeURIComponent(userId)}/password`, {
+    method: "PATCH",
+    body: JSON.stringify({ password }),
   });
 }
 

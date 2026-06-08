@@ -83,9 +83,9 @@ pnpm dev
 ```
 
 The Cloud API permits local dashboard requests from localhost browser origins.
-Session review remains read-only; Phase 7 management writes are isolated under
-the management pages and APIs. Sync POST behavior remains server-to-server and
-is not exposed through the dashboard.
+Phase 8 requires login for session review and applies role-based access. The
+LocalHub sync POST remains public for local pipeline compatibility and is not
+exposed through the dashboard. See `docs/cloud-auth-rbac-local.md`.
 
 ## Demo Flow
 
@@ -112,7 +112,7 @@ pnpm build
 ## Out Of Scope
 
 - AWS deployment
-- Cognito, JWT, or authentication
+- Cognito or production identity integration
 - Authentication and production authorization
 - Live telemetry
 - Firmware or diagnostic commands

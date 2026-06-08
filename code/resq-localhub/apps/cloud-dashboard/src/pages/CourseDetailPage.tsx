@@ -13,7 +13,13 @@ import { ErrorState, LoadingState } from "../components/AsyncState";
 import { formatDate } from "../lib/format";
 import { navigate } from "../router";
 
-export function CourseDetailPage({ courseId }: { courseId: string }) {
+export function CourseDetailPage({
+  courseId,
+  readOnly = false,
+}: {
+  courseId: string;
+  readOnly?: boolean;
+}) {
   const [course, setCourse] = useState<CloudCourse | null>(null);
   const [enrollments, setEnrollments] = useState<CloudEnrollment[]>([]);
   const [users, setUsers] = useState<CloudUser[]>([]);
@@ -104,7 +110,7 @@ export function CourseDetailPage({ courseId }: { courseId: string }) {
         <div><span>Active enrollments</span><strong>{activeTraineeIds.size}</strong></div>
       </div>
 
-      <form className="inline-form" onSubmit={enroll}>
+      {!readOnly ? <form className="inline-form" onSubmit={enroll}>
         <label>
           Add trainee
           <select required value={traineeId} onChange={(event) => setTraineeId(event.target.value)}>
@@ -119,7 +125,7 @@ export function CourseDetailPage({ courseId }: { courseId: string }) {
         <button className="button" disabled={isSaving || !traineeId}>
           {isSaving ? "Adding..." : "Add trainee"}
         </button>
-      </form>
+      </form> : null}
 
       <div className="management-list">
         {enrollments.length === 0 ? (
@@ -136,17 +142,17 @@ export function CourseDetailPage({ courseId }: { courseId: string }) {
               <p>{enrollment.traineeEmail || "No email"} | Enrolled {formatDate(enrollment.enrolledAt)}</p>
             </div>
             <div className="row-actions">
-              {enrollment.active ? (
+              {!readOnly && enrollment.active ? (
                 <button className="text-button text-button--danger" onClick={() => void remove(enrollment)}>
                   Remove
                 </button>
-              ) : (
+              ) : !readOnly ? (
                 <button className="text-button" onClick={() => {
                   setTraineeId(enrollment.traineeId);
                 }}>
                   Select to reactivate
                 </button>
-              )}
+              ) : null}
             </div>
           </article>
         ))}

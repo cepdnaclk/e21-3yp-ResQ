@@ -3,6 +3,7 @@ package lk.resq.cloudapi.repository;
 import lk.resq.cloudapi.model.CloudCourse;
 import lk.resq.cloudapi.model.CloudEnrollment;
 import lk.resq.cloudapi.model.CloudUser;
+import lk.resq.cloudapi.model.CloudUserCredentials;
 import lk.resq.cloudapi.model.CloudUserRole;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -21,6 +22,11 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
 
     private static final String USER_SELECT = """
             SELECT user_id, display_name, email, role, active, created_at, updated_at
+            FROM cloud_users
+            """;
+    private static final String USER_CREDENTIALS_SELECT = """
+            SELECT user_id, display_name, email, role, active, created_at, updated_at,
+                   password_hash, last_login_at, password_updated_at
             FROM cloud_users
             """;
     private static final String COURSE_SELECT = """
@@ -47,14 +53,16 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
     }
 
     @Override
-    public CloudUser insertUser(CloudUser user) {
+    public CloudUser insertUser(CloudUser user, String passwordHash, Instant passwordUpdatedAt) {
         jdbcTemplate.update("""
                         INSERT INTO cloud_users (
-                            user_id, display_name, email, role, active, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            user_id, display_name, email, role, active, created_at, updated_at,
+                            password_hash, password_updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 uuid(user.userId()), user.displayName(), user.email(), user.role().name(),
-                user.active(), timestamp(user.createdAt()), timestamp(user.updatedAt()));
+                user.active(), timestamp(user.createdAt()), timestamp(user.updatedAt()),
+                passwordHash, nullableTimestamp(passwordUpdatedAt));
         return user;
     }
 
@@ -78,6 +86,52 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
     @Override
     public Optional<CloudUser> findUserByEmail(String email) {
         return first(jdbcTemplate.query(USER_SELECT + " WHERE LOWER(email) = LOWER(?)", userMapper, email));
+    }
+
+    @Override
+    public Optional<CloudUserCredentials> findUserCredentialsById(String userId) {
+        return first(jdbcTemplate.query(
+                USER_CREDENTIALS_SELECT + " WHERE user_id = ?",
+                this::mapUserCredentials,
+                uuid(userId)
+        ));
+    }
+
+    @Override
+    public Optional<CloudUserCredentials> findUserCredentialsByEmail(String email) {
+        return first(jdbcTemplate.query(
+                USER_CREDENTIALS_SELECT + " WHERE LOWER(email) = LOWER(?)",
+                this::mapUserCredentials,
+                email
+        ));
+    }
+
+    @Override
+    public boolean existsAdminUser() {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cloud_users WHERE role = 'ADMIN'",
+                Integer.class
+        );
+        return count != null && count > 0;
+    }
+
+    @Override
+    public void updatePassword(String userId, String passwordHash, Instant passwordUpdatedAt) {
+        jdbcTemplate.update("""
+                        UPDATE cloud_users
+                        SET password_hash = ?, password_updated_at = ?, updated_at = ?
+                        WHERE user_id = ?
+                        """,
+                passwordHash, timestamp(passwordUpdatedAt), timestamp(passwordUpdatedAt), uuid(userId));
+    }
+
+    @Override
+    public void updateLastLogin(String userId, Instant lastLoginAt) {
+        jdbcTemplate.update(
+                "UPDATE cloud_users SET last_login_at = ? WHERE user_id = ?",
+                timestamp(lastLoginAt),
+                uuid(userId)
+        );
     }
 
     @Override
@@ -189,6 +243,15 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
         );
     }
 
+    private CloudUserCredentials mapUserCredentials(ResultSet rs, int rowNumber) throws SQLException {
+        return new CloudUserCredentials(
+                mapUser(rs, rowNumber),
+                rs.getString("password_hash"),
+                nullableInstant(rs, "last_login_at"),
+                nullableInstant(rs, "password_updated_at")
+        );
+    }
+
     private CloudCourse mapCourse(ResultSet rs, int rowNumber) throws SQLException {
         Object instructorId = rs.getObject("instructor_id");
         return new CloudCourse(
@@ -220,8 +283,17 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
         return rs.getObject(column, java.time.OffsetDateTime.class).toInstant();
     }
 
+    private static Instant nullableInstant(ResultSet rs, String column) throws SQLException {
+        java.time.OffsetDateTime value = rs.getObject(column, java.time.OffsetDateTime.class);
+        return value == null ? null : value.toInstant();
+    }
+
     private static Timestamp timestamp(Instant value) {
         return Timestamp.from(value);
+    }
+
+    private static Timestamp nullableTimestamp(Instant value) {
+        return value == null ? null : timestamp(value);
     }
 
     private static UUID uuid(String value) {

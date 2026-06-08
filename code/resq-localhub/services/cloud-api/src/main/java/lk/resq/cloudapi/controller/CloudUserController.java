@@ -2,6 +2,7 @@ package lk.resq.cloudapi.controller;
 
 import lk.resq.cloudapi.model.CloudUser;
 import lk.resq.cloudapi.model.CreateCloudUserRequest;
+import lk.resq.cloudapi.model.UpdateCloudPasswordRequest;
 import lk.resq.cloudapi.service.CloudManagementService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -44,5 +45,14 @@ public class CloudUserController {
     @PatchMapping("/{userId}")
     public CloudUser update(@PathVariable String userId, @RequestBody Map<String, Object> patch) {
         return service.updateUser(userId, patch);
+    }
+
+    @PatchMapping("/{userId}/password")
+    public ResponseEntity<Void> updatePassword(
+            @PathVariable String userId,
+            @RequestBody UpdateCloudPasswordRequest request
+    ) {
+        service.updateUserPassword(userId, request);
+        return ResponseEntity.noContent().build();
     }
 }
