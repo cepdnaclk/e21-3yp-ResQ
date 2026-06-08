@@ -3,7 +3,7 @@
 logs/
 prompt_change.txt
 scripts/
-
+docs/
 
 # Environment files
 .env
