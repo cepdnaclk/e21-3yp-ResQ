@@ -206,6 +206,21 @@ export default function App() {
               {liveTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
             </span>
           </div>
+
+          {!currentUser ? (
+            <div className="command-shell__status-chip">
+              <span className="command-shell__status-label">Admin</span>
+              <span className="command-shell__status-value">Loading...</span>
+            </div>
+          ) : currentUser.role === "ADMIN" ? (
+            <div className="command-shell__status-chip">
+              <span className="command-shell__status-label">Admin</span>
+              <span className="command-shell__status-value">
+                {currentUser.displayName || currentUser.username}
+              </span>
+            </div>
+          ) : null}
+
           <div className="status-indicator" tabIndex={0}>
             <div className={`status-indicator__wrapper status-indicator__wrapper--${connectionHealthy ? "healthy" : "offline"}`}>
               {connectionHealthy ? (

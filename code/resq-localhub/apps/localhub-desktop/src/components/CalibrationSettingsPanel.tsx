@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type ManikinLiveSummary } from "../lib/browserManikinsApi";
 import {
   createCalibrationProfile,
@@ -13,6 +13,8 @@ import {
   type FirmwareCalibrationStartPayload,
   type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
+import { Card, Button, Badge, Input, Select, Progress } from "./ui";
+import CalibrationIcon from "./icons/CalibrationIcon";
 
 type CalibrationSettingsPanelProps = {
   devices: ManikinLiveSummary[];
@@ -92,8 +94,6 @@ const CALIBRATION_FIELDS: FieldConfig[] = [
     ),
   },
 ];
-
-import CalibrationIcon from "./icons/CalibrationIcon";
 
 export function CalibrationSettingsPanel({
   devices,
@@ -413,157 +413,199 @@ export function CalibrationSettingsPanel({
   const formDisabled = loading || savingState !== "idle";
   const selectedDeviceLabel = selectedDevice ? `${selectedDevice.deviceId}${selectedDevice.online ? "" : " (offline)"}` : "No live device selected";
   const selectedProfileLabel = selectedProfile ? selectedProfile.name : "New profile";
-  const saveButtonLabel = saveAcknowledged ? "Saved!" : savingState === "saving" ? "Saving..." : selectedProfile ? "Save Profile" : "Create Profile";
 
   return (
-    <section style={getPanelStyle(Boolean(selectedProfile))}>
-      <div style={headerStyle}>
+    <Card className="mb-6 relative overflow-hidden">
+      <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
         <div>
-           <h2 style={titleStyle}>Calibration Settings <CalibrationIcon size={18} /></h2>
-          <p style={subtitleStyle}>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <CalibrationIcon size={18} /> Calibration Settings
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Edit local calibration profiles and run calibration against the selected live device.
           </p>
         </div>
-        <button type="button" onClick={() => reloadProfiles(selectedProfileId)} disabled={loading || savingState !== "idle"} style={secondaryButtonStyle(loading || savingState !== "idle")}>
+        <Button
+          variant="secondary"
+          onClick={() => reloadProfiles(selectedProfileId)}
+          disabled={loading || savingState !== "idle"}
+          className="text-xs py-1 h-8"
+        >
           {loading ? "Reloading..." : "Reload"}
-        </button>
+        </Button>
       </div>
 
-      <div className="calibration-panel__pattern" aria-hidden="true" />
-
-      <div style={gridStyle}>
-        <label style={fieldStyle}>
-          <span style={labelStyle}>Live Device</span>
-          <select
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Live Device</label>
+          <Select
             value={selectedDeviceId ?? ""}
             onChange={(event) => onSelectedDeviceChange(event.target.value)}
             disabled={devices.length === 0 || formDisabled}
-            style={inputStyle}
+            className="w-full bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
           >
-            {devices.length === 0 ? (
-              <option value="">No live devices</option>
-            ) : null}
+            {devices.length === 0 ? <option value="">No live devices</option> : null}
             {devices.map((device) => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.deviceId}{device.online ? "" : " (offline)"}
+              <option key={device.deviceId} value={device.deviceId} className="dark:bg-gray-800">
+                {device.deviceId} {device.online ? "(Online)" : "(Offline)"}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </div>
 
-        <label style={fieldStyle}>
-          <span style={labelStyle}>Profile</span>
-          <select
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Profile</label>
+          <Select
             value={selectedProfileId ?? ""}
             onChange={(event) => setSelectedProfileId(event.target.value || null)}
             disabled={profiles.length === 0 || formDisabled}
-            style={inputStyle}
+            className="w-full bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
           >
             {selectedProfileId === null ? <option value="">New profile</option> : null}
             {profiles.map((profile) => (
-              <option key={profile.profileId} value={profile.profileId}>
+              <option key={profile.profileId} value={profile.profileId} className="dark:bg-gray-800">
                 {profile.name} {profile.defaultProfile ? "(default)" : ""}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </div>
       </div>
 
-      <div style={infoRowStyle}>
-        <span style={infoChipStyle}>Selected device: {selectedDeviceLabel}</span>
-        <span style={infoChipStyle}>Selected profile: {selectedProfileLabel}</span>
-        <span style={infoChipStyle}>{activeProfileCount} active profile(s)</span>
+      <div className="flex flex-wrap gap-2 mb-4">
+        <Badge variant="default" className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
+          Device: {selectedDeviceLabel}
+        </Badge>
+        <Badge variant="default" className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
+          Profile: {selectedProfileLabel}
+        </Badge>
+        <Badge variant="default" className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
+          {activeProfileCount} active profile(s)
+        </Badge>
       </div>
 
-      <div style={gridStyle}>
-        <label style={{ ...fieldStyle, gridColumn: "1 / -1" }}>
-          <span style={labelStyle}>Name</span>
-          <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} disabled={formDisabled} style={inputStyle} placeholder="Adult Basic" />
-        </label>
+      <div className="grid grid-cols-1 gap-4 mb-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</label>
+          <Input
+            value={form.name}
+            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            disabled={formDisabled}
+            placeholder="Adult Basic"
+            className="bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+          />
+        </div>
 
-        {CALIBRATION_FIELDS.map((field) => {
-          const value = form[field.key];
-          const numericValue = Number(value) || 0;
-          const percent = Math.max(0, Math.min(100, (numericValue / FIELD_MAX) * 100));
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</label>
+          <Input
+            value={form.description}
+            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+            disabled={formDisabled}
+            placeholder="Optional description"
+            className="bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+          />
+        </div>
+      </div>
 
-          return (
-            <div key={field.key} style={fieldStyle}>
-              <span style={labelStyle}>{field.label}</span>
-              <div style={comboRowStyle}>
-                <div style={fieldIconStyle}>{field.icon}</div>
-                <input
-                  value={value}
-                  onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}
-                  disabled={formDisabled}
-                  style={numericInputStyle}
-                  inputMode="numeric"
-                  type="number"
-                  min="1"
-                  max={FIELD_MAX}
-                />
+      <details className="group border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-4 bg-gray-50 dark:bg-gray-900/40">
+        <summary className="text-sm font-bold text-[#005A9C] dark:text-blue-400 cursor-pointer select-none flex items-center justify-between list-none focus:outline-none">
+          <span>Advanced Settings</span>
+          <span className="transition-transform group-open:rotate-180 text-xs">▼</span>
+        </summary>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          {CALIBRATION_FIELDS.map((field) => {
+            const value = form[field.key];
+            const numericValue = Number(value) || 0;
+            const percent = Math.max(0, Math.min(100, (numericValue / FIELD_MAX) * 100));
+
+            return (
+              <div key={field.key} className="flex flex-col gap-1.5">
+                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{field.label}</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-[#005A9C] dark:text-blue-400 border border-blue-100 dark:border-blue-800 flex-shrink-0">
+                    {field.icon}
+                  </div>
+                  <Input
+                    value={value}
+                    onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.value }))}
+                    disabled={formDisabled}
+                    className="w-full bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600"
+                    inputMode="numeric"
+                    type="number"
+                    min="1"
+                    max={FIELD_MAX}
+                  />
+                </div>
+                {/* Visual Gauge */}
+                <div className="h-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mt-1">
+                  <div className="h-full bg-gradient-to-r from-blue-400 to-[#005A9C] transition-all duration-300" style={{ width: `${percent}%` }} />
+                </div>
               </div>
-              <div style={gaugeTrackStyle} aria-hidden="true">
-                <div style={{ ...gaugeFillStyle, width: `${percent}%` }} />
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+      </details>
 
-        <label style={{ ...fieldStyle, gridColumn: "1 / -1" }}>
-          <span style={labelStyle}>Description</span>
-          <input value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} disabled={formDisabled} style={inputStyle} placeholder="Optional description" />
-        </label>
-      </div>
-
-      <div style={buttonRowStyle}>
-        <button type="button" onClick={handleSaveProfile} disabled={loading || savingState !== "idle" || !formValidity.ok} className={`save-profile-button ${saveAcknowledged ? "save-profile-button--saved" : ""}`} style={primaryButtonStyle(loading || savingState !== "idle" || !formValidity.ok)}>
-          {saveAcknowledged ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span aria-hidden="true">✓</span>
-              Saved!
-            </span>
-          ) : (
-            saveButtonLabel
-          )}
-        </button>
-        <button type="button" onClick={handleSetDefault} disabled={loading || savingState !== "idle" || !selectedProfile || selectedProfile.defaultProfile} style={secondaryButtonStyle(loading || savingState !== "idle" || !selectedProfile || selectedProfile.defaultProfile)}>
+      <div className="flex flex-wrap gap-2 mb-4">
+        <Button
+          onClick={handleSaveProfile}
+          disabled={loading || savingState !== "idle" || !formValidity.ok}
+          className={saveAcknowledged ? "bg-[#107C10] hover:bg-[#107C10]/90 text-white border-0" : "bg-[#005A9C] hover:bg-[#005A9C]/90 text-white border-0"}
+        >
+          {saveAcknowledged ? "Saved!" : savingState === "saving" ? "Saving..." : selectedProfile ? "Save Profile" : "Create Profile"}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={handleSetDefault}
+          disabled={loading || savingState !== "idle" || !selectedProfile || selectedProfile.defaultProfile}
+        >
           {savingState === "defaulting" ? "Setting..." : "Set Default"}
-        </button>
-        <button type="button" onClick={handleDeactivate} disabled={loading || savingState !== "idle" || !selectedProfile || !selectedProfile.active || selectedProfile.defaultProfile || activeProfileCount <= 1} style={secondaryButtonStyle(loading || savingState !== "idle" || !selectedProfile || !selectedProfile.active || selectedProfile.defaultProfile || activeProfileCount <= 1)}>
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={handleDeactivate}
+          disabled={loading || savingState !== "idle" || !selectedProfile || !selectedProfile.active || selectedProfile.defaultProfile || activeProfileCount <= 1}
+        >
           {savingState === "deactivating" ? "Deactivating..." : "Deactivate"}
-        </button>
-        <button type="button" onClick={handleRunCalibration} disabled={!canRunCalibration} style={primaryButtonStyle(!canRunCalibration)}>
+        </Button>
+        <Button
+          onClick={handleRunCalibration}
+          disabled={!canRunCalibration}
+          className="bg-[#005A9C] hover:bg-[#005A9C]/90 text-white border-0"
+        >
           {savingState === "running" || calibrationAction === "starting" ? "Requesting..." : "Run Calibration"}
-        </button>
-        <button type="button" onClick={handleNewProfile} disabled={loading || savingState !== "idle"} style={secondaryButtonStyle(loading || savingState !== "idle")}>
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={handleNewProfile}
+          disabled={loading || savingState !== "idle"}
+        >
           New Profile
-        </button>
+        </Button>
       </div>
 
-      {message ? <p style={messageStyle}>{message}</p> : null}
-      {error ? <p style={errorStyle}>{error}</p> : null}
-      {!formValidity.ok ? <p style={hintStyle}>{formValidity.message}</p> : null}
+      {message ? <p className="text-sm font-semibold text-[#107C10] mt-1">{message}</p> : null}
+      {error ? <p className="text-sm font-semibold text-[#D13438] mt-1">{error}</p> : null}
+      {!formValidity.ok ? <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{formValidity.message}</p> : null}
 
       {calibrationRunning ? (
-        <div style={calibrationStatusStyle}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={calibrationStatusLabelStyle}>Applying calibration – please wait</span>
-            <span style={calibrationStatusValueStyle}>{Math.round(calibrationProgress)}%</span>
+        <div className="border border-blue-100 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl p-4 mt-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-bold text-blue-800 dark:text-blue-300">Applying calibration – please wait</span>
+            <span className="text-sm font-extrabold text-[#005A9C] dark:text-blue-400">{Math.round(calibrationProgress)}%</span>
           </div>
-          <div style={calibrationProgressTrackStyle}>
-            <div style={{ ...calibrationProgressFillStyle, width: `${calibrationProgress}%` }} />
-          </div>
+          <Progress value={calibrationProgress} className="h-2 bg-blue-100 dark:bg-blue-950" />
         </div>
       ) : null}
 
       {selectedProfile ? (
-        <p style={hintStyle}>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
           Run Calibration uses the saved profile values for {selectedProfile.name}. Save edits before running if you changed any fields.
         </p>
       ) : (
-        <p style={hintStyle}>Create or select a calibration profile before running calibration.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">Create or select a calibration profile before running calibration.</p>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -611,234 +653,10 @@ function parsePositive(value: string, message: string): { ok: true; value: numbe
   return { ok: true, value: parsed };
 }
 
-function buttonBaseStyle(disabled: boolean): CSSProperties {
-  return {
-    padding: "7px 12px",
-    borderRadius: "8px",
-    border: `1px solid ${disabled ? "#cbd5e1" : "#1d4ed8"}`,
-    background: disabled ? "#e2e8f0" : "#1d4ed8",
-    color: disabled ? "#64748b" : "#ffffff",
-    cursor: disabled ? "not-allowed" : "pointer",
-    fontWeight: 700,
-    fontSize: "0.84rem",
-  };
-}
-
-function primaryButtonStyle(disabled: boolean): CSSProperties {
-  return buttonBaseStyle(disabled);
-}
-
-function secondaryButtonStyle(disabled: boolean): CSSProperties {
-  return {
-    ...buttonBaseStyle(disabled),
-    border: `1px solid ${disabled ? "#cbd5e1" : "#94a3b8"}`,
-    background: disabled ? "#e2e8f0" : "#ffffff",
-    color: disabled ? "#64748b" : "#334155",
-  };
-}
-
-const panelStyle: CSSProperties = {
-  border: "1px solid #cbd5e1",
-  borderRadius: "12px",
-  padding: "14px",
-  background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-  display: "grid",
-  gap: "12px",
-};
-
-const headerStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: "12px",
-  flexWrap: "wrap",
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "1rem",
-  fontWeight: 800,
-  color: "#0f172a",
-};
-
-const subtitleStyle: CSSProperties = {
-  margin: "4px 0 0",
-  fontSize: "0.86rem",
-  color: "#475569",
-  maxWidth: "58ch",
-};
-
-const gridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: "10px",
-};
-
-const fieldStyle: CSSProperties = {
-  display: "grid",
-  gap: "5px",
-};
-
-const labelStyle: CSSProperties = {
-  fontSize: "0.76rem",
-  fontWeight: 700,
-  color: "#475569",
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-};
-
-const inputStyle: CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "8px 10px",
-  borderRadius: "8px",
-  border: "1px solid #cbd5e1",
-  background: "#ffffff",
-  color: "#0f172a",
-  fontSize: "0.9rem",
-};
-
-const buttonRowStyle: CSSProperties = {
-  display: "flex",
-  gap: "8px",
-  flexWrap: "wrap",
-};
-
-const infoRowStyle: CSSProperties = {
-  display: "flex",
-  gap: "8px",
-  flexWrap: "wrap",
-};
-
-const infoChipStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "5px 10px",
-  borderRadius: "999px",
-  background: "#e2e8f0",
-  color: "#334155",
-  fontSize: "0.78rem",
-  fontWeight: 700,
-};
-
-const messageStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "0.86rem",
-  color: "#166534",
-  fontWeight: 600,
-};
-
-const errorStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "0.86rem",
-  color: "#b91c1c",
-  fontWeight: 600,
-};
-
-const hintStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "0.82rem",
-  color: "#64748b",
-};
-
 function progressFromId(progressId: number | null): number {
   if (progressId === null || progressId === undefined) {
     return 0;
   }
 
   return Math.max(0, Math.min(100, progressId));
-}
-
-const comboRowStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "auto minmax(0, 1fr)",
-  gap: "8px",
-  alignItems: "center",
-};
-
-const fieldIconStyle: CSSProperties = {
-  width: 30,
-  height: 30,
-  borderRadius: "999px",
-  display: "inline-grid",
-  placeItems: "center",
-  color: "#1d4ed8",
-  background: "rgba(219, 234, 254, 0.9)",
-  border: "1px solid rgba(147, 197, 253, 0.5)",
-  flex: "none",
-};
-
-const numericInputStyle: CSSProperties = {
-  ...inputStyle,
-  minWidth: 0,
-};
-
-const gaugeTrackStyle: CSSProperties = {
-  marginTop: 6,
-  height: 8,
-  borderRadius: 999,
-  background: "rgba(226, 232, 240, 0.95)",
-  overflow: "hidden",
-};
-
-const gaugeFillStyle: CSSProperties = {
-  height: "100%",
-  borderRadius: 999,
-  background: "linear-gradient(90deg, #60a5fa 0%, #2563eb 100%)",
-  transition: "width 180ms ease",
-};
-
-const calibrationStatusStyle: CSSProperties = {
-  display: "grid",
-  gap: 8,
-  padding: "12px 14px",
-  borderRadius: 12,
-  border: "1px solid rgba(37, 99, 235, 0.16)",
-  background: "rgba(239, 246, 255, 0.95)",
-};
-
-const calibrationStatusLabelStyle: CSSProperties = {
-  fontSize: "0.86rem",
-  color: "#1e3a8a",
-  fontWeight: 700,
-};
-
-const calibrationStatusValueStyle: CSSProperties = {
-  fontSize: "0.8rem",
-  color: "#1d4ed8",
-  fontWeight: 800,
-};
-
-const calibrationProgressTrackStyle: CSSProperties = {
-  height: 10,
-  borderRadius: 999,
-  background: "rgba(191, 219, 254, 0.8)",
-  overflow: "hidden",
-};
-
-const calibrationProgressFillStyle: CSSProperties = {
-  height: "100%",
-  borderRadius: 999,
-  background: "linear-gradient(90deg, #22c55e 0%, #2563eb 100%)",
-  transition: "width 220ms ease",
-};
-
-function getPanelStyle(hasSelectedProfile: boolean): CSSProperties {
-  return {
-    borderRadius: "12px",
-    padding: "14px",
-    display: "grid",
-    gap: "12px",
-    position: "relative",
-    overflow: "hidden",
-    background:
-      "radial-gradient(circle at top left, rgba(148, 163, 184, 0.12) 0 1px, transparent 1px) 0 0 / 14px 14px, linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-    border: hasSelectedProfile ? "1px solid transparent" : "1px solid #cbd5e1",
-    boxShadow: hasSelectedProfile ? "0 0 0 1px rgba(96, 165, 250, 0.22), 0 16px 40px rgba(37, 99, 235, 0.08)" : "0 10px 24px rgba(15, 23, 42, 0.05)",
-    backgroundClip: hasSelectedProfile ? "padding-box, border-box" : undefined,
-    backgroundOrigin: hasSelectedProfile ? "padding-box, border-box" : undefined,
-    backgroundImage: hasSelectedProfile
-      ? "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%), linear-gradient(135deg, rgba(59, 130, 246, 0.85), rgba(34, 197, 94, 0.55))"
-      : undefined,
-  };
 }

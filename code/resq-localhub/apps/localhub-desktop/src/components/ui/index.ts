@@ -6,3 +6,4 @@ export { Skeleton } from "./skeleton";
 export { Badge } from "./badge";
 export { Input } from "./input";
 export { Select } from "./select";
+export { Progress } from "./progress";

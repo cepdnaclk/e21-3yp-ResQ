@@ -14,6 +14,10 @@ vi.mock("../lib/browserHealthApi", () => ({
   fetchBrowserHealth: vi.fn(),
 }));
 
+vi.mock("../theme/ThemeToggle", () => ({
+  default: () => <button>Toggle Theme</button>,
+}));
+
 vi.mock("../lib/browserManikinsApi", () => ({
   fetchLiveManikins: vi.fn(),
   getLiveManikinsStreamUrl: vi.fn(() => "http://localhost:18080/api/stream/manikins/live"),

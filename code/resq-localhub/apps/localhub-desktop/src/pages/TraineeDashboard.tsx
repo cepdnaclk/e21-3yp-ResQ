@@ -379,7 +379,7 @@ function WaitingSessionStory() {
 
         <div className="waiting-session-story__headline-block">
           <p className="waiting-session-story__eyebrow">Waiting for session</p>
-          <h3 className="waiting-session-story__title">Awaiting instructor assignment</h3>
+          <h3 className="waiting-session-story__title">Ready for the next CPR scenario</h3>
           <div className="waiting-session-story__countdown" aria-label="Assignment placeholder">
             <span className="waiting-session-story__countdown-label">Next handoff</span>
             <span className="waiting-session-story__countdown-value">
