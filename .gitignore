@@ -59,8 +59,6 @@ build/
 *.log
 node_modules copy/
 
-.copilot
-.github/*
-!.github/workflows/
-!.github/workflows/**
-graphify-out
+.copilot/
+.github/
+graphify-out/
