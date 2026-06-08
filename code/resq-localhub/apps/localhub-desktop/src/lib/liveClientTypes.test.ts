@@ -41,14 +41,11 @@ describe("live telemetry normalization", () => {
     });
   });
 
-  it("converts safe legacy simulator fields without requiring raw values in the UI", () => {
+  it("converts telemetry and derives depthMm from depth_progress * 60 when depthMm is missing", () => {
     const metric = toLiveMetric({
       device_id: "M01",
       session_id: "S-TEST-001",
-      force1: 120000,
-      force2: 118000,
-      hall_raw: 3420,
-      current_delta: 52,
+      depth_progress: 0.8,
       total_compressions: 18,
       feedback: "PERFECT",
     });
@@ -56,14 +53,10 @@ describe("live telemetry normalization", () => {
     expect(metric).toMatchObject({
       deviceId: "M01",
       sessionId: "S-TEST-001",
-      depthMm: 52,
+      depthMm: 48,
       compressionCount: 18,
       flags: "DEPTH_OK,RATE_OK,RECOIL_OK",
-      sourceMode: "simulator",
     });
-    expect(metric).not.toHaveProperty("force1");
-    expect(metric).not.toHaveProperty("force2");
-    expect(metric).not.toHaveProperty("hall_raw");
   });
 
   it("rejects incomplete telemetry without crashing", () => {

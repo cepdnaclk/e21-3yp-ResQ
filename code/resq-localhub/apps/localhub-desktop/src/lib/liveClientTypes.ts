@@ -109,14 +109,8 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
   let depthMm = numberOrNull(raw.depthMm ?? raw.depth_mm);
   const depthProgress = numberOrNull(raw.depthProgress ?? raw.depth_progress ?? firmware?.depthProgress);
   let sourceMode = sourceModeOrNull(raw.sourceMode ?? raw.source_mode);
-  if (depthMm === null) {
-    depthMm = numberOrNull(raw.current_delta ?? raw.currentDelta);
-    if (depthMm !== null) {
-      warnings.push("used raw current_delta/currentDelta as fallback depthMm");
-      if (!sourceMode || sourceMode === "real") {
-        sourceMode = "simulator";
-      }
-    }
+  if (depthMm === null && depthProgress !== null) {
+    depthMm = depthProgress * 60;
   }
 
   const rateCpm = numberOrNull(raw.rateCpm ?? raw.rate_cpm ?? firmware?.rateCpm);

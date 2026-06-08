@@ -72,6 +72,7 @@ type SensorPoint = {
   pauseS: number | null;
   recoilOk: boolean | null;
   flags: string | null;
+  pressureBalancePct: number | null;
 };
 
 const MAX_SENSOR_POINTS = 80;
@@ -442,8 +443,12 @@ export default function TraineeDashboard({
   const liveState = useLiveSession({
     deviceId: session?.deviceId,
     sessionId,
-    enabled: Boolean(sessionId && session?.deviceId && session.active),
+    enabled: Boolean(sessionId && session?.deviceId),
   });
+  const isSessionActive = 
+    (liveState.firmwareState?.toUpperCase() === "SESSION_ACTIVE") || 
+    (session?.state?.toUpperCase() === "SESSION_ACTIVE") ||
+    (liveState.latestMetric?.firmwareState?.toUpperCase() === "SESSION_ACTIVE");
   const streamState = liveStreamStateFromConnection(liveState.connectionState);
   const streamMessage = liveState.error ?? liveState.message ?? null;
 
@@ -522,6 +527,7 @@ export default function TraineeDashboard({
         pauseS: metric.pauseS,
         recoilOk: metric.recoilOk,
         flags: Array.isArray(metric.flags) ? metric.flags.join(", ") : metric.flags,
+        pressureBalancePct: metric.pressureBalancePct ?? null,
       },
     ].slice(-MAX_SENSOR_POINTS));
   }, [
@@ -566,9 +572,9 @@ export default function TraineeDashboard({
   const recoilSeries = sensorHistory.map((point) => point.recoilOk);
   const force1Series = sensorHistory.map(() => session?.latestForce1 ?? null);
   const force2Series = sensorHistory.map(() => session?.latestForce2 ?? null);
-  const balanceSeries = sensorHistory.map(() => session?.pressureBalancePct ?? null);
-  const latestBalance = session?.pressureBalancePct ?? null;
-  const latestSkewed = session?.pressureSkewed ?? null;
+  const balanceSeries = sensorHistory.map((point) => point.pressureBalancePct ?? session?.pressureBalancePct ?? null);
+  const latestBalance = liveState.latestMetric?.pressureBalancePct ?? session?.pressureBalancePct ?? null;
+  const latestSkewed = latestBalance !== null ? latestBalance < 88.0 : (session?.pressureSkewed ?? null);
   const liveDepth = liveState.latestMetric?.depthMm ?? session?.latestDepthMm ?? null;
   const liveRate = liveState.latestMetric?.rateCpm ?? session?.latestRateCpm ?? null;
   const livePause = liveState.latestMetric?.pauseS ?? session?.latestPauseS ?? null;
@@ -846,8 +852,8 @@ export default function TraineeDashboard({
           </section>
         )}
 
-        {/* Live Vitals Card - Only when sessionId exists */}
-        {sessionId && (
+        {/* Live Vitals Card - Only when sessionId exists and session is active */}
+        {sessionId && isSessionActive && (
           <>
             {sessionError ? (
               <section style={styles.card}>
@@ -889,7 +895,7 @@ export default function TraineeDashboard({
                   <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Vitals</h2>
                   <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <LiveStreamStatusBadge state={streamState} />
-                    <SessionStatusBadge active={Boolean(session?.active)} />
+                    <SessionStatusBadge active={isSessionActive} />
                   </div>
                 </div>
                 {streamMessage ? (
@@ -1022,7 +1028,7 @@ export default function TraineeDashboard({
                       rateSeries={rateSeries}
                       pauseSeries={pauseSeries}
                       recoilSeries={recoilSeries}
-                      pressureValue={session?.pressureBalancePct ?? null}
+                      pressureValue={latestBalance}
                       validCompressions={liveState.latestMetric?.validCompressionCount ?? null}
                       totalCompressions={liveState.latestMetric?.compressionCount ?? null}
                     />
@@ -1032,16 +1038,22 @@ export default function TraineeDashboard({
           </>
         )}
 
-        {/* Waiting for Session - Only when no sessionId */}
-        {!sessionId && (
+        {/* Waiting for Session - Only when no sessionId OR session is inactive */}
+        {(!sessionId || !isSessionActive) && (
           <section style={styles.card}>
-            <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>No Active Session</h2>
+            <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>
+              {!sessionId ? "No Active Session" : "Waiting for Session"}
+            </h2>
             <div style={{ padding: "20px", borderRadius: "8px", background: "#f8fafc", border: "1px dashed #cbd5e1" }}>
               <p style={{ margin: 0, color: "#64748b", fontSize: "0.92rem" }}>
-                No active session selected yet.
+                {!sessionId 
+                  ? "No active session selected yet." 
+                  : `Session ${sessionId} is loaded but not active.`}
               </p>
               <p style={{ margin: "8px 0 0 0", color: "#94a3b8", fontSize: "0.85rem" }}>
-                Open a trainee link like /trainee?sessionId=&lt;id&gt; from the instructor dashboard.
+                {!sessionId 
+                  ? "Open a trainee link like /trainee?sessionId=<id> from the instructor dashboard." 
+                  : "The instructor will start the training scenario shortly."}
               </p>
             </div>
             <WaitingSessionStory />

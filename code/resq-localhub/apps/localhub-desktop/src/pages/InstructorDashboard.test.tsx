@@ -9,10 +9,21 @@ import {
   fetchCompletedSessions,
   startSession,
 } from "../lib/browserSessionsApi";
+import { fetchHubServiceInfo } from "../lib/browserManikinsProvisionApi";
 
 vi.mock("../lib/browserHealthApi", () => ({
   fetchBrowserHealth: vi.fn(),
 }));
+
+vi.mock("../lib/browserManikinsProvisionApi", async () => {
+  const actual = await vi.importActual<typeof import("../lib/browserManikinsProvisionApi")>(
+    "../lib/browserManikinsProvisionApi"
+  );
+  return {
+    ...actual,
+    fetchHubServiceInfo: vi.fn(),
+  };
+});
 
 vi.mock("../theme/ThemeToggle", () => ({
   default: () => <button>Toggle Theme</button>,
@@ -91,6 +102,13 @@ describe("InstructorDashboard", () => {
       ok: true,
       service: "hub-api",
       timestamp: new Date().toISOString(),
+    });
+
+    vi.mocked(fetchHubServiceInfo).mockResolvedValue({
+      ok: true,
+      backend_base_url: "http://localhost:18080",
+      mqtt_host: "localhost",
+      mqtt_port: 1883,
     });
 
     vi.mocked(fetchLiveManikins).mockResolvedValue([]);
