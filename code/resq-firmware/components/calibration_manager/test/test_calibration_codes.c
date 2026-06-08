@@ -106,7 +106,15 @@ TEST_CASE("Calibration start parser rejects malformed and unsafe values", "[cali
 
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
                       calibration_manager_parse_start_payload(
-                          "{\"command_id\":\"x\",\"hall_delta\":1,"
+                          "{\"command_id\":\"x\",\"hall_delta\":4096,"
+                          "\"ref_pressure\":1,\"bladder_1_pressure\":1,"
+                          "\"bladder_2_pressure\":1}",
+                          &config, command_id, sizeof(command_id), &reason));
+    TEST_ASSERT_EQUAL(CAL_REASON_INVALID_HALL_DELTA, reason);
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      calibration_manager_parse_start_payload(
+                          "{\"command_id\":\"x\",\"hall_delta\":620,"
                           "\"ref_pressure\":0,\"bladder_1_pressure\":1,"
                           "\"bladder_2_pressure\":1}",
                           &config, command_id, sizeof(command_id), &reason));

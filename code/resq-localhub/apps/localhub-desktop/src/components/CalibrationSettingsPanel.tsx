@@ -379,7 +379,7 @@ export function CalibrationSettingsPanel({
         </label>
         <label style={fieldStyle}>
           <span style={labelStyle}>Hall Delta</span>
-          <input value={form.hallDelta} onChange={(event) => setForm((current) => ({ ...current, hallDelta: event.target.value }))} disabled={formDisabled} style={inputStyle} inputMode="numeric" type="number" min="1" />
+          <input value={form.hallDelta} onChange={(event) => setForm((current) => ({ ...current, hallDelta: event.target.value }))} disabled={formDisabled} style={inputStyle} inputMode="numeric" type="number" min="50" max="4095" />
         </label>
         <label style={fieldStyle}>
           <span style={labelStyle}>Reference Pressure</span>
@@ -440,6 +440,9 @@ function validateForm(form: FormState): { ok: true; hallDelta: number; refPressu
   const hallDelta = parsePositive(form.hallDelta, "hallDelta must be greater than 0");
   if (!hallDelta.ok) {
     return hallDelta;
+  }
+  if (hallDelta.value < 50 || hallDelta.value > 4095) {
+    return { ok: false, message: "hallDelta must be between 50 and 4095" };
   }
 
   const refPressure = parsePositive(form.refPressure, "refPressure must be greater than 0");

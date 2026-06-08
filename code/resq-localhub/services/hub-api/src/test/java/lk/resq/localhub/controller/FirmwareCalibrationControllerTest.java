@@ -34,7 +34,7 @@ class FirmwareCalibrationControllerTest {
         ResponseEntity<?> response = fixture.controller.startCalibration(
                 null,
                 "M01",
-                new FirmwareCalibrationStartRequest(13500, 20100, 15000, 15000, null)
+                new FirmwareCalibrationStartRequest(620, 20100, 15000, 15000, null)
         );
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();

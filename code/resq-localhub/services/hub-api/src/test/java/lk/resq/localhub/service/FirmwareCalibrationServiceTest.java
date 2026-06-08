@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FirmwareCalibrationServiceTest {
 
@@ -25,7 +26,7 @@ class FirmwareCalibrationServiceTest {
         Fixture fixture = newFixture();
 
         var response = fixture.service.startCalibration("M01", new FirmwareCalibrationStartRequest(
-                13500,
+                620,
                 20100,
                 15000,
                 15000,
@@ -37,7 +38,7 @@ class FirmwareCalibrationServiceTest {
         assertThat(response.topic()).isEqualTo(FirmwareTopics.calibrationStartCommandTopic("M01"));
         assertThat(response.status()).isEqualTo("PUBLISHED");
         assertThat(fixture.publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.CALIBRATION_START);
-        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":13500");
+        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":620");
         assertThat(fixture.publisher.lastPayload).contains("\"profile_id\":\"adult-basic\"");
     }
 
@@ -48,7 +49,7 @@ class FirmwareCalibrationServiceTest {
         var response = fixture.service.startCalibration("M01", new FirmwareCalibrationStartRequest(null, null, null, null, null));
 
         assertThat(response.deviceId()).isEqualTo("M01");
-        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":13500");
+        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":620");
         assertThat(fixture.publisher.lastPayload).contains("\"ref_pressure\":20100");
         assertThat(fixture.publisher.lastPayload).contains("\"profile_id\":\"adult-basic\"");
     }
@@ -58,7 +59,7 @@ class FirmwareCalibrationServiceTest {
         Fixture fixture = newFixture();
         var created = fixture.profileService.createProfile(new CalibrationProfileRequest(
                 "Adult Training",
-                14000,
+                700,
                 20500,
                 15250,
                 15250,
@@ -69,9 +70,20 @@ class FirmwareCalibrationServiceTest {
 
         fixture.service.startCalibration("M01", new FirmwareCalibrationStartRequest(null, null, null, null, created.profileId()));
 
-        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":14000");
+        assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":700");
         assertThat(fixture.publisher.lastPayload).contains("\"ref_pressure\":20500");
         assertThat(fixture.publisher.lastPayload).contains(created.profileId());
+    }
+
+    @Test
+    void startCalibrationRejectsHallDeltaOutsideAdcRange() {
+        Fixture fixture = newFixture();
+
+        assertThatThrownBy(() -> fixture.service.startCalibration(
+                "M01",
+                new FirmwareCalibrationStartRequest(4096, null, null, null, null)
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("4095");
     }
 
     @Test

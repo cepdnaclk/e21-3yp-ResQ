@@ -168,7 +168,7 @@ def load_config(path: str | Path) -> DeployConfig:
         ),
         timing=TimingConfig(**{k: float(v) for k, v in timing.items()}),
         calibration=CalibrationConfig(
-            hall_delta=int(calibration.get("hall_delta", 13500)),
+            hall_delta=int(calibration.get("hall_delta", 620)),
             ref_pressure=int(calibration.get("ref_pressure", 20100)),
             bladder_1_pressure=int(calibration.get("bladder_1_pressure", 15000)),
             bladder_2_pressure=int(calibration.get("bladder_2_pressure", 15000)),

@@ -409,17 +409,39 @@ static esp_err_t calibration_collect_full_press_stats(int32_t expected_delta,
                                                      int32_t *out_hall_match,
                                                      int32_t *out_b1_full,
                                                      int32_t *out_b2_full,
-                                                     calibration_signal_stats_t *rest_hall_stats)
+                                                     calibration_signal_stats_t *rest_hall_stats,
+                                                     calibration_reason_id_t *out_failure_reason)
 {
+    if (out_failure_reason != NULL) {
+        *out_failure_reason = CAL_REASON_NONE;
+    }
+
     if (out_hall_match == NULL || out_b1_full == NULL || out_b2_full == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     /* Make the expected delta direction-safe and validate it's large enough */
     int32_t expected_range = calibration_abs_i32(expected_delta);
-    if (expected_range < 50) {
-        ESP_LOGW(TAG, "Expected hall delta too small for full-press capture: %ld", (long)expected_range);
+    if (expected_range < CALIBRATION_HALL_DELTA_MIN_RAW ||
+        expected_range > CALIBRATION_HALL_ADC_MAX_RAW) {
+        ESP_LOGW(TAG,
+                 "Expected hall delta outside supported range %d..%d: %ld",
+                 CALIBRATION_HALL_DELTA_MIN_RAW,
+                 CALIBRATION_HALL_ADC_MAX_RAW,
+                 (long)expected_range);
         return ESP_ERR_INVALID_ARG;
+    }
+
+    int32_t max_reachable_range = calibration_max_i32(
+        s_calibration_config.hall_baseline,
+        CALIBRATION_HALL_ADC_MAX_RAW - s_calibration_config.hall_baseline);
+    if (expected_range > max_reachable_range) {
+        ESP_LOGW(TAG,
+                 "Hall delta %ld exceeds the %ld-count range reachable from baseline %ld; clamping detection range",
+                 (long)expected_range,
+                 (long)max_reachable_range,
+                 (long)s_calibration_config.hall_baseline);
+        expected_range = max_reachable_range;
     }
 
     /* compute initial adaptive thresholds using expected range and measured noise */
@@ -493,12 +515,15 @@ static esp_err_t calibration_collect_full_press_stats(int32_t expected_delta,
         /* Throttled live logging for debugging during full-press wait */
         if ((elapsed_ms - last_log_ms) >= 500) {
             ESP_LOGI(TAG,
-                     "Hall full-press wait: hall=%ld baseline=%ld delta=%ld peak_delta=%ld required=%ld hold=%d/%d elapsed=%d",
+                     "Hall full-press wait: hall=%ld baseline=%ld delta=%ld peak_delta=%ld required=%ld "
+                     "p1_delta=%ld p2_delta=%ld hold=%d/%d elapsed=%d",
                      (long)hv,
                      (long)s_calibration_config.hall_baseline,
                      (long)delta,
                      (long)peak_delta,
                      (long)full_thresh,
+                     (long)calibration_abs_diff(sample.p1, s_calibration_config.pressure_1_baseline),
+                     (long)calibration_abs_diff(sample.p2, s_calibration_config.pressure_2_baseline),
                      hold_count,
                      CALIBRATION_FULL_PRESS_HOLD_SAMPLES,
                      elapsed_ms);
@@ -544,6 +569,17 @@ static esp_err_t calibration_collect_full_press_stats(int32_t expected_delta,
              (long)peak_hall_value,
              (long)s_calibration_config.hall_baseline,
              (long)full_thresh);
+
+    if (peak_delta <= hall_noise_margin) {
+        ESP_LOGE(TAG,
+                 "No Hall movement exceeded noise margin %ld; check Hall power, ADC channel wiring, and magnet alignment",
+                 (long)hall_noise_margin);
+        if (out_failure_reason != NULL) {
+            *out_failure_reason = CAL_REASON_HALL_RANGE_TOO_SMALL;
+        }
+    } else if (out_failure_reason != NULL) {
+        *out_failure_reason = CAL_REASON_HALL_FULL_PRESS_TIMEOUT;
+    }
 
     return ESP_ERR_TIMEOUT;
 }
@@ -1265,7 +1301,8 @@ static void calibration_manager_task(void *arg)
 
     /* Hall rest stability checks (direction-safe, reason-correct) */
     int32_t expected_hall_delta = calibration_abs_i32(s_calibration_config.hall_delta);
-    if (expected_hall_delta < 50) {
+    if (expected_hall_delta < CALIBRATION_HALL_DELTA_MIN_RAW ||
+        expected_hall_delta > CALIBRATION_HALL_ADC_MAX_RAW) {
         calibration_manager_fail(CAL_REASON_INVALID_HALL_DELTA);
         goto task_exit;
     }
@@ -1324,6 +1361,7 @@ static void calibration_manager_task(void *arg)
     int32_t matched_hall_full = 0;
     int32_t matched_b1_full = 0;
     int32_t matched_b2_full = 0;
+    calibration_reason_id_t hall_failure_reason = CAL_REASON_NONE;
 
     /* Publish progress and prompt operator before waiting for full press */
     publish_calibration_progress(CAL_REASON_NONE,
@@ -1335,10 +1373,13 @@ static void calibration_manager_task(void *arg)
                                                &matched_hall_full,
                                                &matched_b1_full,
                                                &matched_b2_full,
-                                               &hall_stats);
+                                               &hall_stats,
+                                               &hall_failure_reason);
 
     if (err != ESP_OK) {
-        if (err == ESP_ERR_INVALID_ARG) {
+        if (hall_failure_reason != CAL_REASON_NONE) {
+            calibration_manager_fail(hall_failure_reason);
+        } else if (err == ESP_ERR_INVALID_ARG) {
             calibration_manager_fail(CAL_REASON_INVALID_HALL_DELTA);
         } else if (err == ESP_ERR_TIMEOUT) {
             calibration_manager_fail(CAL_REASON_HALL_FULL_PRESS_TIMEOUT);
@@ -1483,7 +1524,8 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     if (host_params->ref_pressure <= 0 ||
         host_params->bladder_1_pressure <= 0 ||
         host_params->bladder_2_pressure <= 0 ||
-        host_params->hall_delta <= 0) {
+        host_params->hall_delta < CALIBRATION_HALL_DELTA_MIN_RAW ||
+        host_params->hall_delta > CALIBRATION_HALL_ADC_MAX_RAW) {
 
         ESP_LOGE(TAG, "Invalid host calibration parameters");
         return ESP_ERR_INVALID_ARG;
@@ -1730,7 +1772,8 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
         goto exit;
     }
 
-    if (hall_delta->valuedouble <= 0) {
+    if (hall_delta->valuedouble < CALIBRATION_HALL_DELTA_MIN_RAW ||
+        hall_delta->valuedouble > CALIBRATION_HALL_ADC_MAX_RAW) {
         if (out_reason != NULL) {
             *out_reason = CAL_REASON_INVALID_HALL_DELTA;
         }

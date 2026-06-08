@@ -35,7 +35,7 @@ long_outage_seconds = 35
 recovery_timeout_seconds = 45
 
 [calibration]
-hall_delta = 13500
+hall_delta = 620
 ref_pressure = 20100
 bladder_1_pressure = 15000
 bladder_2_pressure = 15000
