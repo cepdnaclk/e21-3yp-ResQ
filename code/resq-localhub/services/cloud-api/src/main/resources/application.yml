@@ -1,0 +1,6 @@
+server:
+  port: ${CLOUD_API_PORT:19080}
+
+spring:
+  application:
+    name: resq-cloud-api
