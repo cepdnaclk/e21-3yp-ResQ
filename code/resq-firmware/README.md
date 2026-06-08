@@ -352,7 +352,7 @@ cd code\resq-firmware\deploy_test
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-pytest -q
+python -m pytest -q
 ```
 
 Create the ignored local configuration from `config.example.toml`, set the

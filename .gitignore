@@ -33,6 +33,7 @@ coverage/
 __pycache__/
 *.pyc
 **/.pytest_cache/
+**/.pytest_tmp/
 
 # Embedded firmware/build outputs
 code/resq-firmware/build/
