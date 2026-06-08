@@ -32,9 +32,17 @@ coverage/
 # Python cache (if any scripts use Python)
 __pycache__/
 *.pyc
+**/.pytest_cache/
 
 # Embedded firmware/build outputs
 code/resq-firmware/build/
+code/resq-firmware/test/build/
+code/resq-firmware/test/build-test/
+code/resq-firmware/test/resq_firmware_unity_junit.xml
+code/resq-firmware/test/resq_firmware_unity_report.json
+code/resq-firmware/deploy_test/.venv/
+code/resq-firmware/deploy_test/config.toml
+code/resq-firmware/deploy_test/evidence/
 
 # Java/Maven build artifacts
 **/target/

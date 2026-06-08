@@ -112,6 +112,24 @@ static const calibration_reason_entry_t REASON_TABLE[] = {
         CAL_ACTION_CHECK_SENSOR_AND_RETRY
     },
     {
+        CAL_REASON_PRESSURE_SENSOR_SATURATED,
+        "PRESSURE_SENSOR_SATURATED",
+        "Pressure sensor readings are saturated",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
+        CAL_REASON_PRESSURE_SENSOR_FLOATING_OR_DISCONNECTED,
+        "PRESSURE_SENSOR_FLOATING_OR_DISCONNECTED",
+        "Pressure sensor appears floating or disconnected",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
+        CAL_REASON_PRESSURE_BASELINE_UNSTABLE,
+        "PRESSURE_BASELINE_UNSTABLE",
+        "Pressure sensor baseline is unstable",
+        CAL_ACTION_CHECK_SENSOR_AND_RETRY
+    },
+    {
         CAL_REASON_NVS_SAVE_FAILED,
         "NVS_SAVE_FAILED",
         "Calibration values were captured but could not be saved to NVS",

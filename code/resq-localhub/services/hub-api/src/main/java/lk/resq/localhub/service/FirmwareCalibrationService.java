@@ -49,7 +49,7 @@ public class FirmwareCalibrationService {
         Integer bladder1Pressure = coalesce(normalizedRequest.bladder1Pressure(), profile.bladder1Pressure());
         Integer bladder2Pressure = coalesce(normalizedRequest.bladder2Pressure(), profile.bladder2Pressure());
 
-        hallDelta = requirePositiveInteger(hallDelta, "hallDelta must be greater than 0");
+        hallDelta = CalibrationConstraints.requireHallDelta(hallDelta);
         refPressure = requirePositiveInteger(refPressure, "refPressure must be greater than 0");
         bladder1Pressure = requirePositiveInteger(bladder1Pressure, "bladder1Pressure must be greater than 0");
         bladder2Pressure = requirePositiveInteger(bladder2Pressure, "bladder2Pressure must be greater than 0");

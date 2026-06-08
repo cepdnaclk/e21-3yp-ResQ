@@ -53,13 +53,12 @@ typedef struct
  * This struct is filled during CALIBRATING.
  *
  * Flow:
- * 1. Firmware reads reference pressure.
- * 2. Firmware reads Hall baseline.
- * 3. Instructor compresses chest to full target depth.
- * 4. Firmware captures Hall delta and full-press values.
- * 5. Firmware validates this structure.
- * 6. If valid, calibrated becomes true.
- * 7. Config is saved to NVS.
+ * 1. Firmware waits for P0, P1, and P2 to match the host targets.
+ * 2. Firmware captures synchronized Hall and pressure baselines.
+ * 3. Instructor compresses the chest to the requested Hall depth.
+ * 4. Firmware captures Hall and pressure values at full compression.
+ * 5. Firmware derives per-channel pressure differences for runtime balance.
+ * 6. Firmware validates this structure and saves it to NVS.
  * ========================================================= */
 
 typedef struct

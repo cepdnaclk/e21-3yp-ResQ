@@ -185,7 +185,7 @@ public class CalibrationProfileService {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("name is required");
         }
-        requirePositive(hallDelta, "hallDelta must be greater than 0");
+        CalibrationConstraints.requireHallDelta(hallDelta);
         requirePositive(refPressure, "refPressure must be greater than 0");
         requirePositive(bladder1Pressure, "bladder1Pressure must be greater than 0");
         requirePositive(bladder2Pressure, "bladder2Pressure must be greater than 0");

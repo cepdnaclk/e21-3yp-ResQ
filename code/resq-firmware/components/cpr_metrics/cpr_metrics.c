@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <stdlib.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -45,6 +46,7 @@ static int64_t s_last_compression_start_ms = 0;
 static int64_t s_current_compression_start_ms = 0;
 static int64_t s_last_compression_end_ms = 0;
 static float s_depth_progress = 0.0f;
+static float s_pressure_balance_pct = 0.0f;
 static int64_t s_last_sample_ms = 0;
 static char s_hand_placement[CPR_HAND_PLACEMENT_MAX_LEN] = "NO_CONTACT";
 static float s_prev_progress = 0.0f;
@@ -69,6 +71,7 @@ esp_err_t cpr_metrics_init(void)
     s_current_compression_start_ms = 0;
     s_last_compression_end_ms = 0;
     s_depth_progress = 0.0f;
+    s_pressure_balance_pct = 0.0f;
     s_last_sample_ms = 0;
     s_prev_progress = 0.0f;
     strncpy(s_hand_placement, "NO_CONTACT", sizeof(s_hand_placement) - 1);
@@ -95,6 +98,7 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
     s_current_compression_start_ms = 0;
     s_last_compression_end_ms = 0;
     s_depth_progress = 0.0f;
+    s_pressure_balance_pct = 0.0f;
     s_last_sample_ms = 0;
     s_prev_progress = 0.0f;
     strncpy(s_hand_placement, "NO_CONTACT", sizeof(s_hand_placement) - 1);
@@ -137,15 +141,40 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     int32_t p2_delta_signed = sample->pressure_2_raw - s_calib.pressure_2_baseline;
     int32_t p1_delta = calib_abs_i32(p1_delta_signed);
     int32_t p2_delta = calib_abs_i32(p2_delta_signed);
+    bool pressure_contact = false;
+    bool pressure_balanced = false;
 
-    /* hand placement using adaptive contact and balance thresholds */
+    /*
+     * Compare each bladder as a fraction of its own calibrated full-press
+     * range. Raw HX710 counts are not directly comparable when the two
+     * pressure channels have different gains.
+     */
     if (calib_max_i32(p1_delta, p2_delta) < s_calib.pressure_contact_threshold) {
         strncpy(s_hand_placement, "NO_CONTACT", sizeof(s_hand_placement) - 1);
+        s_pressure_balance_pct = 0.0f;
     } else {
-        int32_t balance_pct = (int32_t)(calib_abs_i32(p1_delta - p2_delta) * 100 / calib_max_i32(1, (p1_delta + p2_delta)));
-        if (balance_pct <= s_calib.pressure_balance_allowed_pct) {
+        pressure_contact = true;
+        int64_t p1_normalized = s_calib.pressure_1_range_raw > 0
+                                    ? ((int64_t)p1_delta * 1000) /
+                                          s_calib.pressure_1_range_raw
+                                    : p1_delta;
+        int64_t p2_normalized = s_calib.pressure_2_range_raw > 0
+                                    ? ((int64_t)p2_delta * 1000) /
+                                          s_calib.pressure_2_range_raw
+                                    : p2_delta;
+        int64_t normalized_total = p1_normalized + p2_normalized;
+        int32_t imbalance_pct = normalized_total > 0
+                                    ? (int32_t)(llabs(p1_normalized - p2_normalized) *
+                                                100 / normalized_total)
+                                    : 100;
+
+        pressure_balanced =
+            imbalance_pct <= s_calib.pressure_balance_allowed_pct;
+        s_pressure_balance_pct = (float)(100 - imbalance_pct);
+
+        if (pressure_balanced) {
             strncpy(s_hand_placement, "CENTER", sizeof(s_hand_placement) - 1);
-        } else if (p1_delta > p2_delta) {
+        } else if (p1_normalized > p2_normalized) {
             strncpy(s_hand_placement, CPR_SENSOR_1_SIDE_LABEL, sizeof(s_hand_placement) - 1);
         } else {
             strncpy(s_hand_placement, CPR_SENSOR_2_SIDE_LABEL, sizeof(s_hand_placement) - 1);
@@ -185,19 +214,22 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                 s_state = FULL_PRESS_REACHED;
                 /* evaluate pressure-based validity */
                 bool pressure_ok = false;
-                    /* pressure validity using absolute adaptive threshold */
-                    if (calib_max_i32(p1_delta, p2_delta) >= s_calib.pressure_valid_threshold) {
-                        pressure_ok = true;
-                    }
-
-                    if (pressure_ok) {
-                        s_valid_compressions++;
-                    }
-            }
-                if (hall_delta_now <= s_calib.hall_recoil_delta) {
-                    /* canceled shallow or recoil detected too early */
-                    s_state = WAITING_FOR_COMPRESSION;
+                /* pressure validity using absolute adaptive threshold */
+                if (pressure_contact &&
+                    pressure_balanced &&
+                    calib_max_i32(p1_delta, p2_delta) >=
+                        s_calib.pressure_valid_threshold) {
+                    pressure_ok = true;
                 }
+
+                if (pressure_ok) {
+                    s_valid_compressions++;
+                }
+            }
+            if (hall_delta_now <= s_calib.hall_recoil_delta) {
+                /* canceled shallow or recoil detected too early */
+                s_state = WAITING_FOR_COMPRESSION;
+            }
             break;
 
         case FULL_PRESS_REACHED:
@@ -271,7 +303,7 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     }
     out_snapshot->recoil_ok = (s_recoil_ok_count > 0);
     strncpy(out_snapshot->hand_placement, s_hand_placement, sizeof(out_snapshot->hand_placement) - 1);
-    out_snapshot->pressure_balance_pct = 0.0f;
+    out_snapshot->pressure_balance_pct = s_pressure_balance_pct;
     /* build flags string */
     size_t pos = 0;
     if (out_snapshot->depth_ok) {

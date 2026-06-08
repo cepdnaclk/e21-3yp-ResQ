@@ -1,0 +1,50 @@
+[device]
+serial_port = "COM4"
+baud_rate = 115200
+target = "esp32c3"
+provision_url = "http://192.168.4.1"
+softap_ssid_prefix = "ResQ-"
+softap_password = "resq12345"
+
+[network]
+lan_profile = "ResQ-Lab"
+wifi_ssid = "ResQ-Lab"
+wifi_password_env = "RESQ_TEST_WIFI_PASSWORD"
+host_ip = "192.168.8.100"
+
+[services]
+backend_port = 18080
+mqtt_port = 1883
+mqtt_ws_port = 9001
+mosquitto_path = ""
+reuse_broker = false
+
+[router]
+disable_command = ["powershell", "-File", "router-hook.ps1", "disable"]
+enable_command = ["powershell", "-File", "router-hook.ps1", "enable"]
+healthcheck_command = ["powershell", "-File", "router-hook.ps1", "status"]
+timeout_seconds = 30
+
+[timing]
+boot_timeout_seconds = 45
+provision_timeout_seconds = 90
+command_timeout_seconds = 15
+calibration_timeout_seconds = 240
+short_outage_seconds = 5
+long_outage_seconds = 35
+recovery_timeout_seconds = 45
+
+[calibration]
+hall_delta = 620
+ref_pressure = 20100
+bladder_1_pressure = 15000
+bladder_2_pressure = 15000
+profile_id = "deploy-qualification"
+
+[qualification]
+interactive = true
+run_calibration = true
+run_session = true
+run_recovery = true
+run_destructive = true
+evidence_dir = "deploy_test/evidence"

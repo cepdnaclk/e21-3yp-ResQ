@@ -25,6 +25,7 @@ idf_component_register(
         calibration_fail_manager
         calibration_state_manager
         system_button_manager
+        firmware_state_machine
         nvs_flash
         esp_event
         esp_netif
