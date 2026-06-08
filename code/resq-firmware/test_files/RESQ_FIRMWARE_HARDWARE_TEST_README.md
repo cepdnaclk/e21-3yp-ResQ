@@ -323,6 +323,99 @@ cmd/session/start
 
 If the device is not ready/calibrated, the test may warn that session start was rejected.
 
+## Session task lifecycle test
+
+This starts and stops a normal session, then immediately starts a second session.
+The harness checks that telemetry cadence still matches one publisher task.
+
+```powershell
+python .\resq_firmware_state_test.py `
+  --wifi-ssid "YOUR_WIFI_SSID" `
+  --wifi-pass "YOUR_WIFI_PASSWORD" `
+  --host-ip 192.168.8.187 `
+  --topic-style short `
+  --run-session `
+  --test-session-lifecycle
+```
+
+Expected:
+
+```text
+first session stops cleanly
+→ second session reaches SESSION_ACTIVE
+→ telemetry uses only the second session ID
+→ telemetry cadence remains consistent with one publisher
+→ second session stops cleanly
+```
+
+## Transient MQTT recovery test
+
+The test harness must own the Mosquitto process. Do not use `--no-broker`, and
+stop any broker already listening on the configured MQTT port before running.
+
+```powershell
+python .\resq_firmware_state_test.py `
+  --wifi-ssid "YOUR_WIFI_SSID" `
+  --wifi-pass "YOUR_WIFI_PASSWORD" `
+  --host-ip 192.168.8.187 `
+  --topic-style short `
+  --run-session `
+  --test-session-recovery `
+  --recovery-outage-seconds 5
+```
+
+Expected for an outage shorter than 30 seconds:
+
+```text
+SESSION_ACTIVE telemetry is initially observed
+→ broker stops temporarily
+→ sensing and metronome continue locally
+→ broker restarts
+→ telemetry resumes with the same session_id
+→ compression counters do not decrease
+→ event_id 2002 is not published
+```
+
+## Terminal MQTT interruption test
+
+Use an outage longer than the firmware's 30-second recovery deadline:
+
+```powershell
+python .\resq_firmware_state_test.py `
+  --wifi-ssid "YOUR_WIFI_SSID" `
+  --wifi-pass "YOUR_WIFI_PASSWORD" `
+  --host-ip 192.168.8.187 `
+  --topic-style short `
+  --run-session `
+  --test-session-recovery `
+  --recovery-outage-seconds 35 `
+  --recovery-settle-timeout 25
+```
+
+Expected:
+
+```text
+session runtime stops after the recovery deadline
+→ firmware reconnects to MQTT
+→ event_id 2002 and SESSION_INTERRUPTED status are published once
+→ telemetry for the interrupted session does not resume
+→ device returns READY_FOR_SESSION or PAIRED_IDLE
+```
+
+## Manual Wi-Fi recovery tests
+
+Wi-Fi interruption cannot be safely automated by the MQTT harness. Start a
+session, then temporarily disable the configured access point or move the
+device out of range.
+
+For an outage shorter than 30 seconds, restore Wi-Fi and verify that telemetry
+resumes with the same session ID, counters do not reset, and event `2002` is not
+published.
+
+For an outage longer than 30 seconds, restore Wi-Fi and verify the full
+`WIFI_CONNECTING → BACKEND_REGISTERING → MQTT_CONNECTING` path, one terminal
+event `2002`, no old-session telemetry, and readiness for a new session.
+
 ## System command test
 
 This is optional and should be run at the end because reset/turn-off can stop the device.

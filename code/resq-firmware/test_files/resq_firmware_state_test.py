@@ -589,6 +589,7 @@ class BrokerProcess:
         self.mosquitto_path = mosquitto_path
         self.process: Optional[subprocess.Popen[str]] = None
         self.tempdir: Optional[tempfile.TemporaryDirectory[str]] = None
+        self.command: Optional[List[str]] = None
 
     def _find_mosquitto(self) -> Optional[str]:
         if self.mosquitto_path:
@@ -636,10 +637,17 @@ class BrokerProcess:
             encoding="utf-8",
         )
 
-        cmd = [exe, "-c", str(conf_path), "-v"]
-        log("MQTT", "starting broker: " + " ".join(f'\"{x}\"' if " " in x else x for x in cmd))
+        self.command = [exe, "-c", str(conf_path), "-v"]
+        self._launch_owned()
+        self._wait_until_ready()
+
+    def _launch_owned(self) -> None:
+        if not self.command:
+            raise RuntimeError("No harness-owned Mosquitto command is available")
+
+        log("MQTT", "starting broker: " + " ".join(f'\"{x}\"' if " " in x else x for x in self.command))
         self.process = subprocess.Popen(
-            cmd,
+            self.command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -647,8 +655,11 @@ class BrokerProcess:
         )
         threading.Thread(target=self._pipe_logs, daemon=True).start()
 
+    def _wait_until_ready(self) -> None:
         deadline = time.time() + 10
         while time.time() < deadline:
+            if not self.process:
+                raise RuntimeError("Harness-owned Mosquitto process was not started")
             if self.process.poll() is not None:
                 raise RuntimeError(f"Mosquitto exited early with code {self.process.returncode}")
             if port_is_open("127.0.0.1", self.mqtt_port):
@@ -656,6 +667,23 @@ class BrokerProcess:
                 return
             time.sleep(0.2)
         raise RuntimeError("Mosquitto did not become ready within 10 seconds")
+
+    def is_owned(self) -> bool:
+        return self.command is not None and self.process is not None
+
+    def interrupt_owned(self, outage_seconds: float) -> int:
+        if not self.is_owned() or not self.process:
+            raise RuntimeError("Recovery test requires the harness to own the Mosquitto process")
+
+        log("MQTT", f"interrupting harness-owned broker for {outage_seconds:.1f}s")
+        if self.process.poll() is None:
+            self.process.terminate()
+            self.process.wait(timeout=5)
+
+        time.sleep(max(0.1, outage_seconds))
+        self._launch_owned()
+        self._wait_until_ready()
+        return now_ms()
 
     def _pipe_logs(self) -> None:
         if not self.process or not self.process.stdout:
@@ -740,6 +768,7 @@ class MqttMonitor:
             log("MQTT", f"monitor connection failed rc={rc}")
 
     def _on_disconnect(self, client: Any, userdata: Any, *args: Any) -> None:
+        self.connected.clear()
         log("MQTT", "monitor disconnected")
 
     def _parse_topic(self, topic: str) -> Tuple[Optional[str], str]:
@@ -809,11 +838,17 @@ class MqttMonitor:
 # ---------------------------------------------------------------------------
 
 class FirmwareTestRunner:
-    def __init__(self, ctx: HarnessContext, monitor: MqttMonitor, store: MessageStore, args: argparse.Namespace) -> None:
+    def __init__(self,
+                 ctx: HarnessContext,
+                 monitor: MqttMonitor,
+                 store: MessageStore,
+                 args: argparse.Namespace,
+                 broker: Optional[BrokerProcess] = None) -> None:
         self.ctx = ctx
         self.monitor = monitor
         self.store = store
         self.args = args
+        self.broker = broker
         self.results: List[TestResult] = []
         self.device_id: Optional[str] = args.device_id or None
 
@@ -1509,6 +1544,14 @@ class FirmwareTestRunner:
             else:
                 self.add("active_session_telemetry", "WARN", "Telemetry observed but missing expected metric fields", present=present, payload=telemetry.payload_json)
 
+        if self.args.test_session_recovery:
+            session_still_active = self.test_mqtt_session_recovery(
+                session_id,
+                telemetry.payload_json if telemetry else {},
+            )
+            if not session_still_active:
+                return
+
         stop_start = now_ms()
         stop_payload = {
             "command_id": f"cmd-session-stop-{stop_start}",
@@ -1535,6 +1578,183 @@ class FirmwareTestRunner:
             self.add("active_session_stop", "PASS", "Session stop acknowledged / READY_FOR_SESSION observed", topic=stopped.topic, payload=stopped.payload_json)
         else:
             self.add("active_session_stop", "WARN", "No clear session stop response observed")
+            return
+
+        if self.args.test_session_lifecycle:
+            self.test_rapid_session_restart()
+
+    def test_mqtt_session_recovery(self,
+                                   session_id: str,
+                                   telemetry_before: Dict[str, Any]) -> bool:
+        if not self.broker or not self.broker.is_owned():
+            self.add(
+                "session_mqtt_recovery",
+                "WARN",
+                "Skipped automatic broker outage; run without --no-broker and ensure the MQTT port is free so the harness owns Mosquitto",
+            )
+            return True
+
+        outage_started_ms = now_ms()
+        try:
+            broker_restarted_ms = self.broker.interrupt_owned(
+                self.args.recovery_outage_seconds)
+        except Exception as exc:
+            self.add("session_mqtt_recovery", "FAIL", f"Could not interrupt/restart broker: {exc}")
+            return False
+
+        if not self.monitor.connected.wait(timeout=self.args.recovery_settle_timeout):
+            self.add("session_mqtt_monitor_reconnect", "FAIL", "Python MQTT monitor did not reconnect after broker restart")
+            return False
+
+        expect_resume = self.args.recovery_outage_seconds < 30.0
+        if expect_resume:
+            resumed = self.store.wait_for(
+                lambda m: self._is_device_msg(m)
+                and self._topic_suffix(m) == "telemetry"
+                and str(m.payload_json.get("session_id", "")) == session_id,
+                timeout=self.args.recovery_settle_timeout,
+                after_ms=broker_restarted_ms,
+            )
+            interrupted = self.store.find_all(
+                lambda m: self._is_device_msg(m)
+                and str(m.payload_json.get("event_id", "")) == "2002",
+                after_ms=outage_started_ms,
+            )
+
+            if not resumed:
+                self.add("session_mqtt_recovery", "FAIL", "Telemetry did not resume with the original session ID after a transient MQTT outage")
+                return False
+            if interrupted:
+                self.add("session_mqtt_recovery_contract", "FAIL", "Terminal event 2002 was emitted for a recoverable outage", events=[m.payload_json for m in interrupted])
+                return False
+
+            before_count = int(telemetry_before.get("compression_count", 0) or 0)
+            after_count = int(resumed.payload_json.get("compression_count", 0) or 0)
+            if after_count < before_count:
+                self.add(
+                    "session_mqtt_recovery_metrics",
+                    "FAIL",
+                    "Compression counters decreased across reconnect",
+                    before=before_count,
+                    after=after_count,
+                )
+                return False
+
+            self.add(
+                "session_mqtt_recovery",
+                "PASS",
+                "Telemetry resumed with the same session ID and no terminal interruption event",
+                outage_seconds=self.args.recovery_outage_seconds,
+                compression_count_before=before_count,
+                compression_count_after=after_count,
+            )
+            return True
+
+        interrupted = self.store.wait_for(
+            lambda m: self._is_device_msg(m)
+            and (
+                str(m.payload_json.get("event_id", "")) == "2002"
+                or str(m.payload_json.get("state", "")) == "SESSION_INTERRUPTED"
+            ),
+            timeout=self.args.recovery_settle_timeout,
+            after_ms=broker_restarted_ms,
+        )
+        if not interrupted:
+            self.add("session_mqtt_terminal_interruption", "FAIL", "No terminal SESSION_INTERRUPTED report arrived after the recovery deadline")
+            return False
+
+        time.sleep(1.0)
+        resumed = self.store.find_all(
+            lambda m: self._is_device_msg(m)
+            and self._topic_suffix(m) == "telemetry"
+            and str(m.payload_json.get("session_id", "")) == session_id,
+            after_ms=broker_restarted_ms,
+        )
+        if resumed:
+            self.add("session_mqtt_terminal_interruption", "FAIL", "Old-session telemetry resumed after terminal interruption")
+        else:
+            self.add(
+                "session_mqtt_terminal_interruption",
+                "PASS",
+                "Session ended once and reported event/state SESSION_INTERRUPTED after reconnect",
+                payload=interrupted.payload_json,
+            )
+        return False
+
+    def test_rapid_session_restart(self) -> None:
+        if not self.device_id:
+            return
+
+        start = now_ms()
+        session_id = f"S-RESTART-{start}"
+        self.monitor.publish_command(
+            self.device_id,
+            "cmd/session/start",
+            {
+                "command_id": f"cmd-session-restart-{start}",
+                "event_type": "session_start",
+                "session_id": session_id,
+                "profile_id": "adult-basic-test",
+                "issued_at_ms": start,
+            },
+        )
+
+        active = self.store.wait_for(
+            lambda m: self._is_device_msg(m)
+            and str(m.payload_json.get("state", "")) == "SESSION_ACTIVE"
+            and str(m.payload_json.get("session_id", "")) == session_id,
+            timeout=self.args.command_timeout,
+            after_ms=start,
+        )
+        if not active:
+            self.add("rapid_session_restart", "FAIL", "Second session did not enter SESSION_ACTIVE")
+            return
+
+        observation_seconds = 2.0
+        time.sleep(observation_seconds)
+        telemetry = self.store.find_all(
+            lambda m: self._is_device_msg(m)
+            and self._topic_suffix(m) == "telemetry"
+            and str(m.payload_json.get("session_id", "")) == session_id,
+            after_ms=start,
+        )
+
+        stop_ms = now_ms()
+        self.monitor.publish_command(
+            self.device_id,
+            "cmd/session/stop",
+            {
+                "command_id": f"cmd-session-restart-stop-{stop_ms}",
+                "event_type": "session_stop",
+                "session_id": session_id,
+                "issued_at_ms": stop_ms,
+            },
+        )
+        self.store.wait_for(
+            lambda m: self._is_device_msg(m)
+            and str(m.payload_json.get("state", "")) == "READY_FOR_SESSION",
+            timeout=self.args.command_timeout,
+            after_ms=stop_ms,
+        )
+
+        if not telemetry:
+            self.add("rapid_session_restart", "FAIL", "Second session produced no telemetry")
+        elif len(telemetry) > 14:
+            self.add(
+                "rapid_session_restart",
+                "FAIL",
+                "Telemetry cadence indicates that more than one publisher task may be running",
+                messages=len(telemetry),
+                observation_seconds=observation_seconds,
+            )
+        else:
+            self.add(
+                "rapid_session_restart",
+                "PASS",
+                "Second session started and stopped with a single-publisher telemetry cadence",
+                messages=len(telemetry),
+                observation_seconds=observation_seconds,
+            )
 
     def test_system_command_contract(self) -> None:
         if not self.device_id:
@@ -1748,6 +1968,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-session-start", action="store_true")
     parser.add_argument("--run-session", action="store_true", help="After device is READY_FOR_SESSION, test cmd/session/start, telemetry, and cmd/session/stop")
     parser.add_argument("--telemetry-timeout", type=float, default=15.0)
+    parser.add_argument("--test-session-recovery", action="store_true", help="During --run-session, interrupt a harness-owned MQTT broker and verify resume or terminal interruption")
+    parser.add_argument("--recovery-outage-seconds", type=float, default=5.0, help="MQTT outage duration; use less than 30s for resume or more than 30s for terminal interruption")
+    parser.add_argument("--recovery-settle-timeout", type=float, default=20.0, help="Time allowed for broker, monitor, and firmware recovery after the outage")
+    parser.add_argument("--test-session-lifecycle", action="store_true", help="After the normal session, rapidly start/stop a second session and check telemetry cadence")
     parser.add_argument("--test-system-commands", action="store_true", help="Dangerous: send one system reset/turn-off/flush-config MQTT command at the end")
     parser.add_argument("--system-command", choices=["reset", "turn-off", "flush-config"], default="turn-off")
     parser.add_argument("--edge-tests", action="store_true", help="Run safe command edge-case tests: unknown command, invalid JSON, invalid calibration payloads, cancel while idle")
@@ -1854,7 +2078,13 @@ def main() -> int:
         monitor.start()
 
         log("INFO", "Test suite running. Provision or reset the ESP now if device is not already connected.")
-        runner = FirmwareTestRunner(ctx, monitor, store, args)
+        runner = FirmwareTestRunner(
+            ctx,
+            monitor,
+            store,
+            args,
+            broker if not args.no_broker else None,
+        )
         runner.run_all()
 
         # Keep alive a little to catch late messages after report.
