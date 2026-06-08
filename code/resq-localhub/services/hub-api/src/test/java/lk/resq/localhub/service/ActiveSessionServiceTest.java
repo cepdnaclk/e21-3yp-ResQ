@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ActiveSessionServiceTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void validatesTelemetryAgainstActiveSessionAndDeviceBinding() throws Exception {
@@ -267,7 +267,11 @@ class ActiveSessionServiceTest {
           Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         syncQueueRepository.initialize();
-        SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, objectMapper);
+        SyncQueueService syncQueueService = new SyncQueueService(
+                syncQueueRepository,
+                objectMapper,
+                new CloudSessionSummaryPayloadMapper()
+        );
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,

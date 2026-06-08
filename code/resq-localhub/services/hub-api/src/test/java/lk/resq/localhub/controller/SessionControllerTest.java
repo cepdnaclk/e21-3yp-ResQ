@@ -75,10 +75,19 @@ class SessionControllerTest {
         SessionEndResponse completed = seedCompletedSession(fixture.service, "M01");
 
         assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
-        assertThat(fixture.syncQueueRepository.findByEntity(lk.resq.localhub.model.SyncEntityType.SESSION_SUMMARY, completed.sessionId()))
-                .isPresent();
-        assertThat(fixture.syncQueueRepository.findRecent(10).get(0).syncStatus())
+        var queueItem = fixture.syncQueueRepository
+                .findByEntity(lk.resq.localhub.model.SyncEntityType.SESSION_SUMMARY, completed.sessionId())
+                .orElseThrow();
+        assertThat(queueItem.syncStatus())
                 .isEqualTo(lk.resq.localhub.model.SyncStatus.PENDING);
+        assertThat(queueItem.retryCount()).isZero();
+
+        var payload = new ObjectMapper().findAndRegisterModules().readTree(queueItem.payloadJson());
+        assertThat(payload.path("contractVersion").asText()).isEqualTo("resq.cloud.session-summary.v1");
+        assertThat(payload.path("entityType").asText()).isEqualTo("SESSION_SUMMARY");
+        assertThat(payload.path("localSessionId").asText()).isEqualTo(completed.sessionId());
+        assertThat(payload.path("source").asText()).isEqualTo("LOCALHUB");
+        assertThat(payload.path("generatedAt").isTextual()).isTrue();
 
         fixture.syncQueueService.enqueueSessionSummary(completed);
 
@@ -118,7 +127,7 @@ class SessionControllerTest {
     }
 
     private static Fixture newFixture() throws Exception {
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         LocalSessionRepository sessionRepository = new LocalSessionRepository(Path.of("target", "session-controller-test-" + UUID.randomUUID() + ".sqlite").toString());
         sessionRepository.initialize();
         MqttCommandPublisherService publisher = new NoopMqttCommandPublisherService();
@@ -135,7 +144,11 @@ class SessionControllerTest {
         FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry);
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(Path.of("target", "session-controller-sync-" + UUID.randomUUID() + ".sqlite").toString());
         syncQueueRepository.initialize();
-        SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, objectMapper);
+        SyncQueueService syncQueueService = new SyncQueueService(
+                syncQueueRepository,
+                objectMapper,
+                new lk.resq.localhub.service.CloudSessionSummaryPayloadMapper()
+        );
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 publisher,

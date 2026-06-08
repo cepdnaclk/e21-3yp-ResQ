@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MqttSubscriberServiceTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void parsesCanonicalAndLegacyFirmwareTopics() throws Exception {
@@ -245,7 +245,11 @@ class MqttSubscriberServiceTest {
             Path.of("target", "mqtt-subscriber-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         syncQueueRepository.initialize();
-        SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, objectMapper);
+        SyncQueueService syncQueueService = new SyncQueueService(
+                syncQueueRepository,
+                objectMapper,
+                new CloudSessionSummaryPayloadMapper()
+        );
         ActiveSessionService activeSessionService = new ActiveSessionService(
                 registry,
                 commandPublisher,
