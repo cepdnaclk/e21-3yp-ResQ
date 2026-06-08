@@ -1,6 +1,6 @@
 param(
-    [string]$DeviceId = "M01",
-    [string]$MqttUrl = "mqtt://127.0.0.1:1883",
+    [string]$DeviceId = "resq-node-01",
+    [string]$MqttUrl = "mqtt://localhost:1883",
     [ValidateSet("pass", "fail")]
     [string]$CalibrationMode = "pass",
     [switch]$SimulateError,

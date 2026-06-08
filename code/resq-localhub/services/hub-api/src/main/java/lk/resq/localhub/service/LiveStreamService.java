@@ -1,16 +1,5 @@
 package lk.resq.localhub.service;
 
-import lk.resq.localhub.model.ManikinLiveSummary;
-import lk.resq.localhub.model.SessionLiveView;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.http.MediaType;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
-
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
@@ -20,6 +9,17 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import lk.resq.localhub.model.ManikinLiveSummary;
+import lk.resq.localhub.model.SessionLiveView;
 
 @Service
 public class LiveStreamService {
@@ -33,7 +33,7 @@ public class LiveStreamService {
 
     @PostConstruct
     public void startHeartbeat() {
-        heartbeatExecutor.scheduleWithFixedDelay(this::sendHeartbeats, 15, 15, TimeUnit.SECONDS);
+        heartbeatExecutor.scheduleWithFixedDelay(this::sendHeartbeatsSafely, 15, 15, TimeUnit.SECONDS);
     }
 
     @PreDestroy
@@ -92,11 +92,18 @@ public class LiveStreamService {
         }
     }
 
+    private void sendHeartbeatsSafely() {
+        try {
+            sendHeartbeats();
+        } catch (RuntimeException error) {
+            logger.debug("Heartbeat task ended early because an SSE client disconnected", error);
+        }
+    }
+
     private void attachCleanup(SseEmitter emitter, Runnable cleanup) {
         emitter.onCompletion(cleanup);
         emitter.onTimeout(() -> {
             cleanup.run();
-            emitter.complete();
         });
         emitter.onError(error -> cleanup.run());
     }
@@ -115,8 +122,8 @@ public class LiveStreamService {
     private void completeQuietly(SseEmitter emitter) {
         try {
             emitter.complete();
-        } catch (RuntimeException error) {
-            logger.debug("Ignoring SSE emitter completion failure after send error", error);
+        } catch (IllegalStateException ignored) {
+            // The emitter may already be finished or aborted by the client.
         }
     }
 
