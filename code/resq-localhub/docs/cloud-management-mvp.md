@@ -68,7 +68,7 @@ duplicate email or course code conflicts return `409`.
 
 ## Dashboard Pages
 
-The management pages are part of `apps/cloud-dashboard`:
+The management pages are part of `code/resq-cloud/apps/cloud-web`:
 
 - `/management/users` lists, creates, edits, activates, and deactivates users.
 - `/management/courses` lists and creates courses and assigns instructors.
@@ -102,7 +102,7 @@ The default API URL is `http://localhost:19080`.
 ## Run Cloud Dashboard
 
 ```powershell
-cd apps/cloud-dashboard
+cd code/resq-cloud/apps/cloud-web
 pnpm install
 pnpm dev
 ```
@@ -124,7 +124,7 @@ pnpm dev
 
 ## Manual Test Flow
 
-1. Start PostgreSQL, `cloud-api`, and `cloud-dashboard`.
+1. Start PostgreSQL, `cloud-api`, and `cloud-web`.
 2. Open `/management/users` and create an instructor.
 3. Create a trainee on the same page.
 4. Open `/management/courses`, create a course, and assign the instructor.
@@ -140,7 +140,7 @@ pnpm dev
 cd services/cloud-api
 .\mvnw.cmd package
 
-cd ..\..\apps\cloud-dashboard
+cd ..\..\code\\resq-cloud\\apps\\cloud-web
 pnpm test
 pnpm build
 ```
@@ -154,3 +154,4 @@ pnpm build
 - Live telemetry or training controls
 - Firmware commands
 - MQTT, SSE, pairing, calibration, or LocalHub behavior changes
+
