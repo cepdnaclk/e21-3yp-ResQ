@@ -41,14 +41,21 @@ export function AppShell({ currentPath, children }: AppShellProps) {
         </div>
         <div className={`health-pill ${healthError ? "health-pill--down" : "health-pill--up"}`}>
           <span className="health-dot" aria-hidden="true" />
-          {healthError ? "API unavailable" : health ? `${health.status} · ${health.storageMode}` : "Checking API"}
+          {healthError ? "API unavailable" : health ? `${health.status} | ${health.storageMode}` : "Checking API"}
         </div>
       </header>
 
       <nav className="main-nav" aria-label="Cloud review navigation">
         <NavLink href="/sessions" active={currentPath.startsWith("/sessions")}>Sessions</NavLink>
         <NavLink href="/analytics" active={currentPath === "/analytics"}>Analytics</NavLink>
+        <span className="nav-divider" aria-hidden="true" />
+        <NavLink href="/management/users" active={currentPath === "/management/users"}>Users</NavLink>
+        <NavLink href="/management/courses" active={currentPath.startsWith("/management/courses")}>Courses</NavLink>
       </nav>
+
+      <div className="development-notice">
+        Local development management MVP - auth not enabled yet.
+      </div>
 
       <main>{children}</main>
 

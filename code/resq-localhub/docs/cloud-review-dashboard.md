@@ -82,9 +82,10 @@ $env:VITE_CLOUD_API_BASE_URL = "http://localhost:19080"
 pnpm dev
 ```
 
-The Cloud API permits read-only `/api/cloud/**` requests from localhost browser
-origins. Sync POST behavior remains server-to-server and is not exposed through
-the dashboard.
+The Cloud API permits local dashboard requests from localhost browser origins.
+Session review remains read-only; Phase 7 management writes are isolated under
+the management pages and APIs. Sync POST behavior remains server-to-server and
+is not exposed through the dashboard.
 
 ## Demo Flow
 
@@ -112,7 +113,7 @@ pnpm build
 
 - AWS deployment
 - Cognito, JWT, or authentication
-- Cloud user management
+- Authentication and production authorization
 - Live telemetry
 - Firmware or diagnostic commands
 - Pairing and calibration controls

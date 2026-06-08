@@ -124,11 +124,31 @@ button {
 
 .main-nav {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 18px;
   border: 1px solid var(--line);
   border-top: 0;
   background: rgba(255, 255, 255, 0.94);
+}
+
+.nav-divider {
+  width: 1px;
+  height: 28px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+.development-notice {
+  padding: 9px 24px;
+  color: #725c1d;
+  border: 1px solid #eadba9;
+  border-top: 0;
+  background: #fff9df;
+  font-size: 0.8rem;
+  font-weight: 750;
+  text-align: center;
 }
 
 .nav-link {
@@ -418,6 +438,213 @@ td code {
   font-weight: 800;
 }
 
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.button--secondary {
+  color: var(--brand-dark);
+  border: 1px solid #acd3cb;
+  background: white;
+}
+
+.management-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.form-card,
+.inline-form,
+.course-summary,
+.management-row {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.form-card {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.form-card h3 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.form-card label,
+.inline-form label {
+  display: grid;
+  gap: 7px;
+  color: #435269;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.form-card label span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.form-card input,
+.form-card select,
+.form-card textarea,
+.inline-form select {
+  width: 100%;
+  padding: 11px 12px;
+  color: var(--ink);
+  border: 1px solid #cbd6e2;
+  border-radius: 10px;
+  outline: none;
+  background: white;
+  font: inherit;
+}
+
+.form-card textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.form-card input:focus,
+.form-card select:focus,
+.form-card textarea:focus,
+.inline-form select:focus {
+  border-color: #278476;
+  box-shadow: 0 0 0 3px rgba(39, 132, 118, 0.12);
+}
+
+.form-actions,
+.row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.form-actions .button,
+.inline-form .button {
+  margin-top: 0;
+}
+
+.management-list {
+  display: grid;
+  gap: 12px;
+}
+
+.management-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 92px;
+  padding: 18px 20px;
+}
+
+.management-row p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.row-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.row-title strong {
+  font-size: 1.02rem;
+}
+
+.role-badge,
+.active-badge,
+.inactive-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.role-badge {
+  color: #40516a;
+  background: #eaf0f6;
+}
+
+.active-badge {
+  color: #17604f;
+  background: #e2f5ee;
+}
+
+.inactive-badge {
+  color: #7a4040;
+  background: #f8e8e6;
+}
+
+.large-badge {
+  padding: 9px 13px;
+  font-size: 0.75rem;
+}
+
+.text-button {
+  padding: 5px 0;
+  color: var(--brand);
+  border: 0;
+  background: transparent;
+  font-weight: 800;
+}
+
+.text-button--danger {
+  color: var(--danger);
+}
+
+.course-summary {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  overflow: hidden;
+}
+
+.course-summary div {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  border-right: 1px solid var(--line);
+}
+
+.course-summary div:last-child {
+  border-right: 0;
+}
+
+.course-summary span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.inline-form {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  padding: 20px;
+}
+
+.inline-form label {
+  flex: 1;
+}
+
 .route-loading {
   padding: 48px;
   color: var(--muted);
@@ -463,8 +690,17 @@ footer {
   }
 
   .analytics-grid,
-  .detail-grid {
+  .detail-grid,
+  .course-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .management-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .course-summary div {
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -478,7 +714,22 @@ footer {
   }
 
   .analytics-grid,
-  .detail-grid {
+  .detail-grid,
+  .course-summary {
     grid-template-columns: 1fr;
+  }
+
+  .nav-divider {
+    display: none;
+  }
+
+  .management-row,
+  .inline-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .course-summary div {
+    border-right: 0;
   }
 }

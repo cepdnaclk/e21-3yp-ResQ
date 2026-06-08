@@ -23,13 +23,19 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   );
 }
 
-export function EmptyState() {
+export function EmptyState({
+  title = "No synced sessions",
+  message = "Complete a LocalHub session with cloud sync enabled, then refresh this page.",
+}: {
+  title?: string;
+  message?: string;
+}) {
   return (
     <div className="state-panel">
       <div>
         <p className="eyebrow">No records yet</p>
-        <h2>No synced sessions</h2>
-        <p>Complete a LocalHub session with cloud sync enabled, then refresh this page.</p>
+        <h2>{title}</h2>
+        <p>{message}</p>
       </div>
     </div>
   );

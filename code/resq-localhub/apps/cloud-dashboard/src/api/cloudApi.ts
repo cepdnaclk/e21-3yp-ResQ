@@ -45,15 +45,73 @@ export interface CloudSessionRecord {
   updatedAt: string;
 }
 
+export type CloudUserRole = "ADMIN" | "INSTRUCTOR" | "TRAINEE";
+
+export interface CloudUser {
+  userId: string;
+  displayName: string;
+  email?: string | null;
+  role: CloudUserRole;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CloudCourse {
+  courseId: string;
+  courseCode?: string | null;
+  title: string;
+  description?: string | null;
+  instructorId?: string | null;
+  instructorDisplayName?: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CloudEnrollment {
+  enrollmentId: string;
+  courseId: string;
+  traineeId: string;
+  traineeDisplayName: string;
+  traineeEmail?: string | null;
+  active: boolean;
+  enrolledAt: string;
+}
+
+export interface CreateCloudUserInput {
+  displayName: string;
+  email?: string;
+  role: CloudUserRole;
+}
+
+export interface UpdateCloudUserInput {
+  displayName?: string;
+  email?: string | null;
+  role?: CloudUserRole;
+  active?: boolean;
+}
+
+export interface CreateCloudCourseInput {
+  courseCode?: string;
+  title: string;
+  description?: string;
+  instructorId?: string;
+}
+
 const configuredBaseUrl = import.meta.env.VITE_CLOUD_API_BASE_URL?.trim();
 export const cloudApiBaseUrl = (configuredBaseUrl || "http://localhost:19080").replace(/\/+$/, "");
 
-async function getJson<T>(path: string): Promise<T> {
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${cloudApiBaseUrl}${path}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
+      ...init,
+      headers: {
+        Accept: "application/json",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...init.headers,
+      },
     });
   } catch (error) {
     const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
@@ -68,19 +126,77 @@ async function getJson<T>(path: string): Promise<T> {
     );
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
 
 export function fetchCloudHealth(): Promise<CloudHealth> {
-  return getJson("/api/cloud/health");
+  return requestJson("/api/cloud/health");
 }
 
 export function fetchCloudSessions(): Promise<CloudSessionRecord[]> {
-  return getJson("/api/cloud/sessions");
+  return requestJson("/api/cloud/sessions");
 }
 
 export function fetchCloudSession(cloudSessionId: string): Promise<CloudSessionRecord> {
-  return getJson(`/api/cloud/sessions/${encodeURIComponent(cloudSessionId)}`);
+  return requestJson(`/api/cloud/sessions/${encodeURIComponent(cloudSessionId)}`);
+}
+
+export function fetchCloudUsers(): Promise<CloudUser[]> {
+  return requestJson("/api/cloud/users");
+}
+
+export function createCloudUser(input: CreateCloudUserInput): Promise<CloudUser> {
+  return requestJson("/api/cloud/users", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateCloudUser(userId: string, patch: UpdateCloudUserInput): Promise<CloudUser> {
+  return requestJson(`/api/cloud/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function fetchCloudCourses(): Promise<CloudCourse[]> {
+  return requestJson("/api/cloud/courses");
+}
+
+export function fetchCloudCourse(courseId: string): Promise<CloudCourse> {
+  return requestJson(`/api/cloud/courses/${encodeURIComponent(courseId)}`);
+}
+
+export function createCloudCourse(input: CreateCloudCourseInput): Promise<CloudCourse> {
+  return requestJson("/api/cloud/courses", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateCloudCourse(
+  courseId: string,
+  patch: Partial<CreateCloudCourseInput & { active: boolean; instructorId: string | null }>,
+): Promise<CloudCourse> {
+  return requestJson(`/api/cloud/courses/${encodeURIComponent(courseId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function fetchCourseEnrollments(courseId: string): Promise<CloudEnrollment[]> {
+  return requestJson(`/api/cloud/courses/${encodeURIComponent(courseId)}/enrollments`);
+}
+
+export function enrollCloudTrainee(courseId: string, traineeId: string): Promise<CloudEnrollment> {
+  return requestJson(`/api/cloud/courses/${encodeURIComponent(courseId)}/enrollments`, {
+    method: "POST",
+    body: JSON.stringify({ traineeId }),
+  });
+}
+
+export function removeCloudEnrollment(courseId: string, traineeId: string): Promise<void> {
+  return requestJson(
+    `/api/cloud/courses/${encodeURIComponent(courseId)}/enrollments/${encodeURIComponent(traineeId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export class CloudApiError extends Error {
