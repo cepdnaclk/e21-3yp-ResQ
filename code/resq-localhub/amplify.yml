@@ -1,0 +1,24 @@
+version: 1
+applications:
+  - frontend:
+      phases:
+        preBuild:
+          commands:
+            # Install pnpm globally if not already available on the Amplify build image.
+            - npm install -g pnpm
+            # Install dependencies from the workspace lockfile.
+            - pnpm install --frozen-lockfile
+        build:
+          commands:
+            # VITE_CLOUD_API_BASE_URL is injected from the Amplify environment variables
+            # console. Set it to your Elastic Beanstalk application URL before deploying.
+            - pnpm build
+      artifacts:
+        # The directory Vite writes the production build into.
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+    appRoot: apps/cloud-dashboard
