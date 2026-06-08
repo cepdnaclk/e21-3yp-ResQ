@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Phase 8 protects the local `cloud-api` and `cloud-dashboard` with BCrypt
+Phase 8 protects the local `cloud-api` and `cloud-web` with BCrypt
 passwords, signed JWT access tokens, and role-based authorization.
 
 This is local-development authentication only. It does not use AWS, Cognito,
@@ -130,7 +130,7 @@ cd services/cloud-api
 In another terminal:
 
 ```powershell
-cd apps/cloud-dashboard
+cd code/resq-cloud/apps/cloud-web
 pnpm install
 pnpm dev
 ```
@@ -200,7 +200,7 @@ Invoke-WebRequest `
 cd services/cloud-api
 .\mvnw.cmd test
 
-cd ..\..\apps\cloud-dashboard
+cd ..\..\code\\resq-cloud\\apps\\cloud-web
 pnpm test
 pnpm build
 ```
@@ -216,3 +216,4 @@ pnpm build
 - LocalHub roster synchronization
 - Live training controls
 - Firmware, MQTT, SSE, pairing, or calibration changes
+

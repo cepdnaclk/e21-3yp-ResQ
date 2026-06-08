@@ -14,7 +14,7 @@ operations.
 
 - PostgreSQL stores `cloud_session_summaries`.
 - `services/cloud-api` exposes read-only session endpoints on port `19080`.
-- `apps/cloud-dashboard` is a separate React, TypeScript, and Vite application
+- `code/resq-cloud/apps/cloud-web` is a separate React, TypeScript, and Vite application
   running on port `1430`.
 
 Routes:
@@ -53,7 +53,7 @@ Invoke-RestMethod http://localhost:19080/api/cloud/health
 Install dependencies once:
 
 ```powershell
-cd apps/cloud-dashboard
+cd code/resq-cloud/apps/cloud-web
 pnpm install
 ```
 
@@ -93,7 +93,7 @@ exposed through the dashboard. See `docs/cloud-auth-rbac-local.md`.
 2. Start `cloud-api`.
 3. Start `hub-api` with `RESQ_CLOUD_SYNC_ENABLED=true`.
 4. Complete and sync a LocalHub session.
-5. Start `apps/cloud-dashboard`.
+5. Start `code/resq-cloud/apps/cloud-web`.
 6. Open `/sessions` and select the synced record.
 7. Review the detail page and formatted raw payload.
 8. Open `/analytics` to see client-side aggregate metrics.
@@ -104,7 +104,7 @@ a retry action. An empty database presents a no-sessions state.
 ## Checks
 
 ```powershell
-cd apps/cloud-dashboard
+cd code/resq-cloud/apps/cloud-web
 pnpm test
 pnpm build
 ```
@@ -118,3 +118,4 @@ pnpm build
 - Firmware or diagnostic commands
 - Pairing and calibration controls
 - Session start or stop controls
+
