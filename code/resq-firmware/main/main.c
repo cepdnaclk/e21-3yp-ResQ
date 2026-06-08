@@ -62,10 +62,6 @@ static bool g_has_entered_state = false;
 
 static bool g_components_initialized = false;
 
-static bool g_session_active = false;
-static bool g_sensor_running = false;
-
-static char g_session_id[64] = {0};
 static char g_ip[16] = {0};
 
 static TaskHandle_t g_heartbeat_task_handle = NULL;
@@ -92,11 +88,33 @@ static bool state_handles_system_buttons_internally(resq_state_t state);
  * Small helpers
  * ========================================================= */
 
-static void runtime_clear_session_values(void)
+static void get_runtime_session_values(bool *session_active,
+                                       bool *sensor_running,
+                                       char *session_id,
+                                       size_t session_id_len)
 {
-    g_session_active = false;
-    g_sensor_running = false;
-    g_session_id[0] = '\0';
+    if (session_active != NULL) {
+        *session_active = false;
+    }
+    if (sensor_running != NULL) {
+        *sensor_running = session_active_manager_is_sensor_running();
+    }
+    if (session_id != NULL && session_id_len > 0) {
+        session_id[0] = '\0';
+    }
+
+    session_state_t state = {0};
+    if (session_manager_get_state(&state) != ESP_OK || !state.active) {
+        return;
+    }
+
+    if (session_active != NULL) {
+        *session_active = true;
+    }
+    if (session_id != NULL && session_id_len > 0) {
+        strncpy(session_id, state.session_id, session_id_len - 1);
+        session_id[session_id_len - 1] = '\0';
+    }
 }
 
 /**
@@ -110,12 +128,24 @@ static void publish_status_if_connected(resq_state_t state)
         return;
     }
 
+    if (state == RESQ_STATE_SESSION_INTERRUPTED &&
+        session_active_manager_has_pending_interruption()) {
+        return;
+    }
+
+    bool session_active = false;
+    char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+    get_runtime_session_values(&session_active,
+                               NULL,
+                               session_id,
+                               sizeof(session_id));
+
     esp_err_t err = mqtt_manager_publish_status(
         state,
         &g_network_cfg,
         &g_calibration_cfg,
-        g_session_active,
-        g_session_id,
+        session_active,
+        session_id,
         g_ip
     );
 
@@ -294,23 +324,14 @@ static void heartbeat_task(void *arg)
                 g_ip[sizeof(g_ip) - 1] = '\0';
             }
 
-            /* Resolve session state from authoritative managers */
-            session_state_t session_state = {0};
             bool session_active = false;
             char heartbeat_session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
             bool sensor_running = false;
 
-            if (session_manager_get_state(&session_state) == ESP_OK) {
-                session_active = session_state.active;
-                if (session_state.active) {
-                    strncpy(heartbeat_session_id,
-                            session_state.session_id,
-                            sizeof(heartbeat_session_id) - 1);
-                    heartbeat_session_id[sizeof(heartbeat_session_id) - 1] = '\0';
-                }
-            }
-
-            sensor_running = telemetry_publisher_is_running();
+            get_runtime_session_values(&session_active,
+                                       &sensor_running,
+                                       heartbeat_session_id,
+                                       sizeof(heartbeat_session_id));
 
             esp_err_t err = mqtt_manager_publish_heartbeat(
                 &g_network_cfg,
@@ -402,8 +423,6 @@ static resq_state_t run_boot_state(void)
      * It only decides READY_FOR_SESSION vs PAIRED_IDLE later.
      */
     calibration_config_validate(&g_calibration_cfg);
-
-    runtime_clear_session_values();
 
     ESP_LOGI(TAG,
              "BOOT loaded config: provisioned=%s calibrated=%s backend_base_url=%s",
@@ -660,9 +679,14 @@ static resq_state_t run_mqtt_connecting_state(void)
 
     calibration_config_validate(&g_calibration_cfg);
 
-    resq_state_t next_state = g_calibration_cfg.calibrated
-        ? RESQ_STATE_READY_FOR_SESSION
-        : RESQ_STATE_PAIRED_IDLE;
+    resq_state_t next_state;
+    if (session_active_manager_has_pending_interruption()) {
+        next_state = RESQ_STATE_SESSION_INTERRUPTED;
+    } else {
+        next_state = g_calibration_cfg.calibrated
+            ? RESQ_STATE_READY_FOR_SESSION
+            : RESQ_STATE_PAIRED_IDLE;
+    }
 
     err = start_heartbeat_task_once();
     if (err != ESP_OK) {
@@ -671,14 +695,21 @@ static resq_state_t run_mqtt_connecting_state(void)
                  esp_err_to_name(err));
     }
 
-    /* First heartbeat immediately after MQTT connection. */
+    bool session_active = false;
+    bool sensor_running = false;
+    char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+    get_runtime_session_values(&session_active,
+                               &sensor_running,
+                               session_id,
+                               sizeof(session_id));
+
     mqtt_manager_publish_heartbeat(
         &g_network_cfg,
         &g_calibration_cfg,
         next_state,
-        g_session_active,
-        g_sensor_running,
-        g_session_id,
+        session_active,
+        sensor_running,
+        session_id,
         g_ip,
         wifi_manager_get_rssi()
     );
@@ -732,11 +763,6 @@ static resq_state_t run_ready_for_session_state(void)
                                     g_ip);
     }
 
-    /*
-     * SESSION_ACTIVE is not fully implemented in this folder yet.
-     * Reuse the idle command wait loop, but it will show READY_FOR_SESSION
-     * when calibration_config.calibrated is true.
-     */
     return paired_idle_manager_run(&g_network_cfg,
                                    &g_calibration_cfg,
                                    g_ip);
@@ -746,16 +772,26 @@ static resq_state_t run_session_interrupted_state(void)
 {
     status_indicator_set_state(RESQ_STATE_SESSION_INTERRUPTED);
 
-    if (mqtt_manager_is_connected()) {
-        mqtt_manager_publish_status(RESQ_STATE_SESSION_INTERRUPTED,
-                                    &g_network_cfg,
-                                    &g_calibration_cfg,
-                                    false,
-                                    "",
-                                    g_ip);
+    if (!wifi_manager_is_connected()) {
+        return RESQ_STATE_WIFI_CONNECTING;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(500));
+    if (!mqtt_manager_is_connected()) {
+        return RESQ_STATE_MQTT_CONNECTING;
+    }
+
+    esp_err_t publish_err =
+        session_active_manager_publish_pending_interruption(
+            &g_network_cfg,
+            &g_calibration_cfg,
+            g_ip);
+    if (publish_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "Deferred session interruption publish failed: %s",
+                 esp_err_to_name(publish_err));
+        vTaskDelay(pdMS_TO_TICKS(500));
+        return RESQ_STATE_SESSION_INTERRUPTED;
+    }
 
     if (g_calibration_cfg.calibrated) {
         return RESQ_STATE_READY_FOR_SESSION;
