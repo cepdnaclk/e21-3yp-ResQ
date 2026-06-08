@@ -1,0 +1,23 @@
+# Spring Boot production profile for ResQ cloud-api.
+# Activated by: SPRING_PROFILES_ACTIVE=prod
+#
+# This file contains only safe production overrides.
+# Secrets (DB password, JWT secret, bootstrap admin password) MUST be supplied
+# via Elastic Beanstalk environment variables — never committed here.
+
+logging:
+  level:
+    root: WARN
+    lk.resq: INFO
+    org.springframework.web: WARN
+    org.springframework.security: WARN
+    org.flywaydb: INFO
+
+spring:
+  datasource:
+    hikari:
+      # Tune connection pool for RDS. Adjust based on RDS instance class.
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 20000
+      idle-timeout: 300000
