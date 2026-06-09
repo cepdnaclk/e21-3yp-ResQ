@@ -6,9 +6,10 @@ export interface DialogProps {
   title?: string;
   description?: string;
   children: ReactNode;
+  maxWidth?: string;
 }
 
-export function Dialog({ open, onOpenChange, title, description, children }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, maxWidth }: DialogProps) {
   if (!open) return null;
 
   return (
@@ -32,9 +33,9 @@ export function Dialog({ open, onOpenChange, title, description, children }: Dia
           background: "#ffffff",
           borderRadius: "12px",
           boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)",
-          maxWidth: "500px",
+          maxWidth: maxWidth || "500px",
           width: "90%",
-          maxHeight: "80vh",
+          maxHeight: "90vh",
           overflowY: "auto",
         }}
         onClick={(e) => e.stopPropagation()}

@@ -416,20 +416,16 @@ export function CalibrationSettingsPanel({
 
   return (
     <Card className="mb-6 relative overflow-hidden">
-      <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <CalibrationIcon size={18} /> Calibration Settings
-          </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Edit local calibration profiles and run calibration against the selected live device.
-          </p>
+      <div className="flex justify-between items-center mb-6 calibration-panel-header">
+        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+          <CalibrationIcon size={18} />
+          <span className="text-sm font-semibold uppercase tracking-wider">Configuration Profile</span>
         </div>
         <Button
           variant="secondary"
           onClick={() => reloadProfiles(selectedProfileId)}
           disabled={loading || savingState !== "idle"}
-          className="text-xs py-1 h-8"
+          className="text-xs py-1 h-8 btn-reload"
         >
           {loading ? "Reloading..." : "Reload"}
         </Button>
@@ -471,19 +467,19 @@ export function CalibrationSettingsPanel({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        <Badge variant="default" className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
+      <div className="flex flex-wrap gap-2.5 mb-6">
+        <Badge variant="default" className="badge-device bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
           Device: {selectedDeviceLabel}
         </Badge>
-        <Badge variant="default" className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
+        <Badge variant="default" className="badge-profile bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
           Profile: {selectedProfileLabel}
         </Badge>
-        <Badge variant="default" className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
+        <Badge variant="default" className="badge-active-count bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
           {activeProfileCount} active profile(s)
         </Badge>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</label>
           <Input
@@ -507,7 +503,7 @@ export function CalibrationSettingsPanel({
         </div>
       </div>
 
-      <details className="group border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-4 bg-gray-50 dark:bg-gray-900/40">
+      <details className="group border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-6 bg-gray-50 dark:bg-gray-900/40">
         <summary className="text-sm font-bold text-[#005A9C] dark:text-blue-400 cursor-pointer select-none flex items-center justify-between list-none focus:outline-none">
           <span>Advanced Settings</span>
           <span className="transition-transform group-open:rotate-180 text-xs">▼</span>
@@ -546,11 +542,11 @@ export function CalibrationSettingsPanel({
         </div>
       </details>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-3 mb-6 calibration-action-buttons">
         <Button
           onClick={handleSaveProfile}
           disabled={loading || savingState !== "idle" || !formValidity.ok}
-          className={saveAcknowledged ? "bg-[#107C10] hover:bg-[#107C10]/90 text-white border-0" : "bg-[#005A9C] hover:bg-[#005A9C]/90 text-white border-0"}
+          className={saveAcknowledged ? "btn-save-profile success" : "btn-save-profile"}
         >
           {saveAcknowledged ? "Saved!" : savingState === "saving" ? "Saving..." : selectedProfile ? "Save Profile" : "Create Profile"}
         </Button>
@@ -558,6 +554,7 @@ export function CalibrationSettingsPanel({
           variant="secondary"
           onClick={handleSetDefault}
           disabled={loading || savingState !== "idle" || !selectedProfile || selectedProfile.defaultProfile}
+          className="btn-set-default"
         >
           {savingState === "defaulting" ? "Setting..." : "Set Default"}
         </Button>
@@ -565,13 +562,14 @@ export function CalibrationSettingsPanel({
           variant="secondary"
           onClick={handleDeactivate}
           disabled={loading || savingState !== "idle" || !selectedProfile || !selectedProfile.active || selectedProfile.defaultProfile || activeProfileCount <= 1}
+          className="btn-deactivate"
         >
           {savingState === "deactivating" ? "Deactivating..." : "Deactivate"}
         </Button>
         <Button
           onClick={handleRunCalibration}
           disabled={!canRunCalibration}
-          className="bg-[#005A9C] hover:bg-[#005A9C]/90 text-white border-0"
+          className="btn-run-calibration"
         >
           {savingState === "running" || calibrationAction === "starting" ? "Requesting..." : "Run Calibration"}
         </Button>
@@ -579,6 +577,7 @@ export function CalibrationSettingsPanel({
           variant="secondary"
           onClick={handleNewProfile}
           disabled={loading || savingState !== "idle"}
+          className="btn-new-profile"
         >
           New Profile
         </Button>

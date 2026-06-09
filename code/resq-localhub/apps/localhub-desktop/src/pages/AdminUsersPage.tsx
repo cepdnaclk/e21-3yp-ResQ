@@ -212,12 +212,8 @@ export default function AdminUsersPage() {
             boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
           }}
         >
-<<<<<<< HEAD
           <div style={{ fontSize: "2rem", marginBottom: "12px" }}>⏳</div>
           <p style={{ color: "var(--muted)", fontSize: "1rem", margin: 0 }}>Loading users...</p>
-=======
-          <p style={{ color: "#64748b", fontSize: "1rem", margin: 0 }}>Loading users...</p>
->>>>>>> origin/home-page-ui
         </div>
       ) : (
         <>
@@ -233,14 +229,9 @@ export default function AdminUsersPage() {
                   boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
                 }}
               >
-<<<<<<< HEAD
                 <div style={{ fontSize: "3rem", marginBottom: "16px" }}>👥</div>
                 <p style={{ color: "var(--muted)", fontSize: "1.1rem", margin: "0 0 8px 0", fontWeight: 500 }}>No users yet</p>
                 <p style={{ color: "var(--muted)", fontSize: "0.95rem", margin: 0 }}>Click "Add New User" to get started</p>
-=======
-                <p style={{ color: "#64748b", fontSize: "1.1rem", margin: "0 0 8px 0", fontWeight: 500 }}>No users yet</p>
-                <p style={{ color: "#94a3b8", fontSize: "0.95rem", margin: 0 }}>Click "Add New User" to get started</p>
->>>>>>> origin/home-page-ui
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "20px" }}>

@@ -1,30 +1,17 @@
-<<<<<<< HEAD
 import { useEffect, useMemo, useRef, useState } from "react";
 import confetti from "canvas-confetti";
-import { useOptionalAuth } from "../auth/AuthContext";
-import { useLiveSession } from "../hooks/useLiveSession";
-=======
-import { useEffect, useMemo, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
-const QR = QRCodeSVG as any;
 import { useAuth } from "../auth/AuthContext";
-import { Card, Button, Alert, Skeleton, Badge, Input, Select } from "../components/ui";
-import HubHeartbeat from "../components/icons/HubHeartbeat";
-import RadarManikin from "../components/icons/RadarManikin";
-import PlusPulse from "../components/icons/PlusPulse";
-import CounterFlip from "../components/icons/CounterFlip";
-import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
->>>>>>> origin/home-page-ui
+import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
 import {
-  fetchManikinInventory,
+  fetchLiveManikins,
   getLiveManikinsStreamUrl,
-  type ManikinInventoryEntry,
   type ManikinLiveSummary,
 } from "../lib/browserManikinsApi";
 import {
   fetchTrainees,
+  createTrainee,
   type TraineeRecord,
 } from "../lib/browserTraineesApi";
 import {
@@ -35,7 +22,7 @@ import {
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
-<<<<<<< HEAD
+import { useLiveSession } from "../hooks/useLiveSession";
 import {
   buildEspProvisioningUrl,
   buildFirmwareProvisioningPayload,
@@ -51,46 +38,19 @@ import {
   cancelCalibration,
   getReadiness,
   startCalibration,
-  getDefaultCalibrationProfile,
-  getCalibrationProfiles,
   type FirmwareCalibrationStartPayload,
   type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
+import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
+import { Dialog } from "../components/ui/dialog";
 import { QRCodeSVG as QR } from "qrcode.react";
-import { Card, Button, Badge, Progress, Input, Select } from "../components/ui";
-import {
-  Activity,
-  AlertCircle,
-  CheckCircle,
-  Wifi,
-  WifiOff,
-  Settings,
-  Play,
-  Square,
-  QrCode,
-  Users,
-  ChevronDown,
-  ChevronRight,
-  Info,
-  CircleDot
-} from "lucide-react";
 import ProvisioningIcon from "../components/icons/ProvisioningIcon";
 import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
 import LiveManikinsIcon from "../components/icons/LiveManikinsIcon";
 import CalibrationIcon from "../components/icons/CalibrationIcon";
-function progressFromId(progressId: unknown): number {
-  if (typeof progressId === "number" && Number.isFinite(progressId)) {
-    return Math.max(0, Math.min(100, progressId));
-=======
-
-const SESSION_TOUR_KEY = "resq-session-tour-seen";
-
-type HeatmapDay = {
-  date: string;
-  count: number;
-};
+import "../styles/instructor-dashboard.css";
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -99,22 +59,185 @@ type HeatmapDay = {
  * in any browser on the LAN without depending on Tauri APIs.
  */
 
-function HealthStatusBadge({ health }: { health: BrowserHealthResponse | null }) {
-  if (!health) {
-    return (
-      <span style={{
+
+
+function SessionStateBadge({ active }: { active: boolean }) {
+  return (
+    <span
+      style={{
         display: "inline-block",
         padding: "4px 10px",
         borderRadius: "999px",
-        fontSize: "0.8rem",
-        fontWeight: 600,
-        background: "#e2e8f0",
-        color: "#334155",
-      }}>
-        Checking...
-      </span>
+        fontSize: "0.76rem",
+        fontWeight: 700,
+        background: active ? "#dbeafe" : "#e2e8f0",
+        color: active ? "#1d4ed8" : "#334155",
+      }}
+    >
+      {active ? "Session Active" : "No Session"}
+    </span>
+  );
+}
+
+function IndicatorBadge({
+  label,
+  status,
+}: {
+  label: string;
+  status: "ok" | "warn" | "neutral";
+}) {
+  const palette = status === "ok"
+    ? { background: "#dcfce7", color: "#166534" }
+    : status === "warn"
+      ? { background: "#fee2e2", color: "#991b1b" }
+      : { background: "#e2e8f0", color: "#334155" };
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "4px 8px",
+        borderRadius: "999px",
+        fontSize: "0.76rem",
+        fontWeight: 700,
+        ...palette,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function WifiSignalIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M2.25 6.5C4.28 4.4 6.93 3.25 9 3.25c2.07 0 4.72 1.15 6.75 3.25" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M4.9 9.1c1.4-1.45 2.96-2.16 4.1-2.16 1.14 0 2.7.71 4.1 2.16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7.45 11.6c.73-.76 1.14-.97 1.55-.97.41 0 .82.21 1.55.97" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="9" cy="13.8" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Using shared `HubHeartbeat` component for consistent animation and styling.
+function WarningIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M9 2.5 1.8 15h14.4L9 2.5Z" fill="currentColor" opacity="0.18" />
+      <path d="M9 6v4.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="9" cy="12.9" r="0.9" fill="currentColor" />
+      <path d="M9 2.5 1.8 15h14.4L9 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DeviceMetricIcon({ kind }: { kind: "id" | "seen" | "calibrated" }) {
+  if (kind === "id") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <rect x="2" y="2" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M4 4h4M4 6h4M4 8h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      </svg>
     );
->>>>>>> origin/home-page-ui
+  }
+
+  if (kind === "seen") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.4" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M6 3.4v2.9l2 1.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M2.2 6.2 4.6 8.6 9.8 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Sparkline({ seed }: { seed: string }) {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash << 5) - hash + seed.charCodeAt(index);
+    hash |= 0;
+  }
+
+  const series = Array.from({ length: 10 }, (_, index) => {
+    const base = Math.abs((hash + index * 37) % 14);
+    return 6 + base;
+  });
+
+  const width = 72;
+  const height = 18;
+  const step = width / (series.length - 1);
+  const path = series.map((value, index) => `${index === 0 ? "M" : "L"} ${index * step} ${height - value}`).join(" ");
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path d={path} fill="none" stroke="#60a5fa" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StatusDot({
+  label,
+  status,
+}: {
+  label: string;
+  status: "ready" | "online" | "offline" | "neutral";
+}) {
+  return (
+    <span className={`device-status ${status === "ready" ? "device-status--ready" : ""}`}>
+      <span className={`device-status__dot device-status__dot--${status}`} aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function Chip({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <span className="device-chip">
+      <span className="device-chip__icon">{icon}</span>
+      <span>{children}</span>
+    </span>
+  );
+}
+
+function ProgressRing({ value }: { value: number }) {
+  const size = 36;
+  const stroke = 4;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference - (Math.max(0, Math.min(100, value)) / 100) * circumference;
+
+  return (
+    <svg className="device-progress" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-label={`Calibration progress ${Math.round(value)}%`} role="img">
+      <circle cx={size / 2} cy={size / 2} r={radius} stroke="#dbeafe" strokeWidth={stroke} fill="none" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        stroke="#16a34a"
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={dashOffset}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        fill="none"
+      />
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="device-progress__label">
+        {Math.round(value)}%
+      </text>
+    </svg>
+  );
+}
+
+function progressFromId(progressId: unknown): number {
+  if (typeof progressId === "number" && Number.isFinite(progressId)) {
+    return Math.max(0, Math.min(100, progressId));
   }
 
   if (typeof progressId === "string") {
@@ -163,34 +286,14 @@ function triggerRegistrationConfetti() {
 }
 
 type SessionActionState = "idle" | "starting" | "ending";
-
 type CalibrationActionState = "idle" | "starting" | "cancelling";
 type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
-type InventoryStatus = "paired" | "pending" | "online" | "offline" | "stale" | "unknown";
 
 type InstructorDashboardProps = {
   embeddedInDesktop?: boolean;
   onOpenTraineeDashboard?: (sessionId: string) => void;
   manualLanIpOverride?: string | null;
 };
-
-function getFriendlyErrorMessage(message: string | null): string | null {
-  if (!message) return null;
-  const msg = message.toLowerCase();
-  if (msg.includes("calibration_fail") || msg.includes("calibration failed")) {
-    return "Calibration failed. Please adjust the sensor and retry.";
-  }
-  if (msg.includes("failed to start") || msg.includes("start session failed")) {
-    return "Failed to start session. Check if the device is operational.";
-  }
-  if (msg.includes("stream disconnected")) {
-    return "Live connection offline. Trying to reconnect...";
-  }
-  if (msg.includes("request_id") || msg.includes("progress_id")) {
-    return "Action in progress. Please wait...";
-  }
-  return message;
-}
 
 function InstructorLiveMetrics({
   deviceId,
@@ -209,136 +312,47 @@ function InstructorLiveMetrics({
 
   if (!active || !sessionId) {
     return (
-      <div className="p-3 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50/50 dark:bg-gray-900/30 text-center text-xs text-gray-500 dark:text-gray-400">
-        No active session metrics. Select a trainee and start a session.
+      <div style={{ padding: "12px", borderRadius: "8px", border: "1px dashed #cbd5e1", background: "#f8fafc" }}>
+        <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>
+          Select or start a session to view live metrics.
+        </p>
       </div>
     );
   }
 
-  const metric = liveState.latestMetric;
-  const rate = metric?.rateCpm ?? null;
-  const depth = metric?.depthMm ?? null;
-  const count = metric?.compressionCount ?? 0;
-  const goodRecoil = metric?.recoilOkCount ?? 0;
-  const incompleteRecoil = metric?.incompleteRecoilCount ?? 0;
-
-  // Rate colour-coding: target 100-120 CPM
-  let rateColor = "text-gray-500 dark:text-gray-400 font-bold";
-  let rateStatus = "Waiting...";
-  if (rate !== null) {
-    if (rate >= 100 && rate <= 120) {
-      rateColor = "text-[#107C10] font-extrabold";
-      rateStatus = "Good";
-    } else if ((rate >= 90 && rate < 100) || (rate > 120 && rate <= 130)) {
-      rateColor = "text-[#FF8C00] font-bold";
-      rateStatus = "Warning";
-    } else {
-      rateColor = "text-[#D13438] font-bold";
-      rateStatus = "Inadequate";
-    }
-  }
-
-  // Depth colour-coding: target 50-60mm
-  let depthColor = "text-gray-500 dark:text-gray-400 font-bold";
-  if (depth !== null) {
-    if (depth >= 50 && depth <= 60) {
-      depthColor = "text-[#107C10] font-extrabold";
-    } else if ((depth >= 45 && depth < 50) || (depth > 60 && depth <= 65)) {
-      depthColor = "text-[#FF8C00] font-bold";
-    } else {
-      depthColor = "text-[#D13438] font-bold";
-    }
-  }
-
-  const depthPercent = depth !== null ? Math.min(100, Math.max(0, (depth / 50) * 100)) : 0;
-
-  return (
-    <div className="grid gap-3 border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/10 p-3 rounded-xl">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
-        {/* Depth card */}
-        <div className="p-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-lg flex flex-col gap-1">
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold tracking-wider">Depth</span>
-          <span className={`text-sm ${depthColor}`}>{depth !== null ? `${depth.toFixed(1)} mm` : "-"}</span>
-          {depth !== null && (
-            <Progress value={depthPercent} className="h-1 bg-gray-100 dark:bg-gray-700" />
-          )}
-        </div>
-
-        {/* Rate card */}
-        <div className="p-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-lg flex flex-col gap-1">
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold tracking-wider">Rate</span>
-          <span className={`text-sm ${rateColor}`}>{rate !== null ? `${Math.round(rate)} CPM` : "-"}</span>
-          {rate !== null && (
-            <span className="text-[9px] uppercase font-semibold text-gray-400">{rateStatus}</span>
-          )}
-        </div>
-
-        {/* Compression Count card */}
-        <div className="p-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-lg flex flex-col gap-1 justify-center">
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold tracking-wider">Count</span>
-          <span className="text-sm font-extrabold text-gray-900 dark:text-gray-100">{count}</span>
-        </div>
-
-        {/* Recoil card */}
-        <div className="p-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-lg flex flex-col gap-1 justify-center">
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-bold tracking-wider">Recoil</span>
-          <div className="text-[11px] font-bold text-gray-700 dark:text-gray-300">
-            <span className="text-[#107C10]">{goodRecoil} G</span>
-            {" / "}
-            <span className="text-[#D13438]">{incompleteRecoil} I</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <LiveMetricsPanel state={liveState} title="Selected Session Live Metrics" compact />;
 }
 
 function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
   if (state === "connecting") {
     return (
-      <Badge variant="default" className="bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 font-medium">
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#e2e8f0", color: "#334155" }}>
         Connecting
-      </Badge>
+      </span>
     );
   }
 
   if (state === "connected") {
     return (
-      <Badge variant="default" className="bg-[#107C10]/10 text-[#107C10] font-medium border-0">
-        Live Stream Connected
-      </Badge>
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#dcfce7", color: "#166534" }}>
+        Live stream connected
+      </span>
     );
   }
 
   if (state === "reconnecting") {
     return (
-      <Badge variant="default" className="bg-[#FF8C00]/10 text-[#FF8C00] font-medium border-0 animate-pulse">
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>
         Reconnecting...
-      </Badge>
+      </span>
     );
   }
 
   return (
-    <Badge variant="default" className="bg-[#D13438]/10 text-[#D13438] font-medium border-0">
+    <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fee2e2", color: "#991b1b" }}>
       Stream unavailable
-    </Badge>
+    </span>
   );
-}
-
-function getInventoryBadgeTone(status: InventoryStatus): "success" | "warning" | "danger" | "info" {
-  if (status === "online") {
-    return "success";
-  }
-
-  if (status === "offline") {
-    return "danger";
-  }
-
-  if (status === "stale" || status === "pending") {
-    return "warning";
-  }
-
-  return "info";
 }
 
 export default function InstructorDashboard({
@@ -346,15 +360,11 @@ export default function InstructorDashboard({
   onOpenTraineeDashboard,
   manualLanIpOverride = null,
 }: InstructorDashboardProps) {
-  const auth = useOptionalAuth();
-  const currentUser = auth?.currentUser ?? null;
-  const isAuthorized = !auth || Boolean(currentUser && currentUser.role !== "TRAINEE");
-  const logout = auth?.logout ?? (() => Promise.resolve());
+  const { currentUser, logout } = useAuth();
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
-  const [manikins, setManikins] = useState<ManikinInventoryEntry[]>([]);
-  const [manikinsRefreshKey, setManikinsRefreshKey] = useState(0);
+  const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
 
   // Trainee selection state (per device)
   type SessionDraft = {
@@ -384,8 +394,11 @@ export default function InstructorDashboard({
   const [expandedSessionDetail, setExpandedSessionDetail] = useState<CompletedSession | null>(null);
   const [expandedSessionLoading, setExpandedSessionLoading] = useState(false);
   const [expandedSessionError, setExpandedSessionError] = useState<string | null>(null);
-<<<<<<< HEAD
   const [selectedCalibrationDeviceId, setSelectedCalibrationDeviceId] = useState<string | null>(null);
+  const selectedDevice = useMemo(() => {
+    return manikins.find((device) => device.deviceId === selectedCalibrationDeviceId) ?? null;
+  }, [manikins, selectedCalibrationDeviceId]);
+  const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
   // State for the "Pair New Manikin" panel
   const [espSetupBaseUrl, setEspSetupBaseUrl] = useState<string>("http://192.168.4.1");
   const [espProvisionPath, setEspProvisionPath] = useState<string>("/");
@@ -403,31 +416,9 @@ export default function InstructorDashboard({
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
   const [registryError, setRegistryError] = useState<string | null>(null);
+  const [expandedDeviceDetails, setExpandedDeviceDetails] = useState<Record<string, boolean>>({});
   const registryDeviceIdsRef = useRef<Set<string>>(new Set());
   const registryHasLoadedRef = useRef(false);
-
-  // Quick calibration default profile state
-  const [defaultProfileId, setDefaultProfileId] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function loadDefaultProfile() {
-      try {
-        const defaultProf = await getDefaultCalibrationProfile();
-        if (defaultProf) {
-          setDefaultProfileId(defaultProf.profileId);
-        } else {
-          const all = await getCalibrationProfiles();
-          const firstActive = all.find((p) => p.active);
-          if (firstActive) {
-            setDefaultProfileId(firstActive.profileId);
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load default profile for quick calibration", e);
-      }
-    }
-    loadDefaultProfile();
-  }, []);
 
   useEffect(() => {
     if (manikins.length === 0) {
@@ -445,17 +436,9 @@ export default function InstructorDashboard({
 
   function applyManikinSnapshot(live: ManikinLiveSummary[]) {
     setManikins(live);
-=======
-  const [showSessionTour, setShowSessionTour] = useState(false);
-  const [showOnlyLiveManikins, setShowOnlyLiveManikins] = useState(true);
-  const [showManikinDiagnostics, setShowManikinDiagnostics] = useState(false);
-
-  function applyInventorySnapshot(entries: ManikinInventoryEntry[]) {
-    setManikins(entries);
->>>>>>> origin/home-page-ui
     setSessionDrafts((current) => {
       const next = { ...current };
-      for (const manikin of entries) {
+      for (const manikin of live) {
         if (!next[manikin.deviceId]) {
           next[manikin.deviceId] = {
             traineeMode: "select",
@@ -466,7 +449,6 @@ export default function InstructorDashboard({
     });
   }
 
-<<<<<<< HEAD
   async function loadRecentSessions() {
     try {
       const sessions = await fetchCompletedSessions();
@@ -477,44 +459,11 @@ export default function InstructorDashboard({
     } finally {
       setRecentSessionsLoading(false);
     }
-=======
-  function buildRecentSessionHeatmap(sessions: CompletedSession[], days = 28): HeatmapDay[] {
-    const today = new Date();
-    const counts = new Map<string, number>();
-
-    for (const session of sessions) {
-      const date = new Date(session.endedAt);
-      if (Number.isNaN(date.getTime())) {
-        continue;
-      }
-
-      const key = date.toISOString().slice(0, 10);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-
-    return Array.from({ length: days }, (_, index) => {
-      const day = new Date(today);
-      day.setDate(today.getDate() - (days - 1 - index));
-      const key = day.toISOString().slice(0, 10);
-
-      return {
-        date: key,
-        count: counts.get(key) ?? 0,
-      };
-    });
-  }
-
-  function buildTimelineMarkers(sessions: CompletedSession[]): Array<{ label: string; position: number; completed: boolean }> {
-    return [
-      { label: "Start", position: 10, completed: sessions.length > 0 },
-      { label: "Check-in", position: 35, completed: sessions.length > 0 },
-      { label: "Midway", position: 62, completed: sessions.length > 1 },
-      { label: "Wrap-up", position: 88, completed: sessions.length > 2 },
-    ];
->>>>>>> origin/home-page-ui
   }
 
   useEffect(() => {
+
+
     async function loadServiceInfo() {
       try {
         const info = await fetchHubServiceInfo();
@@ -526,7 +475,6 @@ export default function InstructorDashboard({
       }
     }
 
-<<<<<<< HEAD
     async function loadManikins() {
       try {
         const live = await fetchLiveManikins();
@@ -537,17 +485,6 @@ export default function InstructorDashboard({
         setManikinsError(message);
       } finally {
         setManikinsLoading(false);
-=======
-    async function loadRecentSessions() {
-      try {
-        const sessions = await fetchCompletedSessions();
-        setRecentSessions(sessions);
-        setRecentSessionsError(null);
-      } catch (error) {
-        setRecentSessionsError(error instanceof Error ? error.message : "Failed to load completed sessions.");
-      } finally {
-        setRecentSessionsLoading(false);
->>>>>>> origin/home-page-ui
       }
     }
 
@@ -563,7 +500,6 @@ export default function InstructorDashboard({
         setTraineesLoading(false);
       }
     }
-<<<<<<< HEAD
     async function loadRegistry() {
       try {
         const entries = await fetchManikinRegistry();
@@ -587,23 +523,7 @@ export default function InstructorDashboard({
         setRegistryLoading(false);
       }
     }
-=======
->>>>>>> origin/home-page-ui
 
-    loadHealth();
-    loadRecentSessions();
-    loadTrainees();
-
-    const healthInterval = setInterval(loadHealth, 5000);
-    const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
-
-    return () => {
-      clearInterval(healthInterval);
-      clearInterval(recentSessionsInterval);
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     let eventSource: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -616,35 +536,13 @@ export default function InstructorDashboard({
       }
     }
 
-    async function loadManikins() {
-      try {
-        const inventory = await fetchManikinInventory();
-        if (cancelled) {
-          return;
-        }
-
-        applyInventorySnapshot(inventory);
-        setManikinsError(null);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setManikinsError("Failed to fetch");
-      } finally {
-        if (!cancelled) {
-          setManikinsLoading(false);
-        }
-      }
-    }
-
     function startFallbackPolling() {
       if (fallbackInterval) {
         return;
       }
 
       fallbackInterval = setInterval(() => {
-        void loadManikins();
+        loadManikins();
       }, 2000);
     }
 
@@ -696,29 +594,8 @@ export default function InstructorDashboard({
           return;
         }
 
-        applyInventorySnapshot(payload.map((manikin) => {
-          const state = manikin.state?.toLowerCase() ?? "";
-          const status: InventoryStatus = state.includes("pending")
-            ? "pending"
-            : state.includes("stale")
-              ? "stale"
-              : state.includes("paired") || Boolean(manikin.sessionActive)
-                ? "paired"
-                : manikin.online
-                  ? "online"
-                  : "offline";
-
-          return {
-            ...manikin,
-            status,
-            rawStatus: manikin.state,
-          };
-        }));
+        applyManikinSnapshot(payload);
         setManikinsLoading(false);
-      });
-
-      stream.addEventListener("heartbeat", () => {
-        // Keep-alive only.
       });
 
       stream.onerror = () => {
@@ -744,7 +621,6 @@ export default function InstructorDashboard({
       };
     }
 
-<<<<<<< HEAD
     loadServiceInfo();
     loadManikins();
     loadRecentSessions();
@@ -762,15 +638,6 @@ export default function InstructorDashboard({
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
     const registryInterval = setInterval(loadRegistry, 15000);
     
-=======
-    setManikinsLoading(true);
-    void loadManikins().finally(() => {
-      if (!cancelled) {
-        connectManikinStream();
-      }
-    });
-
->>>>>>> origin/home-page-ui
     return () => {
       cancelled = true;
       if (eventSource) {
@@ -780,126 +647,21 @@ export default function InstructorDashboard({
         clearTimeout(reconnectTimer);
       }
       stopFallbackPolling();
-<<<<<<< HEAD
       clearInterval(serviceInfoInterval);
       clearInterval(recentSessionsInterval);
       clearInterval(registryInterval);
       window.removeEventListener("resq:device-registered", handleDeviceRegistered as EventListener);
-=======
->>>>>>> origin/home-page-ui
     };
-  }, [manikinsRefreshKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    setShowSessionTour(window.localStorage.getItem(SESSION_TOUR_KEY) !== "true");
   }, []);
-
-  // Sim Theater feature removed; no-op stubs eliminated.
-
-  useEffect(() => {
-    if (!manikinsError) {
-      setShowManikinDiagnostics(false);
-    }
-  }, [manikinsError]);
-
-  function dismissSessionTour() {
-    setShowSessionTour(false);
-
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(SESSION_TOUR_KEY, "true");
-    }
-  }
-
-  function retryLoadManikins() {
-    setManikinsRefreshKey((current) => current + 1);
-  }
 
   const manikinByDeviceId = useMemo(() => {
     return new Map(manikins.map((manikin) => [manikin.deviceId, manikin]));
   }, [manikins]);
   const deviceIdsKey = useMemo(() => manikins.map((manikin) => manikin.deviceId).sort().join("|"), [manikins]);
 
-<<<<<<< HEAD
   useEffect(() => {
     if (!deviceIdsKey) {
       return;
-=======
-  const inventoryItems = useMemo(() => {
-    return manikins;
-  }, [manikins]);
-
-  const inventoryBuckets = useMemo(() => {
-    return inventoryItems.reduce<Record<InventoryStatus, typeof inventoryItems>>((accumulator, entry) => {
-      accumulator[entry.status].push(entry);
-      return accumulator;
-    }, {
-      paired: [],
-      pending: [],
-      online: [],
-      offline: [],
-      stale: [],
-      unknown: [],
-    });
-  }, [inventoryItems]);
-
-  const visibleManikins = useMemo(() => {
-    if (!showOnlyLiveManikins) {
-      return manikins;
-    }
-
-    return manikins.filter((manikin) => manikin.online);
-  }, [manikins, showOnlyLiveManikins]);
-
-  const hubStatusCardClass = healthLoading
-    ? "card--status-info"
-    : health?.ok
-      ? "card--status-success"
-      : "card--status-danger";
-
-  const liveManikinsCardClass = manikinsError
-    ? "card--status-danger"
-    : manikinsStreamState === "connected"
-      ? "card--status-success"
-      : manikinsStreamState === "reconnecting"
-        ? "card--status-warning"
-        : "card--status-info";
-
-  const recentSessionHeatmap = useMemo(() => buildRecentSessionHeatmap(recentSessions), [recentSessions]);
-  const sessionTimelineMarkers = useMemo(() => buildTimelineMarkers(recentSessions), [recentSessions]);
-
-  function inventoryBadgeStyle(status: InventoryStatus): React.CSSProperties {
-    if (status === "online" || status === "paired") {
-      return { background: "#dcfce7", color: "#166534" };
-    }
-
-    if (status === "pending") {
-      return { background: "#fef3c7", color: "#92400e" };
-    }
-
-    if (status === "stale" || status === "offline") {
-      return { background: "#fee2e2", color: "#991b1b" };
-    }
-
-    return { background: "#e2e8f0", color: "#334155" };
-  }
-
-  function formatInventoryLastSeen(value: string | null): string {
-    if (!value) {
-      return "No heartbeat yet";
-    }
-
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-  }
-
-  function formatLastSeen(value: string | null): string {
-    if (!value) {
-      return "No messages yet";
->>>>>>> origin/home-page-ui
     }
 
     let cancelled = false;
@@ -948,32 +710,34 @@ export default function InstructorDashboard({
     }
   }, [serviceInfo?.backend_base_url, provisioningBackendBaseUrl]);
 
-  function readinessKnown(readiness: FirmwareReadinessResponse | null | undefined): boolean {
-    return Boolean(readiness?.firmwareState || readiness?.latestResult);
-  }
+  function formatLastSeen(value: string | null): string {
+    if (!value) {
+      return "No messages yet";
+    }
 
-<<<<<<< HEAD
-  function startBlockedByReadiness(readiness: FirmwareReadinessResponse | null | undefined): boolean {
-    if (!readinessKnown(readiness)) {
-      return false;
-=======
-  function isDataStale(lastSeenString: string | null): boolean {
-    if (!lastSeenString) return true;
-    
-    const lastSeenDate = new Date(lastSeenString);
-    if (Number.isNaN(lastSeenDate.getTime())) return true;
-    
-    const now = new Date();
-    const ageSeconds = (now.getTime() - lastSeenDate.getTime()) / 1000;
-    
-    // Data is stale if older than 5 seconds
-    return ageSeconds > 5;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleTimeString();
   }
 
   function metric(value: number | null, suffix: string): string {
     if (value === null || value === undefined) {
       return "-";
->>>>>>> origin/home-page-ui
+    }
+
+    return `${value.toFixed(1)} ${suffix}`;
+  }
+
+  function readinessKnown(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+    return Boolean(readiness?.firmwareState || readiness?.latestResult);
+  }
+
+  function startBlockedByReadiness(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+    if (!readinessKnown(readiness)) {
+      return false;
     }
 
     const state = readiness?.firmwareState ?? "";
@@ -997,7 +761,13 @@ export default function InstructorDashboard({
 
     const protocol = window.location.protocol.toLowerCase();
     const canUseOrigin = protocol === "http:" || protocol === "https:";
-    if (canUseOrigin) {
+    const originHost = window.location.hostname;
+    const originIsLocalOnly =
+      originHost === "localhost" ||
+      originHost === "127.0.0.1" ||
+      originHost === "::1";
+
+    if (canUseOrigin && !originIsLocalOnly) {
       return `${window.location.origin}/trainee?sessionId=${encodeURIComponent(sessionId)}`;
     }
 
@@ -1014,7 +784,6 @@ export default function InstructorDashboard({
       }
     }
 
-<<<<<<< HEAD
     const protocol = window.location.protocol.toLowerCase();
     const canUseOrigin = protocol === "http:" || protocol === "https:";
     const originHost = window.location.hostname;
@@ -1028,9 +797,6 @@ export default function InstructorDashboard({
     }
 
     return "/trainee";
-=======
-    return `${window.location.origin}/trainee`;
->>>>>>> origin/home-page-ui
   }
 
   function navigateToDesktopHome() {
@@ -1045,6 +811,20 @@ export default function InstructorDashboard({
 
     const url = `/trainee?sessionId=${encodeURIComponent(sessionId)}`;
     window.location.assign(url);
+  }
+
+  function formatSummaryTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
+  }
+
+  function formatSummaryDateTime(value: string): string {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  }
+
+  function formatMetric(value: number, suffix: string): string {
+    return `${value.toFixed(1)} ${suffix}`;
   }
 
   function getEffectiveSession(deviceId: string, manikin: ManikinLiveSummary): SessionStartResponse | null {
@@ -1087,19 +867,20 @@ export default function InstructorDashboard({
 
       // Build trainee info based on selected mode
       if (draft.traineeMode === "select") {
-        request.traineeId = draft.traineeRecordId || `trainee-${deviceId.toLowerCase()}`;
+        if (!draft.traineeRecordId) {
+          throw new Error("Please select a trainee from the list.");
+        }
+        request.traineeRecordId = draft.traineeRecordId;
       } else if (draft.traineeMode === "quick") {
         if (!draft.quickTraineeName || !draft.quickTraineeCode) {
           throw new Error("Please enter trainee name and code for quick add.");
         }
-        request.traineeId = draft.quickTraineeCode;
         request.quickTrainee = {
           traineeCode: draft.quickTraineeCode,
           displayName: draft.quickTraineeName,
           groupName: draft.quickTraineeGroup || null,
         };
       } else if (draft.traineeMode === "guest") {
-        request.traineeId = "guest";
         request.guestLabel = "Guest Trainee";
       }
 
@@ -1163,7 +944,7 @@ export default function InstructorDashboard({
       const response = await startCalibration(deviceId, payload);
       setSessionMessageByDevice((current) => ({
         ...current,
-        [deviceId]: `Calibration requested`,
+        [deviceId]: `Calibration requested (${response.requestId})`,
       }));
       await refreshDeviceReadiness(deviceId);
     } catch (error) {
@@ -1181,10 +962,10 @@ export default function InstructorDashboard({
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
     try {
-      await cancelCalibration(deviceId);
+      const response = await cancelCalibration(deviceId);
       setSessionMessageByDevice((current) => ({
         ...current,
-        [deviceId]: `Calibration cancelled`,
+        [deviceId]: `Calibration cancel requested (${response.requestId})`,
       }));
       await refreshDeviceReadiness(deviceId);
     } catch (error) {
@@ -1220,8 +1001,6 @@ export default function InstructorDashboard({
       setExpandedSessionLoading(false);
     }
   }
-<<<<<<< HEAD
-
   async function handleRequestPairing() {
     if (!provisioningWifiSsid.trim()) return;
 
@@ -1261,1220 +1040,1070 @@ export default function InstructorDashboard({
       setPairingLoading(false);
     }
   }
-=======
->>>>>>> origin/home-page-ui
 
+  const provisioningPayloadText = provisioningPayload
+    ? JSON.stringify(provisioningPayload, null, 2)
+    : "";
   const provisioningUrlText = provisioningUrl ?? "";
-  const hubHealthy = serviceInfo !== null && !serviceInfoError;
-
-  // Unified list of devices (Registry + Manikins)
-  const unifiedDevices = useMemo(() => {
-    const list: Array<{
-      deviceId: string;
-      online: boolean;
-      fw?: string | null;
-      ip?: string | null;
-      rssi?: number | null;
-      state?: string | null;
-      lastSeen?: string | null;
-    }> = [];
-
-    const registryMap = new Map(registry.map((r) => [r.deviceId, r]));
-    const manikinsMap = new Map(manikins.map((m) => [m.deviceId, m]));
-    const allIds = new Set([...registryMap.keys(), ...manikinsMap.keys()]);
-
-    for (const deviceId of allIds) {
-      const reg = registryMap.get(deviceId);
-      const man = manikinsMap.get(deviceId);
-
-      list.push({
-        deviceId,
-        online: man?.online ?? reg?.online ?? false,
-        fw: man?.fw ?? reg?.fw ?? null,
-        ip: man?.ip ?? reg?.ip ?? null,
-        rssi: man?.rssi ?? reg?.rssi ?? null,
-        state: man?.firmwareState ?? reg?.state ?? man?.state ?? null,
-        lastSeen: man?.lastSeen ?? reg?.lastSeen ?? null,
-      });
-    }
-
-    return list.sort((a, b) => {
-      if (a.online && !b.online) return -1;
-      if (!a.online && b.online) return 1;
-      return a.deviceId.localeCompare(b.deviceId);
-    });
-  }, [registry, manikins]);
+  const provisioningBackendUrl = (provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url || "").trim();
+  const backendUrlHasLocalhost = provisioningBackendUrl.toLowerCase().includes("localhost");
 
   return (
-<<<<<<< HEAD
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200">
-      {/* Main Container */}
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        {/* Header */}
-        <header className="border-b border-gray-200 dark:border-gray-700 pb-4 mb-6">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-50">Instructor Dashboard</h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Multi‑manikin live performance monitoring and control
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              {/* Hidden Hub Health for Test Verification */}
-              <span className="hidden">
-                {hubHealthy ? "Healthy" : "Degraded"}
-              </span>
-            </div>
-          </div>
-        </header>
-        
-        {/* Device List Section */}
-        <Card className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-50 flex items-center gap-2">
-              <LiveManikinsIcon size={18} /> Device List
-            </h2>
-            <LiveStreamStatusBadge state={manikinsStreamState} />
-          </div>
-
-          {manikinsLoading ? (
-            <div className="p-6 text-center text-sm text-gray-500">
-              Loading device data...
-            </div>
-          ) : null}
-
-          {!manikinsLoading && manikinsError ? (
-            <div className="p-6 text-center text-sm text-[#D13438] font-medium">
-              {getFriendlyErrorMessage(manikinsError)}
-            </div>
-          ) : null}
-
-          {!manikinsLoading && !manikinsError && unifiedDevices.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-900/10 gap-3">
-              <WifiOff className="text-gray-400 dark:text-gray-500" size={32} />
-              <div>
-                <p className="text-sm font-bold text-gray-700 dark:text-gray-300">
-                  No manikins connected
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Power on devices to see them here.
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          {!manikinsLoading && !manikinsError && unifiedDevices.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-              {unifiedDevices.map((device) => {
-                const manikin = manikinByDeviceId.get(device.deviceId);
-                const activeSession = manikin ? getEffectiveSession(device.deviceId, manikin) : null;
-=======
-    <div style={styles.container}>
-      <header style={styles.header}>
+    <div className="dashboard-main-container">
+      <header className="dashboard-header">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <div>
-            <h1 style={{ ...styles.title, color: styles.title.color }}>
-              Instructor Dashboard
-            </h1>
-            <p style={{ ...styles.subtitle, color: styles.subtitle.color }}>
-              Multi-manikin live performance monitoring and control
-            </p>
+            <div className="header-brand-placeholder" />
           </div>
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {currentUser ? (
               <>
-                <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
+                <span className="user-role-badge">
                   {currentUser.role}
                 </span>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      logout().finally(() => window.location.assign("/login"));
-                    }}
-                    aria-label="Logout"
-                  >
-                    Logout
-                  </Button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout().finally(() => window.location.assign("/login"));
+                  }}
+                  className="header-action-btn"
+                >
+                  Logout
+                </button>
               </>
             ) : null}
             {!embeddedInDesktop ? (
-              <Button variant="secondary" onClick={navigateToDesktopHome}>Back To Home</Button>
+              <button
+                type="button"
+                onClick={navigateToDesktopHome}
+                className="header-action-btn"
+              >
+                Back To Home
+              </button>
             ) : null}
           </div>
         </div>
       </header>
 
-      <div style={styles.content}>
-        <Card className={hubStatusCardClass}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <HubHeartbeat state={healthLoading ? 'checking' : health?.ok ? 'ok' : 'down'} size={20} />
-              Hub Status
-            </h2>
-            <HealthStatusBadge health={healthLoading ? null : health} />
-          </div>
-          <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
-            {healthLoading
-              ? "Checking hub connectivity..."
-              : health?.ok
-                ? "Backend is running and responding to health checks."
-                : "Unable to reach the hub backend. Check that the API service is running."}
-          </p>
-          {health?.timestamp && (
-            <p style={{ margin: "8px 0 0 0", color: "#9ca3af", fontSize: "0.8rem" }}>
-              Last update: {new Date(health.timestamp).toLocaleTimeString()}
-            </p>
-          )}
-        </Card>
+      <div className="instructor-dashboard-layout">
+        {/* Left Column */}
+        <div className="dashboard-column left-column">
+          <h1 className="simulation-control-title">SIMULATION CONTROL</h1>
+          
+          <div className="left-column-bottom-flex">
+            {/* Navy blue active card */}
+            <div className="navy-active-card">
+              <h2 className="active-card-title">Active Device</h2>
+              {selectedDevice ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#ffffff" }}>
+                    {selectedDevice.deviceId}
+                  </div>
+                  
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                    <StatusDot label={selectedDevice.online ? "Online" : "Offline"} status={selectedDevice.online ? "online" : "offline"} />
+                    <SessionStateBadge active={Boolean(selectedDevice.activeSessionId)} />
+                  </div>
 
-        
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "0.95rem", color: "#cbd5e1" }}>
+                    <div>IP Address: <strong style={{ color: "#ffffff" }}>{selectedDevice.ip ?? "No IP"}</strong></div>
+                    <div>FW Version: <strong style={{ color: "#ffffff" }}>{selectedDevice.fw ?? "unknown"}</strong></div>
+                    <div>Firmware State: <strong style={{ color: "#ffffff" }}>{selectedDevice.state ?? "unknown"}</strong></div>
+                  </div>
 
-        <Card aria-labelledby="completed-sessions-title">
-          <h2 id="completed-sessions-title" className="card__title">
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 12h18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 3v18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            <span>Completed Session Summary</span>
-          </h2>
-          {latestEndedSession ? (
-            <div style={{ display: "grid", gap: "8px" }}>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Session: {latestEndedSession.sessionId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Device: {latestEndedSession.deviceId}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Trainee: {latestEndedSession.traineeId ?? "-"}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Started: {formatSummaryTime(latestEndedSession.startedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Ended: {formatSummaryTime(latestEndedSession.endedAt)}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Duration: {latestEndedSession.summary.durationSeconds}s</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Avg depth: {formatMetric(latestEndedSession.summary.avgDepthMm, "mm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Avg rate: {formatMetric(latestEndedSession.summary.avgRateCpm, "cpm")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Recoil: {formatMetric(latestEndedSession.summary.recoilPct, "%")}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pauses: {latestEndedSession.summary.pausesCount}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Score: {latestEndedSession.summary.score}</p>
-              <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Flags: {latestEndedSession.summary.latestFlags ?? "-"}</p>
-            </div>
-          ) : (
-            <div className="card card--dashed" aria-live="polite">
-              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <p style={{ marginTop: 8 }}>End a session to see the summary here.</p>
-            </div>
-          )}
-        </Card>
+                  {selectedDevice.activeSessionId ? (
+                    <div style={{ background: "rgba(15, 23, 42, 0.4)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <span style={{ fontSize: "0.8rem", textTransform: "uppercase", fontWeight: 700, color: "#94a3b8" }}>Active Session</span>
+                      <span style={{ fontSize: "0.9rem", color: "#ffffff", wordBreak: "break-all" }}>ID: {selectedDevice.activeSessionId}</span>
+                      <span style={{ fontSize: "0.9rem", color: "#ffffff" }}>Trainee: {selectedDevice.activeTraineeId ?? "Guest"}</span>
+                    </div>
+                  ) : (
+                    <div style={{ background: "rgba(15, 23, 42, 0.2)", border: "1px dashed rgba(255, 255, 255, 0.1)", borderRadius: "8px", padding: "12px", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem" }}>
+                      No Active Session
+                    </div>
+                  )}
 
-        <Card aria-labelledby="session-timeline-title" className="session-timeline-card">
-          <div className="session-timeline-card__header">
-            <div>
-              <h2 id="session-timeline-title" className="card__title">
-                <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 7h16" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 17h16" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                <span>Session Timeline</span>
-              </h2>
-              <p className="session-timeline-card__copy">
-                End a session to populate the summary below. This placeholder shows where live progress markers and recent-session history will appear.
-              </p>
-            </div>
-            <Badge variant="status" className="status-badge--info">
-              Placeholder
-            </Badge>
-          </div>
-
-          <div className="session-timeline__canvas">
-            <div className="session-timeline__track-wrap">
-              <div className="session-timeline__track" aria-label="Session progress bar placeholder" role="group">
-                <div
-                  className="session-timeline__progress"
-                  style={{ width: `${Math.min(18 + recentSessions.length * 10, 100)}%` }}
-                />
-                {sessionTimelineMarkers.map((marker) => (
-                  <button
-                    key={marker.label}
-                    type="button"
-                    className={`session-timeline__marker ${marker.completed ? "session-timeline__marker--active" : ""}`}
-                    style={{ left: `${marker.position}%` }}
-                    draggable
-                    title={`${marker.label} marker`}
-                    aria-label={`${marker.label} marker placeholder`}
-                  >
-                    <span className="session-timeline__marker-dot" />
-                    <span className="session-timeline__marker-label">{marker.label}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="session-timeline__scale" aria-hidden="true">
-                <span>Start</span>
-                <span>Checkpoint</span>
-                <span>Wrap-up</span>
-              </div>
-            </div>
-
-            {showSessionTour ? (
-              <div className="session-timeline__tour" role="dialog" aria-modal="false" aria-label="Session timeline guided tour">
-                <div className="session-timeline__tour-card">
-                  <p className="session-timeline__tour-eyebrow">First-time tour</p>
-                  <p className="session-timeline__tour-title">This is a placeholder session timeline.</p>
-                  <p className="session-timeline__tour-copy">
-                    When you end a session, the summary card above and the recent-session history below will fill in automatically.
-                  </p>
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <Button variant="secondary" onClick={dismissSessionTour}>
-                      Got it
-                    </Button>
+                  <div style={{ marginTop: "8px" }}>
+                    <InstructorLiveMetrics
+                      deviceId={selectedDevice.deviceId}
+                      sessionId={selectedDevice.activeSessionId ?? null}
+                      active={Boolean(selectedDevice.activeSessionId)}
+                    />
                   </div>
                 </div>
+              ) : (
+                <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.95rem" }}>
+                  No active device selected. Select a live device from the Calibration Profiles card.
+                </p>
+              )}
+            </div>
+
+            {/* Calibration Profiles summary card */}
+            <div className="calibration-profiles-card-wrapper">
+              <div className="card">
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+                  <CalibrationIcon size={18} />
+                  <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Calibration Settings</h2>
+                </div>
+                <p className="card-description" style={{ marginBottom: "18px" }}>
+                  Configure sensor thresholds and trigger manual sensor calibration runs for live simulators.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+                  <div>Active Device: <strong style={{ color: "#0f172a" }}>{selectedCalibrationDeviceId ?? "None"}</strong></div>
+                  <div>Status: <strong style={{ color: "#0f172a" }}>{selectedDevice ? (selectedDevice.online ? "Online" : "Offline") : "No device selected"}</strong></div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCalibrationOpen(true)}
+                  style={{
+                    padding: "10px 18px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "#005A9C",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontSize: "0.95rem",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  Manage Profiles & Calibrate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Center-Right Column */}
+        <div className="dashboard-column center-right-column">
+          <div className="column-header">
+            <h2 className="column-title">Dashboard Overview & PPI</h2>
+          </div>
+
+          <div className="live-manikins-section">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <LiveManikinsIcon size={18} />
+                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#ffffff" }}>Live Manikins</h3>
+              </div>
+              <LiveStreamStatusBadge state={manikinsStreamState} />
+            </div>
+
+            {manikinsLoading ? (
+              <p style={{ margin: 0, color: "#cbd5e1" }}>Loading live manikin data...</p>
+            ) : null}
+
+            {!manikinsLoading && manikinsError ? (
+              <p style={{ margin: 0, color: "#fca5a5" }}>
+                Unable to load live manikins. {manikinsError}
+              </p>
+            ) : null}
+
+            {!manikinsLoading && !manikinsError && manikins.length === 0 ? (
+              <div className="empty-state-dark">
+                No manikins publishing yet. Start publishing to resq/&lt;deviceId&gt;/status...
               </div>
             ) : null}
 
-            <div className="session-heatmap">
-              <div className="session-heatmap__header">
-                <div>
-                  <h3 className="session-heatmap__title">Recent Sessions Heatmap</h3>
-                  <p className="session-heatmap__copy">Grey squares become greener as more sessions complete on that day.</p>
-                </div>
-                <div className="session-heatmap__legend" aria-hidden="true">
-                  <span>Less</span>
-                  <span className="session-heatmap__swatch session-heatmap__swatch--0" />
-                  <span className="session-heatmap__swatch session-heatmap__swatch--1" />
-                  <span className="session-heatmap__swatch session-heatmap__swatch--2" />
-                  <span className="session-heatmap__swatch session-heatmap__swatch--3" />
-                  <span>More</span>
-                </div>
-              </div>
-
-              <div className="session-heatmap__grid" role="img" aria-label="Calendar heatmap of recent completed sessions">
-                {recentSessionHeatmap.map((day) => {
-                  const intensity = Math.min(day.count, 4);
+            {!manikinsLoading && !manikinsError && manikins.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                {manikins.map((manikin) => {
+                  const activeSession = getEffectiveSession(manikin.deviceId, manikin);
+                  const active = Boolean(activeSession?.sessionId);
+                  const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
+                  const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
+                  const calibrationAction = calibrationActionByDevice[manikin.deviceId] ?? "idle";
+                  const readiness = readinessByDevice[manikin.deviceId];
+                  const readinessIsKnown = readinessKnown(readiness);
+                  const startReadinessBlocked = startBlockedByReadiness(readiness);
+                  const startDisabled = actionState !== "idle" || startReadinessBlocked;
+                  const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
+                  const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
+                  const calibrationProgress = progressFromId(readiness?.progressId);
+                  const isCalibrating = effectiveFirmwareState === "CALIBRATING";
 
                   return (
-                    <button
-                      key={day.date}
-                      type="button"
-                      className={`session-heatmap__cell session-heatmap__cell--${intensity}`}
-                      title={`${day.date}: ${day.count} completed session${day.count === 1 ? "" : "s"}`}
-                      aria-label={`${day.date}: ${day.count} completed session${day.count === 1 ? "" : "s"}`}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Card aria-labelledby="inventory-title">
-          <div className="flex justify-between items-center" style={{ marginBottom: 12 }}>
-            <h2 id="inventory-title" className="card__title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <PlusPulse size={18} />
-              <span>Manikin inventory</span>
-            </h2>
-            <Badge variant="count" aria-hidden>
-              <CounterFlip value={inventoryItems.length} /> devices
-            </Badge>
-          </div>
-
-          {manikinsLoading ? (
-            <div style={{ display: "grid", gap: "10px" }}>
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>No manikins are registered yet.</p>
-            </div>
-          ) : inventoryItems.length === 0 ? (
-            <div className="card card--dashed" aria-live="polite">
-              <p style={{ marginTop: 8 }}>No manikins are registered yet.</p>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: "12px" }}>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                {(["paired", "pending", "online", "offline", "stale"] as const).map((status) => (
-                  <span key={status} style={{ ...inventoryBadgeStyle(status), display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 700 }}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}: {inventoryBuckets[status].length}
-                  </span>
-                ))}
-              </div>
-
-              <div style={{ display: "grid", gap: "10px" }}>
-                {inventoryItems.map((entry) => (
-                  <Card key={entry.deviceId}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap" }}>
-                      <div>
-                        <p style={{ margin: 0, fontWeight: 700, color: "#0f172a" }}>{entry.deviceId}</p>
-                        <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>
-                          {entry.ip ?? "No IP"} • {entry.fw ?? "No firmware"}
-                        </p>
-                      </div>
-                      <Badge variant="status" className={`status-badge--${getInventoryBadgeTone(entry.status)}`}>
-                        {entry.status}
-                      </Badge>
-                    </div>
-
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      State: {entry.rawStatus ?? entry.state ?? "unknown"} • Last seen: {formatInventoryLastSeen(entry.lastSeen)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Session: {entry.activeSessionId ?? "-"} • Trainee: {entry.activeTraineeId ?? "-"} • Scenario: {entry.activeSessionScenario ?? "-"}
-                    </p>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-        </Card>
-
-        <Card className="card" aria-labelledby="recent-sessions-title">
-          <h2 id="recent-sessions-title" className="card__title">
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7h18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 3v18" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            <span>Recent Sessions</span>
-          </h2>
-          {recentSessionsLoading ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <p style={{ margin: 0, color: "#64748b", fontSize: "0.88rem" }}>No completed sessions yet.</p>
-            </div>
-          ) : recentSessionsError ? (
-            <Alert variant="danger" title={recentSessionsError ? "Unable to load completed sessions" : "Recent Sessions"} detail={recentSessionsError} />
-          ) : recentSessions.length === 0 ? (
-            <div className="card card--dashed" aria-live="polite">
-              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <p style={{ marginTop: 8 }}>No completed sessions yet.</p>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {recentSessions.map((session) => (
-                <article
-                  key={session.sessionId}
-                  className="card"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleViewDetails(session.sessionId)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleViewDetails(session.sessionId);
-                    }
-                  }}
-                  style={{ cursor: "pointer" }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-                    <div>
-                      <p style={{ margin: 0, fontWeight: 600, color: "#0f172a" }}>{formatSummaryDateTime(session.startedAt)}</p>
-                      <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "0.85rem" }}>Manikin {session.deviceId}</p>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: "8px", display: "grid", gap: "4px" }}>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Duration {session.summary.durationSeconds}s
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem" }}>
-                      Started {formatSummaryDateTime(session.startedAt)} • Ended {formatSummaryDateTime(session.endedAt)}
-                    </p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <div className="inventory-live-bridge" aria-hidden="false">
-          <span className="inventory-live-bridge__line" />
-          <span className="inventory-live-bridge__hint">
-            <span className="inventory-live-bridge__question" tabIndex={0} aria-label="Register a manikin to see it here">?</span>
-            <span className="inventory-live-bridge__tooltip">Register a manikin to see it here.</span>
-          </span>
-        </div>
-
-        <section className={`card ${liveManikinsCardClass} ${manikins.length > 0 && manikins.some((m) => isDataStale(m.lastSeen)) ? "card--stale" : ""}`}>
-          <div className="flex justify-between items-center" style={{ marginBottom: 12 }}>
-            <h2 className="card__title">{/* icon */}
-              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2v6" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 12h14" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 22v-6" stroke="#0f172a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <span style={{ marginLeft: 6 }}>Live Manikins</span>
-            </h2>
-            <div className="flex items-center gap-8" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <label className="live-filter-toggle">
-                <input
-                  type="checkbox"
-                  checked={showOnlyLiveManikins}
-                  onChange={(event) => setShowOnlyLiveManikins(event.target.checked)}
-                />
-                <span className="live-filter-toggle__switch" aria-hidden="true" />
-                <span>Show only live manikins</span>
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className={manikinsStreamState === 'connected' ? 'status-badge status-badge--success' : 'status-badge status-badge--info'}>
-                  {manikinsStreamState === 'reconnecting' ? (
-                    <RadarManikin sweep size={18} />
-                  ) : (
-                    <span className={manikinsStreamState === 'connected' ? 'pulse-dot pulse-dot--green' : 'pulse-dot pulse-dot--red'} aria-hidden="true"></span>
-                  )}
-                  {manikinsStreamState === 'connected' ? 'Connected' : manikinsStreamState === 'reconnecting' ? 'Reconnecting' : 'Connecting'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {manikinsLoading ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-              <Skeleton className="skeleton--shimmer" />
-            </div>
-          ) : null}
-
-          {!manikinsLoading && manikinsError ? (
-            <Alert variant="danger">
-              <div>
-                <button
-                  type="button"
-                  className="button button--ghost button--small"
-                  onClick={() => setShowManikinDiagnostics((current) => !current)}
-                  aria-expanded={showManikinDiagnostics}
-                >
-                  {manikinsError.toLowerCase().includes("failed to fetch") ? "Failed to fetch" : "Unable to load live manikins"}
-                </button>
-                <p className="alert__detail">{`Unable to load live manikins. ${manikinsError}`}</p>
-                <div style={{ marginTop: 8 }}>
-                  <Button variant="secondary" onClick={() => retryLoadManikins()}>
-                    Retry
-                  </Button>
-                </div>
-                <div className={`network-diagnostics ${showManikinDiagnostics ? "network-diagnostics--open" : ""}`}>
-                  <div className="network-diagnostics__panel">
-                    <p className="network-diagnostics__title">Network diagnostic mock</p>
-                    <p className="network-diagnostics__line">Endpoint: {getLiveManikinsStreamUrl()}</p>
-                    <p className="network-diagnostics__line">Transport: EventSource / fallback polling</p>
-                    <p className="network-diagnostics__line">Last retry: waiting for reconnect window</p>
-                    <p className="network-diagnostics__line">Tip: check LAN connectivity and the streaming endpoint route.</p>
-                  </div>
-                </div>
-              </div>
-            </Alert>
-          ) : null}
-
-          {!manikinsLoading && !manikinsError && visibleManikins.length === 0 ? (
-            <div className="card card--dashed" aria-live="polite">
-              <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M12 4v16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 12h16" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              <p style={{ marginTop: 8 }}>
-                {showOnlyLiveManikins
-                  ? "No live manikins are visible right now. Turn off the filter to see all devices."
-                  : "No manikins publishing yet. Start publishing to resq/manikins/<deviceId>/status, heartbeat, telemetry, events, or live."}
-              </p>
-            </div>
-          ) : null}
-
-          {!manikinsLoading && !manikinsError && visibleManikins.length > 0 ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px" }}>
-              {visibleManikins.map((manikin) => {
-                const activeSession = getEffectiveSession(manikin.deviceId, manikin);
->>>>>>> origin/home-page-ui
-                const active = Boolean(activeSession?.sessionId);
-                const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
-                const actionState = sessionActionByDevice[device.deviceId] ?? "idle";
-                const calibrationAction = calibrationActionByDevice[device.deviceId] ?? "idle";
-                const readiness = readinessByDevice[device.deviceId];
-                const readinessIsKnown = readinessKnown(readiness);
-                const startReadinessBlocked = startBlockedByReadiness(readiness);
-                const startDisabled = actionState !== "idle" || startReadinessBlocked || !device.online;
-                const effectiveFirmwareState = readiness?.firmwareState ?? device.state ?? "unknown";
-                const calibrationProgress = progressFromId(readiness?.progressId);
-                const isCalibrating = effectiveFirmwareState === "CALIBRATING";
-
-                return (
-                  <Card
-                    key={device.deviceId}
-                    className="p-5 flex flex-col gap-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm"
-                  >
-                    {/* Card Header */}
-                    <div className="flex justify-between items-start gap-4">
-                      <div>
-                        <h3 className="text-sm font-extrabold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
-                          <CircleDot size={12} className={device.online ? "text-[#107C10]" : "text-gray-400"} />
-                          {device.deviceId}
-                        </h3>
-                        <span className="text-[10px] text-gray-500 dark:text-gray-400 block mt-0.5">
-                          IP: {device.ip ?? "No IP"} &middot; FW: {device.fw ?? "unknown"}
-                        </span>
-<<<<<<< HEAD
-                      </div>
-
-                      <div className="flex flex-col items-end gap-1.5">
-                        {isCalibrating ? (
-                          <Badge variant="default" className="bg-[#FF8C00]/10 text-[#FF8C00] font-bold border-0 text-[10px]">
-                            Calibrating ({Math.round(calibrationProgress)}%)
-                          </Badge>
-                        ) : (
-                          <Badge
-                            variant="default"
-                            className={device.online ? "bg-[#107C10]/10 text-[#107C10] font-bold border-0 text-[10px]" : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 font-bold border-0 text-[10px]"}
-                          >
-                            {device.online ? "Online" : "Offline"}
-                          </Badge>
-                        )}
-                        
-                        {active && (
-                          <Badge variant="default" className="bg-blue-50 dark:bg-blue-900/30 text-[#005A9C] dark:text-blue-400 font-bold border-0 text-[10px]">
-                            Session Active
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Device Action Message Banner */}
-                    {sessionMessageByDevice[device.deviceId] && (
-                      <div className="p-2 text-xs rounded-lg bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border border-gray-100 dark:border-gray-800">
-                        {getFriendlyErrorMessage(sessionMessageByDevice[device.deviceId])}
-                      </div>
-                    )}
-
-                    {/* Calibration Progress Ring in progress */}
-                    {isCalibrating && (
-                      <div className="flex items-center gap-2 border border-orange-100 dark:border-orange-900 bg-orange-50/50 dark:bg-orange-950/10 p-2.5 rounded-lg">
-                        <Progress value={calibrationProgress} className="h-1.5 bg-orange-100 dark:bg-orange-900/40" />
-                      </div>
-                    )}
-
-                    {/* Live Session Panel inside the card */}
-                    <InstructorLiveMetrics
-                      deviceId={device.deviceId}
-                      sessionId={activeSession?.sessionId ?? null}
-                      active={active}
-                    />
-
-                    {/* Trainee Setup Section */}
-                    {!active && device.online && (
-                      <div className="flex flex-col gap-2.5 bg-gray-50/50 dark:bg-gray-900/10 p-3 rounded-xl border border-gray-100 dark:border-gray-800 text-xs">
-                        <div className="font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-                          <Users size={12} /> Trainee Mode
+                    <div key={manikin.deviceId} className="manikin-stack-card">
+                      {/* Sub-element 1: Dashboard Overview */}
+                      <article className="dashboard-overview-subcard">
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                              <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>{manikin.deviceId}</h3>
+                              <Sparkline seed={manikin.deviceId} />
+                            </div>
+                            <div className="chips-container" style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                              <Chip icon={<DeviceMetricIcon kind="id" />}>{manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}</Chip>
+                              <Chip icon={<DeviceMetricIcon kind="seen" />}>{manikin.lastSeen ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}` : "Never seen"}</Chip>
+                              <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.calibrated ? "Calibrated" : "Not calibrated"}</Chip>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                            <StatusDot label={manikin.online ? "Online" : "Offline"} status={manikin.online ? "online" : "offline"} />
+                            <SessionStateBadge active={active} />
+                          </div>
                         </div>
 
-                        {/* Mode selections */}
-                        <div className="grid grid-cols-3 gap-1">
-                          {(["select", "quick", "guest"] as const).map((mode) => (
+                        <p style={{ margin: "0 0 12px 0", color: "#cbd5e1" }}>State: <strong>{effectiveFirmwareState}</strong></p>
+
+                        {isCalibrating ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                            <ProgressRing value={calibrationProgress} />
+                            <span style={{ color: "#cbd5e1", fontWeight: 600 }}>Calibration in progress</span>
+                          </div>
+                        ) : null}
+
+                        {/* Trainee Selection UI */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "rgba(15, 23, 42, 0.3)", borderRadius: "8px", padding: "12px", marginBottom: "12px", fontSize: "0.95rem" }}>
+                          <div style={{ fontWeight: 600 }}>Select Trainee</div>
+
+                          {/* Mode Selection */}
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             <button
-                              key={mode}
                               type="button"
                               onClick={() =>
                                 setSessionDrafts((current) => ({
                                   ...current,
-                                  [device.deviceId]: {
-                                    ...current[device.deviceId],
-                                    traineeMode: mode,
+                                  [manikin.deviceId]: {
+                                    ...current[manikin.deviceId],
+                                    traineeMode: "select",
                                   },
                                 }))
                               }
-                              className={`py-1 px-2 rounded-lg font-bold border transition-colors ${
-                                sessionDrafts[device.deviceId]?.traineeMode === mode
-                                  ? "bg-gray-900 border-gray-900 text-white dark:bg-gray-100 dark:border-gray-100 dark:text-gray-900"
-                                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300"
-                              }`}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: "4px",
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                background:
+                                  sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                    ? "#005A9C"
+                                    : "rgba(255,255,255,0.08)",
+                                color: "#ffffff",
+                                cursor: "pointer",
+                                fontSize: "0.85rem",
+                              }}
                             >
-                              {mode === "select" ? "Select" : mode === "quick" ? "Quick Add" : "Guest"}
+                              Select
                             </button>
-                          ))}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSessionDrafts((current) => ({
+                                  ...current,
+                                  [manikin.deviceId]: {
+                                    ...current[manikin.deviceId],
+                                    traineeMode: "quick",
+                                  },
+                                }))
+                              }
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: "4px",
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                background:
+                                  sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                    ? "#005A9C"
+                                    : "rgba(255,255,255,0.08)",
+                                color: "#ffffff",
+                                cursor: "pointer",
+                                fontSize: "0.85rem",
+                              }}
+                            >
+                              Quick Add
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSessionDrafts((current) => ({
+                                  ...current,
+                                  [manikin.deviceId]: {
+                                    ...current[manikin.deviceId],
+                                    traineeMode: "guest",
+                                  },
+                                }))
+                              }
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: "4px",
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                background:
+                                  sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                    ? "#005A9C"
+                                    : "rgba(255,255,255,0.08)",
+                                color: "#ffffff",
+                                cursor: "pointer",
+                                fontSize: "0.85rem",
+                              }}
+                            >
+                              Guest
+                            </button>
+                          </div>
+
+                          {/* Select Mode UI */}
+                          {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
+                            <select
+                              value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
+                              onChange={(event) =>
+                                setSessionDrafts((current) => ({
+                                  ...current,
+                                  [manikin.deviceId]: {
+                                    ...current[manikin.deviceId],
+                                    traineeRecordId: event.target.value,
+                                  },
+                                }))
+                              }
+                              style={{
+                                padding: "8px",
+                                borderRadius: "6px",
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                background: "#070e1b",
+                                color: "#ffffff",
+                                outline: "none",
+                              }}
+                            >
+                              <option value="">-- Select a trainee --</option>
+                              {traineesLoading && <option>Loading...</option>}
+                              {!traineesLoading &&
+                                trainees.map((trainee) => (
+                                  <option key={trainee.id} value={trainee.id}>
+                                    {trainee.displayName} ({trainee.traineeCode})
+                                  </option>
+                                ))}
+                            </select>
+                          )}
+
+                          {/* Quick Add Mode UI */}
+                          {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                              <input
+                                type="text"
+                                placeholder="Trainee Code"
+                                value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
+                                onChange={(event) =>
+                                  setSessionDrafts((current) => ({
+                                    ...current,
+                                    [manikin.deviceId]: {
+                                      ...current[manikin.deviceId],
+                                      quickTraineeCode: event.target.value,
+                                    },
+                                  }))
+                                }
+                                style={{
+                                  padding: "8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid rgba(255,255,255,0.15)",
+                                  background: "#070e1b",
+                                  color: "#ffffff",
+                                  outline: "none",
+                                }}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Display Name"
+                                value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
+                                onChange={(event) =>
+                                  setSessionDrafts((current) => ({
+                                    ...current,
+                                    [manikin.deviceId]: {
+                                      ...current[manikin.deviceId],
+                                      quickTraineeName: event.target.value,
+                                    },
+                                  }))
+                                }
+                                style={{
+                                  padding: "8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid rgba(255,255,255,0.15)",
+                                  background: "#070e1b",
+                                  color: "#ffffff",
+                                  outline: "none",
+                                }}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Group (optional)"
+                                value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
+                                onChange={(event) =>
+                                  setSessionDrafts((current) => ({
+                                    ...current,
+                                    [manikin.deviceId]: {
+                                      ...current[manikin.deviceId],
+                                      quickTraineeGroup: event.target.value,
+                                    },
+                                  }))
+                                }
+                                style={{
+                                  padding: "8px",
+                                  borderRadius: "6px",
+                                  border: "1px solid rgba(255,255,255,0.15)",
+                                  background: "#070e1b",
+                                  color: "#ffffff",
+                                  outline: "none",
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
+                            <p style={{ margin: "4px 0 0 0", color: "#cbd5e1" }}>
+                              Session will start without a specific trainee assignment.
+                            </p>
+                          )}
                         </div>
 
-                        {/* Mode-specific forms */}
-                        {sessionDrafts[device.deviceId]?.traineeMode === "select" && (
-                          <Select
-                            value={sessionDrafts[device.deviceId]?.traineeRecordId || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [device.deviceId]: {
-                                  ...current[device.deviceId],
-                                  traineeRecordId: event.target.value,
-                                },
-                              }))
-                            }
-                            className="w-full bg-white dark:bg-gray-800 dark:text-gray-100 mt-1"
-                          >
-                            <option value="">-- Select a trainee --</option>
-                            {traineesLoading && <option>Loading...</option>}
-                            {!traineesLoading &&
-                              trainees.map((trainee) => (
-                                <option key={trainee.id} value={trainee.id}>
-                                  {trainee.displayName} ({trainee.traineeCode})
-                                </option>
-                              ))}
-                          </Select>
-                        )}
+                        {/* Start/End buttons */}
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
+                          {currentUser && currentUser.role !== "TRAINEE" ? (
+                            !active ? (
+                              <button
+                                type="button"
+                                onClick={() => handleStartSession(manikin.deviceId)}
+                                disabled={startDisabled}
+                                style={{
+                                  padding: "8px 14px",
+                                  borderRadius: "6px",
+                                  border: "none",
+                                  background: startDisabled ? "rgba(255,255,255,0.08)" : "#16a34a",
+                                  color: startDisabled ? "#94a3b8" : "#ffffff",
+                                  cursor: startDisabled ? "not-allowed" : "pointer",
+                                  fontWeight: 600,
+                                }}
+                                title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
+                              >
+                                Start Session
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
+                                disabled={actionState !== "idle"}
+                                style={{
+                                  padding: "8px 14px",
+                                  borderRadius: "6px",
+                                  border: "none",
+                                  background: actionState !== "idle" ? "rgba(255,255,255,0.08)" : "#dc2626",
+                                  color: actionState !== "idle" ? "#94a3b8" : "#ffffff",
+                                  cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                End Session
+                              </button>
+                            )
+                          ) : null}
+                        </div>
 
-                        {sessionDrafts[device.deviceId]?.traineeMode === "quick" && (
-                          <div className="grid gap-1.5 mt-1">
-                            <Input
-                              type="text"
-                              placeholder="Trainee Code"
-                              value={sessionDrafts[device.deviceId]?.quickTraineeCode || ""}
-                              onChange={(event) =>
-                                setSessionDrafts((current) => ({
-                                  ...current,
-                                  [device.deviceId]: {
-                                    ...current[device.deviceId],
-                                    quickTraineeCode: event.target.value,
-                                  },
-                                }))
+                        {/* Technical details toggle */}
+                        <button
+                          type="button"
+                          style={{
+                            border: "none",
+                            background: "none",
+                            color: "#60a5fa",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            padding: 0,
+                            textAlign: "left",
+                            marginBottom: "12px",
+                          }}
+                          onClick={() =>
+                            setExpandedDeviceDetails((current) => ({
+                              ...current,
+                              [manikin.deviceId]: !current[manikin.deviceId],
+                            }))
+                          }
+                        >
+                          {isExpanded ? "Hide technical details" : "Show technical details"}
+                        </button>
+
+                        {isExpanded ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.9rem", color: "#cbd5e1", background: "rgba(15, 23, 42, 0.4)", borderRadius: "8px", padding: "12px", marginBottom: "12px" }}>
+                            <div>Device ID: {manikin.deviceId}</div>
+                            <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
+                            <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
+                            <div>Progress ID: {readiness?.progressId ?? "-"}</div>
+                            <div>Firmware state: {readiness?.firmwareState ?? "-"}</div>
+                            <div>Reason: {readiness?.reasonId ?? "-"}</div>
+                            <div>Action: {readiness?.actionId ?? "-"}</div>
+                          </div>
+                        ) : null}
+
+                        {active ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "rgba(15, 23, 42, 0.4)", borderRadius: "8px", padding: "12px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                            <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                              <div style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Session:</div>
+                              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#ffffff", wordBreak: "break-all" }}>{activeSession!.sessionId}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                              <div style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Trainee:</div>
+                              <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff" }}>{activeSession!.traineeId ?? "-"}</div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <div style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Trainee Link:</div>
+                              <div style={{ background: "#070e1b", color: "#ffffff", padding: "6px 10px", borderRadius: 6, fontWeight: 800, wordBreak: "break-all" }}>
+                                {traineeLink ?? buildTraineeLandingUrl()}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "4px" }}>
+                              <button
+                                type="button"
+                                onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
+                                className="cta-royal"
+                                style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "0.85rem" }}
+                              >
+                                Open Trainee Dashboard (In-App)
+                              </button>
+                              {traineeLink ? (
+                                <a href={traineeLink} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(255, 255, 255, 0.1)", color: "#ffffff", fontWeight: 700, textDecoration: "none", fontSize: "0.85rem" }}>
+                                  Open Trainee Link
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {sessionMessageByDevice[manikin.deviceId] ? (
+                          <div style={{ marginTop: 6 }}>
+                            {(() => {
+                              const deviceMessage = sessionMessageByDevice[manikin.deviceId];
+
+                              if (!deviceMessage) {
+                                return null;
                               }
-                              className="bg-white dark:bg-gray-800"
-                            />
-                            <Input
-                              type="text"
-                              placeholder="Display Name"
-                              value={sessionDrafts[device.deviceId]?.quickTraineeName || ""}
-                              onChange={(event) =>
-                                setSessionDrafts((current) => ({
-                                  ...current,
-                                  [device.deviceId]: {
-                                    ...current[device.deviceId],
-                                    quickTraineeName: event.target.value,
-                                  },
-                                }))
-                              }
-                              className="bg-white dark:bg-gray-800"
+
+                              return deviceMessage.includes("Calibration requested") ? (
+                                <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 999, background: "#fff1f2", color: "#b91c1c", fontWeight: 800, fontSize: "0.86rem" }}>
+                                  {deviceMessage}
+                                </span>
+                              ) : (
+                                <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.9rem" }}>{deviceMessage}</p>
+                              );
+                            })()}
+                          </div>
+                        ) : null}
+                      </article>
+
+                      {/* Sub-element 2: PPI */}
+                      <article className="ppi-subcard">
+                        <h4 className="ppi-title text-sm font-bold text-slate-300 mt-0 mb-3 uppercase tracking-wider">
+                          Performance Proximity Indicator (PPI)
+                        </h4>
+                        <InstructorLiveMetrics
+                          deviceId={manikin.deviceId}
+                          sessionId={activeSession?.sessionId ?? null}
+                          active={active}
+                        />
+
+                        <div style={{ display: "grid", gap: "6px", background: "rgba(15,23,42,0.3)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "8px", padding: "12px", marginTop: "14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <p style={{ margin: 0, fontSize: "0.9rem", color: "#ffffff", fontWeight: 700 }}>Readiness</p>
+                            <IndicatorBadge
+                              label={!readinessIsKnown ? "Unknown" : readiness?.readyForSession ? "Ready" : "Not Ready"}
+                              status={!readinessIsKnown ? "neutral" : readiness?.readyForSession ? "ok" : "warn"}
                             />
                           </div>
-                        )}
-
-                        {sessionDrafts[device.deviceId]?.traineeMode === "guest" && (
-                          <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 italic">
-                            Start session anonymously without registration.
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Device Action Buttons */}
-                    <div className="flex flex-wrap gap-2 mt-auto pt-2 border-t border-gray-100 dark:border-gray-700">
-                      {device.online && isAuthorized && (
-                        <>
-                          {!active ? (
-                            <Button
-                              onClick={() => handleStartSession(device.deviceId)}
-                              disabled={startDisabled}
-                              className="bg-[#005A9C] hover:bg-[#005A9C]/90 text-white flex-1 border-0 h-10 text-xs px-4"
-                              title={startReadinessBlocked ? "Manikin readiness check not satisfied" : undefined}
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#cbd5e1", fontSize: "0.85rem" }}>
+                            <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
+                            <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
+                            <span>Result: {readiness?.latestResult ?? "-"}</span>
+                            <span>Progress: {readiness?.progressId ?? "-"}</span>
+                            <span>Reason: {readiness?.reasonId ?? "-"}</span>
+                            <span>Action: {readiness?.actionId ?? "-"}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleCancelCalibration(manikin.deviceId)}
+                              disabled={calibrationAction !== "idle"}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: "6px",
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                background: "rgba(255,255,255,0.08)",
+                                color: calibrationAction !== "idle" ? "#94a3b8" : "#ffffff",
+                                cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
+                                fontWeight: 700,
+                                fontSize: "0.85rem",
+                              }}
                             >
-                              {actionState === "starting" ? "Starting..." : "Start Session"}
-                            </Button>
-                          ) : (
-                            <Button
-                              onClick={() => handleEndSession(device.deviceId, activeSession!.sessionId)}
-                              disabled={actionState !== "idle"}
-                              className="bg-[#D13438] hover:bg-[#D13438]/90 text-white flex-1 border-0 h-10 text-xs px-4"
+                              {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedCalibrationDeviceId(manikin.deviceId);
+                                setIsCalibrationOpen(true);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                gap: 6,
+                                alignItems: "center",
+                                fontSize: "0.85rem",
+                                color: "#60a5fa",
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontWeight: 700,
+                                padding: 0,
+                                alignSelf: "center",
+                              }}
                             >
-                              {actionState === "ending" ? "Ending..." : "End Session"}
-                            </Button>
-                          )}
+                              <CalibrationIcon size={14} />
+                              <span>Open Calibration Settings</span>
+                            </button>
+                          </div>
+                        </div>
 
-                          {/* Calibration Button */}
-                          {!active && (
-                            <>
-                              {isCalibrating ? (
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => handleCancelCalibration(device.deviceId)}
-                                  disabled={calibrationAction !== "idle"}
-                                  className="text-xs h-10 px-4 flex items-center gap-1"
-                                >
-                                  Cancel
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => {
-                                    if (defaultProfileId) {
-                                      handleRunCalibration(device.deviceId, { profileId: defaultProfileId });
-                                    } else {
-                                      // Scroll to Calibration Panel
-                                      setSelectedCalibrationDeviceId(device.deviceId);
-                                      document.getElementById("calibration-panel")?.scrollIntoView({ behavior: "smooth" });
-                                    }
-                                  }}
-                                  disabled={calibrationAction !== "idle"}
-                                  className="text-xs h-10 px-4 flex items-center gap-1 text-[#005A9C] dark:text-blue-400"
-                                >
-                                  Calibrate
-                                </Button>
-                              )}
-                            </>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    {/* Trainee link card inside device card */}
-                    {active && activeSession && (
-                      <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-xl text-xs flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-gray-700 dark:text-gray-300">Trainee URL:</span>
-                          <a
-                            href={traineeLink ?? buildTraineeLandingUrl()}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[#005A9C] dark:text-blue-400 font-semibold hover:underline"
-                          >
-                            Open Link
-                          </a>
-=======
-                        <SessionStateBadge active={active} />
-                      </div>
-                    </div>
-
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {manikin.state ?? "unknown"}</p>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      <IndicatorBadge
-                        label={depthOk ? "Depth 50-60 OK" : manikin.latestDepthMm === null ? "Depth -" : "Depth Out"}
-                        status={manikin.latestDepthMm === null ? "neutral" : depthOk ? "ok" : "warn"}
-                      />
-                      <IndicatorBadge
-                        label={rateOk ? "Rate 100-120 OK" : manikin.latestRateCpm === null ? "Rate -" : "Rate Out"}
-                        status={manikin.latestRateCpm === null ? "neutral" : rateOk ? "ok" : "warn"}
-                      />
-                      <IndicatorBadge
-                        label={manikin.latestRecoilOk === null ? "Recoil -" : recoilOk ? "Recoil OK" : "Recoil Not OK"}
-                        status={manikin.latestRecoilOk === null ? "neutral" : recoilOk ? "ok" : "warn"}
-                      />
-                      <IndicatorBadge
-                        label={pressureBalanced === null ? "Pressure -" : pressureBalanced ? "Pressure Even" : "Pressure Skewed"}
-                        status={pressureBalanced === null ? "neutral" : pressureBalanced ? "ok" : "warn"}
-                      />
-                    </div>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Depth: {metric(manikin.latestDepthMm, "mm")}</p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Rate: {metric(manikin.latestRateCpm, "cpm")}</p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Recoil: {manikin.latestRecoilOk === null ? "-" : manikin.latestRecoilOk ? "OK" : "Not OK"}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Force Balance: {manikin.pressureBalancePct === null ? "-" : `${manikin.pressureBalancePct.toFixed(1)}%`}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Force A/B: {manikin.latestForce1 === null || manikin.latestForce2 === null ? "-" : `${manikin.latestForce1} / ${manikin.latestForce2}`}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>Pause: {metric(manikin.latestPauseS, "s")}</p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Last Seen: {formatLastSeen(manikin.lastSeen)}
-                    </p>
-                    <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>
-                      Last Event: {manikin.lastEventType ?? "-"}
-                    </p>
-
-                    {/* Trainee Selection UI */}
-                    <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
-                      <div style={{ fontWeight: 600 }}>Select Trainee</div>
-
-                      {/* Mode Selection */}
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        <Button
-                          variant={sessionDrafts[manikin.deviceId]?.traineeMode === "select" ? "primary" : "secondary"}
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "select",
-                              },
-                            }))
-                          }
-                          style={{ fontSize: "0.8rem" }}
-                        >
-                          Select
-                        </Button>
-                        <Button
-                          variant={sessionDrafts[manikin.deviceId]?.traineeMode === "quick" ? "primary" : "secondary"}
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "quick",
-                              },
-                            }))
-                          }
-                          style={{ fontSize: "0.8rem" }}
-                        >
-                          Quick Add
-                        </Button>
-                        <Button
-                          variant={sessionDrafts[manikin.deviceId]?.traineeMode === "guest" ? "primary" : "secondary"}
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "guest",
-                              },
-                            }))
-                          }
-                          style={{ fontSize: "0.8rem" }}
-                        >
-                          Guest
-                        </Button>
-                      </div>
-
-                      {/* Select Mode UI */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
-                        <Select
-                          value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
-                          onChange={(event) =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeRecordId: event.target.value,
-                              },
-                            }))
-                          }
-                        >
-                          <option value="">-- Select a trainee --</option>
-                          {traineesLoading && <option>Loading...</option>}
-                          {!traineesLoading &&
-                            trainees.map((trainee) => (
-                              <option key={trainee.id} value={trainee.id}>
-                                {trainee.displayName} ({trainee.traineeCode})
-                              </option>
-                            ))}
-                        </Select>
-                      )}
-
-                      {/* Quick Add Mode UI */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
-                        <div style={{ display: "grid", gap: "6px" }}>
-                          <Input
-                            type="text"
-                            placeholder="Trainee Code"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeCode: event.target.value,
-                                },
-                              }))
-                            }
-                          />
-                          <Input
-                            type="text"
-                            placeholder="Display Name"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeName: event.target.value,
-                                },
-                              }))
-                            }
-                          />
-                          <Input
-                            type="text"
-                            placeholder="Group (optional)"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeGroup: event.target.value,
-                                },
-                              }))
-                            }
+                        <div style={{ marginTop: "12px" }}>
+                          <FirmwareDiagnosticsPanel
+                            deviceId={manikin.deviceId}
+                            readiness={readiness}
+                            liveSummary={manikin}
                           />
                         </div>
-                      )}
-
-                      {/* Guest Mode - no input needed */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
-                        <p style={{ margin: "4px 0", color: "#64748b", fontSize: "0.8rem" }}>
-                          Session will start without a specific trainee assignment.
-                        </p>
-                      )}
+                      </article>
                     </div>
-
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      {currentUser && currentUser.role !== "TRAINEE" ? (
-                        !active ? (
-                        <Button
-                          onClick={() => handleStartSession(manikin.deviceId)}
-                          disabled={actionState !== "idle"}
-                          variant="primary"
-                        >
-                          Start Session
-                        </Button>
-                        ) : (
-                        <Button
-                          onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
-                          disabled={actionState !== "idle"}
-                          style={{ background: "#991b1b", borderColor: "#991b1b" }}
-                        >
-                          End Session
-                        </Button>
-                        )
-                      ) : (
-                        <></>
-                      )}
-                    </div>
-
-                    {active ? (
-                      <div style={{ display: "grid", gap: "4px", background: "#f8fafc", borderRadius: "8px", padding: "10px" }}>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
-                          Session: {activeSession!.sessionId}
-                        </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
-                          Trainee: {activeSession!.traineeId ?? "-"}
-                        </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
-                        </p>
-                        <div
-                          style={{
-                            marginTop: "4px",
-                            padding: "10px",
-                            borderRadius: "8px",
-                            border: "1px solid #dbe3ee",
-                            background: "#ffffff",
-                            display: "grid",
-                            justifyItems: "center",
-                            gap: "8px",
-                          }}
-                        >
-                          <p style={{ margin: 0, fontSize: "0.84rem", color: "#334155", fontWeight: 600 }}>
-                            Student Dashboard QR
-                          </p>
-                          <QR value={traineeLink ?? buildTraineeLandingUrl()} size={144} bgColor="#ffffff" fgColor="#0f172a" level="M" />
-                          <p style={{ margin: 0, fontSize: "0.76rem", color: "#64748b", textAlign: "center" }}>
-                            Scan to open the trainee dashboard. The QR updates to the active session when one starts.
-                          </p>
-                        </div>
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                          <Button
-                            onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
-                            variant="primary"
-                          >
-                            Open Trainee Dashboard (In-App)
-                          </Button>
-                          {traineeLink ? (
-                            <a href={traineeLink} style={linkButtonStyle}>
-                              Open Trainee Link
-                            </a>
-                          ) : null}
->>>>>>> origin/home-page-ui
-                        </div>
-                        <code className="block p-1.5 bg-gray-100 dark:bg-gray-900 rounded text-[10px] break-all border border-gray-200 dark:border-gray-800">
-                          {traineeLink ?? buildTraineeLandingUrl()}
-                        </code>
-                        <Button
-                          onClick={() => navigateToTraineeDashboard(activeSession.sessionId)}
-                          className="bg-[#005A9C] hover:bg-[#005A9C]/90 text-white h-10 text-[11px] w-full mt-1 border-0 px-4"
-                        >
-                          Open Dashboard In-App
-                        </Button>
-                      </div>
-                    )}
-                  </Card>
-                );
-              })}
-            </div>
-          ) : null}
-<<<<<<< HEAD
-        </Card>
-
-        {/* Calibration Settings Panel (if device selected) */}
-        {selectedCalibrationDeviceId && (
-          <div id="calibration-panel" className="mb-6">
-            <CalibrationSettingsPanel
-              devices={manikins}
-              selectedDeviceId={selectedCalibrationDeviceId}
-              onSelectedDeviceChange={setSelectedCalibrationDeviceId}
-              calibrationAction={selectedCalibrationDeviceId ? calibrationActionByDevice[selectedCalibrationDeviceId] ?? "idle" : "idle"}
-              onRunCalibration={handleRunCalibration}
-            />
-          </div>
-        )}
-
-        {/* Firmware Provisioning Section */}
-        <Card className="mb-6">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <ProvisioningIcon size={18} /> Firmware Provisioning
-            </h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Provision a new ESP controller with Wi-Fi details.
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Wi-Fi SSID</label>
-              <Input
-                type="text"
-                placeholder="SSID Name"
-                value={provisioningWifiSsid}
-                onChange={(e) => {
-                  setProvisioningWifiSsid(e.target.value);
-                  setProvisioningUrl(null);
-                  setProvisioningPayload(null);
-                  setPairingError(null);
-                }}
-                className="bg-white dark:bg-gray-700 dark:text-gray-100 border border-gray-200 dark:border-gray-600"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Wi-Fi Password</label>
-              <Input
-                type="password"
-                placeholder="Password"
-                value={provisioningWifiPassword}
-                onChange={(e) => {
-                  setProvisioningWifiPassword(e.target.value);
-                  setProvisioningUrl(null);
-                  setProvisioningPayload(null);
-                  setPairingError(null);
-                }}
-                className="bg-white dark:bg-gray-700 dark:text-gray-100 border border-gray-200 dark:border-gray-600"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 text-xs font-bold text-gray-700 dark:text-gray-300">
-              <input
-                type="checkbox"
-                checked={provisioningAutoSave}
-                onChange={(e) => {
-                  setProvisioningAutoSave(e.target.checked);
-                  setProvisioningUrl(null);
-                  setProvisioningPayload(null);
-                  setPairingError(null);
-                }}
-                className="rounded border-gray-300 dark:border-gray-600"
-              />
-              Auto-save Config
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <Button
-                disabled={pairingLoading || !provisioningWifiSsid.trim()}
-                onClick={handleRequestPairing}
-                className="bg-[#005A9C] hover:bg-[#005A9C]/90 text-white border-0 h-10 px-6"
-              >
-                {pairingLoading ? "Generating..." : "Generate Portal QR"}
-              </Button>
-            </div>
-          </div>
-
-          {pairingError ? (
-            <p className="text-xs text-[#D13438] font-bold mt-3">
-              {pairingError}
-            </p>
-          ) : null}
-
-          {provisioningUrl && (
-            <div className="mt-6 p-4 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-lg flex flex-col items-center gap-3">
-              <span className="text-xs font-bold text-gray-900 dark:text-gray-100">Scan to Pair Device</span>
-              <div className="bg-white p-2.5 rounded-lg border border-gray-200">
-                <QR value={provisioningUrl} size={150} fgColor="#0f172a" />
+                  );
+                })}
               </div>
-              <code className="text-[10px] break-all p-1.5 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 w-full">
-                {provisioningUrl}
-              </code>
-              <div className="flex justify-end w-full">
-                <Button
-                  variant="secondary"
-                  onClick={() => navigator.clipboard?.writeText(provisioningUrlText)}
-                  className="text-xs h-10 px-4"
-                >
-                  Copy Setup URL
-                </Button>
-              </div>
-            </div>
-          )}
-        </Card>
+            ) : null}
+          </div>
+        </div>
 
-        {/* Local Session Review Panel */}
-        <LocalSessionReviewPanel
-          latestEndedSession={latestEndedSession}
-          sessions={recentSessions}
-          loading={recentSessionsLoading}
-          error={recentSessionsError}
-          canExport={isAuthorized}
-          expandedSessionId={expandedSessionId}
-          expandedSessionDetail={expandedSessionDetail}
-          expandedSessionLoading={expandedSessionLoading}
-          expandedSessionError={expandedSessionError}
-          onSelectSession={handleViewDetails}
-          onRefresh={loadRecentSessions}
-        />
-
-        {/* Footer */}
-        <footer className="mt-12 py-6 border-t border-gray-200 dark:border-gray-800 text-center text-xs text-gray-500 dark:text-gray-400">
-          &copy; {new Date().getFullYear()} ResQ CPR Simulation Hub. All rights reserved.
-        </footer>
-      </main>
-    </div>
-  );
-}
-=======
-        </section>
-
-        {expandedSessionId ? (
-          <div
-            className="story-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="session-details-title"
-            onClick={() => {
-              setExpandedSessionId(null);
-              setExpandedSessionDetail(null);
-              setExpandedSessionError(null);
-              setExpandedSessionLoading(false);
-            }}
-          >
-            <div className="story-modal__panel" onClick={(event) => event.stopPropagation()}>
-              <h3 id="session-details-title" className="story-modal__title">
-                Session details
-              </h3>
-              {expandedSessionLoading ? (
-                <div style={{ display: "grid", gap: 8 }}>
-                  <Skeleton className="skeleton--shimmer" />
-                  <Skeleton className="skeleton--shimmer" />
-                  <Skeleton className="skeleton--shimmer" />
+        {/* Far-Right Column */}
+        <div className="dashboard-column far-right-column">
+          {/* Firmware Provisioning card */}
+          <section className="white-card-block firmware-provisioning-card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <ProvisioningIcon size={18} />
+                  <h2 style={{ margin: "0 0 6px 0", fontSize: "1.2rem", fontWeight: 700 }}>
+                    Firmware Provisioning
+                  </h2>
                 </div>
-              ) : expandedSessionError ? (
-                <p className="story-modal__copy" style={{ color: "#b91c1c" }}>
-                  {expandedSessionError}
+                <p className="card-description">
+                  Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
                 </p>
-              ) : expandedSessionDetail ? (
-                <div style={{ display: "grid", gap: 6 }}>
-                  <p className="story-modal__copy">Manikin: {expandedSessionDetail.deviceId}</p>
-                  <p className="story-modal__copy">Trainee: {expandedSessionDetail.traineeId ?? "-"}</p>
-                  <p className="story-modal__copy">Started: {formatSummaryDateTime(expandedSessionDetail.startedAt)}</p>
-                  <p className="story-modal__copy">Ended: {formatSummaryDateTime(expandedSessionDetail.endedAt)}</p>
-                  <p className="story-modal__copy">Duration: {expandedSessionDetail.summary.durationSeconds}s</p>
-                  <p className="story-modal__copy">Score: {expandedSessionDetail.summary.score}</p>
-                  <p className="story-modal__copy">Avg Depth: {formatMetric(expandedSessionDetail.summary.avgDepthMm, "mm")}</p>
-                  <p className="story-modal__copy">Avg Rate: {formatMetric(expandedSessionDetail.summary.avgRateCpm, "cpm")}</p>
-                  <p className="story-modal__copy">Recoil: {formatMetric(expandedSessionDetail.summary.recoilPct, "%")}</p>
-                  <p className="story-modal__copy">Pauses: {expandedSessionDetail.summary.pausesCount}</p>
+              </div>
+
+              <div className="provisioning-help" tabIndex={0}>
+                <button
+                  type="button"
+                  className="provisioning-help__trigger"
+                  aria-describedby="provisioning-help-tooltip"
+                >
+                  Need help?
+                </button>
+                <div id="provisioning-help-tooltip" className="provisioning-help__tooltip" role="tooltip">
+                  <span>Follow the checklist below to generate the QR and provision the device.</span>
+                  <span className="provisioning-help__arrow" aria-hidden="true">↓</span>
                 </div>
-              ) : null}
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setExpandedSessionId(null);
-                    setExpandedSessionDetail(null);
-                    setExpandedSessionError(null);
-                    setExpandedSessionLoading(false);
+              </div>
+            </div>
+
+            <ol className="provisioning-steps text-xs text-slate-650 leading-relaxed mb-4 pl-4" style={{ margin: "0 0 14px 18px", padding: 0 }}>
+              <li>Power on ESP in provisioning mode.</li>
+              <li>Connect phone to the ESP Wi-Fi, for example "ResQ Setup".</li>
+              <li>Scan this QR.</li>
+              <li>The firmware portal opens with Wi-Fi and LocalHub details.</li>
+              <li>If auto-save is supported by firmware and enabled, the device connects automatically.</li>
+              <li>Otherwise, press Save Configuration in the firmware portal.</li>
+            </ol>
+
+            <div style={{ display: "grid", gap: "12px", marginBottom: "16px" }}>
+              <label style={{ display: "grid", gap: "4px" }}>
+                <span style={{ fontWeight: 650, fontSize: "0.95rem" }}>ESP setup base URL</span>
+                <input
+                  type="text"
+                  placeholder="ESP setup base URL"
+                  value={espSetupBaseUrl}
+                  onChange={(e) => {
+                    setEspSetupBaseUrl(e.target.value);
+                    setProvisioningUrl(null);
+                    setProvisioningPayload(null);
+                    setPairingError(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "4px" }}>
+                <span style={{ fontWeight: 655, fontSize: "0.95rem" }}>ESP provision path</span>
+                <input
+                  type="text"
+                  placeholder="ESP provision path"
+                  value={espProvisionPath}
+                  onChange={(e) => {
+                    setEspProvisionPath(e.target.value);
+                    setProvisioningUrl(null);
+                    setProvisioningPayload(null);
+                    setPairingError(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "4px" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 650, fontSize: "0.95rem" }}>
+                  <span style={{ color: "#2563eb", display: "inline-flex" }} aria-hidden="true"><WifiSignalIcon /></span>
+                  Wi-Fi SSID
+                </span>
+                <input
+                  type="text"
+                  placeholder="Wi-Fi SSID"
+                  value={provisioningWifiSsid}
+                  onChange={(e) => {
+                    setProvisioningWifiSsid(e.target.value);
+                    setProvisioningUrl(null);
+                    setProvisioningPayload(null);
+                    setPairingError(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "4px" }}>
+                <span style={{ fontWeight: 650, fontSize: "0.95rem" }}>Wi-Fi password</span>
+                <input
+                  type="password"
+                  placeholder="Wi-Fi password"
+                  value={provisioningWifiPassword}
+                  onChange={(e) => {
+                    setProvisioningWifiPassword(e.target.value);
+                    setProvisioningUrl(null);
+                    setProvisioningPayload(null);
+                    setPairingError(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "4px" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 650, fontSize: "0.95rem" }}>
+                  Backend base URL
+                  {backendUrlHasLocalhost ? <span className="provisioning-warning-icon" aria-hidden="true"><WarningIcon /></span> : null}
+                </span>
+                <input
+                  type="text"
+                  placeholder="Backend base URL"
+                  value={provisioningBackendBaseUrl}
+                  onChange={(e) => {
+                    setProvisioningBackendBaseUrl(e.target.value);
+                    setProvisioningUrl(null);
+                    setProvisioningPayload(null);
+                    setPairingError(null);
+                  }}
+                />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.95rem", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={provisioningAutoSave}
+                  onChange={(e) => {
+                    setProvisioningAutoSave(e.target.checked);
+                    setProvisioningUrl(null);
+                    setProvisioningPayload(null);
+                    setPairingError(null);
+                  }}
+                />
+                Auto-save on scan
+              </label>
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+              <button
+                type="button"
+                disabled={pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url)}
+                onClick={handleRequestPairing}
+                className="header-action-btn"
+                style={{
+                  background: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#e2e8f0" : "#0f172a",
+                  color: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#94a3b8" : "#ffffff",
+                  cursor: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "not-allowed" : "pointer",
+                  border: "none",
+                  padding: "10px 18px",
+                  borderRadius: "8px",
+                  fontWeight: 700,
+                }}
+              >
+                {pairingLoading ? "Generating..." : "Generate QR"}
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: "6px", marginBottom: "16px", fontSize: "0.9rem", color: "#475569", background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+              <p style={{ margin: 0 }}>
+                Service backend_base_url: <strong>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong>
+              </p>
+              <p style={{ margin: 0 }}>
+                Service mqtt_host: <strong>{serviceInfo?.mqtt_host ?? "Unavailable"}</strong>
+              </p>
+              <p style={{ margin: 0 }}>
+                Service mqtt_port: <strong>{serviceInfo?.mqtt_port ?? "Unavailable"}</strong>
+              </p>
+              <p style={{ margin: 0 }}>
+                Service local_ip: <strong>{serviceInfo?.local_ip ?? "Unavailable"}</strong>
+              </p>
+            </div>
+
+            {serviceInfoError ? (
+              <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.9rem", fontWeight: 600 }}>
+                {serviceInfoError}
+              </p>
+            ) : null}
+
+            {pairingError ? (
+              <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.9rem", fontWeight: 600 }}>
+                {pairingError}
+              </p>
+            ) : null}
+
+            {provisioningPayload && provisioningUrl ? (
+              <div className="provisioning-qr-panel" style={{
+                padding: "16px",
+                borderRadius: "12px",
+                border: "1px solid #e2e8f0",
+                display: "grid",
+                gap: "12px",
+                justifyItems: "center",
+              }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: "0.95rem" }}>
+                  Scan to provision firmware
+                </p>
+                <QR
+                  value={provisioningUrl}
+                  size={180}
+                  bgColor="#ffffff"
+                  fgColor="#0f172a"
+                  level="M"
+                />
+                <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem", textAlign: "center" }}>
+                  QR URL includes wifi_ssid, wifi_pass, backend_base_url, and optional auto=1.
+                </p>
+
+                <div style={{ width: "100%", display: "grid", gap: "6px" }}>
+                  <p style={{ margin: 0, color: "#334155", fontSize: "0.9rem", fontWeight: 700 }}>
+                    Generated Provisioning URL
+                  </p>
+                  <code style={{
+                    display: "block",
+                    padding: "8px",
+                    background: "#e2e8f0",
+                    borderRadius: "4px",
+                    wordBreak: "break-all",
+                    fontSize: "0.8rem",
+                    color: "#0f172a",
+                  }}>
+                    {provisioningUrlText}
+                  </code>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(provisioningUrlText)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 700,
+                    cursor: "pointer",
                   }}
                 >
-                  Close
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+                  Copy URL
+                </button>
 
-        
+                <details style={{ width: "100%", fontSize: "0.85rem", color: "#64748b" }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 700 }}>
+                    Developer JSON copy
+                  </summary>
+                  <code style={{
+                    display: "block",
+                    marginTop: "6px",
+                    padding: "8px",
+                    background: "#e2e8f0",
+                    borderRadius: "4px",
+                    wordBreak: "break-all",
+                    fontSize: "0.8rem",
+                    color: "#0f172a",
+                  }}>
+                    {provisioningPayloadText}
+                  </code>
+                </details>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(provisioningPayloadText)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: "6px",
+                    border: "1px solid #cbd5e1",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Copy JSON
+                </button>
+              </div>
+            ) : null}
+          </section>
+
+          {/* Registry & Sessions card */}
+          <section className="white-card-block registry-sessions-card">
+            <div style={{ borderBottom: "1px solid #f1f5f9", paddingBottom: "20px", marginBottom: "20px" }}>
+              <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "12px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <DeviceRegistryIcon size={18} />
+                  <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
+                    Device Registry
+                  </h2>
+                </div>
+                {!registryLoading && !registryError ? (
+                  <span style={{
+                    padding: "4px 12px",
+                    borderRadius: "999px",
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    background: "#dbeafe",
+                    color: "#1d4ed8",
+                  }}>
+                    {registry.filter(m => m.online).length} / {registry.length} online
+                  </span>
+                ) : null}
+              </div>
+
+              {registryLoading ? (
+                <p style={{ margin: 0, color: "#64748b" }}>
+                  Loading device registry...
+                </p>
+              ) : registryError ? (
+                <p style={{ margin: 0, color: "#b91c1c" }}>
+                  {registryError}
+                </p>
+              ) : registry.length === 0 ? (
+                <p style={{ margin: 0, color: "#64748b" }}>
+                  No devices in registry yet. Manikins appear here once they
+                  connect and publish status.
+                </p>
+              ) : (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {registry.map((manikin) => (
+                    <div
+                      key={manikin.deviceId}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: manikin.online ? "1px solid #bbf7d0" : "1px solid #e2e8f0",
+                        background: manikin.online ? "#f0fdf4" : "#f8fafc",
+                        flexWrap: "wrap",
+                        gap: "8px",
+                      }}
+                    >
+                      <div style={{ display: "grid", gap: "2px" }}>
+                        <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#0f172a" }}>
+                          {manikin.deviceId}
+                        </span>
+                        <span style={{ fontSize: "0.85rem", color: "#64748b" }}>
+                          {manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{
+                          padding: "3px 8px",
+                          borderRadius: "999px",
+                          fontSize: "0.85rem",
+                          fontWeight: 700,
+                          background: manikin.online ? "#dcfce7" : "#fee2e2",
+                          color: manikin.online ? "#166534" : "#991b1b",
+                        }}>
+                          {manikin.online ? "Online" : "Offline"}
+                        </span>
+
+                        {manikin.state ? (
+                          <span style={{
+                            padding: "3px 8px",
+                            borderRadius: "999px",
+                            fontSize: "0.85rem",
+                            fontWeight: 600,
+                            background: "#e2e8f0",
+                            color: "#334155",
+                          }}>
+                            {manikin.state}
+                          </span>
+                        ) : null}
+
+                        {manikin.rssi !== null ? (
+                          <span style={{
+                            padding: "3px 8px",
+                            borderRadius: "999px",
+                            fontSize: "0.85rem",
+                            fontWeight: 600,
+                            background: manikin.rssi > -60 ? "#dcfce7"
+                              : manikin.rssi > -75 ? "#fef3c7"
+                              : "#fee2e2",
+                            color: manikin.rssi > -60 ? "#166534"
+                              : manikin.rssi > -75 ? "#92400e"
+                              : "#991b1b",
+                          }}>
+                            {manikin.rssi} dBm
+                          </span>
+                        ) : null}
+
+                        <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
+                          {manikin.lastSeen
+                            ? `${new Date(manikin.lastSeen).toLocaleTimeString()}`
+                            : "Never"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <LocalSessionReviewPanel
+                latestEndedSession={latestEndedSession}
+                sessions={recentSessions}
+                loading={recentSessionsLoading}
+                error={recentSessionsError}
+                canExport={Boolean(currentUser && currentUser.role !== "TRAINEE")}
+                expandedSessionId={expandedSessionId}
+                expandedSessionDetail={expandedSessionDetail}
+                expandedSessionLoading={expandedSessionLoading}
+                expandedSessionError={expandedSessionError}
+                onSelectSession={handleViewDetails}
+                onRefresh={loadRecentSessions}
+              />
+            </div>
+          </section>
+        </div>
       </div>
+
+      <Dialog
+        open={isCalibrationOpen}
+        onOpenChange={setIsCalibrationOpen}
+        title="Calibration Settings"
+        description="Edit local calibration profiles and run calibration against the selected live device."
+        maxWidth="750px"
+      >
+        <div className="calibration-dialog-wrapper">
+          <CalibrationSettingsPanel
+            devices={manikins}
+            selectedDeviceId={selectedCalibrationDeviceId}
+            onSelectedDeviceChange={setSelectedCalibrationDeviceId}
+            calibrationAction={selectedCalibrationDeviceId ? calibrationActionByDevice[selectedCalibrationDeviceId] ?? "idle" : "idle"}
+            onRunCalibration={handleRunCalibration}
+          />
+        </div>
+      </Dialog>
     </div>
   );
 }
+
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
@@ -2512,6 +2141,11 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "18px",
     boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08), 0 8px 24px rgba(15, 23, 42, 0.04)",
   },
+  provisioningCard: {
+    background: "linear-gradient(145deg, var(--provisioning-card-start) 0%, var(--provisioning-card-end) 100%)",
+    border: "1px solid var(--provisioning-card-border)",
+    boxShadow: "var(--provisioning-card-shadow)",
+  },
 };
 
 const linkButtonStyle: React.CSSProperties = {
@@ -2527,5 +2161,3 @@ const linkButtonStyle: React.CSSProperties = {
   fontWeight: 600,
   fontSize: "0.85rem",
 };
-
->>>>>>> origin/home-page-ui

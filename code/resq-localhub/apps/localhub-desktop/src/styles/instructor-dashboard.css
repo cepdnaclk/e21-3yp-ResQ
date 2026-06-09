@@ -1,434 +1,558 @@
-/* Instructor Dashboard - Professional Design System */
+/* Instructor Dashboard - Premium Redesigned Style Sheet */
 
 :root {
-  --color-primary: #005A9C;
-  --color-success: #107C10;
-  --color-warning: #FF8C00;
-  --color-error: #D13438;
-  --color-neutral: #334155;
-  --color-light: #f8fafc;
-  --color-border: #e2e8f0;
-  --color-text: #0f172a;
-  --color-text-secondary: #64748b;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --color-navy-bg: #091325;
+  --color-navy-card: #0b1a30;
+  --color-navy-dark: #070e1b;
+  --color-metallic-start: #0f2444;
+  --color-metallic-end: #07152b;
+  --color-text-light: #ffffff;
+  --color-text-slate: #e2e8f0;
+  --color-text-muted: #cbd5e1;
+  --color-white-bg: #ffffff;
+  --color-text-dark: #0f172a;
+  --color-text-dark-muted: #475569;
+  --color-border-light: #e2e8f0;
+  
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.15);
 }
 
-/* Layout */
-.instructor-dashboard {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
-  padding: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
+/* Main Page Container styling */
+.dashboard-main-container {
+  background: linear-gradient(135deg, var(--color-metallic-start) 0%, var(--color-metallic-end) 100%);
+  border-radius: var(--radius-2xl);
+  padding: 32px;
+  min-height: 98vh;
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text-light);
+  font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  margin: 10px;
 }
 
-@media (min-width: 1025px) {
-  .instructor-dashboard {
-    grid-template-columns: 1fr 1fr;
-  }
+/* Header styling */
+.dashboard-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.1);
 }
 
-/* Cards */
-.dashboard-card {
-  background: white;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.2s ease;
-}
-
-.dashboard-card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.dashboard-card-full {
-  grid-column: 1 / -1;
-}
-
-/* Headings */
-.dashboard-card h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 12px 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.dashboard-card h3 {
-  margin: 0 0 12px 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-/* Status badges */
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.dashboard-header .user-role-badge {
+  background: rgba(226, 232, 240, 0.15);
+  color: var(--color-text-slate);
   padding: 6px 12px;
-  border-radius: 20px;
+  border-radius: 9999px;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
-.status-badge--ready {
-  background: #e8f5e9;
-  color: var(--color-success);
-}
-
-.status-badge--online {
-  background: #e3f2fd;
-  color: #1976d2;
-}
-
-.status-badge--offline {
-  background: #ffebee;
-  color: var(--color-error);
-}
-
-.status-badge--calibrating {
-  background: #fff3e0;
-  color: var(--color-warning);
-}
-
-.status-badge--error {
-  background: #ffebee;
-  color: var(--color-error);
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-/* Buttons */
-.btn {
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: white;
-  color: var(--color-text);
+.dashboard-header .header-action-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-light);
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
-.btn:hover:not(:disabled) {
-  background: #f8fafc;
-  border-color: var(--color-neutral);
+.dashboard-header .header-action-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn--primary {
-  background: var(--color-primary);
-  color: white;
-  border-color: var(--color-primary);
-}
-
-.btn--primary:hover:not(:disabled) {
-  background: #004479;
-}
-
-.btn--success {
-  background: var(--color-success);
-  color: white;
-  border-color: var(--color-success);
-}
-
-.btn--success:hover:not(:disabled) {
-  background: #0d5a0d;
-}
-
-.btn--warning {
-  background: var(--color-warning);
-  color: white;
-  border-color: var(--color-warning);
-}
-
-.btn--warning:hover:not(:disabled) {
-  background: #e67e00;
-}
-
-.btn--danger {
-  background: var(--color-error);
-  color: white;
-  border-color: var(--color-error);
-}
-
-.btn--danger:hover:not(:disabled) {
-  background: #b82c2c;
-}
-
-.btn--small {
-  padding: 6px 10px;
-  font-size: 0.8rem;
-}
-
-/* Device Card */
-.device-card {
-  background: white;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 16px;
+/* Layout Columns Grid */
+.instructor-dashboard-layout {
   display: grid;
-  gap: 12px;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 24px; /* gap-6 spacing */
+  align-items: start;
 }
 
-.device-card-header {
+@media (max-width: 1280px) {
+  .instructor-dashboard-layout {
+    grid-template-columns: 1.2fr 1fr;
+  }
+}
+
+@media (max-width: 1024px) {
+  .instructor-dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-column {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 24px; /* gap-6 */
 }
 
-.device-name {
-  font-size: 1rem;
+/* simulation control title */
+.simulation-control-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--color-text-light);
+  letter-spacing: -0.03em;
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Left Column Bottom Flex Row */
+.left-column-bottom-flex {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Navy Active Device Card styling */
+.navy-active-card {
+  background: var(--color-navy-card);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: var(--shadow-md);
+  color: var(--color-text-light);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.navy-active-card .active-card-title {
+  font-size: 1.25rem;
   font-weight: 700;
-  color: var(--color-text);
-}
-
-.device-status-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.device-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  padding: 12px;
-  background: var(--color-light);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-}
-
-.metric-item {
-  font-size: 0.85rem;
-}
-
-.metric-label {
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
+  color: var(--color-text-light);
+  margin-top: 0;
+  margin-bottom: 16px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  font-weight: 600;
 }
 
-.metric-value {
-  color: var(--color-text);
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin-top: 2px;
-}
-
-/* Session Controls */
-.session-controls {
-  display: grid;
-  gap: 8px;
-}
-
-.trainee-selector {
-  display: grid;
-  gap: 8px;
-}
-
-.trainee-mode-buttons {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.trainee-mode-btn {
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: white;
-  color: var(--color-text);
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-
-.trainee-mode-btn.active {
-  background: var(--color-primary);
-  color: white;
-  border-color: var(--color-primary);
-}
-
-/* Input Fields */
-.input-field {
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  font-family: inherit;
-  font-size: 0.9rem;
-  width: 100%;
-}
-
-.input-field:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(0, 90, 156, 0.1);
-}
-
-.label {
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: var(--color-text);
-  display: block;
-  margin-bottom: 6px;
-}
-
-/* Empty States */
-.empty-state {
-  padding: 32px 20px;
-  text-align: center;
-  border-radius: var(--radius-md);
-  border: 1px dashed var(--color-border);
-  background: var(--color-light);
-  color: var(--color-text-secondary);
-}
-
-.empty-state-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text);
+.navy-active-card .info-row {
   margin-bottom: 8px;
+  font-size: 1rem;
 }
 
-.empty-state-description {
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-/* Responsiveness */
-@media (max-width: 640px) {
-  .instructor-dashboard {
-    grid-template-columns: 1fr;
-    padding: 12px;
-    gap: 16px;
-  }
-
-  .dashboard-card {
-    padding: 14px;
-  }
-
-  .device-metrics {
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  }
-
-  .btn {
-    width: 100%;
-  }
-
-  .trainee-mode-buttons {
-    width: 100%;
-  }
-
-  .trainee-mode-btn {
-    flex: 1;
-  }
-}
-
-/* Animation for status indicators */
-@keyframes pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Collapsible sections */
-.collapsible {
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  font-weight: 600;
-  color: var(--color-primary);
-  border: none;
-  background: none;
+/* Calibration profiles card styling (Clean white card override) */
+.calibration-profiles-card-wrapper {
   width: 100%;
-  text-align: left;
-  font-size: 0.9rem;
 }
 
-.collapsible:hover {
-  opacity: 0.8;
+.calibration-profiles-card-wrapper .card {
+  background: var(--color-white-bg) !important;
+  color: var(--color-text-dark) !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-md) !important;
+  padding: 24px !important;
+  border: none !important;
 }
 
-.collapsible-content {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease-out;
-  background: var(--color-light);
-  border-left: 3px solid var(--color-primary);
-  padding-left: 12px;
-  margin-left: -12px;
+/* Inner white cards inputs typography */
+.calibration-profiles-card-wrapper .card h2,
+.calibration-profiles-card-wrapper .card p,
+.calibration-profiles-card-wrapper .card label,
+.calibration-profiles-card-wrapper .card span,
+.calibration-profiles-card-wrapper .card select,
+.calibration-profiles-card-wrapper .card input,
+.calibration-profiles-card-wrapper .card button {
+  font-size: 1rem;
 }
 
-.collapsible-content.active {
-  max-height: 500px;
-  overflow-y: auto;
+.calibration-profiles-card-wrapper .card h2 {
+  color: var(--color-text-dark) !important;
+  font-size: 1.3rem !important;
+  font-weight: 700 !important;
 }
 
-/* Alerts */
-.alert {
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  font-size: 0.9rem;
+.calibration-profiles-card-wrapper .card p.text-sm {
+  font-size: 0.95rem !important;
+  color: var(--color-text-dark-muted) !important;
+}
+
+.calibration-profiles-card-wrapper .card label {
+  color: var(--color-text-dark-muted) !important;
+  font-weight: 600 !important;
+}
+
+.calibration-profiles-card-wrapper .card select,
+.calibration-profiles-card-wrapper .card input {
+  background: #f8fafc !important;
+  border: 1px solid var(--color-border-light) !important;
+  color: var(--color-text-dark) !important;
+  padding: 10px !important;
+  border-radius: 8px !important;
+}
+
+/* Center-Right Column */
+.center-right-column .column-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: var(--color-text-light);
+}
+
+.live-manikins-section {
   display: flex;
-  gap: 8px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.alert--success {
-  background: #e8f5e9;
-  color: var(--color-success);
-  border-left: 3px solid var(--color-success);
+/* Floating components inside center-right column */
+.manikin-stack-card {
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-radius: var(--radius-xl);
 }
 
-.alert--warning {
-  background: #fff3e0;
-  color: var(--color-warning);
-  border-left: 3px solid var(--color-warning);
+.dashboard-overview-subcard {
+  background: var(--color-navy-card);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--color-text-slate);
 }
 
-.alert--error {
-  background: #ffebee;
-  color: var(--color-error);
-  border-left: 3px solid var(--color-error);
+.dashboard-overview-subcard h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--color-text-light);
 }
 
-.alert--info {
-  background: #e3f2fd;
-  color: #1976d2;
-  border-left: 3px solid #1976d2;
+.dashboard-overview-subcard .text-slate-200,
+.dashboard-overview-subcard .text-slate-300,
+.dashboard-overview-subcard .text-slate-400 {
+  font-size: 0.95rem !important;
+}
+
+.ppi-subcard {
+  background: var(--color-navy-card);
+  border-radius: var(--radius-xl);
+  padding: 24px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--color-text-light);
+}
+
+.ppi-subcard .ppi-title {
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+
+/* Far-Right Column (Crisp white card blocks) */
+.white-card-block {
+  background: var(--color-white-bg) !important;
+  color: var(--color-text-dark) !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-md) !important;
+  padding: 24px !important;
+  border: none !important;
+}
+
+.white-card-block h2 {
+  color: var(--color-text-dark) !important;
+  font-size: 1.3rem !important;
+  font-weight: 700 !important;
+}
+
+.white-card-block p.card-description {
+  font-size: 0.98rem !important;
+  color: var(--color-text-dark-muted) !important;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.white-card-block label {
+  color: var(--color-text-dark-muted) !important;
+  font-weight: 600 !important;
+}
+
+.white-card-block input,
+.white-card-block select {
+  background: #f8fafc !important;
+  border: 1px solid var(--color-border-light) !important;
+  color: var(--color-text-dark) !important;
+  padding: 10px !important;
+  border-radius: 8px !important;
+}
+
+/* Local Session Review Panel Custom style overrides within white blocks */
+.white-card-block .card {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.white-card-block .card h2 {
+  color: var(--color-text-dark) !important;
+  font-weight: 700 !important;
+}
+
+.white-card-block .card p.text-xs {
+  font-size: 0.95rem !important;
+  color: var(--color-text-dark-muted) !important;
+}
+
+.white-card-block .card .bg-white {
+  background: #f8fafc !important;
+  border-color: var(--color-border-light) !important;
+}
+
+.white-card-block .card .text-gray-900 {
+  color: var(--color-text-dark) !important;
+}
+
+.white-card-block .card .text-gray-750,
+.white-card-block .card .text-gray-500,
+.white-card-block .card .text-gray-700 {
+  color: var(--color-text-dark-muted) !important;
+}
+
+/* Chip Styles on dark cards */
+.device-card__chips .device-chip,
+.chips-container .device-chip {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-slate);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.85rem;
+}
+
+/* Remove rectangular grid borders */
+.device-card, article.device-card {
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* Enlarged legible subtext minimum limits */
+p, span, select, input, button {
+  font-size: 0.95rem;
+}
+
+strong {
+  font-weight: 700;
+}
+
+.empty-state-dark {
+  padding: 32px;
+  text-align: center;
+  border-radius: var(--radius-xl);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-text-slate);
+}
+
+.provisioning-qr-panel {
+  background: #f8fafc !important;
+  border-color: var(--color-border-light) !important;
+  color: var(--color-text-dark) !important;
+}
+
+/* Popped Calibration Dialog styling overrides */
+.calibration-dialog-wrapper {
+  color: var(--color-text-dark) !important;
+}
+
+.calibration-dialog-wrapper .card {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.calibration-dialog-wrapper .calibration-panel-header {
+  border-bottom: 1px solid var(--color-border-light);
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+}
+
+.calibration-dialog-wrapper label {
+  color: var(--color-text-dark-muted) !important;
+  font-weight: 700 !important;
+  font-size: 0.75rem !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase !important;
+}
+
+.calibration-dialog-wrapper select,
+.calibration-dialog-wrapper input {
+  background: #f8fafc !important;
+  border: 1px solid var(--color-border-light) !important;
+  color: var(--color-text-dark) !important;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  font-size: 0.95rem !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  transition: all 0.15s ease !important;
+}
+
+.calibration-dialog-wrapper select:focus,
+.calibration-dialog-wrapper input:focus {
+  outline: none !important;
+  background: #ffffff !important;
+  border-color: #005A9C !important;
+  box-shadow: 0 0 0 3px rgba(0, 90, 156, 0.12) !important;
+}
+
+.calibration-dialog-wrapper select:disabled,
+.calibration-dialog-wrapper input:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+}
+
+/* Custom Badges */
+.calibration-dialog-wrapper .badge-device,
+.calibration-dialog-wrapper .badge-profile,
+.calibration-dialog-wrapper .badge-active-count {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #e2e8f0 !important;
+  padding: 6px 12px !important;
+  border-radius: 9999px !important;
+  font-size: 0.85rem !important;
+  font-weight: 600 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  margin: 0 !important;
+}
+
+/* Advanced Settings Dropdown */
+.calibration-dialog-wrapper details {
+  background: #f8fafc !important;
+  border: 1px solid var(--color-border-light) !important;
+  border-radius: 12px !important;
+  padding: 16px !important;
+  transition: all 0.2s ease !important;
+}
+
+.calibration-dialog-wrapper details[open] {
+  background: #ffffff !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02) !important;
+}
+
+.calibration-dialog-wrapper details summary {
+  color: #005A9C !important;
+  font-size: 0.95rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
+  outline: none !important;
+}
+
+.calibration-dialog-wrapper details summary:hover {
+  color: #004b82 !important;
+}
+
+.calibration-dialog-wrapper details .grid {
+  border-top: 1px solid var(--color-border-light);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.calibration-dialog-wrapper details .grid input {
+  padding: 8px 12px !important;
+  font-size: 0.9rem !important;
+}
+
+/* Buttons Styling */
+.calibration-dialog-wrapper .calibration-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.calibration-dialog-wrapper .calibration-action-buttons button {
+  height: 40px !important;
+  padding: 0 16px !important;
+  font-size: 0.9rem !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.calibration-dialog-wrapper .calibration-action-buttons button:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+}
+
+.calibration-dialog-wrapper .calibration-action-buttons button:active:not(:disabled) {
+  transform: translateY(0px) !important;
+}
+
+.calibration-dialog-wrapper .calibration-action-buttons button:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+}
+
+/* Primary actions */
+.calibration-dialog-wrapper .btn-save-profile,
+.calibration-dialog-wrapper .btn-run-calibration {
+  background: #005A9C !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.calibration-dialog-wrapper .btn-save-profile:hover:not(:disabled),
+.calibration-dialog-wrapper .btn-run-calibration:hover:not(:disabled) {
+  background: #004b82 !important;
+}
+
+/* Success Save action */
+.calibration-dialog-wrapper .btn-save-profile.success {
+  background: #107C10 !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.calibration-dialog-wrapper .btn-save-profile.success:hover:not(:disabled) {
+  background: #0c5c0c !important;
+}
+
+/* Secondary actions */
+.calibration-dialog-wrapper .btn-set-default,
+.calibration-dialog-wrapper .btn-deactivate,
+.calibration-dialog-wrapper .btn-new-profile,
+.calibration-dialog-wrapper .btn-reload {
+  background: #ffffff !important;
+  color: var(--color-text-dark) !important;
+  border: 1px solid var(--color-border-light) !important;
+}
+
+.calibration-dialog-wrapper .btn-set-default:hover:not(:disabled),
+.calibration-dialog-wrapper .btn-deactivate:hover:not(:disabled),
+.calibration-dialog-wrapper .btn-new-profile:hover:not(:disabled),
+.calibration-dialog-wrapper .btn-reload:hover:not(:disabled) {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* Remove spin-buttons from number inputs globally in the dashboard/dialogs */
+.instructor-dashboard-layout input::-webkit-outer-spin-button,
+.instructor-dashboard-layout input::-webkit-inner-spin-button,
+.calibration-dialog-wrapper input::-webkit-outer-spin-button,
+.calibration-dialog-wrapper input::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+.instructor-dashboard-layout input[type="number"],
+.calibration-dialog-wrapper input[type="number"] {
+  -moz-appearance: textfield !important;
 }

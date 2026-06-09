@@ -48,7 +48,6 @@ body {
     linear-gradient(180deg, #f8fbff 0%, #eef3fb 55%, #e9eef7 100%);
 }
 
-<<<<<<< HEAD
 .command-shell {
   position: relative;
   min-height: 100vh;
@@ -838,13 +837,22 @@ body {
   color: #e2e8f0;
 }
 
-=======
->>>>>>> origin/home-page-ui
 button,
 input,
 select,
 textarea {
   font: inherit;
+}
+
+/* Remove spin buttons from number inputs globally */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
 }
 
 a {
@@ -3539,7 +3547,6 @@ a {
   }
 }
 
-<<<<<<< HEAD
 /* Floating Navigation Button & Overlay styling */
 
 .floating-nav-toggle {
@@ -3946,7 +3953,6 @@ a {
 
 
 
-=======
 @media (max-width: 720px) {
   .qr-card__header {
     padding: 18px 18px 0;
@@ -4008,4 +4014,3 @@ a {
     max-height: 150px;
   }
 }
->>>>>>> origin/home-page-ui

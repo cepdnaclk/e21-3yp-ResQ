@@ -24,162 +24,22 @@ type QuickAction = {
   roles?: string[];
 };
 
-export default function HomePage({
-  manualLanIpOverride: _unused,
-}: {
+type HomePageProps = {
   manualLanIpOverride: string | null;
-<<<<<<< HEAD
   onOpenInstructorDashboard?: () => void;
   onOpenTraineeDashboard?: () => void;
 };
 
-type ApiContract = {
-  method: "GET" | "POST";
-  path: string;
-  auth: string;
-  purpose: string;
-};
-
-const apiContracts: ApiContract[] = [
-  { method: "GET", path: "/api/hub/health", auth: "Public/Local", purpose: "Health check for backend, service status, version, database, broker connection." },
-  { method: "POST", path: "/api/auth/login", auth: "Public/Local", purpose: "Authenticate local user and issue local session/token." },
-  { method: "POST", path: "/api/auth/logout", auth: "Authenticated", purpose: "Invalidate current session/token." },
-  { method: "GET", path: "/api/auth/me", auth: "Authenticated", purpose: "Return current user, role, and permissions." },
-  { method: "GET", path: "/api/manikins", auth: "Instructor/Tech", purpose: "List paired, pending, online, offline, and stale manikins." },
-  { method: "POST", path: "/api/manikins/pair-request", auth: "Instructor/Admin", purpose: "Create pending pairing request and return one-time token." },
-  { method: "POST", path: "/api/manikins/unpair", auth: "Instructor/Admin/Tech", purpose: "Unpair device, clear mapping, and optionally command device to provisioning mode." },
-  { method: "POST", path: "/api/sessions/start", auth: "Instructor/Admin", purpose: "Create session and command device to start." },
-  { method: "POST", path: "/api/sessions/end", auth: "Instructor/Admin", purpose: "End/abort session and compute summary." },
-  { method: "GET", path: "/api/sessions", auth: "Instructor/Admin", purpose: "List completed/recent sessions. Trainees get own filtered history." },
-  { method: "GET", path: "/api/sessions/{id}", auth: "Authorized", purpose: "Return session details, summary, events, and timeline." },
-  { method: "GET", path: "/api/sessions/{id}/export.csv", auth: "Instructor/Admin", purpose: "Export session as CSV." },
-  { method: "GET", path: "/api/sessions/{id}/export.json", auth: "Instructor/Admin", purpose: "Export session as JSON." },
-  { method: "GET", path: "/api/live/events", auth: "Authenticated", purpose: "SSE endpoint for live dashboard updates." },
-  { method: "POST", path: "/api/devices/{deviceId}/diag/ping", auth: "Instructor/Tech", purpose: "Publish diagnostic ping command." },
-  { method: "POST", path: "/api/devices/{deviceId}/diag/request", auth: "Technician/Admin", purpose: "Request detailed diagnostic report." },
-];
-
-type ApiHealthState = {
-  status: "checking" | "healthy" | "unreachable";
-  detail: string;
-  service?: string;
-  timestamp?: string;
-};
-
-type BrokerUiState = {
-  status: "checking" | "running" | "stopped";
-  detail: string;
-};
-
-type LanInfoState = {
-  status: "checking" | "ready" | "error";
-  detail: string;
-  hostname?: string;
-  primaryIp?: string | null;
-};
-
-type MetricCard = {
-  label: string;
-  value: string;
-  detail: string;
-  trend: string;
-  trendDirection: "up" | "down";
-  icon: string;
-};
-
-function getApiHealthState(health: HubHealthResponse): ApiHealthState {
-  if (!health.ok) {
-    return {
-      status: "unreachable",
-      detail: "Backend responded, but the health check reported a failure.",
-      service: health.service,
-      timestamp: health.timestamp,
-    };
-  }
-
-  return {
-    status: "healthy",
-    detail: "Backend is reachable and reporting healthy.",
-    service: health.service,
-    timestamp: health.timestamp,
-  };
-}
-
-function formatApiDetail(state: ApiHealthState): string {
-  const details: string[] = [state.detail];
-
-  if (state.service) {
-    details.push(`Service: ${state.service}`);
-  }
-
-  if (state.timestamp) {
-    details.push(`Timestamp: ${state.timestamp}`);
-  }
-
-  return details.join(" • ");
-}
-
-function getProcessLabel(apiService: ApiServiceStatus): string {
-  return apiService.running ? "Running" : "Stopped";
-}
-
-function getHealthLabel(apiHealth: ApiHealthState): string {
-  if (apiHealth.status === "checking") {
-    return "Checking";
-  }
-
-  if (apiHealth.status === "healthy") {
-    return "Healthy";
-  }
-
-  return "Unreachable";
-}
-
-function getErrorMessage(error: unknown): string {
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (typeof error === "object" && error !== null) {
-    const maybeMessage = (error as { message?: unknown }).message;
-    if (typeof maybeMessage === "string") {
-      return maybeMessage;
-    }
-  }
-
-  return "Unknown error";
-}
-
-function roleMatches(rule: readonly string[], role: string): boolean {
-  return rule.includes(role);
-}
-
-function buttonStyle(disabled: boolean = false): React.CSSProperties {
-  return {
-    padding: "8px 14px",
-    background: disabled ? "#e5e7eb" : "#0f172a",
-    color: disabled ? "#9ca3af" : "#ffffff",
-    border: "1px solid " + (disabled ? "#d1d5db" : "#0f172a"),
-    borderRadius: "6px",
-    fontSize: "0.9rem",
-    fontWeight: 500,
-    cursor: disabled ? "not-allowed" : "pointer",
-    transition: "all 0.2s ease-in-out",
-    opacity: disabled ? 0.6 : 1,
-  };
-}
-
-export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboard, onOpenTraineeDashboard }: HomePageProps) {
-=======
-}) {
->>>>>>> origin/home-page-ui
+export default function HomePage({
+  manualLanIpOverride,
+  onOpenInstructorDashboard,
+  onOpenTraineeDashboard,
+}: HomePageProps) {
   const { currentUser } = useAuth();
 
-<<<<<<< HEAD
+  // Simple system readiness — just green or red, no technical detail
+  const [systemReady, setSystemReady] = useState<boolean | null>(null);
+
   useEffect(() => {
     function isTextInput(target: EventTarget | null): boolean {
       if (!(target instanceof HTMLElement)) {
@@ -204,37 +64,25 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
 
       if (shortcutKey === "r") {
         event.preventDefault();
-        void refreshAllState();
+        window.location.reload();
         return;
       }
 
       if (shortcutKey === "i") {
         event.preventDefault();
-        handleOpenInstructorDashboard();
+        navigateTo("/instructor");
         return;
       }
 
       if (shortcutKey === "t") {
         event.preventDefault();
-        handleOpenTraineeDashboard();
+        navigateTo("/trainee");
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-
-  function updateBrokerUi(service: BrokerServiceStatus) {
-    setBrokerState(service);
-    setBrokerUiState({
-      status: service.running ? "running" : "stopped",
-      detail: service.message,
-    });
-  }
-=======
-  // Simple system readiness — just green or red, no technical detail
-  const [systemReady, setSystemReady] = useState<boolean | null>(null);
->>>>>>> origin/home-page-ui
 
   // Stats shown in the summary row
   const [manikinCount, setManikinCount] = useState<number | null>(null);
@@ -293,6 +141,14 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
   }, []);
 
   function navigateTo(path: string) {
+    if (path === "/instructor" && onOpenInstructorDashboard) {
+      onOpenInstructorDashboard();
+      return;
+    }
+    if (path === "/trainee" && onOpenTraineeDashboard) {
+      onOpenTraineeDashboard();
+      return;
+    }
     window.location.assign(path);
   }
 
@@ -317,66 +173,12 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
       action.roles.includes(currentUser?.role ?? "")
   );
 
-<<<<<<< HEAD
-  const apiTone = apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped";
-  const brokerTone = brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped";
-  const lanTone = lanInfo.status === "checking" ? "checking" : manualLanIpOverride || lanInfo.status === "ready" ? "ready" : "error";
-  const snapshotTone = apiTone === "healthy" ? "healthy" : apiTone === "running" ? "checking" : "stopped";
-
-  function getRefreshLabel() {
-    if (!lastRefreshedAt) {
-      return "Waiting for first refresh";
-    }
-
-    return lastRefreshedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  }
-
-  async function handleCopyLanIp() {
-    if (!chosenLanIp) {
-      return;
-    }
-
-    const payload = {
-      hostname: lanInfo.hostname ?? null,
-      detectedIp: lanInfo.primaryIp ?? null,
-      activeOverride: manualLanIpOverride ?? null,
-      chosenHost: chosenLanIp,
-      urls: { instructor: instructorUrl, trainee: traineeUrl },
-    };
-
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-      setCopyLanIpState("copied");
-      window.setTimeout(() => setCopyLanIpState("idle"), 1500);
-    } catch {
-      setCopyLanIpState("idle");
-    }
-  }
-
-  function handleOpenInstructorDashboard() {
-    if (onOpenInstructorDashboard) {
-      onOpenInstructorDashboard();
-      return;
-    }
-
-    window.location.assign("/instructor");
-  }
-
-  function handleOpenTraineeDashboard() {
-    if (onOpenTraineeDashboard) {
-      onOpenTraineeDashboard();
-      return;
-    }
-
-    window.location.assign("/trainee");
-=======
   // Greeting message based on time of day — makes it feel personal
   function getGreeting(): string {
     const hour = new Date().getHours();
     if (hour < 12) return "Good morning";
     if (hour < 18) return "Good afternoon";
     return "Good evening";
->>>>>>> origin/home-page-ui
   }
 
   return (
