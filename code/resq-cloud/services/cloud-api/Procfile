@@ -1,0 +1,1 @@
+web: java -jar cloud-api-0.1.0-SNAPSHOT.jar
