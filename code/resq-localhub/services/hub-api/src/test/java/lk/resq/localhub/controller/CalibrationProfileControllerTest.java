@@ -38,7 +38,7 @@ class CalibrationProfileControllerTest {
 
         var response = fixture.controller.createProfile(null, new CalibrationProfileRequest(
                 "Trainer",
-                14000,
+                700,
                 20500,
                 15200,
                 15200,

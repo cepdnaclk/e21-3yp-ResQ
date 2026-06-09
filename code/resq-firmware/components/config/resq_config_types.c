@@ -31,7 +31,7 @@ void calibration_config_set_defaults(calibration_config_t *config)
     config->calibrated = false;
     config->hall_direction = 0;
     config->pressure_balance_allowed_pct = 25; /* default 25% */
-    config->calibration_sample_count = 30;
+    config->calibration_sample_count = 60;
     config->calibration_window_ms = 2000;
     config->calibrated_at_ms = 0;
 }
