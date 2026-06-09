@@ -66,14 +66,25 @@ jobs:
         run: |
           aws sts get-caller-identity
 
-      - name: Deploy to Elastic Beanstalk
-        uses: aws-actions/aws-elasticbeanstalk-deploy@v1.0.4
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          application-name: ${{ env.EB_APPLICATION_NAME }}
-          environment-name: ${{ env.EB_ENVIRONMENT_NAME }}
-          deployment-package-path: ${{ env.CLOUD_API_DIR }}/${{ env.DEPLOY_ZIP }}
-          version-label: cloud-api-${{ github.sha }}
-          s3-bucket-name: resq-eb-deploy-578710291005-ap-southeast-1-20260609
-          wait-for-environment-recovery: true
-          deployment-timeout: 1800
+      - name: Upload deployment bundle to S3
+        run: |
+          aws s3 cp "${{ env.CLOUD_API_DIR }}/${{ env.DEPLOY_ZIP }}" \
+            "s3://resq-eb-deploy-578710291005-ap-southeast-1-20260609/cloud-api-${{ github.sha }}.zip"
+
+      - name: Create Elastic Beanstalk application version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name "${{ env.EB_APPLICATION_NAME }}" \
+            --version-label "cloud-api-${{ github.sha }}" \
+            --source-bundle S3Bucket="resq-eb-deploy-578710291005-ap-southeast-1-20260609",S3Key="cloud-api-${{ github.sha }}.zip"
+
+      - name: Deploy application version to environment
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name "${{ env.EB_ENVIRONMENT_NAME }}" \
+            --version-label "cloud-api-${{ github.sha }}"
+
+      - name: Wait for Elastic Beanstalk deployment
+        run: |
+          aws elasticbeanstalk wait environment-updated \
+            --environment-name "${{ env.EB_ENVIRONMENT_NAME }}"
