@@ -16,6 +16,7 @@ env:
   EB_ENVIRONMENT_NAME: resq-cloud-api-env
   CLOUD_API_DIR: code/resq-cloud/services/cloud-api
   DEPLOY_ZIP: resq-cloud-api-deploy.zip
+  EB_DEPLOY_BUCKET: resq-eb-deploy-578710291005-ap-southeast-1-20260609
 
 jobs:
   deploy:
@@ -55,36 +56,56 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Confirm AWS identity
         run: |
           aws sts get-caller-identity
 
+      - name: Prepare deployment version label
+        run: |
+          echo "VERSION_LABEL=cloud-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" >> $GITHUB_ENV
+          echo "S3_KEY=cloud-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}.zip" >> $GITHUB_ENV
+
       - name: Upload deployment bundle to S3
         run: |
           aws s3 cp "${{ env.CLOUD_API_DIR }}/${{ env.DEPLOY_ZIP }}" \
-            "s3://resq-eb-deploy-578710291005-ap-southeast-1-20260609/cloud-api-${{ github.sha }}.zip"
+            "s3://${{ env.EB_DEPLOY_BUCKET }}/${{ env.S3_KEY }}"
 
       - name: Create Elastic Beanstalk application version
         run: |
           aws elasticbeanstalk create-application-version \
             --application-name "${{ env.EB_APPLICATION_NAME }}" \
-            --version-label "cloud-api-${{ github.sha }}" \
-            --source-bundle S3Bucket="resq-eb-deploy-578710291005-ap-southeast-1-20260609",S3Key="cloud-api-${{ github.sha }}.zip"
+            --version-label "${{ env.VERSION_LABEL }}" \
+            --source-bundle S3Bucket="${{ env.EB_DEPLOY_BUCKET }}",S3Key="${{ env.S3_KEY }}"
 
       - name: Deploy application version to environment
         run: |
           aws elasticbeanstalk update-environment \
             --environment-name "${{ env.EB_ENVIRONMENT_NAME }}" \
-            --version-label "cloud-api-${{ github.sha }}"
+            --version-label "${{ env.VERSION_LABEL }}"
 
       - name: Wait for Elastic Beanstalk deployment
         run: |
-          aws elasticbeanstalk wait environment-updated \
-            --environment-name "${{ env.EB_ENVIRONMENT_NAME }}"
+          for i in {1..60}; do
+            STATUS=$(aws elasticbeanstalk describe-environments \
+              --application-name "${{ env.EB_APPLICATION_NAME }}" \
+              --environment-names "${{ env.EB_ENVIRONMENT_NAME }}" \
+              --query "Environments[0].Status" \
+              --output text)
+
+            HEALTH=$(aws elasticbeanstalk describe-environments \
+              --application-name "${{ env.EB_APPLICATION_NAME }}" \
+              --environment-names "${{ env.EB_ENVIRONMENT_NAME }}" \
+              --query "Environments[0].Health" \
+              --output text)
+
+            echo "Elastic Beanstalk status: $STATUS, health: $HEALTH"
+
+            if [ "$STATUS" = "Ready" ]; then
+              exit 0
+            fi
+
+            sleep 20
+          done
+
+          echo "Elastic Beanstalk did not become Ready in time."
+          exit 1
