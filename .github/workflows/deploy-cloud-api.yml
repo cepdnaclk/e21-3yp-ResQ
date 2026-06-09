@@ -1,0 +1,67 @@
+name: Deploy ResQ Cloud API to Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - resq-cloud-deploy
+    paths:
+      - "code/resq-cloud/services/cloud-api/**"
+      - ".github/workflows/deploy-cloud-api.yml"
+
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-1
+  EB_APPLICATION_NAME: resq-cloud-api
+  EB_ENVIRONMENT_NAME: resq-cloud-api-env
+  CLOUD_API_DIR: code/resq-cloud/services/cloud-api
+  DEPLOY_ZIP: resq-cloud-api-deploy.zip
+
+jobs:
+  deploy:
+    name: Build and deploy cloud-api
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build cloud-api
+        working-directory: ${{ env.CLOUD_API_DIR }}
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests
+
+      - name: Prepare Elastic Beanstalk deployment bundle
+        working-directory: ${{ env.CLOUD_API_DIR }}
+        run: |
+          mkdir -p deploy
+          cp target/cloud-api-0.1.0-SNAPSHOT.jar deploy/
+          cp Procfile deploy/
+          cd deploy
+          zip -r ../${{ env.DEPLOY_ZIP }} cloud-api-0.1.0-SNAPSHOT.jar Procfile
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to Elastic Beanstalk
+        uses: aws-actions/aws-elasticbeanstalk-deploy@v1.0.4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          application-name: ${{ env.EB_APPLICATION_NAME }}
+          environment-name: ${{ env.EB_ENVIRONMENT_NAME }}
+          deployment-package-path: ${{ env.CLOUD_API_DIR }}/${{ env.DEPLOY_ZIP }}
+          version-label: cloud-api-${{ github.sha }}
+          wait-for-environment-recovery: true
+          deployment-timeout: 1800
