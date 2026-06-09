@@ -3,7 +3,7 @@ name: Deploy ResQ Cloud API to Elastic Beanstalk
 on:
   push:
     branches:
-      - resq-cloud-deploy
+      - main
     paths:
       - "code/resq-cloud/services/cloud-api/**"
       - ".github/workflows/deploy-cloud-api.yml"
