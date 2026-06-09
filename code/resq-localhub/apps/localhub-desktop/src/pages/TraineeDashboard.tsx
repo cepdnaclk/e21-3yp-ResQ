@@ -793,30 +793,6 @@ export default function TraineeDashboard({
               >
                 Back To Home
               </button>
-              {currentUser ? (
-                <>
-                  <span style={{ padding: "6px 10px", borderRadius: "999px", background: "#e2e8f0", color: "#334155", fontSize: "0.8rem", fontWeight: 700 }}>
-                    {currentUser.role}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      logout().finally(() => window.location.assign("/login"));
-                    }}
-                    style={{
-                      padding: "8px 12px",
-                      borderRadius: "6px",
-                      border: "1px solid #cbd5e1",
-                      background: "#ffffff",
-                      color: "#0f172a",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Logout
-                  </button>
-                </>
-              ) : null}
             </div>
           ) : null}
         </div>

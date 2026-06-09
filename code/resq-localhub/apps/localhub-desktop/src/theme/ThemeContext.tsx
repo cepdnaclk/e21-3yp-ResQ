@@ -16,10 +16,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => "light");
 
   useEffect(() => {
+<<<<<<< HEAD
     document.documentElement.classList.add("sim-theater");
     // Dark mode removed; ensure `dark` class is not present
     document.documentElement.classList.remove("dark");
   }, []);
+=======
+    // Apply theme to document
+    if (theme === "dark") {
+      document.documentElement.classList.add("sim-theater");
+    } else {
+      document.documentElement.classList.remove("sim-theater");
+    }
+    // Save preference
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
+>>>>>>> origin/home-page-ui
 
   function toggleTheme() {
     // No-op: theme is fixed to light

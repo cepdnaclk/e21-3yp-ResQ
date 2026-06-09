@@ -1,23 +1,34 @@
 import { useEffect, useState } from "react";
-import { AUTH_PERMISSION_RULES } from "@resq/shared";
 import { useAuth } from "../auth/AuthContext";
-import { generateAccessUrls } from "../lib/accessUrls";
-
-import { Badge, Button, Card, Skeleton } from "../components/ui";
-import { Dialog } from "../components/ui/dialog";
+import { fetchBrowserHealth } from "../lib/browserHealthApi";
+import { fetchManikinRegistry } from "../lib/browserManikinRegistryApi";
+import { fetchCompletedSessions } from "../lib/browserSessionsApi";
+import { Button } from "../components/ui/button";
+import { Card } from "../components/ui/card";
 import {
-  fetchHubHealth,
-  getApiServiceStatus,
-  getBrokerServiceStatus,
-  getNetworkInfo,
-  type ApiServiceStatus,
-  type BrokerServiceStatus,
-  type HubHealthResponse,
-  type NetworkInfo,
-} from "../lib/tauriApi";
+  Dialog,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "../components/ui/dialog";
 
-type HomePageProps = {
+// The shape of a quick action card shown in the actions grid
+type QuickAction = {
+  id: string;
+  title: string;
+  description: string;
+  buttonLabel: string;
+  variant: "primary" | "secondary" | "ghost";
+  onClick: () => void;
+  // Only show this action for these roles. Empty means show to all.
+  roles?: string[];
+};
+
+export default function HomePage({
+  manualLanIpOverride: _unused,
+}: {
   manualLanIpOverride: string | null;
+<<<<<<< HEAD
   onOpenInstructorDashboard?: () => void;
   onOpenTraineeDashboard?: () => void;
 };
@@ -163,33 +174,12 @@ function buttonStyle(disabled: boolean = false): React.CSSProperties {
 }
 
 export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboard, onOpenTraineeDashboard }: HomePageProps) {
+=======
+}) {
+>>>>>>> origin/home-page-ui
   const { currentUser } = useAuth();
-  const [apiService, setApiService] = useState<ApiServiceStatus>({
-    running: false,
-    pid: null,
-  });
-  const [apiHealth, setApiHealth] = useState<ApiHealthState>({
-    status: "checking",
-    detail: "Checking...",
-  });
-  const [brokerState, setBrokerState] = useState<BrokerServiceStatus>({
-    running: false,
-    pid: null,
-    message: "Checking broker status...",
-  });
-  const [brokerUiState, setBrokerUiState] = useState<BrokerUiState>({
-    status: "checking",
-    detail: "Checking...",
-  });
-  const [lanInfo, setLanInfo] = useState<LanInfoState>({
-    status: "checking",
-    detail: "Checking...",
-  });
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
-  const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
-  const [copyLanIpState, setCopyLanIpState] = useState<"idle" | "copied">("idle");
 
+<<<<<<< HEAD
   useEffect(() => {
     function isTextInput(target: EventTarget | null): boolean {
       if (!(target instanceof HTMLElement)) {
@@ -241,169 +231,93 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
       detail: service.message,
     });
   }
+=======
+  // Simple system readiness — just green or red, no technical detail
+  const [systemReady, setSystemReady] = useState<boolean | null>(null);
+>>>>>>> origin/home-page-ui
 
-  async function syncBrokerState() {
-    try {
-      const service = await getBrokerServiceStatus();
-      updateBrokerUi(service);
-    } catch (error) {
-      setBrokerState({
-        running: false,
-        pid: null,
-        message: "Broker process is stopped.",
-      });
-      setBrokerUiState({
-        status: "stopped",
-        detail: `Unable to query broker process state. ${getErrorMessage(error)}`,
-      });
-    }
-  }
+  // Stats shown in the summary row
+  const [manikinCount, setManikinCount] = useState<number | null>(null);
+  const [onlineCount, setOnlineCount] = useState<number | null>(null);
+  const [sessionCount, setSessionCount] = useState<number | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
-  async function syncLanInfoState() {
-    try {
-      const networkInfo: NetworkInfo = await getNetworkInfo();
+  // Help popup
+  const [helpOpen, setHelpOpen] = useState(false);
 
-      setLanInfo({
-        status: networkInfo.primaryIpv4 ? "ready" : "error",
-        detail: networkInfo.primaryIpv4
-          ? "LAN information loaded."
-          : "No usable local IPv4 detected. Open Setup and add a manual override.",
-        hostname: networkInfo.hostname,
-        primaryIp: networkInfo.primaryIpv4,
-      });
-    } catch (error) {
-      setLanInfo({
-        status: "error",
-        detail: `Failed to read network info. ${getErrorMessage(error)}`,
-      });
-    }
-  }
+  // Welcome popup shown on first visit (stored in localStorage)
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
 
-  async function syncApiState() {
-    try {
-      const service = await getApiServiceStatus();
-      setApiService(service);
+  // Load system status and stats on mount
+  useEffect(() => {
+    async function loadAll() {
+      setStatsLoading(true);
 
-      if (!service.running) {
-        setApiHealth({
-          status: "unreachable",
-          detail: "Backend process is stopped.",
-        });
-        return;
+      // Check if the system backend is reachable — shown as simple Ready/Not Ready
+      try {
+        const health = await fetchBrowserHealth();
+        setSystemReady(health.ok);
+      } catch {
+        setSystemReady(false);
       }
 
-      setApiHealth({
-        status: "checking",
-        detail: "Checking...",
-      });
+      // Load manikin counts
+      try {
+        const manikins = await fetchManikinRegistry();
+        setManikinCount(manikins.length);
+        setOnlineCount(manikins.filter((m) => m.online).length);
+      } catch {
+        setManikinCount(0);
+        setOnlineCount(0);
+      }
 
-      const health = await fetchHubHealth();
-      setApiHealth(getApiHealthState(health));
-    } catch (error) {
-      setApiService({
-        running: false,
-        pid: null,
-      });
-      setApiHealth({
-        status: "unreachable",
-        detail: `Unable to query backend status. ${getErrorMessage(error)}`,
-      });
+      // Load recent session count
+      try {
+        const sessions = await fetchCompletedSessions();
+        setSessionCount(sessions.length);
+      } catch {
+        setSessionCount(0);
+      }
+
+      setStatsLoading(false);
     }
-  }
 
-  async function refreshAllState() {
-    setSnapshotLoading(true);
+    void loadAll();
 
-    try {
-      await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState()]);
-    } finally {
-      setSnapshotLoading(false);
-      setLastRefreshedAt(new Date());
+    // Show welcome popup on first visit ever
+    const hasVisited = localStorage.getItem("resq_home_visited");
+    if (!hasVisited) {
+      setWelcomeOpen(true);
+      localStorage.setItem("resq_home_visited", "true");
     }
-  }
-
-  useEffect(() => {
-    void refreshAllState();
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void refreshAllState();
-    }, 30000);
+  function navigateTo(path: string) {
+    window.location.assign(path);
+  }
 
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const apiStatusLabel = `${getProcessLabel(apiService)} · ${getHealthLabel(apiHealth)}`;
-  const brokerStatusLabel =
-    brokerUiState.status === "checking"
-      ? "Checking"
-      : brokerUiState.status === "running"
-        ? "Running"
-        : "Stopped";
-  const lanStatusLabel =
-    lanInfo.status === "checking"
-      ? "Checking"
-      : manualLanIpOverride || lanInfo.status === "ready"
-        ? "Ready"
-        : "Error";
-  const chosenLanIp = manualLanIpOverride ?? lanInfo.primaryIp ?? null;
-  const ipSourceMessage = manualLanIpOverride
-    ? "Using manual override from Setup."
-    : chosenLanIp
-      ? "Using auto-detected LAN IP."
-      : "No selected LAN IP source yet.";
-  const lanDetail =
-    `${lanInfo.detail} • Hostname: ${lanInfo.hostname ?? "Unknown"} • Primary IP: ${chosenLanIp ?? "Not detected"} • ${ipSourceMessage}`;
-
-  // Generate access URLs from the chosen host/IP
-  const { instructorUrl, traineeUrl } = generateAccessUrls(chosenLanIp);
-  const summaryCards: MetricCard[] = [
+  // Quick action cards — each one navigates somewhere or opens a popup.
+  // Filtered by role so instructors see instructor actions, etc.
+  const quickActions: QuickAction[] = [
     {
-      label: "Clinical workflows",
-      value: String(apiContracts.length),
-      detail: "Secure local access for patient training, exports, and diagnostics.",
-      trend: "+12%",
-      trendDirection: "up",
-      icon: "🩺",
-    },
-    {
-      label: "Session oversight",
-      value: "5",
-      detail: "Start, end, inspect, and export supervised training sessions.",
-      trend: "+6%",
-      trendDirection: "up",
-      icon: "📋",
-    },
-    {
-      label: "Identity & roles",
-      value: "4",
-      detail: "Login, logout, current user, and first-run administrator setup.",
-      trend: "-2%",
-      trendDirection: "down",
-      icon: "🛡️",
-    },
-    {
-      label: "Device readiness",
-      value: "4",
-      detail: "Manikin, live stream, and device diagnostics entry points.",
-      trend: "+9%",
-      trendDirection: "up",
-      icon: "💾",
+      id: "help",
+      title: "Help & Getting Started",
+      description:
+        "New to ResQ? Learn how to pair a manikin, start a session, and read your results.",
+      buttonLabel: "View Guide",
+      variant: "ghost",
+      onClick: () => setHelpOpen(true),
     },
   ];
 
-  const effectivePermissions = currentUser
-    ? [
-        ...(roleMatches(AUTH_PERMISSION_RULES.desktop, currentUser.role) ? [{ key: "desktop", label: "Desktop shell" }] : []),
-        ...(roleMatches(AUTH_PERMISSION_RULES.instructor, currentUser.role) ? [{ key: "instructor", label: "Instructor tools" }] : []),
-        ...(roleMatches(AUTH_PERMISSION_RULES.trainee, currentUser.role) ? [{ key: "trainee", label: "Trainee view" }] : []),
-        ...(roleMatches(AUTH_PERMISSION_RULES.setup, currentUser.role) ? [{ key: "setup", label: "Setup" }] : []),
-        ...(roleMatches(AUTH_PERMISSION_RULES.diagnostics, currentUser.role) ? [{ key: "diagnostics", label: "Diagnostics" }] : []),
-        ...(roleMatches(AUTH_PERMISSION_RULES.users, currentUser.role) ? [{ key: "users", label: "User administration" }] : []),
-      ]
-    : [];
+  // Filter actions based on the current user's role
+  const visibleActions = quickActions.filter(
+    (action) =>
+      !action.roles ||
+      action.roles.includes(currentUser?.role ?? "")
+  );
 
+<<<<<<< HEAD
   const apiTone = apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped";
   const brokerTone = brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped";
   const lanTone = lanInfo.status === "checking" ? "checking" : manualLanIpOverride || lanInfo.status === "ready" ? "ready" : "error";
@@ -455,203 +369,348 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
     }
 
     window.location.assign("/trainee");
+=======
+  // Greeting message based on time of day — makes it feel personal
+  function getGreeting(): string {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+>>>>>>> origin/home-page-ui
   }
 
   return (
     <div className="home-dashboard">
-      <section className="hero-shell">
-        <Card className="hero-card hero-card--gradient">
-          <div className="hero-card__copy">
-            <div className="hero-card__heading">
-              <div className="hero-card__icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 21s-6.5-4.4-8.7-8.7A5.5 5.5 0 0 1 12 6.2a5.5 5.5 0 0 1 8.7 6.1C18.5 16.6 12 21 12 21Z" />
-                  <path d="M12 8v8M8 12h8" />
-                </svg>
-              </div>
-              <div>
-                <p className="hero-card__subtitle">
-                  A clinical control surface for secure authentication, manikin pairing, session governance, exports, and diagnostics.
-                </p>
-              </div>
-            </div>
 
-            <div className="hero-card__actions">
-              <Button type="button" variant="primary" onClick={handleOpenInstructorDashboard} className="action-button action-button--primary">
-                <span aria-hidden="true" className="action-button__icon">↗</span>
-                <span>Open Instructor Dashboard</span>
-                <span className="action-button__shortcut">Ctrl+I</span>
-              </Button>
-              <Button type="button" variant="secondary" onClick={handleOpenTraineeDashboard} className="action-button">
-                <span aria-hidden="true" className="action-button__icon">↗</span>
-                <span>Open Trainee Dashboard</span>
-                <span className="action-button__shortcut">Ctrl+T</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => void refreshAllState()}
-                className={`action-button action-button--ghost ${snapshotLoading ? "action-button--spinning" : ""}`}
+      {/* ── Welcome section ───────────────────────────────────────────── */}
+      <section className="panel hero-layout">
+        <div className="panel hero-panel">
+          <p className="panel__description">
+            {getGreeting()},{" "}
+            <strong>{currentUser?.displayName ?? "there"}</strong>!
+            Welcome to ResQ — your local CPR training hub.
+          </p>
+
+          {/* System readiness indicator — plain language, no tech jargon */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "12px 0" }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 14px",
+                borderRadius: "999px",
+                fontWeight: 600,
+                fontSize: "0.9rem",
+                background: systemReady === null
+                  ? "#e2e8f0"
+                  : systemReady
+                  ? "#dcfce7"
+                  : "#fee2e2",
+                color: systemReady === null
+                  ? "#334155"
+                  : systemReady
+                  ? "#166534"
+                  : "#991b1b",
+              }}
+            >
+              {/* Simple coloured dot */}
+              <span
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  background: systemReady === null
+                    ? "#94a3b8"
+                    : systemReady
+                    ? "#16a34a"
+                    : "#dc2626",
+                }}
+              />
+              {systemReady === null
+                ? "Checking system..."
+                : systemReady
+                ? "System ready"
+                : "System offline — check connections"}
+            </span>
+          </div>
+
+          <div className="hero-panel__actions">
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() =>
+                navigateTo(
+                  currentUser?.role === "TRAINEE" ? "/trainee" : "/instructor"
+                )
+              }
+            >
+              {currentUser?.role === "TRAINEE"
+                ? "Open My Dashboard"
+                : "Open Instructor Dashboard"}
+            </button>      
+          </div>
+        </div>
+
+        {/* Stats snapshot — counts only, no technical labels */}
+        <div className="quick-card">
+          <h3 className="quick-card__title">At a glance</h3>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "12px",
+              margin: "14px 0",
+            }}
+          >
+            <div style={{ textAlign: "center" }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "1.8rem",
+                  fontWeight: 700,
+                  color: "#0f172a",
+                }}
               >
-                <span aria-hidden="true" className={`action-button__icon ${snapshotLoading ? "action-button__icon--spinning" : ""}`}>↻</span>
-                <span>Refresh Status</span>
-                <span className="action-button__shortcut">Ctrl+R</span>
-              </Button>
+                {statsLoading ? "—" : onlineCount ?? 0}
+              </p>
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "#64748b" }}>
+                Manikins online
+              </p>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "1.8rem",
+                  fontWeight: 700,
+                  color: "#0f172a",
+                }}
+              >
+                {statsLoading ? "—" : manikinCount ?? 0}
+              </p>
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "#64748b" }}>
+                Total manikins
+              </p>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "1.8rem",
+                  fontWeight: 700,
+                  color: "#0f172a",
+                }}
+              >
+                {statsLoading ? "—" : sessionCount ?? 0}
+              </p>
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "#64748b" }}>
+                Sessions logged
+              </p>
             </div>
           </div>
 
-          <button type="button" className="health-indicator" onClick={() => setHealthDetailsOpen(true)} aria-label="Open detailed system health">
-            <span className={`health-indicator__dot health-indicator__dot--${apiTone}`} aria-hidden="true" />
-            <span className="health-indicator__content">
-              <Badge variant="status" className="status-badge--success">System Operational</Badge>
-              <span className="health-indicator__title">System Operational</span>
-              <span className="health-indicator__subtitle">All services reachable</span>
+          {/* Role badge */}
+          <div style={{ marginTop: "8px" }}>
+            <span
+              className={`status-chip status-chip--${
+                currentUser?.role === "ADMIN"
+                  ? "healthy"
+                  : currentUser?.role === "INSTRUCTOR"
+                  ? "running"
+                  : "checking"
+              }`}
+            >
+              {currentUser?.role ?? "Unknown role"}
             </span>
-          </button>
-        </Card>
+          </div>
+        </div>
       </section>
 
-      <section className="metric-grid">
-        {summaryCards.map((card) => (
-          <Card key={card.label} className="metric-card metric-card--live">
-            <div className="metric-card__header">
-              <span className="metric-card__icon" aria-hidden="true">{card.icon}</span>
-              <span className={`metric-card__trend metric-card__trend--${card.trendDirection}`}>
-                {card.trendDirection === "up" ? "▲" : "▼"} {card.trend}
-              </span>
+      {/* ── Quick action cards ────────────────────────────────────────── */}
+      <section className="metric-grid" style={{ marginTop: "20px" }}>
+        {visibleActions.map((action) => (
+          <article key={action.id} className="metric-card">
+            <p className="metric-card__label">{action.title}</p>
+            <p
+              className="metric-card__detail"
+              style={{ minHeight: "48px" }}
+            >
+              {action.description}
+            </p>
+            <div style={{ marginTop: "12px" }}>
+              <Button variant={action.variant} onClick={action.onClick}>
+                {action.buttonLabel}
+              </Button>
             </div>
-            <p className="metric-card__label">{card.label}</p>
-            <p className="metric-card__value">{card.value}</p>
-            <p className="metric-card__detail">{card.detail}</p>
-          </Card>
+          </article>
         ))}
       </section>
 
-      <section className="snapshot-grid">
-        <Card className={`snapshot-card snapshot-card--${snapshotTone}`}>
-          <div className="snapshot-card__header">
-            <div>
-              <p className="snapshot-card__eyebrow">Clinical snapshot</p>
-              <h3 className="snapshot-card__title">Live network and services</h3>
-              <p className="snapshot-card__copy">Auto-refresh every 30s. Last refresh: {getRefreshLabel()}</p>
-            </div>
-            <Button type="button" variant="secondary" onClick={handleCopyLanIp} className="snapshot-card__copy-button">
-              {copyLanIpState === "copied" ? "Copied LAN IP" : "Copy LAN IP"}
-            </Button>
-          </div>
-
-          <div className="snapshot-columns">
-            <div className="snapshot-column">
-              <p className="snapshot-column__label">Backend info</p>
-              <div className="snapshot-row">
-                <span>Process</span>
-                <Badge variant="status" className={`status-badge--${apiService.running ? "success" : "danger"}`}>
-                  {apiService.running ? "Running" : "Stopped"}
-                </Badge>
-              </div>
-              <div className="snapshot-row">
-                <span>Health</span>
-                <Badge variant="status" className={`status-badge--${apiHealth.status === "healthy" ? "success" : apiHealth.status === "checking" ? "warning" : "danger"}`}>
-                  {getHealthLabel(apiHealth)}
-                </Badge>
-              </div>
-              <div className="snapshot-row snapshot-row--stacked">
-                <span>Details</span>
-                <p>{formatApiDetail(apiHealth)}</p>
-              </div>
-            </div>
-
-            <div className="snapshot-column">
-              <p className="snapshot-column__label">Broker info</p>
-              <div className="snapshot-row">
-                <span>Broker</span>
-                <Badge variant="status" className={`status-badge--${brokerTone === "running" ? "success" : brokerTone === "checking" ? "warning" : "danger"}`}>
-                  {brokerStatusLabel}
-                </Badge>
-              </div>
-              <div className="snapshot-row">
-                <span>LAN IP</span>
-                <Badge variant="status" className={`status-badge--${lanTone === "ready" ? "success" : lanTone === "checking" ? "warning" : "danger"}`}>
-                  {chosenLanIp ?? "Not detected"}
-                </Badge>
-              </div>
-              <div className="snapshot-row snapshot-row--stacked">
-                <span>Source</span>
-                <p>{manualLanIpOverride ? "Manual override" : "Auto-detected host"}</p>
-              </div>
-            </div>
-          </div>
-        </Card>
-      </section>
-
-      <section className="surface-grid surface-grid--compact">
-        <Card className="quick-card">
-          <h3 className="quick-card__title">Current operator</h3>
-          <p className="quick-card__copy">{currentUser?.displayName ?? "No active user"}</p>
-          <p className="quick-card__copy">Username: {currentUser?.username ?? "-"}</p>
-          <span className={`status-chip status-chip--${currentUser ? "running" : "stopped"}`}>
-            {currentUser?.role ?? "Unknown role"}
-          </span>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
-            {effectivePermissions.length > 0 ? (
-              effectivePermissions.map((permission) => (
-                <span key={permission.key} className="status-chip status-chip--healthy">
-                  {permission.label}
-                </span>
-              ))
-            ) : (
-              <span className="status-chip status-chip--stopped">No derived permissions</span>
+      {/* ── Role-specific tip ─────────────────────────────────────────── */}
+      <section style={{ marginTop: "20px" }}>
+        <Card style={{ padding: "16px 20px" }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.9rem",
+              color: "#475569",
+              lineHeight: 1.6,
+            }}
+          >
+            {currentUser?.role === "ADMIN" && (
+              <>
+                As an <strong>Admin</strong>, you can manage users, pair
+                manikins, start sessions, and export reports. Use the
+                navigation above to access all features.
+              </>
             )}
-          </div>
-        </Card>
-
-        <Card className="quick-card">
-          <h3 className="quick-card__title">API readiness</h3>
-          <p className="quick-card__copy">{apiStatusLabel}</p>
-          <span className={`status-chip status-chip--${apiTone}`}>
-            {apiHealth.status === "healthy" ? "Backend reachable" : apiService.running ? "Backend process up" : "Backend stopped"}
-          </span>
-          <p className="quick-card__copy">{apiHealth.detail}</p>
-        </Card>
-
-        <Card className="quick-card">
-          <h3 className="quick-card__title">Broker readiness</h3>
-          <p className="quick-card__copy">MQTT / local broker status for device traffic.</p>
-          <span className={`status-chip status-chip--${brokerTone}`}>{brokerStatusLabel}</span>
-          <p className="quick-card__copy">{brokerUiState.detail}</p>
-        </Card>
-
-        <Card className="quick-card">
-          <h3 className="quick-card__title">LAN access</h3>
-          <p className="quick-card__copy">{lanDetail}</p>
-          <span className={`status-chip status-chip--${lanTone}`}>{lanStatusLabel}</span>
-          <p className="quick-card__copy">Instructor URL: {instructorUrl ?? "Not available yet"}</p>
+            {currentUser?.role === "INSTRUCTOR" && (
+              <>
+                As an <strong>Instructor</strong>, open the Instructor
+                Dashboard to pair manikins, start training sessions, and
+                monitor live CPR performance for your trainees.
+              </>
+            )}
+            {currentUser?.role === "TRAINEE" && (
+              <>
+                As a <strong>Trainee</strong>, your instructor will start a
+                session for you. Once active, open the Trainee Dashboard or
+                scan the QR code shown by your instructor to see live
+                feedback.
+              </>
+            )}
+            {!currentUser?.role && (
+              <>
+                Use the navigation above to access the dashboards and tools
+                available to you.
+              </>
+            )}
+          </p>
         </Card>
       </section>
 
-      <Dialog open={healthDetailsOpen} onOpenChange={setHealthDetailsOpen} title="Detailed Health Breakdown" description="Current backend, broker, and LAN status">
-        <div className="health-modal-grid">
-          <div className="health-modal-card">
-            <p className="health-modal-card__label">Backend</p>
-            <p className="health-modal-card__value">{getHealthLabel(apiHealth)}</p>
-            <p className="health-modal-card__copy">{formatApiDetail(apiHealth)}</p>
+      {/* ── Help popup ────────────────────────────────────────────────── */}
+      <Dialog
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        title="Getting Started with ResQ"
+        description="A quick guide to running your first training session"
+      >
+        <div style={{ display: "grid", gap: "16px" }}>
+          <div>
+            <p
+              style={{
+                margin: "0 0 4px 0",
+                fontWeight: 600,
+                fontSize: "0.95rem",
+                color: "#0f172a",
+              }}
+            >
+              Step 1 — Pair a manikin
+            </p>
+            <p style={{ margin: 0, fontSize: "0.88rem", color: "#475569" }}>
+              Go to the Instructor Dashboard and find the "Pair New Manikin"
+              section. Enter the Device ID printed on the manikin and click
+              Generate Pairing QR. The person setting up the manikin scans
+              the QR code to complete the connection.
+            </p>
           </div>
-          <div className="health-modal-card">
-            <p className="health-modal-card__label">Broker</p>
-            <p className="health-modal-card__value">{brokerStatusLabel}</p>
-            <p className="health-modal-card__copy">{brokerUiState.detail}</p>
+
+          <div>
+            <p
+              style={{
+                margin: "0 0 4px 0",
+                fontWeight: 600,
+                fontSize: "0.95rem",
+                color: "#0f172a",
+              }}
+            >
+              Step 2 — Start a session
+            </p>
+            <p style={{ margin: 0, fontSize: "0.88rem", color: "#475569" }}>
+              Once a manikin shows as Online in the Live Manikins section,
+              select a trainee and click Start Session. The manikin will
+              begin recording compressions immediately.
+            </p>
           </div>
-          <div className="health-modal-card">
-            <p className="health-modal-card__label">LAN</p>
-            <p className="health-modal-card__value">{lanStatusLabel}</p>
-            <p className="health-modal-card__copy">{lanDetail}</p>
+
+          <div>
+            <p
+              style={{
+                margin: "0 0 4px 0",
+                fontWeight: 600,
+                fontSize: "0.95rem",
+                color: "#0f172a",
+              }}
+            >
+              Step 3 — Share the trainee link
+            </p>
+            <p style={{ margin: 0, fontSize: "0.88rem", color: "#475569" }}>
+              After starting a session, a QR code appears on screen. The
+              trainee scans it with their phone to open the live feedback
+              dashboard showing their depth, rate, and coaching cues in
+              real time.
+            </p>
           </div>
-          <div className="health-modal-card">
-            <p className="health-modal-card__label">Refresh</p>
-            <p className="health-modal-card__value">{getRefreshLabel()}</p>
-            <p className="health-modal-card__copy">Auto-refresh every 30 seconds.</p>
+
+          <div>
+            <p
+              style={{
+                margin: "0 0 4px 0",
+                fontWeight: 600,
+                fontSize: "0.95rem",
+                color: "#0f172a",
+              }}
+            >
+              Step 4 — Review and export
+            </p>
+            <p style={{ margin: 0, fontSize: "0.88rem", color: "#475569" }}>
+              End the session when done. A summary appears immediately with
+              scores, average depth, rate, and recoil results. You can
+              download the full session report as CSV or JSON for records.
+            </p>
           </div>
         </div>
+
+        <DialogFooter>
+          <Button variant="primary" onClick={() => setHelpOpen(false)}>
+            Got it
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* ── First-visit welcome popup ─────────────────────────────────── */}
+      <Dialog
+        open={welcomeOpen}
+        onOpenChange={setWelcomeOpen}
+        title={`Welcome to ResQ, ${currentUser?.displayName ?? "there"}!`}
+        description="Your local-first CPR training hub is ready"
+      >
+        <div style={{ display: "grid", gap: "12px" }}>
+          <p style={{ margin: 0, fontSize: "0.9rem", color: "#475569" }}>
+            ResQ lets you run CPR training sessions with instrumented
+            manikins, give trainees real-time feedback on their technique,
+            and export results for review — all without needing an internet
+            connection.
+          </p>
+          <p style={{ margin: 0, fontSize: "0.9rem", color: "#475569" }}>
+            You're logged in as{" "}
+            <strong>{currentUser?.role ?? "a user"}</strong>.{" "}
+            {currentUser?.role === "TRAINEE"
+              ? "Your instructor will guide you from here."
+              : "Use the navigation above to get started."}
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setHelpOpen(true)}>
+            Show me how it works
+          </Button>
+          <Button variant="primary" onClick={() => setWelcomeOpen(false)}>
+            Let's go
+          </Button>
+        </DialogFooter>
       </Dialog>
     </div>
   );
