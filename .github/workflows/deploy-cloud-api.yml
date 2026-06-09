@@ -63,5 +63,6 @@ jobs:
           environment-name: ${{ env.EB_ENVIRONMENT_NAME }}
           deployment-package-path: ${{ env.CLOUD_API_DIR }}/${{ env.DEPLOY_ZIP }}
           version-label: cloud-api-${{ github.sha }}
+          s3-bucket-name: resq-eb-deploy-578710291005-ap-southeast-1-20260609
           wait-for-environment-recovery: true
           deployment-timeout: 1800
