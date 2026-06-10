@@ -154,7 +154,7 @@ export default function App() {
   }
 
   if (currentUser.role === "TRAINEE") {
-    return <TraineeDashboard embeddedInDesktop={true} initialSessionId={traineeSessionId} />;
+    return <TraineeDashboard embeddedInDesktop={false} initialSessionId={traineeSessionId} />;
   }
 
   function handleApplyManualLanIpOverride(value: string) {

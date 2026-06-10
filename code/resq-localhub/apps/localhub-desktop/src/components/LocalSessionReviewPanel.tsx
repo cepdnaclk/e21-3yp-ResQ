@@ -130,79 +130,151 @@ export function LocalSessionReviewPanel({
 
       {!loading && !error && sessions.length === 0 ? <p className="text-sm text-gray-500 dark:text-gray-400">No completed sessions yet.</p> : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+        gap: "16px",
+      }}>
         {sessions.map((session) => {
           const isSelected = expandedSessionId === session.sessionId;
           const isEntering = enteringSessionIds.has(session.sessionId);
+          const isEmpty = session.summary.sampleCount === 0;
           return (
-            <Card
+            <div
               key={session.sessionId}
-              className={`p-4 bg-white dark:bg-gray-800 border rounded-xl flex flex-col justify-between transition-all hover:shadow-md ${isSelected ? "border-[#005A9C] ring-1 ring-[#005A9C]" : "border-gray-200 dark:border-gray-700"} ${isEntering ? "animate-pulse" : ""} ${session.summary.sampleCount === 0 ? "opacity-75" : ""}`}
+              style={{
+                background: "#ffffff",
+                border: isSelected ? "2px solid #005A9C" : "1px solid #e2e8f0",
+                borderRadius: "14px",
+                padding: "18px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+                boxShadow: isSelected
+                  ? "0 0 0 3px rgba(0,90,156,0.12), 0 4px 12px rgba(0,0,0,0.08)"
+                  : "0 2px 8px rgba(0,0,0,0.06)",
+                opacity: isEmpty ? 0.75 : 1,
+                transition: "box-shadow 0.2s, border-color 0.2s",
+                animation: isEntering ? "pulse 0.7s ease" : undefined,
+              }}
             >
-              <div className="flex justify-between items-start gap-4 mb-3">
-                <div>
-                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${session.summary.sampleCount > 0 ? "bg-green-500" : "bg-gray-400"}`} />
-                    {shortSessionId(session.sessionId)}
+              {/* Card header: session ID + radial ring */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                    <span style={{
+                      width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
+                      background: isEmpty ? "#94a3b8" : "#22c55e",
+                    }} />
+                    <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {shortSessionId(session.sessionId)}
+                    </span>
                   </div>
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
-                    <Calendar size={11} /> {formatDate(session.endedAt)}
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.78rem", color: "#64748b", marginBottom: "2px" }}>
+                    <Calendar size={11} />
+                    {formatDate(session.endedAt)}
                   </div>
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1">
-                    <Clock size={11} /> {formatDuration(session.summary.durationSeconds)}
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.78rem", color: "#64748b", marginBottom: "2px" }}>
+                    <Clock size={11} />
+                    {formatDuration(session.summary.durationSeconds)}
                   </div>
-                  <div className="text-[11px] text-gray-700 dark:text-gray-300 mt-1.5 font-bold flex items-center gap-1">
-                    <User size={11} /> {session.traineeId ? `Student: ${session.traineeId}` : "Guest"}
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.78rem", color: "#334155", fontWeight: 600, marginTop: "4px" }}>
+                    <User size={11} />
+                    {session.traineeId ? `Student: ${session.traineeId}` : "Guest"}
                   </div>
                 </div>
                 <RadialProgress valid={session.summary.validCompressions} total={session.summary.totalCompressions} />
               </div>
 
-              <div className="text-[11px] text-gray-500 dark:text-gray-400 flex justify-between mb-3 bg-gray-50 dark:bg-gray-900 p-1.5 rounded-lg">
-                <span>Avg: {session.summary.avgRateCpm.toFixed(1)} CPM</span>
-                <span>{session.summary.validCompressions}/{session.summary.totalCompressions} compressions</span>
+              {/* Stats bar */}
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                background: "#f8fafc", borderRadius: "8px",
+                padding: "8px 10px", fontSize: "0.78rem", color: "#475569",
+              }}>
+                <span>Avg: <strong style={{ color: "#0f172a" }}>{session.summary.avgRateCpm.toFixed(1)} CPM</strong></span>
+                <span style={{ color: "#64748b" }}>{session.summary.validCompressions}/{session.summary.totalCompressions} compressions</span>
               </div>
 
-              {session.summary.sampleCount === 0 ? (
-                <div className="p-2 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg text-center text-xs text-gray-400 dark:text-gray-500 mb-3">
-                  Session ended early - no telemetry
+              {/* Score badge */}
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: "4px",
+                  padding: "3px 10px", borderRadius: "999px",
+                  background: "#dcfce7", color: "#166534",
+                  fontSize: "0.76rem", fontWeight: 700,
+                }}>
+                  Depth {formatDepth(session.summary)}
+                </span>
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: "4px",
+                  padding: "3px 10px", borderRadius: "999px",
+                  background: "#dbeafe", color: "#1e40af",
+                  fontSize: "0.76rem", fontWeight: 700,
+                }}>
+                  Rate {session.summary.avgRateCpm.toFixed(1)} cpm
+                </span>
+              </div>
+
+              {isEmpty ? (
+                <div style={{
+                  padding: "8px", border: "1px dashed #cbd5e1", borderRadius: "8px",
+                  textAlign: "center", fontSize: "0.76rem", color: "#94a3b8",
+                }}>
+                  Session ended early — no telemetry
                 </div>
               ) : null}
 
-              <div className="pt-2 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center gap-2 mt-auto">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setDialogOpen(true);
-                    onSelectSession(session.sessionId);
+              {/* Footer actions */}
+              <div style={{
+                borderTop: "1px solid #f1f5f9", paddingTop: "10px",
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                marginTop: "auto",
+              }}>
+                <button
+                  type="button"
+                  onClick={() => { setDialogOpen(true); onSelectSession(session.sessionId); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "5px",
+                    padding: "5px 10px", borderRadius: "6px",
+                    border: "none", background: "transparent",
+                    color: "#005A9C", fontWeight: 700, fontSize: "0.82rem",
+                    cursor: "pointer",
                   }}
-                  className="text-xs h-7 px-2 text-[#005A9C] dark:text-blue-400 flex items-center gap-1 hover:bg-transparent"
                 >
-                  <Eye size={12} /> View
-                </Button>
+                  <Eye size={13} /> View
+                </button>
 
                 {canExport ? (
-                  <div className="flex gap-1">
-                    <Button
-                      variant="secondary"
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    <button
+                      type="button"
                       onClick={() => handleExport(session.sessionId, "json")}
                       disabled={Boolean(exportingFormat)}
-                      className="text-[10px] px-2 h-6"
+                      style={{
+                        padding: "4px 9px", borderRadius: "5px", fontSize: "0.72rem", fontWeight: 700,
+                        border: "1px solid #e2e8f0", background: "#f8fafc", color: "#334155",
+                        cursor: exportingFormat ? "not-allowed" : "pointer", opacity: exportingFormat ? 0.5 : 1,
+                      }}
                     >
                       JSON
-                    </Button>
-                    <Button
-                      variant="secondary"
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleExport(session.sessionId, "csv")}
                       disabled={Boolean(exportingFormat)}
-                      className="text-[10px] px-2 h-6"
+                      style={{
+                        padding: "4px 9px", borderRadius: "5px", fontSize: "0.72rem", fontWeight: 700,
+                        border: "1px solid #e2e8f0", background: "#f8fafc", color: "#334155",
+                        cursor: exportingFormat ? "not-allowed" : "pointer", opacity: exportingFormat ? 0.5 : 1,
+                      }}
                     >
                       CSV
-                    </Button>
+                    </button>
                   </div>
                 ) : null}
               </div>
-            </Card>
+            </div>
           );
         })}
       </div>

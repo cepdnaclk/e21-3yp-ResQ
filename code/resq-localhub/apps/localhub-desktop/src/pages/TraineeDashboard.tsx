@@ -793,6 +793,21 @@ export default function TraineeDashboard({
               >
                 Back To Home
               </button>
+              <button
+                type="button"
+                onClick={() => logout()}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #fca5a5",
+                  background: "#fff1f2",
+                  color: "#b91c1c",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Log Out
+              </button>
             </div>
           ) : null}
         </div>
