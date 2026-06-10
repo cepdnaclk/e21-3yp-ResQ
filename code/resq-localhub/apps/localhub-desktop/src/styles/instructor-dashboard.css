@@ -59,19 +59,59 @@
 /* Layout Columns Grid */
 .instructor-dashboard-layout {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr;
-  gap: 24px; /* gap-6 spacing */
+  grid-template-columns: 1.3fr 2fr;
+  gap: 24px;
   align-items: start;
-}
-
-@media (max-width: 1280px) {
-  .instructor-dashboard-layout {
-    grid-template-columns: 1.2fr 1fr;
-  }
 }
 
 @media (max-width: 1024px) {
   .instructor-dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 4-card horizontal tool row */
+.tools-card-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-top: 24px;
+  align-items: stretch;
+}
+
+.tools-card-item {
+  flex: unset;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Make wrapper and card fill full height so all cards are equal */
+.tools-card-row .calibration-profiles-card-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.tools-card-row .calibration-profiles-card-wrapper .card {
+  flex: 1;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* Push the action button to the bottom of every card */
+.tools-card-row .calibration-profiles-card-wrapper .card > button {
+  margin-top: auto;
+}
+
+@media (max-width: 1280px) {
+  .tools-card-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .tools-card-row {
     grid-template-columns: 1fr;
   }
 }

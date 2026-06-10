@@ -1068,113 +1068,6 @@ export default function InstructorDashboard({
               )}
             </div>
 
-            {/* Calibration Profiles summary card */}
-            <div className="calibration-profiles-card-wrapper">
-              <div className="card">
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
-                  <CalibrationIcon size={18} />
-                  <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Calibration Settings</h2>
-                </div>
-                <p className="card-description" style={{ marginBottom: "18px" }}>
-                  Configure sensor thresholds and trigger manual sensor calibration runs for live simulators.
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
-                  <div>Active Device: <strong style={{ color: "#0f172a" }}>{selectedCalibrationDeviceId ?? "None"}</strong></div>
-                  <div>Status: <strong style={{ color: "#0f172a" }}>{selectedDevice ? (selectedDevice.online ? "Online" : "Offline") : "No device selected"}</strong></div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsCalibrationOpen(true)}
-                  style={{
-                    padding: "10px 18px",
-                    borderRadius: "8px",
-                    border: "none",
-                    background: "#005A9C",
-                    color: "#ffffff",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    fontSize: "0.95rem",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  Manage Profiles & Calibrate
-                </button>
-              </div>
-            </div>
-
-            {/* Local Session Review summary card */}
-            <div className="calibration-profiles-card-wrapper">
-              <div className="card">
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#0f172a" }}>
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                    <polyline points="10 9 9 9 8 9" />
-                  </svg>
-                  <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Local Session Review</h2>
-                </div>
-                <p className="card-description" style={{ marginBottom: "18px" }}>
-                  Review completed CPR session performance metrics, check scores, compression rates, and export reports to JSON/CSV.
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
-                  <div>Completed Sessions: <strong style={{ color: "#0f172a" }}>{recentSessions.length}</strong></div>
-                  <div>Latest Score: <strong style={{ color: "#0f172a" }}>{latestEndedSession ? latestEndedSession.summary.score : "N/A"}</strong></div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsSessionReviewOpen(true)}
-                  style={{
-                    padding: "10px 18px",
-                    borderRadius: "8px",
-                    border: "none",
-                    background: "#005A9C",
-                    color: "#ffffff",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    fontSize: "0.95rem",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  View Sessions
-                </button>
-              </div>
-            </div>
-
-            {/* Device Registry summary card */}
-            <div className="calibration-profiles-card-wrapper">
-              <div className="card">
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
-                  <DeviceRegistryIcon size={18} />
-                  <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Device Registry</h2>
-                </div>
-                <p className="card-description" style={{ marginBottom: "18px" }}>
-                  Track and manage all registered simulation manikins, view online/offline status, RSSI strength, and system details.
-                </p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
-                  <div>Total Manikins: <strong style={{ color: "#0f172a" }}>{registry.length}</strong></div>
-                  <div>Online Manikins: <strong style={{ color: "#0f172a" }}>{registry.filter((m) => m.online).length}</strong></div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsRegistryOpen(true)}
-                  style={{
-                    padding: "10px 18px",
-                    borderRadius: "8px",
-                    border: "none",
-                    background: "#005A9C",
-                    color: "#ffffff",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    fontSize: "0.95rem",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  View Registry
-                </button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -1679,42 +1572,110 @@ export default function InstructorDashboard({
           </div>
         </div>
 
-        {/* Far-Right Column */}
-        <div className="dashboard-column far-right-column">
-          {/* Firmware Provisioning summary card */}
-          <div className="calibration-profiles-card-wrapper">
-            <div className="card">
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
-                <ProvisioningIcon size={18} />
-                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Firmware Provisioning</h2>
-              </div>
-              <p className="card-description" style={{ marginBottom: "18px" }}>
-                Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends Wi-Fi details and LocalHub backend URL.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
-                <div>Hub Backend: <strong style={{ color: "#0f172a" }}>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong></div>
-                <div>Local IP: <strong style={{ color: "#0f172a" }}>{serviceInfo?.local_ip ?? "Unavailable"}</strong></div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsProvisioningOpen(true)}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: "#005A9C",
-                  color: "#ffffff",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontSize: "0.95rem",
-                  transition: "all 0.2s",
-                }}
-              >
-                Provision Device
-              </button>
-            </div>
-          </div>
+      </div>
 
+      {/* ── 4 Tool Cards ─────────────────────────────────────────────────── */}
+      <div className="tools-card-row">
+        {/* Calibration Settings */}
+        <div className="calibration-profiles-card-wrapper tools-card-item">
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+              <CalibrationIcon size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Calibration Settings</h2>
+            </div>
+            <p className="card-description" style={{ marginBottom: "18px" }}>
+              Configure sensor thresholds and trigger manual sensor calibration runs for live simulators.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+              <div>Active Device: <strong style={{ color: "#0f172a" }}>{selectedCalibrationDeviceId ?? "None"}</strong></div>
+              <div>Status: <strong style={{ color: "#0f172a" }}>{selectedDevice ? (selectedDevice.online ? "Online" : "Offline") : "No device selected"}</strong></div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCalibrationOpen(true)}
+              style={{ padding: "10px 18px", borderRadius: "8px", border: "none", background: "#005A9C", color: "#ffffff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem", transition: "all 0.2s" }}
+            >
+              Manage Profiles & Calibrate
+            </button>
+          </div>
+        </div>
+
+        {/* Local Session Review */}
+        <div className="calibration-profiles-card-wrapper tools-card-item">
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#0f172a" }}>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+              <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Local Session Review</h2>
+            </div>
+            <p className="card-description" style={{ marginBottom: "18px" }}>
+              Review completed CPR session performance metrics, check scores, compression rates, and export reports to JSON/CSV.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+              <div>Completed Sessions: <strong style={{ color: "#0f172a" }}>{recentSessions.length}</strong></div>
+              <div>Latest Score: <strong style={{ color: "#0f172a" }}>{latestEndedSession ? latestEndedSession.summary.score : "N/A"}</strong></div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSessionReviewOpen(true)}
+              style={{ padding: "10px 18px", borderRadius: "8px", border: "none", background: "#005A9C", color: "#ffffff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem", transition: "all 0.2s" }}
+            >
+              View Sessions
+            </button>
+          </div>
+        </div>
+
+        {/* Device Registry */}
+        <div className="calibration-profiles-card-wrapper tools-card-item">
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+              <DeviceRegistryIcon size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Device Registry</h2>
+            </div>
+            <p className="card-description" style={{ marginBottom: "18px" }}>
+              Track and manage all registered simulation manikins, view online/offline status, RSSI strength, and system details.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+              <div>Total Manikins: <strong style={{ color: "#0f172a" }}>{registry.length}</strong></div>
+              <div>Online Manikins: <strong style={{ color: "#0f172a" }}>{registry.filter((m) => m.online).length}</strong></div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsRegistryOpen(true)}
+              style={{ padding: "10px 18px", borderRadius: "8px", border: "none", background: "#005A9C", color: "#ffffff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem", transition: "all 0.2s" }}
+            >
+              View Registry
+            </button>
+          </div>
+        </div>
+
+        {/* Firmware Provisioning */}
+        <div className="calibration-profiles-card-wrapper tools-card-item">
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+              <ProvisioningIcon size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Firmware Provisioning</h2>
+            </div>
+            <p className="card-description" style={{ marginBottom: "18px" }}>
+              Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends Wi-Fi details and LocalHub backend URL.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+              <div>Hub Backend: <strong style={{ color: "#0f172a" }}>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong></div>
+              <div>Local IP: <strong style={{ color: "#0f172a" }}>{serviceInfo?.local_ip ?? "Unavailable"}</strong></div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsProvisioningOpen(true)}
+              style={{ padding: "10px 18px", borderRadius: "8px", border: "none", background: "#005A9C", color: "#ffffff", fontWeight: 700, cursor: "pointer", fontSize: "0.95rem", transition: "all 0.2s" }}
+            >
+              Provision Device
+            </button>
+          </div>
         </div>
       </div>
 
