@@ -11,6 +11,13 @@ import {
 } from "../lib/browserSessionsApi";
 import { fetchHubServiceInfo } from "../lib/browserManikinsProvisionApi";
 
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({
+    currentUser: { role: "ADMIN" },
+    logout: vi.fn(),
+  }),
+}));
+
 vi.mock("../lib/browserHealthApi", () => ({
   fetchBrowserHealth: vi.fn(),
 }));

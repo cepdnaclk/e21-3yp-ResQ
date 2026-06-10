@@ -43,6 +43,8 @@ import {
 } from "../lib/browserFirmwareApi";
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
+import { FirmwareProvisioningPanel } from "../components/FirmwareProvisioningPanel";
+import { DeviceRegistryPanel } from "../components/DeviceRegistryPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { Dialog } from "../components/ui/dialog";
 import { QRCodeSVG as QR } from "qrcode.react";
@@ -399,19 +401,11 @@ export default function InstructorDashboard({
     return manikins.find((device) => device.deviceId === selectedCalibrationDeviceId) ?? null;
   }, [manikins, selectedCalibrationDeviceId]);
   const [isCalibrationOpen, setIsCalibrationOpen] = useState(false);
-  // State for the "Pair New Manikin" panel
-  const [espSetupBaseUrl, setEspSetupBaseUrl] = useState<string>("http://192.168.4.1");
-  const [espProvisionPath, setEspProvisionPath] = useState<string>("/");
-  const [provisioningWifiSsid, setProvisioningWifiSsid] = useState<string>("");
-  const [provisioningWifiPassword, setProvisioningWifiPassword] = useState<string>("");
-  const [provisioningBackendBaseUrl, setProvisioningBackendBaseUrl] = useState<string>("");
-  const [provisioningAutoSave, setProvisioningAutoSave] = useState<boolean>(true);
-  const [pairingLoading, setPairingLoading] = useState<boolean>(false);
-  const [pairingError, setPairingError] = useState<string | null>(null);
+  const [isProvisioningOpen, setIsProvisioningOpen] = useState(false);
+  const [isRegistryOpen, setIsRegistryOpen] = useState(false);
+  const [isSessionReviewOpen, setIsSessionReviewOpen] = useState(false);
   const [serviceInfo, setServiceInfo] = useState<HubServiceInfoResponse | null>(null);
   const [serviceInfoError, setServiceInfoError] = useState<string | null>(null);
-  const [provisioningUrl, setProvisioningUrl] = useState<string | null>(null);
-  const [provisioningPayload, setProvisioningPayload] = useState<FirmwareProvisioningPayload | null>(null);
   // State for the Device Registry panel
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
@@ -461,6 +455,30 @@ export default function InstructorDashboard({
     }
   }
 
+  async function loadRegistry() {
+    try {
+      const entries = await fetchManikinRegistry();
+      const nextIds = new Set(entries.map((entry) => entry.deviceId));
+      const hasNewDevice = registryHasLoadedRef.current && entries.some((entry) => !registryDeviceIdsRef.current.has(entry.deviceId));
+
+      registryDeviceIdsRef.current = nextIds;
+      registryHasLoadedRef.current = true;
+
+      if (hasNewDevice) {
+        triggerRegistrationConfetti();
+      }
+
+      setRegistry(entries);
+      setRegistryError(null);
+    } catch (error) {
+      setRegistryError(
+        error instanceof Error ? error.message : "Failed to load device registry."
+      );
+    } finally {
+      setRegistryLoading(false);
+    }
+  }
+
   useEffect(() => {
 
 
@@ -498,29 +516,6 @@ export default function InstructorDashboard({
         setTraineesError(message);
       } finally {
         setTraineesLoading(false);
-      }
-    }
-    async function loadRegistry() {
-      try {
-        const entries = await fetchManikinRegistry();
-        const nextIds = new Set(entries.map((entry) => entry.deviceId));
-        const hasNewDevice = registryHasLoadedRef.current && entries.some((entry) => !registryDeviceIdsRef.current.has(entry.deviceId));
-
-        registryDeviceIdsRef.current = nextIds;
-        registryHasLoadedRef.current = true;
-
-        if (hasNewDevice) {
-          triggerRegistrationConfetti();
-        }
-
-        setRegistry(entries);
-        setRegistryError(null);
-      } catch (error) {
-        setRegistryError(
-          error instanceof Error ? error.message : "Failed to load device registry."
-        );
-      } finally {
-        setRegistryLoading(false);
       }
     }
 
@@ -700,15 +695,7 @@ export default function InstructorDashboard({
     };
   }, [deviceIdsKey]);
 
-  useEffect(() => {
-    if (!serviceInfo?.backend_base_url) {
-      return;
-    }
 
-    if (!provisioningBackendBaseUrl.trim()) {
-      setProvisioningBackendBaseUrl(serviceInfo.backend_base_url);
-    }
-  }, [serviceInfo?.backend_base_url, provisioningBackendBaseUrl]);
 
   function formatLastSeen(value: string | null): string {
     if (!value) {
@@ -1001,52 +988,7 @@ export default function InstructorDashboard({
       setExpandedSessionLoading(false);
     }
   }
-  async function handleRequestPairing() {
-    if (!provisioningWifiSsid.trim()) return;
 
-    setPairingLoading(true);
-    setPairingError(null);
-    setProvisioningUrl(null);
-    setProvisioningPayload(null);
-
-    try {
-      const info = serviceInfo ?? await fetchHubServiceInfo();
-      setServiceInfo(info);
-      const backendBaseUrl = provisioningBackendBaseUrl.trim() || info.backend_base_url;
-      const payload = buildFirmwareProvisioningPayload(
-        {
-          ...info,
-          backend_base_url: backendBaseUrl,
-        },
-        provisioningWifiSsid.trim(),
-        provisioningWifiPassword,
-      );
-      const url = buildEspProvisioningUrl({
-        espSetupBaseUrl,
-        espProvisionPath,
-        wifiSsid: payload.wifi_ssid,
-        wifiPassword: payload.wifi_pass,
-        backendBaseUrl: payload.backend_base_url,
-        autoSave: provisioningAutoSave,
-      });
-
-      setProvisioningPayload(payload);
-      setProvisioningUrl(url);
-    } catch (error) {
-      setPairingError(
-        error instanceof Error ? error.message : "Failed to generate provisioning payload."
-      );
-    } finally {
-      setPairingLoading(false);
-    }
-  }
-
-  const provisioningPayloadText = provisioningPayload
-    ? JSON.stringify(provisioningPayload, null, 2)
-    : "";
-  const provisioningUrlText = provisioningUrl ?? "";
-  const provisioningBackendUrl = (provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url || "").trim();
-  const backendUrlHasLocalhost = provisioningBackendUrl.toLowerCase().includes("localhost");
 
   return (
     <div className="dashboard-main-container">
@@ -1672,414 +1614,113 @@ export default function InstructorDashboard({
 
         {/* Far-Right Column */}
         <div className="dashboard-column far-right-column">
-          {/* Firmware Provisioning card */}
-          <section className="white-card-block firmware-provisioning-card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <ProvisioningIcon size={18} />
-                  <h2 style={{ margin: "0 0 6px 0", fontSize: "1.2rem", fontWeight: 700 }}>
-                    Firmware Provisioning
-                  </h2>
-                </div>
-                <p className="card-description">
-                  Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
-                </p>
+          {/* Firmware Provisioning summary card */}
+          <div className="calibration-profiles-card-wrapper">
+            <div className="card">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+                <ProvisioningIcon size={18} />
+                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Firmware Provisioning</h2>
               </div>
-
-              <div className="provisioning-help" tabIndex={0}>
-                <button
-                  type="button"
-                  className="provisioning-help__trigger"
-                  aria-describedby="provisioning-help-tooltip"
-                >
-                  Need help?
-                </button>
-                <div id="provisioning-help-tooltip" className="provisioning-help__tooltip" role="tooltip">
-                  <span>Follow the checklist below to generate the QR and provision the device.</span>
-                  <span className="provisioning-help__arrow" aria-hidden="true">↓</span>
-                </div>
+              <p className="card-description" style={{ marginBottom: "18px" }}>
+                Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends Wi-Fi details and LocalHub backend URL.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+                <div>Hub Backend: <strong style={{ color: "#0f172a" }}>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong></div>
+                <div>Local IP: <strong style={{ color: "#0f172a" }}>{serviceInfo?.local_ip ?? "Unavailable"}</strong></div>
               </div>
-            </div>
-
-            <ol className="provisioning-steps text-xs text-slate-650 leading-relaxed mb-4 pl-4" style={{ margin: "0 0 14px 18px", padding: 0 }}>
-              <li>Power on ESP in provisioning mode.</li>
-              <li>Connect phone to the ESP Wi-Fi, for example "ResQ Setup".</li>
-              <li>Scan this QR.</li>
-              <li>The firmware portal opens with Wi-Fi and LocalHub details.</li>
-              <li>If auto-save is supported by firmware and enabled, the device connects automatically.</li>
-              <li>Otherwise, press Save Configuration in the firmware portal.</li>
-            </ol>
-
-            <div style={{ display: "grid", gap: "12px", marginBottom: "16px" }}>
-              <label style={{ display: "grid", gap: "4px" }}>
-                <span style={{ fontWeight: 650, fontSize: "0.95rem" }}>ESP setup base URL</span>
-                <input
-                  type="text"
-                  placeholder="ESP setup base URL"
-                  value={espSetupBaseUrl}
-                  onChange={(e) => {
-                    setEspSetupBaseUrl(e.target.value);
-                    setProvisioningUrl(null);
-                    setProvisioningPayload(null);
-                    setPairingError(null);
-                  }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "4px" }}>
-                <span style={{ fontWeight: 655, fontSize: "0.95rem" }}>ESP provision path</span>
-                <input
-                  type="text"
-                  placeholder="ESP provision path"
-                  value={espProvisionPath}
-                  onChange={(e) => {
-                    setEspProvisionPath(e.target.value);
-                    setProvisioningUrl(null);
-                    setProvisioningPayload(null);
-                    setPairingError(null);
-                  }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "4px" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 650, fontSize: "0.95rem" }}>
-                  <span style={{ color: "#2563eb", display: "inline-flex" }} aria-hidden="true"><WifiSignalIcon /></span>
-                  Wi-Fi SSID
-                </span>
-                <input
-                  type="text"
-                  placeholder="Wi-Fi SSID"
-                  value={provisioningWifiSsid}
-                  onChange={(e) => {
-                    setProvisioningWifiSsid(e.target.value);
-                    setProvisioningUrl(null);
-                    setProvisioningPayload(null);
-                    setPairingError(null);
-                  }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "4px" }}>
-                <span style={{ fontWeight: 650, fontSize: "0.95rem" }}>Wi-Fi password</span>
-                <input
-                  type="password"
-                  placeholder="Wi-Fi password"
-                  value={provisioningWifiPassword}
-                  onChange={(e) => {
-                    setProvisioningWifiPassword(e.target.value);
-                    setProvisioningUrl(null);
-                    setProvisioningPayload(null);
-                    setPairingError(null);
-                  }}
-                />
-              </label>
-              <label style={{ display: "grid", gap: "4px" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 650, fontSize: "0.95rem" }}>
-                  Backend base URL
-                  {backendUrlHasLocalhost ? <span className="provisioning-warning-icon" aria-hidden="true"><WarningIcon /></span> : null}
-                </span>
-                <input
-                  type="text"
-                  placeholder="Backend base URL"
-                  value={provisioningBackendBaseUrl}
-                  onChange={(e) => {
-                    setProvisioningBackendBaseUrl(e.target.value);
-                    setProvisioningUrl(null);
-                    setProvisioningPayload(null);
-                    setPairingError(null);
-                  }}
-                />
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.95rem", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={provisioningAutoSave}
-                  onChange={(e) => {
-                    setProvisioningAutoSave(e.target.checked);
-                    setProvisioningUrl(null);
-                    setProvisioningPayload(null);
-                    setPairingError(null);
-                  }}
-                />
-                Auto-save on scan
-              </label>
-            </div>
-
-            <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
               <button
                 type="button"
-                disabled={pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url)}
-                onClick={handleRequestPairing}
-                className="header-action-btn"
+                onClick={() => setIsProvisioningOpen(true)}
                 style={{
-                  background: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#e2e8f0" : "#0f172a",
-                  color: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "#94a3b8" : "#ffffff",
-                  cursor: pairingLoading || !provisioningWifiSsid.trim() || !(provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url) ? "not-allowed" : "pointer",
-                  border: "none",
                   padding: "10px 18px",
                   borderRadius: "8px",
+                  border: "none",
+                  background: "#005A9C",
+                  color: "#ffffff",
                   fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: "0.95rem",
+                  transition: "all 0.2s",
                 }}
               >
-                {pairingLoading ? "Generating..." : "Generate QR"}
+                Provision Device
               </button>
             </div>
+          </div>
 
-            <div style={{ display: "grid", gap: "6px", marginBottom: "16px", fontSize: "0.9rem", color: "#475569", background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-              <p style={{ margin: 0 }}>
-                Service backend_base_url: <strong>{serviceInfo?.backend_base_url ?? "Unavailable"}</strong>
-              </p>
-              <p style={{ margin: 0 }}>
-                Service mqtt_host: <strong>{serviceInfo?.mqtt_host ?? "Unavailable"}</strong>
-              </p>
-              <p style={{ margin: 0 }}>
-                Service mqtt_port: <strong>{serviceInfo?.mqtt_port ?? "Unavailable"}</strong>
-              </p>
-              <p style={{ margin: 0 }}>
-                Service local_ip: <strong>{serviceInfo?.local_ip ?? "Unavailable"}</strong>
-              </p>
-            </div>
-
-            {serviceInfoError ? (
-              <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.9rem", fontWeight: 600 }}>
-                {serviceInfoError}
-              </p>
-            ) : null}
-
-            {pairingError ? (
-              <p style={{ margin: "0 0 10px 0", color: "#b91c1c", fontSize: "0.9rem", fontWeight: 600 }}>
-                {pairingError}
-              </p>
-            ) : null}
-
-            {provisioningPayload && provisioningUrl ? (
-              <div className="provisioning-qr-panel" style={{
-                padding: "16px",
-                borderRadius: "12px",
-                border: "1px solid #e2e8f0",
-                display: "grid",
-                gap: "12px",
-                justifyItems: "center",
-              }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: "0.95rem" }}>
-                  Scan to provision firmware
-                </p>
-                <QR
-                  value={provisioningUrl}
-                  size={180}
-                  bgColor="#ffffff"
-                  fgColor="#0f172a"
-                  level="M"
-                />
-                <p style={{ margin: 0, color: "#475569", fontSize: "0.85rem", textAlign: "center" }}>
-                  QR URL includes wifi_ssid, wifi_pass, backend_base_url, and optional auto=1.
-                </p>
-
-                <div style={{ width: "100%", display: "grid", gap: "6px" }}>
-                  <p style={{ margin: 0, color: "#334155", fontSize: "0.9rem", fontWeight: 700 }}>
-                    Generated Provisioning URL
-                  </p>
-                  <code style={{
-                    display: "block",
-                    padding: "8px",
-                    background: "#e2e8f0",
-                    borderRadius: "4px",
-                    wordBreak: "break-all",
-                    fontSize: "0.8rem",
-                    color: "#0f172a",
-                  }}>
-                    {provisioningUrlText}
-                  </code>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard?.writeText(provisioningUrlText)}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    color: "#0f172a",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Copy URL
-                </button>
-
-                <details style={{ width: "100%", fontSize: "0.85rem", color: "#64748b" }}>
-                  <summary style={{ cursor: "pointer", fontWeight: 700 }}>
-                    Developer JSON copy
-                  </summary>
-                  <code style={{
-                    display: "block",
-                    marginTop: "6px",
-                    padding: "8px",
-                    background: "#e2e8f0",
-                    borderRadius: "4px",
-                    wordBreak: "break-all",
-                    fontSize: "0.8rem",
-                    color: "#0f172a",
-                  }}>
-                    {provisioningPayloadText}
-                  </code>
-                </details>
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard?.writeText(provisioningPayloadText)}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: "6px",
-                    border: "1px solid #cbd5e1",
-                    background: "#ffffff",
-                    color: "#0f172a",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Copy JSON
-                </button>
+          {/* Device Registry summary card */}
+          <div className="calibration-profiles-card-wrapper">
+            <div className="card">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+                <DeviceRegistryIcon size={18} />
+                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Device Registry</h2>
               </div>
-            ) : null}
-          </section>
-
-          {/* Registry & Sessions card */}
-          <section className="white-card-block registry-sessions-card">
-            <div style={{ borderBottom: "1px solid #f1f5f9", paddingBottom: "20px", marginBottom: "20px" }}>
-              <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "12px",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <DeviceRegistryIcon size={18} />
-                  <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
-                    Device Registry
-                  </h2>
-                </div>
-                {!registryLoading && !registryError ? (
-                  <span style={{
-                    padding: "4px 12px",
-                    borderRadius: "999px",
-                    fontSize: "0.85rem",
-                    fontWeight: 700,
-                    background: "#dbeafe",
-                    color: "#1d4ed8",
-                  }}>
-                    {registry.filter(m => m.online).length} / {registry.length} online
-                  </span>
-                ) : null}
+              <p className="card-description" style={{ marginBottom: "18px" }}>
+                Track and manage all registered simulation manikins, view online/offline status, RSSI strength, and system details.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+                <div>Total Manikins: <strong style={{ color: "#0f172a" }}>{registry.length}</strong></div>
+                <div>Online Manikins: <strong style={{ color: "#0f172a" }}>{registry.filter((m) => m.online).length}</strong></div>
               </div>
-
-              {registryLoading ? (
-                <p style={{ margin: 0, color: "#64748b" }}>
-                  Loading device registry...
-                </p>
-              ) : registryError ? (
-                <p style={{ margin: 0, color: "#b91c1c" }}>
-                  {registryError}
-                </p>
-              ) : registry.length === 0 ? (
-                <p style={{ margin: 0, color: "#64748b" }}>
-                  No devices in registry yet. Manikins appear here once they
-                  connect and publish status.
-                </p>
-              ) : (
-                <div style={{ display: "grid", gap: "8px" }}>
-                  {registry.map((manikin) => (
-                    <div
-                      key={manikin.deviceId}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "10px 14px",
-                        borderRadius: "8px",
-                        border: manikin.online ? "1px solid #bbf7d0" : "1px solid #e2e8f0",
-                        background: manikin.online ? "#f0fdf4" : "#f8fafc",
-                        flexWrap: "wrap",
-                        gap: "8px",
-                      }}
-                    >
-                      <div style={{ display: "grid", gap: "2px" }}>
-                        <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#0f172a" }}>
-                          {manikin.deviceId}
-                        </span>
-                        <span style={{ fontSize: "0.85rem", color: "#64748b" }}>
-                          {manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}
-                        </span>
-                      </div>
-
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{
-                          padding: "3px 8px",
-                          borderRadius: "999px",
-                          fontSize: "0.85rem",
-                          fontWeight: 700,
-                          background: manikin.online ? "#dcfce7" : "#fee2e2",
-                          color: manikin.online ? "#166534" : "#991b1b",
-                        }}>
-                          {manikin.online ? "Online" : "Offline"}
-                        </span>
-
-                        {manikin.state ? (
-                          <span style={{
-                            padding: "3px 8px",
-                            borderRadius: "999px",
-                            fontSize: "0.85rem",
-                            fontWeight: 600,
-                            background: "#e2e8f0",
-                            color: "#334155",
-                          }}>
-                            {manikin.state}
-                          </span>
-                        ) : null}
-
-                        {manikin.rssi !== null ? (
-                          <span style={{
-                            padding: "3px 8px",
-                            borderRadius: "999px",
-                            fontSize: "0.85rem",
-                            fontWeight: 600,
-                            background: manikin.rssi > -60 ? "#dcfce7"
-                              : manikin.rssi > -75 ? "#fef3c7"
-                              : "#fee2e2",
-                            color: manikin.rssi > -60 ? "#166534"
-                              : manikin.rssi > -75 ? "#92400e"
-                              : "#991b1b",
-                          }}>
-                            {manikin.rssi} dBm
-                          </span>
-                        ) : null}
-
-                        <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-                          {manikin.lastSeen
-                            ? `${new Date(manikin.lastSeen).toLocaleTimeString()}`
-                            : "Never"}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setIsRegistryOpen(true)}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#005A9C",
+                  color: "#ffffff",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: "0.95rem",
+                  transition: "all 0.2s",
+                }}
+              >
+                View Registry
+              </button>
             </div>
+          </div>
 
-            <div>
-              <LocalSessionReviewPanel
-                latestEndedSession={latestEndedSession}
-                sessions={recentSessions}
-                loading={recentSessionsLoading}
-                error={recentSessionsError}
-                canExport={Boolean(currentUser && currentUser.role !== "TRAINEE")}
-                expandedSessionId={expandedSessionId}
-                expandedSessionDetail={expandedSessionDetail}
-                expandedSessionLoading={expandedSessionLoading}
-                expandedSessionError={expandedSessionError}
-                onSelectSession={handleViewDetails}
-                onRefresh={loadRecentSessions}
-              />
+          {/* Local Session Review summary card */}
+          <div className="calibration-profiles-card-wrapper">
+            <div className="card">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#0f172a" }}>
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
+                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Local Session Review</h2>
+              </div>
+              <p className="card-description" style={{ marginBottom: "18px" }}>
+                Review completed CPR session performance metrics, check scores, compression rates, and export reports to JSON/CSV.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+                <div>Completed Sessions: <strong style={{ color: "#0f172a" }}>{recentSessions.length}</strong></div>
+                <div>Latest Score: <strong style={{ color: "#0f172a" }}>{latestEndedSession ? latestEndedSession.summary.score : "N/A"}</strong></div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSessionReviewOpen(true)}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#005A9C",
+                  color: "#ffffff",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: "0.95rem",
+                  transition: "all 0.2s",
+                }}
+              >
+                View Sessions
+              </button>
             </div>
-          </section>
+          </div>
         </div>
       </div>
 
@@ -2097,6 +1738,69 @@ export default function InstructorDashboard({
             onSelectedDeviceChange={setSelectedCalibrationDeviceId}
             calibrationAction={selectedCalibrationDeviceId ? calibrationActionByDevice[selectedCalibrationDeviceId] ?? "idle" : "idle"}
             onRunCalibration={handleRunCalibration}
+          />
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={isProvisioningOpen}
+        onOpenChange={setIsProvisioningOpen}
+        title="Firmware Provisioning"
+        description="Generate an ESP setup portal QR URL for firmware in provisioning mode."
+        maxWidth="750px"
+      >
+        <div className="calibration-dialog-wrapper">
+          <FirmwareProvisioningPanel />
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={isRegistryOpen}
+        onOpenChange={setIsRegistryOpen}
+        title="Device Registry"
+        description="Track and manage all registered simulation manikins."
+        maxWidth="750px"
+      >
+        <div className="calibration-dialog-wrapper">
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "-36px", position: "relative", zIndex: 50 }}>
+            <Button
+              variant="secondary"
+              onClick={loadRegistry}
+              disabled={registryLoading}
+              className="h-8 w-8 p-0 flex items-center justify-center"
+              aria-label="Refresh registry"
+            >
+              <RefreshCw size={14} className={registryLoading ? "animate-spin" : ""} />
+            </Button>
+          </div>
+          <DeviceRegistryPanel
+            registry={registry}
+            loading={registryLoading}
+            error={registryError}
+          />
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={isSessionReviewOpen}
+        onOpenChange={setIsSessionReviewOpen}
+        title="Local Session Review"
+        description="Review completed CPR session performance metrics, check scores, compression rates, and export reports."
+        maxWidth="90vw"
+      >
+        <div className="calibration-dialog-wrapper" style={{ overflowY: "auto", maxHeight: "80vh" }}>
+          <LocalSessionReviewPanel
+            latestEndedSession={latestEndedSession}
+            sessions={recentSessions}
+            loading={recentSessionsLoading}
+            error={recentSessionsError}
+            canExport={Boolean(currentUser && currentUser.role !== "TRAINEE")}
+            expandedSessionId={expandedSessionId}
+            expandedSessionDetail={expandedSessionDetail}
+            expandedSessionLoading={expandedSessionLoading}
+            expandedSessionError={expandedSessionError}
+            onSelectSession={handleViewDetails}
+            onRefresh={loadRecentSessions}
           />
         </div>
       </Dialog>
