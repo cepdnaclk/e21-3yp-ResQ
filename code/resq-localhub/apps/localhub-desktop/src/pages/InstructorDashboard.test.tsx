@@ -156,10 +156,10 @@ describe("InstructorDashboard", () => {
     });
   });
 
-  it("shows healthy status when health endpoint returns ok", async () => {
+  it("loads and displays hub service info", async () => {
     render(<InstructorDashboard embeddedInDesktop />);
 
-    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect(await screen.findByText("http://localhost:18080")).toBeInTheDocument();
   });
 
   it("shows stream unavailable when EventSource is not available", async () => {
@@ -171,18 +171,19 @@ describe("InstructorDashboard", () => {
     expect(getLiveManikinsStreamUrl).not.toHaveBeenCalled();
   });
 
-  it("starts a session for a manikin", async () => {
+  it("starts a session for a manikin in guest mode", async () => {
     vi.mocked(fetchLiveManikins).mockResolvedValue([{ ...baseManikin }]);
 
     render(<InstructorDashboard embeddedInDesktop />);
 
     expect(await screen.findByText("MAN-01")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Guest" }));
     await userEvent.click(screen.getByRole("button", { name: "Start Session" }));
 
     await waitFor(() => {
       expect(startSession).toHaveBeenCalledWith({
         deviceId: "MAN-01",
-        traineeId: "trainee-man-01",
+        guestLabel: "Guest Trainee",
         scenario: null,
         notes: null,
       });

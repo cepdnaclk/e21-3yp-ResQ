@@ -1,5 +1,4 @@
 import { type ManikinRegistryEntry } from "../lib/browserManikinRegistryApi";
-import DeviceRegistryIcon from "./icons/DeviceRegistryIcon";
 
 type DeviceRegistryPanelProps = {
   registry: ManikinRegistryEntry[];
@@ -13,17 +12,16 @@ export function DeviceRegistryPanel({
   error,
 }: DeviceRegistryPanelProps) {
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" style={{ marginTop: "-12px" }}>
       <div className="flex justify-between items-center border-b border-gray-200 pb-4 mb-2 flex-wrap gap-3">
         <div className="flex items-center gap-2 text-gray-650">
-          <DeviceRegistryIcon size={18} />
           <span className="text-sm font-semibold uppercase tracking-wider">Registered Manikins</span>
         </div>
         <div className="flex items-center gap-3">
           {!loading && !error && (
             <span
               className="text-xs font-bold bg-blue-50 text-[#005A9C] px-3 py-1.5 rounded-full border border-blue-100"
-              style={{ display: "inline-flex", alignItems: "center", transform: "translateY(-2px)" }}
+              style={{ display: "inline-flex", alignItems: "center", transform: "translateY(-2px)", padding: "4px 12px" }}
             >
               {registry.filter((m) => m.online).length} / {registry.length}
             </span>

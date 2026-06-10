@@ -14,7 +14,7 @@ import {
   type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
 import { Card, Button, Badge, Input, Select, Progress } from "./ui";
-import CalibrationIcon from "./icons/CalibrationIcon";
+import { RefreshCw } from "lucide-react";
 
 type CalibrationSettingsPanelProps = {
   devices: ManikinLiveSummary[];
@@ -415,19 +415,19 @@ export function CalibrationSettingsPanel({
   const selectedProfileLabel = selectedProfile ? selectedProfile.name : "New profile";
 
   return (
-    <Card className="mb-6 relative overflow-hidden">
+    <Card className="mb-6 relative overflow-hidden" style={{ marginTop: "-12px" }}>
       <div className="flex justify-between items-center mb-6 calibration-panel-header">
         <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
-          <CalibrationIcon size={18} />
           <span className="text-sm font-semibold uppercase tracking-wider">Configuration Profile</span>
         </div>
         <Button
           variant="secondary"
           onClick={() => reloadProfiles(selectedProfileId)}
           disabled={loading || savingState !== "idle"}
-          className="text-xs py-1 h-8 btn-reload"
+          className="h-8 w-8 p-0 flex items-center justify-center btn-reload"
+          aria-label="Reload profiles"
         >
-          {loading ? "Reloading..." : "Reload"}
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
         </Button>
       </div>
 

@@ -91,28 +91,6 @@ export function LocalSessionReviewPanel({
 
   return (
     <Card className="mb-6 flex flex-col gap-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-blue-50 dark:bg-blue-900/30 text-[#005A9C] dark:text-blue-400 rounded-lg">
-            <SessionReviewIcon size={20} />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Local Session Review</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Review completed CPR sessions and export performance reports.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
-          <Button
-            variant="secondary"
-            onClick={onRefresh}
-            disabled={loading}
-            className="h-8 w-8 p-0 flex items-center justify-center"
-            aria-label="Refresh completed sessions"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          </Button>
-        </div>
-      </div>
 
       {latestEndedSession ? (
         <div className="p-4 rounded-xl bg-gradient-to-r from-gray-900 via-slate-800 to-[#005A9C] text-white flex flex-col gap-3 shadow-md relative overflow-hidden">
@@ -152,7 +130,7 @@ export function LocalSessionReviewPanel({
 
       {!loading && !error && sessions.length === 0 ? <p className="text-sm text-gray-500 dark:text-gray-400">No completed sessions yet.</p> : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {sessions.map((session) => {
           const isSelected = expandedSessionId === session.sessionId;
           const isEntering = enteringSessionIds.has(session.sessionId);
@@ -200,7 +178,7 @@ export function LocalSessionReviewPanel({
                   }}
                   className="text-xs h-7 px-2 text-[#005A9C] dark:text-blue-400 flex items-center gap-1 hover:bg-transparent"
                 >
-                  <Eye size={12} /> View Details
+                  <Eye size={12} /> View
                 </Button>
 
                 {canExport ? (

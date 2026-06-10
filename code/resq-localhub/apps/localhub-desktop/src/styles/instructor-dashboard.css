@@ -1,14 +1,14 @@
 /* Instructor Dashboard - Premium Redesigned Style Sheet */
 
 :root {
-  --color-navy-bg: #091325;
-  --color-navy-card: #0b1a30;
-  --color-navy-dark: #070e1b;
-  --color-metallic-start: #0f2444;
-  --color-metallic-end: #07152b;
-  --color-text-light: #ffffff;
-  --color-text-slate: #e2e8f0;
-  --color-text-muted: #cbd5e1;
+  --color-navy-bg: #f8fafc;
+  --color-navy-card: #ffffff;
+  --color-navy-dark: #f1f5f9;
+  --color-metallic-start: #f8fafc;
+  --color-metallic-end: #f1f5f9;
+  --color-text-light: #0f172a;
+  --color-text-slate: #475569;
+  --color-text-muted: #64748b;
   --color-white-bg: #ffffff;
   --color-text-dark: #0f172a;
   --color-text-dark-muted: #475569;
@@ -16,8 +16,8 @@
   
   --radius-xl: 16px;
   --radius-2xl: 24px;
-  --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 10px 10px -5px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
 /* Main Page Container styling */
@@ -36,25 +36,15 @@
 .dashboard-header {
   margin-bottom: 24px;
   padding-bottom: 16px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.1);
-}
-
-.dashboard-header .user-role-badge {
-  background: rgba(226, 232, 240, 0.15);
-  color: var(--color-text-slate);
-  padding: 6px 12px;
-  border-radius: 9999px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border-light);
 }
 
 .dashboard-header .header-action-btn {
   padding: 8px 16px;
   border-radius: 8px;
-  border: 1px solid rgba(226, 232, 240, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text-light);
+  border: 1px solid var(--color-border-light);
+  background: var(--color-white-bg);
+  color: var(--color-text-dark);
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
@@ -62,8 +52,8 @@
 }
 
 .dashboard-header .header-action-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: #f1f5f9;
+  border-color: #cbd5e1;
 }
 
 /* Layout Columns Grid */
@@ -106,24 +96,25 @@
 /* Left Column Bottom Flex Row */
 .left-column-bottom-flex {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 24px;
 }
 
 /* Navy Active Device Card styling */
 .navy-active-card {
-  background: var(--color-navy-card);
+  background: linear-gradient(135deg, #0b1a30 0%, #070e1b 100%);
   border-radius: var(--radius-xl);
   padding: 24px;
   box-shadow: var(--shadow-md);
-  color: var(--color-text-light);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .navy-active-card .active-card-title {
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--color-text-light);
+  color: #ffffff;
   margin-top: 0;
   margin-bottom: 16px;
   text-transform: uppercase;
@@ -137,7 +128,7 @@
 
 /* Calibration profiles card styling (Clean white card override) */
 .calibration-profiles-card-wrapper {
-  width: 100%;
+  flex: 1 1 250px;
 }
 
 .calibration-profiles-card-wrapper .card {
@@ -214,7 +205,7 @@
   border-radius: var(--radius-xl);
   padding: 24px;
   box-shadow: var(--shadow-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border-light);
   color: var(--color-text-slate);
 }
 
@@ -235,7 +226,7 @@
   border-radius: var(--radius-xl);
   padding: 24px;
   box-shadow: var(--shadow-md);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border-light);
   color: var(--color-text-light);
 }
 
@@ -316,12 +307,12 @@
   color: var(--color-text-dark-muted) !important;
 }
 
-/* Chip Styles on dark cards */
+/* Chip Styles on cards */
 .device-card__chips .device-chip,
 .chips-container .device-chip {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text-slate);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
   font-size: 0.85rem;
 }
 
@@ -346,9 +337,9 @@ strong {
   padding: 32px;
   text-align: center;
   border-radius: var(--radius-xl);
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--color-text-slate);
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
 }
 
 .provisioning-qr-panel {
@@ -385,7 +376,7 @@ strong {
 }
 
 .calibration-dialog-wrapper select,
-.calibration-dialog-wrapper input {
+.calibration-dialog-wrapper input:not([type="checkbox"]) {
   background: #f8fafc !important;
   border: 1px solid var(--color-border-light) !important;
   color: var(--color-text-dark) !important;
@@ -398,7 +389,7 @@ strong {
 }
 
 .calibration-dialog-wrapper select:focus,
-.calibration-dialog-wrapper input:focus {
+.calibration-dialog-wrapper input:not([type="checkbox"]):focus {
   outline: none !important;
   background: #ffffff !important;
   border-color: #005A9C !important;
@@ -406,7 +397,7 @@ strong {
 }
 
 .calibration-dialog-wrapper select:disabled,
-.calibration-dialog-wrapper input:disabled {
+.calibration-dialog-wrapper input:not([type="checkbox"]):disabled {
   opacity: 0.6 !important;
   cursor: not-allowed !important;
 }

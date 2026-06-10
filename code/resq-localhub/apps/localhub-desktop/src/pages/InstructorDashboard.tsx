@@ -47,6 +47,8 @@ import { FirmwareProvisioningPanel } from "../components/FirmwareProvisioningPan
 import { DeviceRegistryPanel } from "../components/DeviceRegistryPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { Dialog } from "../components/ui/dialog";
+import { Button } from "../components/ui";
+import { RefreshCw } from "lucide-react";
 import { QRCodeSVG as QR } from "qrcode.react";
 import ProvisioningIcon from "../components/icons/ProvisioningIcon";
 import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
@@ -362,7 +364,7 @@ export default function InstructorDashboard({
   onOpenTraineeDashboard,
   manualLanIpOverride = null,
 }: InstructorDashboardProps) {
-  const { currentUser, logout } = useAuth();
+  const { currentUser } = useAuth();
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
@@ -995,25 +997,12 @@ export default function InstructorDashboard({
       <header className="dashboard-header">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           <div>
-            <div className="header-brand-placeholder" />
+            <h1 style={styles.title}>Instructor Dashboard</h1>
+            <p style={{ ...styles.subtitle, color: "#64748b" }}>
+              Monitor live simulator manikins and manage training sessions
+            </p>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {currentUser ? (
-              <>
-                <span className="user-role-badge">
-                  {currentUser.role}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    logout().finally(() => window.location.assign("/login"));
-                  }}
-                  className="header-action-btn"
-                >
-                  Logout
-                </button>
-              </>
-            ) : null}
             {!embeddedInDesktop ? (
               <button
                 type="button"
@@ -1030,12 +1019,11 @@ export default function InstructorDashboard({
       <div className="instructor-dashboard-layout">
         {/* Left Column */}
         <div className="dashboard-column left-column">
-          <h1 className="simulation-control-title">SIMULATION CONTROL</h1>
           
           <div className="left-column-bottom-flex">
             {/* Navy blue active card */}
             <div className="navy-active-card">
-              <h2 className="active-card-title">Active Device</h2>
+              <h2 className="active-card-title">ACTIVE DEVICE</h2>
               {selectedDevice ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                   <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#ffffff" }}>
@@ -1054,13 +1042,13 @@ export default function InstructorDashboard({
                   </div>
 
                   {selectedDevice.activeSessionId ? (
-                    <div style={{ background: "rgba(15, 23, 42, 0.4)", border: "1px solid rgba(255, 255, 255, 0.1)", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <span style={{ fontSize: "0.8rem", textTransform: "uppercase", fontWeight: 700, color: "#94a3b8" }}>Active Session</span>
+                    <div style={{ background: "rgba(15, 23, 42, 0.4)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <span style={{ fontSize: "0.8rem", textTransform: "uppercase", fontWeight: 700, color: "#cbd5e1" }}>Active Session</span>
                       <span style={{ fontSize: "0.9rem", color: "#ffffff", wordBreak: "break-all" }}>ID: {selectedDevice.activeSessionId}</span>
                       <span style={{ fontSize: "0.9rem", color: "#ffffff" }}>Trainee: {selectedDevice.activeTraineeId ?? "Guest"}</span>
                     </div>
                   ) : (
-                    <div style={{ background: "rgba(15, 23, 42, 0.2)", border: "1px dashed rgba(255, 255, 255, 0.1)", borderRadius: "8px", padding: "12px", textAlign: "center", color: "#94a3b8", fontSize: "0.9rem" }}>
+                    <div style={{ background: "rgba(15, 23, 42, 0.4)", border: "1px dashed rgba(255, 255, 255, 0.15)", borderRadius: "8px", padding: "12px", textAlign: "center", color: "#cbd5e1", fontSize: "0.9rem" }}>
                       No Active Session
                     </div>
                   )}
@@ -1075,7 +1063,7 @@ export default function InstructorDashboard({
                 </div>
               ) : (
                 <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.95rem" }}>
-                  No active device selected. Select a live device from the Calibration Profiles card.
+                  No active device selected. Select a live device from the Calibration Settings card in the tools panel.
                 </p>
               )}
             </div>
@@ -1113,30 +1101,100 @@ export default function InstructorDashboard({
                 </button>
               </div>
             </div>
+
+            {/* Local Session Review summary card */}
+            <div className="calibration-profiles-card-wrapper">
+              <div className="card">
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#0f172a" }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                  <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Local Session Review</h2>
+                </div>
+                <p className="card-description" style={{ marginBottom: "18px" }}>
+                  Review completed CPR session performance metrics, check scores, compression rates, and export reports to JSON/CSV.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+                  <div>Completed Sessions: <strong style={{ color: "#0f172a" }}>{recentSessions.length}</strong></div>
+                  <div>Latest Score: <strong style={{ color: "#0f172a" }}>{latestEndedSession ? latestEndedSession.summary.score : "N/A"}</strong></div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSessionReviewOpen(true)}
+                  style={{
+                    padding: "10px 18px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "#005A9C",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontSize: "0.95rem",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  View Sessions
+                </button>
+              </div>
+            </div>
+
+            {/* Device Registry summary card */}
+            <div className="calibration-profiles-card-wrapper">
+              <div className="card">
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
+                  <DeviceRegistryIcon size={18} />
+                  <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Device Registry</h2>
+                </div>
+                <p className="card-description" style={{ marginBottom: "18px" }}>
+                  Track and manage all registered simulation manikins, view online/offline status, RSSI strength, and system details.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
+                  <div>Total Manikins: <strong style={{ color: "#0f172a" }}>{registry.length}</strong></div>
+                  <div>Online Manikins: <strong style={{ color: "#0f172a" }}>{registry.filter((m) => m.online).length}</strong></div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsRegistryOpen(true)}
+                  style={{
+                    padding: "10px 18px",
+                    borderRadius: "8px",
+                    border: "none",
+                    background: "#005A9C",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontSize: "0.95rem",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  View Registry
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Center-Right Column */}
         <div className="dashboard-column center-right-column">
-          <div className="column-header">
-            <h2 className="column-title">Dashboard Overview & PPI</h2>
-          </div>
-
           <div className="live-manikins-section">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <LiveManikinsIcon size={18} />
-                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#ffffff" }}>Live Manikins</h3>
+                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#0f172a" }}>Live Manikins</h3>
               </div>
               <LiveStreamStatusBadge state={manikinsStreamState} />
             </div>
 
             {manikinsLoading ? (
-              <p style={{ margin: 0, color: "#cbd5e1" }}>Loading live manikin data...</p>
+              <p style={{ margin: 0, color: "#475569" }}>Loading live manikin data...</p>
             ) : null}
 
             {!manikinsLoading && manikinsError ? (
-              <p style={{ margin: 0, color: "#fca5a5" }}>
+              <p style={{ margin: 0, color: "#b91c1c" }}>
                 Unable to load live manikins. {manikinsError}
               </p>
             ) : null}
@@ -1186,18 +1244,18 @@ export default function InstructorDashboard({
                           </div>
                         </div>
 
-                        <p style={{ margin: "0 0 12px 0", color: "#cbd5e1" }}>State: <strong>{effectiveFirmwareState}</strong></p>
+                        <p style={{ margin: "0 0 12px 0", color: "#475569" }}>State: <strong>{effectiveFirmwareState}</strong></p>
 
                         {isCalibrating ? (
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
                             <ProgressRing value={calibrationProgress} />
-                            <span style={{ color: "#cbd5e1", fontWeight: 600 }}>Calibration in progress</span>
+                            <span style={{ color: "#475569", fontWeight: 600 }}>Calibration in progress</span>
                           </div>
                         ) : null}
 
                         {/* Trainee Selection UI */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "rgba(15, 23, 42, 0.3)", borderRadius: "8px", padding: "12px", marginBottom: "12px", fontSize: "0.95rem" }}>
-                          <div style={{ fontWeight: 600 }}>Select Trainee</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginBottom: "12px", fontSize: "0.95rem" }}>
+                          <div style={{ fontWeight: 600, color: "#0f172a" }}>Select Trainee</div>
 
                           {/* Mode Selection */}
                           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -1215,12 +1273,15 @@ export default function InstructorDashboard({
                               style={{
                                 padding: "4px 10px",
                                 borderRadius: "4px",
-                                border: "1px solid rgba(255,255,255,0.15)",
+                                border: "1px solid #cbd5e1",
                                 background:
                                   sessionDrafts[manikin.deviceId]?.traineeMode === "select"
                                     ? "#005A9C"
-                                    : "rgba(255,255,255,0.08)",
-                                color: "#ffffff",
+                                    : "#e2e8f0",
+                                color:
+                                  sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                    ? "#ffffff"
+                                    : "#0f172a",
                                 cursor: "pointer",
                                 fontSize: "0.85rem",
                               }}
@@ -1241,12 +1302,15 @@ export default function InstructorDashboard({
                               style={{
                                 padding: "4px 10px",
                                 borderRadius: "4px",
-                                border: "1px solid rgba(255,255,255,0.15)",
+                                border: "1px solid #cbd5e1",
                                 background:
                                   sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
                                     ? "#005A9C"
-                                    : "rgba(255,255,255,0.08)",
-                                color: "#ffffff",
+                                    : "#e2e8f0",
+                                color:
+                                  sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                    ? "#ffffff"
+                                    : "#0f172a",
                                 cursor: "pointer",
                                 fontSize: "0.85rem",
                               }}
@@ -1267,12 +1331,15 @@ export default function InstructorDashboard({
                               style={{
                                 padding: "4px 10px",
                                 borderRadius: "4px",
-                                border: "1px solid rgba(255,255,255,0.15)",
+                                border: "1px solid #cbd5e1",
                                 background:
                                   sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
                                     ? "#005A9C"
-                                    : "rgba(255,255,255,0.08)",
-                                color: "#ffffff",
+                                    : "#e2e8f0",
+                                color:
+                                  sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                    ? "#ffffff"
+                                    : "#0f172a",
                                 cursor: "pointer",
                                 fontSize: "0.85rem",
                               }}
@@ -1297,17 +1364,17 @@ export default function InstructorDashboard({
                               style={{
                                 padding: "8px",
                                 borderRadius: "6px",
-                                border: "1px solid rgba(255,255,255,0.15)",
-                                background: "#070e1b",
-                                color: "#ffffff",
+                                border: "1px solid #cbd5e1",
+                                background: "#ffffff",
+                                color: "#0f172a",
                                 outline: "none",
                               }}
                             >
-                              <option value="">-- Select a trainee --</option>
-                              {traineesLoading && <option>Loading...</option>}
+                              <option value="" style={{ color: "#0f172a" }}>-- Select a trainee --</option>
+                              {traineesLoading && <option style={{ color: "#0f172a" }}>Loading...</option>}
                               {!traineesLoading &&
                                 trainees.map((trainee) => (
-                                  <option key={trainee.id} value={trainee.id}>
+                                  <option key={trainee.id} value={trainee.id} style={{ color: "#0f172a" }}>
                                     {trainee.displayName} ({trainee.traineeCode})
                                   </option>
                                 ))}
@@ -1333,9 +1400,9 @@ export default function InstructorDashboard({
                                 style={{
                                   padding: "8px",
                                   borderRadius: "6px",
-                                  border: "1px solid rgba(255,255,255,0.15)",
-                                  background: "#070e1b",
-                                  color: "#ffffff",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  color: "#0f172a",
                                   outline: "none",
                                 }}
                               />
@@ -1355,9 +1422,9 @@ export default function InstructorDashboard({
                                 style={{
                                   padding: "8px",
                                   borderRadius: "6px",
-                                  border: "1px solid rgba(255,255,255,0.15)",
-                                  background: "#070e1b",
-                                  color: "#ffffff",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  color: "#0f172a",
                                   outline: "none",
                                 }}
                               />
@@ -1377,9 +1444,9 @@ export default function InstructorDashboard({
                                 style={{
                                   padding: "8px",
                                   borderRadius: "6px",
-                                  border: "1px solid rgba(255,255,255,0.15)",
-                                  background: "#070e1b",
-                                  color: "#ffffff",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#ffffff",
+                                  color: "#0f172a",
                                   outline: "none",
                                 }}
                               />
@@ -1387,7 +1454,7 @@ export default function InstructorDashboard({
                           )}
 
                           {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
-                            <p style={{ margin: "4px 0 0 0", color: "#cbd5e1" }}>
+                            <p style={{ margin: "4px 0 0 0", color: "#475569" }}>
                               Session will start without a specific trainee assignment.
                             </p>
                           )}
@@ -1405,7 +1472,7 @@ export default function InstructorDashboard({
                                   padding: "8px 14px",
                                   borderRadius: "6px",
                                   border: "none",
-                                  background: startDisabled ? "rgba(255,255,255,0.08)" : "#16a34a",
+                                  background: startDisabled ? "#e2e8f0" : "#16a34a",
                                   color: startDisabled ? "#94a3b8" : "#ffffff",
                                   cursor: startDisabled ? "not-allowed" : "pointer",
                                   fontWeight: 600,
@@ -1423,7 +1490,7 @@ export default function InstructorDashboard({
                                   padding: "8px 14px",
                                   borderRadius: "6px",
                                   border: "none",
-                                  background: actionState !== "idle" ? "rgba(255,255,255,0.08)" : "#dc2626",
+                                  background: actionState !== "idle" ? "#e2e8f0" : "#dc2626",
                                   color: actionState !== "idle" ? "#94a3b8" : "#ffffff",
                                   cursor: actionState !== "idle" ? "not-allowed" : "pointer",
                                   fontWeight: 600,
@@ -1441,7 +1508,7 @@ export default function InstructorDashboard({
                           style={{
                             border: "none",
                             background: "none",
-                            color: "#60a5fa",
+                            color: "#005A9C",
                             fontWeight: 700,
                             cursor: "pointer",
                             padding: 0,
@@ -1459,7 +1526,7 @@ export default function InstructorDashboard({
                         </button>
 
                         {isExpanded ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.9rem", color: "#cbd5e1", background: "rgba(15, 23, 42, 0.4)", borderRadius: "8px", padding: "12px", marginBottom: "12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.9rem", color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginBottom: "12px" }}>
                             <div>Device ID: {manikin.deviceId}</div>
                             <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
                             <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
@@ -1471,18 +1538,18 @@ export default function InstructorDashboard({
                         ) : null}
 
                         {active ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "rgba(15, 23, 42, 0.4)", borderRadius: "8px", padding: "12px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "#f8fafc", borderRadius: "8px", padding: "12px", border: "1px solid #e2e8f0" }}>
                             <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-                              <div style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Session:</div>
-                              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#ffffff", wordBreak: "break-all" }}>{activeSession!.sessionId}</div>
+                              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Session:</div>
+                              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a", wordBreak: "break-all" }}>{activeSession!.sessionId}</div>
                             </div>
                             <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-                              <div style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Trainee:</div>
-                              <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff" }}>{activeSession!.traineeId ?? "-"}</div>
+                              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Trainee:</div>
+                              <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>{activeSession!.traineeId ?? "-"}</div>
                             </div>
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                              <div style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Trainee Link:</div>
-                              <div style={{ background: "#070e1b", color: "#ffffff", padding: "6px 10px", borderRadius: 6, fontWeight: 800, wordBreak: "break-all" }}>
+                              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Trainee Link:</div>
+                              <div style={{ background: "#f1f5f9", color: "#0f172a", border: "1px solid #e2e8f0", padding: "6px 10px", borderRadius: 6, fontWeight: 800, wordBreak: "break-all" }}>
                                 {traineeLink ?? buildTraineeLandingUrl()}
                               </div>
                             </div>
@@ -1496,7 +1563,7 @@ export default function InstructorDashboard({
                                 Open Trainee Dashboard (In-App)
                               </button>
                               {traineeLink ? (
-                                <a href={traineeLink} style={{ padding: "6px 12px", borderRadius: 6, background: "rgba(255, 255, 255, 0.1)", color: "#ffffff", fontWeight: 700, textDecoration: "none", fontSize: "0.85rem" }}>
+                                <a href={traineeLink} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#f1f5f9", color: "#0f172a", fontWeight: 700, textDecoration: "none", fontSize: "0.85rem" }}>
                                   Open Trainee Link
                                 </a>
                               ) : null}
@@ -1518,7 +1585,7 @@ export default function InstructorDashboard({
                                   {deviceMessage}
                                 </span>
                               ) : (
-                                <p style={{ margin: 0, color: "#cbd5e1", fontSize: "0.9rem" }}>{deviceMessage}</p>
+                                <p style={{ margin: 0, color: "#475569", fontSize: "0.9rem" }}>{deviceMessage}</p>
                               );
                             })()}
                           </div>
@@ -1536,15 +1603,15 @@ export default function InstructorDashboard({
                           active={active}
                         />
 
-                        <div style={{ display: "grid", gap: "6px", background: "rgba(15,23,42,0.3)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: "8px", padding: "12px", marginTop: "14px" }}>
+                        <div style={{ display: "grid", gap: "6px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginTop: "14px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                            <p style={{ margin: 0, fontSize: "0.9rem", color: "#ffffff", fontWeight: 700 }}>Readiness</p>
+                            <p style={{ margin: 0, fontSize: "0.9rem", color: "#0f172a", fontWeight: 700 }}>Readiness</p>
                             <IndicatorBadge
                               label={!readinessIsKnown ? "Unknown" : readiness?.readyForSession ? "Ready" : "Not Ready"}
                               status={!readinessIsKnown ? "neutral" : readiness?.readyForSession ? "ok" : "warn"}
                             />
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#cbd5e1", fontSize: "0.85rem" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#475569", fontSize: "0.85rem" }}>
                             <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
                             <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
                             <span>Result: {readiness?.latestResult ?? "-"}</span>
@@ -1560,9 +1627,9 @@ export default function InstructorDashboard({
                               style={{
                                 padding: "6px 10px",
                                 borderRadius: "6px",
-                                border: "1px solid rgba(255,255,255,0.15)",
-                                background: "rgba(255,255,255,0.08)",
-                                color: calibrationAction !== "idle" ? "#94a3b8" : "#ffffff",
+                                border: "1px solid #cbd5e1",
+                                background: calibrationAction !== "idle" ? "#e2e8f0" : "#f1f5f9",
+                                color: calibrationAction !== "idle" ? "#94a3b8" : "#0f172a",
                                 cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
                                 fontWeight: 700,
                                 fontSize: "0.85rem",
@@ -1581,7 +1648,7 @@ export default function InstructorDashboard({
                                 gap: 6,
                                 alignItems: "center",
                                 fontSize: "0.85rem",
-                                color: "#60a5fa",
+                                color: "#005A9C",
                                 background: "none",
                                 border: "none",
                                 cursor: "pointer",
@@ -1648,79 +1715,6 @@ export default function InstructorDashboard({
             </div>
           </div>
 
-          {/* Device Registry summary card */}
-          <div className="calibration-profiles-card-wrapper">
-            <div className="card">
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
-                <DeviceRegistryIcon size={18} />
-                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Device Registry</h2>
-              </div>
-              <p className="card-description" style={{ marginBottom: "18px" }}>
-                Track and manage all registered simulation manikins, view online/offline status, RSSI strength, and system details.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
-                <div>Total Manikins: <strong style={{ color: "#0f172a" }}>{registry.length}</strong></div>
-                <div>Online Manikins: <strong style={{ color: "#0f172a" }}>{registry.filter((m) => m.online).length}</strong></div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsRegistryOpen(true)}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: "#005A9C",
-                  color: "#ffffff",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontSize: "0.95rem",
-                  transition: "all 0.2s",
-                }}
-              >
-                View Registry
-              </button>
-            </div>
-          </div>
-
-          {/* Local Session Review summary card */}
-          <div className="calibration-profiles-card-wrapper">
-            <div className="card">
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "12px" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#0f172a" }}>
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                  <polyline points="10 9 9 9 8 9" />
-                </svg>
-                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700 }}>Local Session Review</h2>
-              </div>
-              <p className="card-description" style={{ marginBottom: "18px" }}>
-                Review completed CPR session performance metrics, check scores, compression rates, and export reports to JSON/CSV.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px", fontSize: "0.95rem", color: "#334155" }}>
-                <div>Completed Sessions: <strong style={{ color: "#0f172a" }}>{recentSessions.length}</strong></div>
-                <div>Latest Score: <strong style={{ color: "#0f172a" }}>{latestEndedSession ? latestEndedSession.summary.score : "N/A"}</strong></div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSessionReviewOpen(true)}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: "#005A9C",
-                  color: "#ffffff",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontSize: "0.95rem",
-                  transition: "all 0.2s",
-                }}
-              >
-                View Sessions
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1746,7 +1740,6 @@ export default function InstructorDashboard({
         open={isProvisioningOpen}
         onOpenChange={setIsProvisioningOpen}
         title="Firmware Provisioning"
-        description="Generate an ESP setup portal QR URL for firmware in provisioning mode."
         maxWidth="750px"
       >
         <div className="calibration-dialog-wrapper">
@@ -1758,11 +1751,10 @@ export default function InstructorDashboard({
         open={isRegistryOpen}
         onOpenChange={setIsRegistryOpen}
         title="Device Registry"
-        description="Track and manage all registered simulation manikins."
         maxWidth="750px"
       >
-        <div className="calibration-dialog-wrapper">
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "-36px", position: "relative", zIndex: 50 }}>
+        <div className="calibration-dialog-wrapper" style={{ position: "relative" }}>
+          <div style={{ position: "absolute", top: "-78px", right: "0px", zIndex: 50 }}>
             <Button
               variant="secondary"
               onClick={loadRegistry}
@@ -1785,23 +1777,35 @@ export default function InstructorDashboard({
         open={isSessionReviewOpen}
         onOpenChange={setIsSessionReviewOpen}
         title="Local Session Review"
-        description="Review completed CPR session performance metrics, check scores, compression rates, and export reports."
         maxWidth="90vw"
       >
-        <div className="calibration-dialog-wrapper" style={{ overflowY: "auto", maxHeight: "80vh" }}>
-          <LocalSessionReviewPanel
-            latestEndedSession={latestEndedSession}
-            sessions={recentSessions}
-            loading={recentSessionsLoading}
-            error={recentSessionsError}
-            canExport={Boolean(currentUser && currentUser.role !== "TRAINEE")}
-            expandedSessionId={expandedSessionId}
-            expandedSessionDetail={expandedSessionDetail}
-            expandedSessionLoading={expandedSessionLoading}
-            expandedSessionError={expandedSessionError}
-            onSelectSession={handleViewDetails}
-            onRefresh={loadRecentSessions}
-          />
+        <div style={{ position: "relative" }}>
+          <div style={{ position: "absolute", top: "-78px", right: "0px", zIndex: 50 }}>
+            <Button
+              variant="secondary"
+              onClick={loadRecentSessions}
+              disabled={recentSessionsLoading}
+              className="h-8 w-8 p-0 flex items-center justify-center"
+              aria-label="Refresh completed sessions"
+            >
+              <RefreshCw size={14} className={recentSessionsLoading ? "animate-spin" : ""} />
+            </Button>
+          </div>
+          <div className="calibration-dialog-wrapper" style={{ overflowY: "auto", maxHeight: "80vh" }}>
+            <LocalSessionReviewPanel
+              latestEndedSession={latestEndedSession}
+              sessions={recentSessions}
+              loading={recentSessionsLoading}
+              error={recentSessionsError}
+              canExport={Boolean(currentUser && currentUser.role !== "TRAINEE")}
+              expandedSessionId={expandedSessionId}
+              expandedSessionDetail={expandedSessionDetail}
+              expandedSessionLoading={expandedSessionLoading}
+              expandedSessionError={expandedSessionError}
+              onSelectSession={handleViewDetails}
+              onRefresh={loadRecentSessions}
+            />
+          </div>
         </div>
       </Dialog>
     </div>
