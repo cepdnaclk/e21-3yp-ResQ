@@ -94,6 +94,51 @@ class SessionControllerTest {
         assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
     }
 
+    @Test
+    void endingSessionWithCourseIdCreatesSinglePendingSyncQueueItemWithCourseId() throws Exception {
+        Fixture fixture = newFixture();
+        SessionStartResponse started = fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                "trainee-bob-123",
+                "course-physics-101",
+                null,
+                null,
+                null,
+                "Review smoke",
+                null
+        ));
+
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new ObjectMapper();
+        fixture.service.recordTelemetry("M01", mapper.readTree("""
+                {
+                  "session_id": "%s",
+                  "depth_progress": 0.76,
+                  "rate_cpm": 109,
+                  "compression_count": 1,
+                  "recoil_ok": true,
+                  "pause_s": 0.1,
+                  "flags": "DEPTH_OK,RATE_OK"
+                }
+                """.formatted(started.sessionId())));
+
+        SessionEndResponse completed = fixture.service.endSession(new SessionEndRequest(started.sessionId()));
+
+        assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
+        var queueItem = fixture.syncQueueRepository
+                .findByEntity(lk.resq.localhub.model.SyncEntityType.SESSION_SUMMARY, completed.sessionId())
+                .orElseThrow();
+        assertThat(queueItem.syncStatus())
+                .isEqualTo(lk.resq.localhub.model.SyncStatus.PENDING);
+        assertThat(queueItem.retryCount()).isZero();
+
+        var payload = new ObjectMapper().findAndRegisterModules().readTree(queueItem.payloadJson());
+        assertThat(payload.path("contractVersion").asText()).isEqualTo("resq.cloud.session-summary.v1");
+        assertThat(payload.path("entityType").asText()).isEqualTo("SESSION_SUMMARY");
+        assertThat(payload.path("localSessionId").asText()).isEqualTo(completed.sessionId());
+        assertThat(payload.path("courseId").asText()).isEqualTo("course-physics-101");
+        assertThat(payload.path("traineeId").asText()).isEqualTo("trainee-bob-123");
+    }
+
     private static SessionEndResponse seedCompletedSession(ActiveSessionService service, String deviceId) throws Exception {
         SessionStartResponse started = service.startSession(new SessionStartRequest(
                 deviceId,
