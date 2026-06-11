@@ -1,5 +1,8 @@
 use serde::Serialize;
 use std::{
+    collections::HashMap,
+    env, fs,
+    ffi::OsString,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -18,6 +21,16 @@ pub struct ApiServiceStatus {
 }
 
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
+const CLOUD_SYNC_CONFIG_DIRECTORY: &str = ".resq-localhub";
+const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
+const ROSTER_SYNC_ENV_KEYS: [&str; 6] = [
+    "RESQ_ROSTER_SYNC_ENABLED",
+    "RESQ_ROSTER_SYNC_BASE_URL",
+    "RESQ_ROSTER_SYNC_HUB_ID",
+    "RESQ_ROSTER_SYNC_HUB_KEY",
+    "RESQ_ROSTER_SYNC_FIXED_DELAY_MS",
+    "RESQ_ROSTER_SYNC_TIMEOUT_MS",
+];
 
 impl ApiServiceState {
     fn backend_dir() -> Result<PathBuf, String> {
@@ -47,6 +60,75 @@ impl ApiServiceState {
                 pid: None,
             },
         }
+    }
+
+    fn cloud_sync_config_path() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        let home_dir = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
+
+        #[cfg(not(target_os = "windows"))]
+        let home_dir = env::var_os("HOME");
+
+        home_dir.map(|home| {
+            PathBuf::from(home)
+                .join(CLOUD_SYNC_CONFIG_DIRECTORY)
+                .join(CLOUD_SYNC_CONFIG_FILE)
+        })
+    }
+
+    fn parse_cloud_sync_config(contents: &str) -> HashMap<String, String> {
+        contents
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim().trim_start_matches('\u{feff}');
+                if line.is_empty() || line.starts_with('#') {
+                    return None;
+                }
+
+                let (key, value) = line.split_once('=')?;
+                let key = key.trim();
+                if !ROSTER_SYNC_ENV_KEYS.contains(&key) {
+                    return None;
+                }
+
+                Some((key.to_string(), value.trim().to_string()))
+            })
+            .collect()
+    }
+
+    fn roster_sync_environment() -> HashMap<String, OsString> {
+        let mut values = ROSTER_SYNC_ENV_KEYS
+            .iter()
+            .filter_map(|key| env::var_os(key).map(|value| ((*key).to_string(), value)))
+            .collect::<HashMap<_, _>>();
+
+        if let Some(config_path) = Self::cloud_sync_config_path() {
+            match fs::read_to_string(&config_path) {
+                Ok(contents) => {
+                    for (key, value) in Self::parse_cloud_sync_config(&contents) {
+                        values.entry(key).or_insert_with(|| OsString::from(value));
+                    }
+                    println!(
+                        "Loaded LocalHub cloud sync configuration from {}",
+                        config_path.display()
+                    );
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => eprintln!(
+                    "Unable to read LocalHub cloud sync configuration from {}: {}",
+                    config_path.display(),
+                    error
+                ),
+            }
+        }
+
+        println!(
+            "Roster sync configuration: base-url={}, hub-id={}",
+            values.contains_key("RESQ_ROSTER_SYNC_BASE_URL"),
+            values.contains_key("RESQ_ROSTER_SYNC_HUB_ID")
+        );
+
+        values
     }
 
     fn build_command(backend_dir: &Path) -> Command {
@@ -102,6 +184,7 @@ impl ApiServiceState {
 
         let backend_dir = Self::backend_dir()?;
         let mut command = Self::build_command(&backend_dir);
+        command.envs(Self::roster_sync_environment());
         let child = command
             .spawn()
             .map_err(|error| format!("Failed to start backend: {error}"))?;
