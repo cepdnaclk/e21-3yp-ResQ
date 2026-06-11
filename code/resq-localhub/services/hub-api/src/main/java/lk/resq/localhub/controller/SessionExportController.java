@@ -79,7 +79,7 @@ public class SessionExportController {
 
     private static String toCsv(List<SessionEndResponse> sessions) {
         StringBuilder builder = new StringBuilder();
-        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,avgDepthMm,avgRateCpm,recoilPct,pausesCount,score\n");
+        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress,avgRateCpm,recoilPct,recoilOkCount,incompleteRecoilCount,pausesCount,score,latestFlags\n");
 
         for (SessionEndResponse session : sessions) {
             builder.append(csv(session.sessionId())).append(',')
@@ -88,11 +88,18 @@ public class SessionExportController {
                     .append(csv(session.startedAt().toString())).append(',')
                     .append(csv(session.endedAt().toString())).append(',')
                     .append(session.summary().durationSeconds()).append(',')
+                    .append(session.summary().sampleCount()).append(',')
+                    .append(session.summary().totalCompressions()).append(',')
+                    .append(session.summary().validCompressions()).append(',')
                     .append(session.summary().avgDepthMm()).append(',')
+                    .append(session.summary().avgDepthProgress() == null ? "" : session.summary().avgDepthProgress()).append(',')
                     .append(session.summary().avgRateCpm()).append(',')
                     .append(session.summary().recoilPct()).append(',')
+                    .append(session.summary().recoilOkCount()).append(',')
+                    .append(session.summary().incompleteRecoilCount()).append(',')
                     .append(session.summary().pausesCount()).append(',')
-                    .append(session.summary().score())
+                    .append(session.summary().score()).append(',')
+                    .append(csv(session.summary().latestFlags()))
                     .append('\n');
         }
 

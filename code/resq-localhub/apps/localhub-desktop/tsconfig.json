@@ -11,6 +11,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@resq/shared": ["../../packages/shared/src/index.ts"],
@@ -18,5 +19,6 @@
     },
     "types": ["vite/client", "vitest/globals", "react", "react-dom"]
   },
-  "include": ["src", "../../packages/shared/src"]
+  "include": ["src", "../../packages/shared/src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

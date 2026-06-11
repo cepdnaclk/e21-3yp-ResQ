@@ -1,380 +1,297 @@
-#include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 
 #include "esp_err.h"
+#include "esp_event.h"
 #include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_system.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "cJSON.h"
 
+#include "adc_shared_service.h"
+#include "backend_register_client.h"
+#include "buzzer_manager.h"
+#include "calibration_fail_manager.h"
+#include "calibration_manager.h"
+#include "calibration_state_manager.h"
 #include "config_store.h"
-#include "health_monitor.h"
+#include "cpr_metrics.h"
+#include "error_manager.h"
+#include "firmware_state_machine.h"
 #include "mqtt_manager.h"
-#include "provision_ap.h"
-#include "register_client.h"
-#include "sensor_runtime.h"
+#include "paired_idle_manager.h"
+#include "provisioning_manager.h"
+#include "session_active_manager.h"
 #include "session_manager.h"
+#include "status_indicator.h"
+#include "system_button_manager.h"
 #include "telemetry_publisher.h"
 #include "wifi_manager.h"
-#include "fault_reporter.h"
-#include "command_handler.h"
-#include "device_control.h"
-#include "esp_system.h"
-#include "queued_publisher.h"
-#include "recovery_manager.h"
-#include "factory_reset.h"
-#include "device_identity.h"
-#include "resq_protocol.h"
-#include "status_indicator.h"
 
-static const char *TAG = "main";
+#define MAIN_LOOP_DELAY_MS 100
+#define HEARTBEAT_INTERVAL_MS 5000
+#define HEARTBEAT_TASK_STACK_SIZE 3072
+#define HEARTBEAT_TASK_PRIORITY 3
 
-static bool derive_host_from_url(const char *url, char *host_out, size_t host_out_len)
+static const char *TAG = "resq_main";
+static bool s_components_initialized;
+static TaskHandle_t s_heartbeat_task;
+static resq_fsm_t s_fsm;
+
+static esp_err_t initialize_components_once(void)
 {
-    if (url == NULL || host_out == NULL || host_out_len == 0) {
-        return false;
+    if (s_components_initialized) {
+        return ESP_OK;
     }
 
-    host_out[0] = '\0';
-
-    const char *start = strstr(url, "://");
-    start = (start != NULL) ? (start + 3) : url;
-
-    if (*start == '\0') {
-        return false;
+    esp_err_t err = config_store_init();
+    if (err != ESP_OK) {
+        return err;
     }
 
-    const char *end = start;
-    while (*end != '\0' && *end != ':' && *end != '/' && *end != '?') {
-        end++;
+    err = adc_shared_service_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "adc_shared_service_init failed: %s", esp_err_to_name(err));
     }
 
-    size_t len = (size_t)(end - start);
-    if (len == 0 || len >= host_out_len) {
-        return false;
+    err = provisioning_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = wifi_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = backend_register_client_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = mqtt_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = paired_idle_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = calibration_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = calibration_fail_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = session_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = cpr_metrics_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = buzzer_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = telemetry_publisher_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = system_button_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = session_active_manager_init();
+    if (err != ESP_OK) {
+        return err;
     }
 
-    memcpy(host_out, start, len);
-    host_out[len] = '\0';
-    return true;
+    s_components_initialized = true;
+    ESP_LOGI(TAG, "Core firmware components initialized");
+    return ESP_OK;
 }
+
+static void get_heartbeat_session(bool *active,
+                                  bool *sensor_running,
+                                  char *session_id,
+                                  size_t session_id_len)
+{
+    *active = false;
+    *sensor_running = session_active_manager_is_sensor_running();
+    session_id[0] = '\0';
+
+    session_state_t state = {0};
+    if (session_manager_get_state(&state) != ESP_OK || !state.active) {
+        return;
+    }
+
+    *active = true;
+    strncpy(session_id, state.session_id, session_id_len - 1);
+    session_id[session_id_len - 1] = '\0';
+}
+
+static void heartbeat_task(void *arg)
+{
+    resq_fsm_t *fsm = (resq_fsm_t *)arg;
+
+    while (true) {
+        if (mqtt_manager_is_connected()) {
+            char latest_ip[sizeof(fsm->ip_address)] = {0};
+            if (wifi_manager_get_ip(latest_ip, sizeof(latest_ip)) == ESP_OK) {
+                strncpy(fsm->ip_address, latest_ip, sizeof(fsm->ip_address) - 1);
+                fsm->ip_address[sizeof(fsm->ip_address) - 1] = '\0';
+            }
+
+            bool session_active;
+            bool sensor_running;
+            char session_id[RESQ_SESSION_ID_MAX_LEN];
+            get_heartbeat_session(&session_active,
+                                  &sensor_running,
+                                  session_id,
+                                  sizeof(session_id));
+
+            esp_err_t err = mqtt_manager_publish_heartbeat(
+                &fsm->network_config,
+                &fsm->calibration_config,
+                fsm->current_state,
+                session_active,
+                sensor_running,
+                session_id,
+                fsm->ip_address,
+                wifi_manager_get_rssi());
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Heartbeat publish failed: %s", esp_err_to_name(err));
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
+    }
+}
+
+static esp_err_t start_heartbeat_once(void)
+{
+    if (s_heartbeat_task != NULL) {
+        return ESP_OK;
+    }
+
+    BaseType_t result = xTaskCreate(heartbeat_task,
+                                    "heartbeat_task",
+                                    HEARTBEAT_TASK_STACK_SIZE,
+                                    &s_fsm,
+                                    HEARTBEAT_TASK_PRIORITY,
+                                    &s_heartbeat_task);
+    if (result != pdPASS) {
+        s_heartbeat_task = NULL;
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+static void delay_ms(uint32_t delay)
+{
+    vTaskDelay(pdMS_TO_TICKS(delay));
+}
+
+static void restart_device(void)
+{
+    esp_restart();
+}
+
+static void enter_soft_off(void)
+{
+    ESP_LOGW(TAG, "System is now in soft-off state");
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+static const resq_fsm_ops_t s_fsm_ops = {
+    .initialize_components = initialize_components_once,
+    .network_set_defaults = network_config_set_defaults,
+    .calibration_set_defaults = calibration_config_set_defaults,
+    .network_validate = network_config_validate,
+    .calibration_validate = calibration_config_validate,
+    .load_network = config_store_load_network,
+    .load_calibration = config_store_load_calibration,
+    .save_network = config_store_save_network,
+    .save_calibration = config_store_save_calibration,
+    .clear_network = config_store_clear_network,
+    .clear_all = config_store_clear_all,
+    .provisioning_start = provisioning_manager_start,
+    .provisioning_stop = provisioning_manager_stop,
+    .provisioning_has_saved_config = provisioning_manager_has_saved_config,
+    .wifi_connect = wifi_manager_connect,
+    .wifi_disconnect = wifi_manager_disconnect,
+    .wifi_is_connected = wifi_manager_is_connected,
+    .wifi_get_ip = wifi_manager_get_ip,
+    .wifi_get_rssi = wifi_manager_get_rssi,
+    .backend_register = backend_register_client_register,
+    .mqtt_start = mqtt_manager_start,
+    .mqtt_stop = mqtt_manager_stop,
+    .mqtt_is_connected = mqtt_manager_is_connected,
+    .mqtt_publish_identity = mqtt_manager_publish_identity_event,
+    .mqtt_publish_status = mqtt_manager_publish_status,
+    .mqtt_publish_heartbeat = mqtt_manager_publish_heartbeat,
+    .start_heartbeat = start_heartbeat_once,
+    .paired_idle_run = paired_idle_manager_run,
+    .calibration_run = calibration_state_manager_run,
+    .calibration_fail_run = calibration_fail_manager_run,
+    .session_active_run = session_active_manager_run,
+    .session_has_pending_interruption =
+        session_active_manager_has_pending_interruption,
+    .session_publish_pending_interruption =
+        session_active_manager_publish_pending_interruption,
+    .session_sensor_is_running = session_active_manager_is_sensor_running,
+    .error_run = error_manager_run,
+    .error_set = error_manager_set_error,
+    .session_is_active = session_manager_is_active,
+    .session_get_state = session_manager_get_state,
+    .session_get_id = session_manager_get_session_id,
+    .session_stop = session_manager_stop,
+    .buzzer_stop = buzzer_manager_stop,
+    .telemetry_stop = telemetry_publisher_stop,
+    .calibration_cancel = calibration_manager_cancel,
+    .status_set_state = status_indicator_set_state,
+    .button_poll = system_button_manager_poll,
+    .button_drain_actions = system_button_manager_drain_actions,
+    .delay_ms = delay_ms,
+    .restart = restart_device,
+    .enter_soft_off = enter_soft_off,
+};
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "ResQ firmware boot - Step 8");
+    esp_err_t err = esp_netif_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
+    }
 
-    /* -------------------------------------------------
-     * Initialize persistent config storage
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(config_store_init());
-    ESP_ERROR_CHECK(factory_reset_init());
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(err));
+    }
 
     ESP_ERROR_CHECK(status_indicator_init());
     ESP_ERROR_CHECK(status_indicator_start());
-    status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
 
-    /* Hardware-triggered factory reset path */
-    if (factory_reset_button_held(pdMS_TO_TICKS(5000))) {
-        ESP_LOGW(TAG, "Factory reset requested by hardware button");
-        ESP_ERROR_CHECK(config_store_clear());
-        vTaskDelay(pdMS_TO_TICKS(500));
-        esp_restart();
+    err = system_button_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "system_button_manager_init early init failed: %s",
+                 esp_err_to_name(err));
+    }
+    err = error_manager_init();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "error_manager_init early init failed: %s",
+                 esp_err_to_name(err));
     }
 
-    device_config_t cfg;
-    ESP_ERROR_CHECK(config_store_load(&cfg));
+    ESP_ERROR_CHECK(resq_fsm_init(&s_fsm, &s_fsm_ops));
 
-    /* Boot-time config validation */
-    if (!factory_reset_config_valid(&cfg)) {
-        ESP_LOGW(TAG, "Stored config is invalid, clearing and falling back to provisioning");
-        ESP_ERROR_CHECK(config_store_clear());
-        ESP_ERROR_CHECK(config_store_load(&cfg));
-    }
-
-    /* -------------------------------------------------
-     * Initialize sensor layer only.
-     * DO NOT start sensor task here.
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(sensor_runtime_init(&cfg));
-    session_manager_init();
-
-    /* -------------------------------------------------
-     * Provisioning flow
-     * If device is not provisioned, start AP mode and
-     * wait for QR-based provisioning data.
-     * ------------------------------------------------- */
-    if (!cfg.provisioned) {
-        ESP_LOGW(TAG, "Device is not provisioned yet");
-        status_indicator_set(INDICATOR_STATE_PROVISIONING);
-
-        ESP_ERROR_CHECK(provisioning_start());
-        ESP_ERROR_CHECK(provisioning_wait_for_config(&cfg, portMAX_DELAY));
-        ESP_ERROR_CHECK(provisioning_stop());
-
-        status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
-    }
-
-    /* -------------------------------------------------
-     * Connect to Local Hub Wi-Fi
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(wifi_manager_init());
-    ESP_ERROR_CHECK(wifi_manager_connect_sta(
-        cfg.wifi_ssid,
-        cfg.wifi_pass,
-        pdMS_TO_TICKS(30000)
-    ));
-
-    /* -------------------------------------------------
-     * Register device with backend
-     * ------------------------------------------------- */
-    register_result_t reg = {0};
-    bool registration_ok = false;
-    int registration_failures = 0;
-    bool used_register_url_mqtt_fallback = false;
-
-    while (1) {
-        esp_err_t reg_err = register_client_send(&cfg, &reg);
-        if (reg_err == ESP_OK) {
-            registration_ok = true;
-            break;
-        }
-
-        registration_failures++;
-
-        bool have_cached_runtime =
-            (cfg.device_id[0] != '\0') &&
-            (cfg.manikin_id[0] != '\0') &&
-            (cfg.mqtt_host[0] != '\0') &&
-            (cfg.mqtt_port > 0);
-
-        if (have_cached_runtime && registration_failures >= 3) {
-            char derived_host[64] = {0};
-            if (derive_host_from_url(cfg.register_url, derived_host, sizeof(derived_host))) {
-                snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", derived_host);
-                cfg.mqtt_port = 1883;
-                used_register_url_mqtt_fallback = true;
-                ESP_LOGW(
-                    TAG,
-                    "Registration unavailable (%s). Using MQTT fallback derived from register_url: %s:%d",
-                    esp_err_to_name(reg_err),
-                    cfg.mqtt_host,
-                    cfg.mqtt_port
-                );
-            } else {
-                ESP_LOGW(
-                    TAG,
-                    "Registration unavailable (%s). Continuing with cached runtime config.",
-                    esp_err_to_name(reg_err)
-                );
-            }
-            break;
-        }
-
-        ESP_LOGW(
-            TAG,
-            "Registration failed: %s. Retrying in 3 seconds...",
-            esp_err_to_name(reg_err)
-        );
-        vTaskDelay(pdMS_TO_TICKS(3000));
-    }
-
-    if (registration_ok && !reg.ok) {
-        ESP_LOGE(TAG, "Backend rejected registration");
-        while (1) {
-            vTaskDelay(pdMS_TO_TICKS(2000));
-        }
-    }
-
-    /* -------------------------------------------------
-     * Merge backend-assigned runtime values into config
-     * and save once to NVS
-     * ------------------------------------------------- */
-    if (registration_ok && reg.assigned_device_id[0] != '\0') {
-        snprintf(cfg.device_id, sizeof(cfg.device_id), "%s", reg.assigned_device_id);
-    }
-
-    if (registration_ok && reg.assigned_manikin_id[0] != '\0') {
-        snprintf(cfg.manikin_id, sizeof(cfg.manikin_id), "%s", reg.assigned_manikin_id);
-    }
-
-    if (registration_ok && reg.mqtt_host[0] != '\0') {
-        snprintf(cfg.mqtt_host, sizeof(cfg.mqtt_host), "%s", reg.mqtt_host);
-    }
-
-    if (registration_ok && reg.mqtt_port > 0) {
-        cfg.mqtt_port = reg.mqtt_port;
-    }
-
-    ESP_ERROR_CHECK(config_store_save(&cfg));
-    if (registration_ok) {
-        ESP_LOGI(TAG, "Updated runtime config saved after registration");
-    } else if (used_register_url_mqtt_fallback) {
-        ESP_LOGW(TAG, "Runtime config saved with MQTT fallback endpoint %s:%d", cfg.mqtt_host, cfg.mqtt_port);
-    } else {
-        ESP_LOGW(TAG, "Runtime config saved without registration update (using cached values)");
-    }
-
-    ESP_LOGI(TAG, "Active runtime endpoint: mqtt=%s:%d register=%s", cfg.mqtt_host, cfg.mqtt_port, cfg.register_url);
-
-    /* -------------------------------------------------
-     * Initialize runtime modules that cache config
-     * only after final backend-assigned config is ready
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(command_handler_init(&cfg));
-    ESP_ERROR_CHECK(device_control_init(&cfg));
-
-    ESP_LOGI(TAG, "Command handler and device control initialized with final config");
-    
-    /* -------------------------------------------------
-     * Initialize device identity using final assigned IDs
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(device_identity_init(cfg.device_id, cfg.manikin_id));
-
-    device_identity_info_t ident;
-    ESP_ERROR_CHECK(device_identity_get(&ident));
-
-    ESP_LOGI(TAG, "Device identity initialized");
-    ESP_LOGI(TAG, "  device_id        : %s", ident.device_id);
-    ESP_LOGI(TAG, "  manikin_id       : %s", ident.manikin_id);
-    ESP_LOGI(TAG, "  firmware_version : %s", ident.firmware_version);
-    ESP_LOGI(TAG, "  hardware_revision: %s", ident.hardware_revision);
-    ESP_LOGI(TAG, "  chip_model       : %s", ident.chip_model);
-    ESP_LOGI(TAG, "  mac_address      : %s", ident.mac_address);
-    ESP_LOGI(TAG, "  reset_reason     : %d", ident.reset_reason);
-
-    /* -------------------------------------------------
-     * Start MQTT control channel
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(mqtt_manager_init(&cfg));
-    ESP_ERROR_CHECK(mqtt_manager_start());
-
-    /* -------------------------------------------------
-     * Start queued publisher
-     * Handles buffered/outbound messages that should be
-     * retried or sent asynchronously.
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(queued_publisher_init());
-    ESP_ERROR_CHECK(queued_publisher_start());
-
-    ESP_LOGI(TAG, "Queued publisher started");
-
-    /* -------------------------------------------------
-     * Publish one identity event after MQTT + queue are ready
-     * ------------------------------------------------- */
-    char *identity_payload = resq_payload_identity_event(
-        "device_identity",
-        ident.device_id,
-        ident.manikin_id,
-        ident.firmware_version,
-        ident.hardware_revision,
-        ident.build_date,
-        ident.build_time,
-        ident.chip_model,
-        ident.chip_cores,
-        ident.chip_revision,
-        ident.mac_address,
-        ident.reset_reason
-    );
-
-    if (identity_payload) {
-        queued_publisher_publish_or_queue(RESQ_SUFFIX_EVENTS, identity_payload, 1, 0);
-        cJSON_free(identity_payload);
-    }
-
-    status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
-
-    /* -------------------------------------------------
-     * Start telemetry publisher
-     * Telemetry is only sent during active sessions.
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(telemetry_publisher_init(&cfg));
-    ESP_ERROR_CHECK(telemetry_publisher_start());
-
-    ESP_LOGI(TAG, "Telemetry publisher started");
-    ESP_LOGI(TAG, "Telemetry will only be sent during active sessions");
-
-    /* -------------------------------------------------
-     * Start health monitor
-     * Heartbeat/status reporting stays active even when
-     * no session is running.
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(health_monitor_init(&cfg));
-    ESP_ERROR_CHECK(health_monitor_start());
-
-    ESP_LOGI(TAG, "Health monitor started");
-    ESP_LOGI(TAG, "Heartbeat/status reporting enabled");
-
-    /* -------------------------------------------------
-     * Start fault reporter
-     * Publishes sensor fault/recovery events when:
-     *  - MQTT is connected
-     *  - a session is active
-     *  - sensor runtime is running
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(fault_reporter_init(&cfg));
-    ESP_ERROR_CHECK(fault_reporter_start());
-
-    ESP_LOGI(TAG, "Fault reporter started");
-
-    /* -------------------------------------------------
-     * Start recovery manager
-     * Monitors connectivity/runtime health and triggers
-     * recovery actions when critical links fail.
-     * ------------------------------------------------- */
-    ESP_ERROR_CHECK(recovery_manager_init(&cfg));
-    ESP_ERROR_CHECK(recovery_manager_start());
-
-    /* Recovery policy:
-     * If Wi-Fi or MQTT drops during an active session,
-     * the session is forcefully aborted to keep state
-     * consistent and avoid publishing invalid data.
-     */
-    ESP_LOGI(TAG, "Recovery manager started");
-    ESP_LOGI(TAG, "Active sessions will be aborted if Wi-Fi or MQTT is lost");
-
-    /* -------------------------------------------------
-     * Idle loop
-     * Sensor task is started/stopped by MQTT session
-     * commands, not from here.
-     * ------------------------------------------------- */
-    ESP_LOGI(TAG, "Device is now idle and waiting for session commands");
-    ESP_LOGI(TAG, "Sensors will NOT run until session/start is received");
-
-    while (1) {
-        device_action_t action = device_control_get_pending_action();
-
-        if (action == DEVICE_ACTION_REBOOT) {
-            status_indicator_set(INDICATOR_STATE_RESETTING);
-            ESP_LOGW(TAG, "Applying pending reboot action");
-            sensor_runtime_stop();
-            session_manager_stop();
-            device_control_clear_pending_action();
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            esp_restart();
-        }
-
-        if (action == DEVICE_ACTION_UNPAIR_REBOOT) {
-            status_indicator_set(INDICATOR_STATE_RESETTING);
-            ESP_LOGW(TAG, "Applying pending unpair action");
-            sensor_runtime_stop();
-            session_manager_stop();
-            ESP_ERROR_CHECK(config_store_clear());
-            device_control_clear_pending_action();
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            esp_restart();
-        }
-
-        if (session_manager_is_active()) {
-            status_indicator_set(INDICATOR_STATE_SESSION_ACTIVE);
-            ESP_LOGI(TAG, "Session active: %s", session_manager_get_id());
-        } else if (wifi_manager_is_connected() && mqtt_manager_is_connected()) {
-            status_indicator_set(INDICATOR_STATE_ONLINE_IDLE);
-            ESP_LOGI(TAG, "Idle - waiting for Local Hub commands");
-        } else {
-            status_indicator_set(INDICATOR_STATE_WIFI_CONNECTING);
-            ESP_LOGW(TAG, "Waiting for connectivity recovery");
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(3000));
+    while (true) {
+        resq_fsm_step(&s_fsm);
+        vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_DELAY_MS));
     }
 }

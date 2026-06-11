@@ -2,6 +2,9 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.ActiveSessionInfo;
+import lk.resq.localhub.model.AuthUser;
+import lk.resq.localhub.model.UserRole;
+import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
@@ -32,24 +35,48 @@ public class ActiveSessionService {
 
     private final ConcurrentMap<String, ActiveSessionState> sessionsById = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> activeSessionIdByDeviceId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Long> lastAcceptedSeqBySessionId = new ConcurrentHashMap<>();
     private final ManikinRegistryService manikinRegistryService;
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final LocalSessionRepository localSessionRepository;
     private final LiveStreamService liveStreamService;
     private final TraineeRecordsRepository traineeRecordsRepository;
+    private final FirmwareCalibrationService firmwareCalibrationService;
+    private final SyncQueueService syncQueueService;
+    private final RosterCacheRepository rosterRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
             MqttCommandPublisherService mqttCommandPublisherService,
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
-            TraineeRecordsRepository traineeRecordsRepository
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.localSessionRepository = localSessionRepository;
         this.liveStreamService = liveStreamService;
         this.traineeRecordsRepository = traineeRecordsRepository;
+        this.firmwareCalibrationService = firmwareCalibrationService;
+        this.syncQueueService = syncQueueService;
+        this.rosterRepository = rosterRepository;
+    }
+
+    // Overload for backward compatibility / tests
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService
+    ) {
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null);
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -65,6 +92,10 @@ public class ActiveSessionService {
                 throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
             }
         }
+        firmwareCalibrationService.sessionStartBlockReason(deviceId)
+                .ifPresent(reason -> {
+                    throw new IllegalStateException(reason);
+                });
 
         String traineeId = resolveTraineeId(request);
 
@@ -78,7 +109,103 @@ public class ActiveSessionService {
                 true,
                 normalize(request.scenario()),
                 normalize(request.notes()),
+                null,
+                request.courseId(),
                 null
+        );
+
+        sessionsById.put(sessionId, state);
+        activeSessionIdByDeviceId.put(deviceId, sessionId);
+
+        try {
+            mqttCommandPublisherService.publishSessionStart(new SessionStartCommandPayload(
+                    sessionId,
+                    deviceId,
+                    state.traineeId,
+                    startedAt,
+                    state.scenario
+            ));
+            publishInstructorLiveSnapshot();
+            logger.info("Started session {} for device {}", sessionId, deviceId);
+        } catch (RuntimeException error) {
+            sessionsById.remove(sessionId, state);
+            activeSessionIdByDeviceId.remove(deviceId, sessionId);
+            logger.warn("Rolled back session {} for device {} because the start command could not be published", sessionId, deviceId, error);
+            throw new MqttCommandPublishException("Failed to publish session start command for device " + deviceId, error);
+        }
+
+        return toStartResponse(state);
+    }
+
+    public synchronized SessionStartResponse startSession(SessionStartRequest request, AuthUser actor) {
+        String deviceId = normalize(request.deviceId());
+        if (deviceId == null) {
+            throw new IllegalArgumentException("deviceId is required");
+        }
+
+        String existingSessionId = activeSessionIdByDeviceId.get(deviceId);
+        if (existingSessionId != null) {
+            ActiveSessionState existing = sessionsById.get(existingSessionId);
+            if (existing != null && existing.active) {
+                throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
+            }
+        }
+        firmwareCalibrationService.sessionStartBlockReason(deviceId)
+                .ifPresent(reason -> {
+                    throw new IllegalStateException(reason);
+                });
+
+        if (actor == null) {
+            throw new UnauthorizedException("Authentication is required.");
+        }
+
+        if (actor.role() == UserRole.TRAINEE) {
+            throw new ForbiddenException("Trainees are not allowed to start instructor-led sessions.");
+        }
+
+        String courseId = normalize(request.courseId());
+        String traineeId = normalize(request.traineeId());
+
+        if (courseId == null || traineeId == null) {
+            throw new IllegalArgumentException("courseId and traineeId are required");
+        }
+
+        if (rosterRepository != null) {
+            // Validate courseId refers to an active synced course
+            var course = rosterRepository.findCourseById(courseId)
+                    .orElseThrow(() -> new NoSuchElementException("Course not found or inactive: " + courseId));
+
+            // Validate traineeId refers to an active synced user with role TRAINEE
+            var trainee = rosterRepository.findSyncedUserById(traineeId)
+                    .filter(u -> u.active() && "TRAINEE".equalsIgnoreCase(u.role()))
+                    .orElseThrow(() -> new NoSuchElementException("Trainee not found or inactive: " + traineeId));
+
+            // Validate traineeId is enrolled in courseId through local_course_enrollments.active = 1
+            if (!rosterRepository.isTraineeEnrolled(courseId, traineeId)) {
+                throw new ForbiddenException("Trainee " + traineeId + " is not enrolled in course " + courseId);
+            }
+
+            // For INSTRUCTOR, current AuthUser.id must be assigned to courseId through local_course_instructors.active = 1
+            if (actor.role() == UserRole.INSTRUCTOR) {
+                if (!rosterRepository.isInstructorAssigned(courseId, actor.id())) {
+                    throw new ForbiddenException("Instructor " + actor.id() + " is not assigned to course " + courseId);
+                }
+            }
+        }
+
+        String sessionId = UUID.randomUUID().toString();
+        Instant startedAt = Instant.now();
+        ActiveSessionState state = new ActiveSessionState(
+                sessionId,
+                deviceId,
+                traineeId,
+                startedAt,
+                true,
+                normalize(request.scenario()),
+                normalize(request.notes()),
+                null,
+                courseId,
+                actor.id()
         );
 
         sessionsById.put(sessionId, state);
@@ -187,66 +314,114 @@ public class ActiveSessionService {
         SessionEndResponse response = toCompletedResponse(state, summary);
 
         localSessionRepository.save(response);
+        try {
+            syncQueueService.enqueueSessionSummary(response);
+            logger.info("Queued session {} for later cloud sync", state.sessionId);
+        } catch (RuntimeException error) {
+            logger.warn("Saved completed session {} locally but failed to queue it for cloud sync", state.sessionId, error);
+        }
+        lastAcceptedSeqBySessionId.remove(state.sessionId);
         liveStreamService.publishSessionLive(state.sessionId, null);
         publishInstructorLiveSnapshot();
         logger.info("Ended session {} for device {}", sessionId, state.deviceId);
         return response;
     }
 
-    public void recordTelemetry(String deviceId, JsonNode payload) {
-        String normalizedDeviceId = normalize(deviceId);
+    public TelemetryValidationResult validateTelemetryBinding(String topicDeviceId, JsonNode payload) {
+        String normalizedDeviceId = normalize(topicDeviceId);
         if (normalizedDeviceId == null) {
-            logger.debug("Ignoring telemetry for summary because deviceId is missing or blank");
-            return;
+            return TelemetryValidationResult.rejected("topic deviceId is missing");
         }
 
-        String sessionId = activeSessionIdByDeviceId.get(normalizedDeviceId);
-        if (sessionId == null) {
-            logger.info("Ignoring telemetry for summary on device {} because no active session exists", normalizedDeviceId);
-            return;
+        if (payload == null || !payload.isObject()) {
+            return TelemetryValidationResult.rejected("payload must be a JSON object");
         }
 
-        ActiveSessionState state = sessionsById.get(sessionId);
+        String payloadDeviceId = firstText(payload, null, "deviceId", "device_id");
+        if (payloadDeviceId != null && !normalizedDeviceId.equals(payloadDeviceId)) {
+            return TelemetryValidationResult.rejected("payload deviceId does not match MQTT topic deviceId");
+        }
+
+        String payloadSessionId = firstText(payload, null, "sessionId", "session_id");
+        if (payloadSessionId == null) {
+            return TelemetryValidationResult.rejected("payload sessionId is missing");
+        }
+
+        ActiveSessionState state = sessionsById.get(payloadSessionId);
         if (state == null || !state.active) {
-            logger.info(
-                    "Ignoring telemetry for summary on device {} because session {} is not active",
-                    normalizedDeviceId,
-                    sessionId
-            );
+            return TelemetryValidationResult.rejected("session is not active");
+        }
+
+        if (!state.deviceId.equals(normalizedDeviceId)) {
+            return TelemetryValidationResult.rejected("active session is assigned to a different device");
+        }
+
+        String activeSessionIdForDevice = activeSessionIdByDeviceId.get(normalizedDeviceId);
+        if (!payloadSessionId.equals(activeSessionIdForDevice)) {
+            return TelemetryValidationResult.rejected("device active session does not match payload sessionId");
+        }
+
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                TelemetryPayloadNormalizer.normalize(payload, normalizedDeviceId);
+        if (!normalization.ok()) {
+            return TelemetryValidationResult.rejected(normalization.reason());
+        }
+
+        Long seq = normalization.value().seq();
+        if (seq != null) {
+            Long previousSeq = lastAcceptedSeqBySessionId.get(payloadSessionId);
+            if (previousSeq != null && seq <= previousSeq) {
+                return TelemetryValidationResult.rejected("seq is not newer than the last accepted telemetry");
+            }
+        }
+
+        return TelemetryValidationResult.accepted(payloadSessionId, normalizedDeviceId);
+    }
+
+    public void recordTelemetry(String deviceId, JsonNode payload) {
+        TelemetryValidationResult validation = validateTelemetryBinding(deviceId, payload);
+        if (!validation.accepted()) {
+            logger.info("Rejected telemetry for device {}: {}", deviceId, validation.reason());
             return;
         }
 
-        Double depthMm = firstDouble(payload, null, "depthMm", "depth_mm", "current_delta");
-        Integer compressionCount = firstInt(payload, null, "total_compressions", "compressionCount", "compression_count");
-        Double rateCpm = firstDouble(payload, null, "rateCpm", "rate_cpm");
-        if (rateCpm == null && compressionCount != null) {
-            long elapsedSeconds = Math.max(1L, Duration.between(state.startedAt, Instant.now()).getSeconds());
-            rateCpm = (compressionCount * 60.0) / elapsedSeconds;
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                TelemetryPayloadNormalizer.normalize(payload, deviceId);
+        if (!normalization.ok()) {
+            logger.info("Rejected telemetry for device {}: {}", deviceId, normalization.reason());
+            return;
         }
 
-        String feedback = firstText(payload, null, "feedback");
-        Boolean recoilOk = firstBoolean(payload, null, "recoilOk", "recoil_ok", "recoil");
-        if (recoilOk == null && feedback != null) {
-            recoilOk = "NONE".equalsIgnoreCase(feedback) || feedback.toUpperCase().contains("OK");
+        ActiveSessionState state = sessionsById.get(validation.sessionId());
+        if (state == null || !state.active) {
+            logger.info("Rejected telemetry for device {}: session disappeared before recording", deviceId);
+            return;
         }
 
-        Double pauseS = firstDouble(payload, null, "pauseS", "pause_s");
-        String flags = firstFlags(payload, null, "flags");
-        if (flags == null) {
-            flags = feedback;
+        LiveMetricPayload metric = normalization.value();
+        state.accumulator.record(
+                metric.depthMm(),
+                metric.depthProgress(),
+                metric.rateCpm(),
+                metric.recoilOk(),
+            metric.pauseS(),
+            metric.compressionCount(),
+                flagsToString(metric.flags())
+        );
+        if (metric.seq() != null) {
+            lastAcceptedSeqBySessionId.put(state.sessionId, metric.seq());
         }
-
-        state.accumulator.record(depthMm, rateCpm, recoilOk, pauseS, flags);
         getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         logger.info(
-            "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, rateCpm={}, recoilOk={}, pauseS={})",
+            "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, depthProgress={}, rateCpm={}, recoilOk={}, pauseS={})",
             state.sessionId,
             state.deviceId,
             state.accumulator.sampleCount(),
-            depthMm,
-            rateCpm,
-            recoilOk,
-            pauseS
+            metric.depthMm(),
+            metric.depthProgress(),
+            metric.rateCpm(),
+            metric.recoilOk(),
+            metric.pauseS()
         );
     }
 
@@ -281,6 +456,8 @@ public class ActiveSessionService {
         return findActiveSessionForDevice(summary.deviceId())
                 .map(session -> new ManikinLiveSummary(
                         summary.deviceId(),
+                        summary.sessionId(),
+                        summary.manikinId(),
                         summary.online(),
                         summary.lastSeen(),
                         summary.state(),
@@ -302,7 +479,12 @@ public class ActiveSessionService {
                         session.sessionId(),
                         session.traineeId(),
                         session.startedAt(),
-                        session.scenario()
+                        session.scenario(),
+                        summary.latestMetric(),
+                        summary.seq(),
+                        summary.connectionState(),
+                        summary.stale(),
+                        summary.offline()
                 ))
                 .orElse(summary);
     }
@@ -334,6 +516,7 @@ public class ActiveSessionService {
         return Optional.of(new SessionLiveView(
                 state.sessionId,
                 state.deviceId,
+                summary != null ? summary.manikinId() : null,
                 state.traineeId,
                 state.active,
                 state.startedAt,
@@ -356,7 +539,12 @@ public class ActiveSessionService {
                 liveForce1,
                 liveForce2,
                 livePressureBalancePct,
-                livePressureSkewed
+                livePressureSkewed,
+                summary != null ? summary.latestMetric() : null,
+                summary != null ? summary.seq() : null,
+                summary != null ? summary.connectionState() : "CONNECTING",
+                summary != null && summary.stale(),
+                summary == null || summary.offline()
         ));
     }
 
@@ -386,7 +574,9 @@ public class ActiveSessionService {
                 state.startedAt,
                 state.active,
                 state.scenario,
-                state.notes
+                state.notes,
+                state.courseId,
+                state.instructorId
         );
     }
 
@@ -400,7 +590,9 @@ public class ActiveSessionService {
                 state.endedAt,
                 state.scenario,
                 state.notes,
-                summary
+                summary,
+                state.courseId,
+                state.instructorId
         );
     }
 
@@ -425,7 +617,7 @@ public class ActiveSessionService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private static Double firstDouble(JsonNode payload, Double fallback, String... keys) {
+    private static Long firstLong(JsonNode payload, Long fallback, String... keys) {
         if (payload == null) {
             return fallback;
         }
@@ -433,22 +625,7 @@ public class ActiveSessionService {
         for (String key : keys) {
             JsonNode node = payload.get(key);
             if (node != null && !node.isNull() && node.isNumber()) {
-                return node.asDouble();
-            }
-        }
-
-        return fallback;
-    }
-
-    private static Integer firstInt(JsonNode payload, Integer fallback, String... keys) {
-        if (payload == null) {
-            return fallback;
-        }
-
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node != null && !node.isNull() && node.isNumber()) {
-                return node.asInt();
+                return node.asLong();
             }
         }
 
@@ -475,55 +652,15 @@ public class ActiveSessionService {
         return fallback;
     }
 
-    private static Boolean firstBoolean(JsonNode payload, Boolean fallback, String... keys) {
-        if (payload == null) {
-            return fallback;
+    private static String flagsToString(Object flags) {
+        if (flags == null) {
+            return null;
         }
-
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node == null || node.isNull()) {
-                continue;
-            }
-
-            if (node.isBoolean()) {
-                return node.asBoolean();
-            }
-
-            if (node.isTextual()) {
-                String value = node.asText().trim();
-                if ("true".equalsIgnoreCase(value)) {
-                    return true;
-                }
-                if ("false".equalsIgnoreCase(value)) {
-                    return false;
-                }
-            }
+        if (flags instanceof String text) {
+            String trimmed = text.trim();
+            return trimmed.isEmpty() ? null : trimmed;
         }
-
-        return fallback;
-    }
-
-    private static String firstFlags(JsonNode payload, String fallback, String... keys) {
-        if (payload == null) {
-            return fallback;
-        }
-
-        for (String key : keys) {
-            JsonNode node = payload.get(key);
-            if (node == null || node.isNull()) {
-                continue;
-            }
-
-            if (node.isTextual()) {
-                String value = node.asText().trim();
-                return value.isEmpty() ? fallback : value;
-            }
-
-            return node.toString();
-        }
-
-        return fallback;
+        return flags.toString();
     }
 
     private static final class ActiveSessionState {
@@ -536,6 +673,8 @@ public class ActiveSessionService {
         private final SessionTelemetryAccumulator accumulator;
         private boolean active;
         private Instant endedAt;
+        private final String courseId;
+        private final String instructorId;
 
         private ActiveSessionState(
                 String sessionId,
@@ -545,7 +684,9 @@ public class ActiveSessionService {
                 boolean active,
                 String scenario,
                 String notes,
-                Instant endedAt
+                Instant endedAt,
+                String courseId,
+                String instructorId
         ) {
             this.sessionId = sessionId;
             this.deviceId = deviceId;
@@ -556,31 +697,70 @@ public class ActiveSessionService {
             this.notes = notes;
             this.endedAt = endedAt;
             this.accumulator = new SessionTelemetryAccumulator();
+            this.courseId = courseId;
+            this.instructorId = instructorId;
+        }
+    }
+
+    public record TelemetryValidationResult(
+            boolean accepted,
+            String reason,
+            String sessionId,
+            String deviceId
+    ) {
+        private static TelemetryValidationResult accepted(String sessionId, String deviceId) {
+            return new TelemetryValidationResult(true, null, sessionId, deviceId);
+        }
+
+        private static TelemetryValidationResult rejected(String reason) {
+            return new TelemetryValidationResult(false, reason, null, null);
         }
     }
 
     private static final class SessionTelemetryAccumulator {
         private int sampleCount;
+        private int totalCompressions;
+        private int validCompressions;
+        private int depthSampleCount;
+        private int depthProgressSampleCount;
+        private int rateSampleCount;
         private double depthSumMm;
+        private double depthProgressSum;
         private double rateSumCpm;
         private int recoilTrueCount;
         private int recoilFalseCount;
         private int pausesCount;
         private Double lastDepthMm;
+        private Double lastDepthProgress;
         private Double lastRateCpm;
         private Boolean lastRecoilOk;
         private Double lastPauseS;
         private String latestFlags;
 
-        private void record(Double depthMm, Double rateCpm, Boolean recoilOk, Double pauseS, String flags) {
+        private void record(Double depthMm, Double depthProgress, Double rateCpm, Boolean recoilOk, Double pauseS, Integer compressionCount, String flags) {
             sampleCount++;
 
+            if (compressionCount != null && compressionCount > 0) {
+                totalCompressions += compressionCount;
+                if (Boolean.TRUE.equals(recoilOk)) {
+                    validCompressions += compressionCount;
+                }
+            }
+
             if (depthMm != null) {
+                depthSampleCount++;
                 depthSumMm += depthMm;
                 lastDepthMm = depthMm;
             }
 
+            if (depthProgress != null) {
+                depthProgressSampleCount++;
+                depthProgressSum += depthProgress;
+                lastDepthProgress = depthProgress;
+            }
+
             if (rateCpm != null) {
+                rateSampleCount++;
                 rateSumCpm += rateCpm;
                 lastRateCpm = rateCpm;
             }
@@ -608,6 +788,10 @@ public class ActiveSessionService {
             return lastDepthMm;
         }
 
+        private Double lastDepthProgress() {
+            return lastDepthProgress;
+        }
+
         private Double lastRateCpm() {
             return lastRateCpm;
         }
@@ -632,14 +816,17 @@ public class ActiveSessionService {
             long durationSeconds = Math.max(0L, Duration.between(startedAt, endedAt).getSeconds());
             int totalSamples = sampleCount;
             int totalRecoilSamples = recoilTrueCount + recoilFalseCount;
-            double avgDepthMm = totalSamples == 0 ? 0.0 : depthSumMm / totalSamples;
-            double avgRateCpm = totalSamples == 0 ? 0.0 : rateSumCpm / totalSamples;
+            double avgDepthMm = depthSampleCount == 0 ? 0.0 : depthSumMm / depthSampleCount;
+            Double avgDepthProgress = depthProgressSampleCount == 0 ? null : depthProgressSum / depthProgressSampleCount;
+            double avgRateCpm = rateSampleCount == 0 ? 0.0 : rateSumCpm / rateSampleCount;
             double recoilPct = totalRecoilSamples == 0 ? 0.0 : (recoilTrueCount * 100.0) / totalRecoilSamples;
 
             logger.info(
-                    "Computed summary from telemetry (sessionId={}, sampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
+                    "Computed summary from telemetry (sessionId={}, sampleCount={}, depthSampleCount={}, depthProgressSampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
                     sessionId,
                     totalSamples,
+                    depthSampleCount,
+                    depthProgressSampleCount,
                     recoilTrueCount,
                     recoilFalseCount,
                     pausesCount
@@ -652,9 +839,15 @@ public class ActiveSessionService {
                     startedAt,
                     endedAt,
                     durationSeconds,
+                        totalSamples,
+                        totalCompressions,
+                        validCompressions,
                     avgDepthMm,
+                        avgDepthProgress,
                     avgRateCpm,
                     recoilPct,
+                        recoilTrueCount,
+                        recoilFalseCount,
                     pausesCount,
                     0,
                     latestFlags
@@ -667,9 +860,15 @@ public class ActiveSessionService {
                     baseSummary.startedAt(),
                     baseSummary.endedAt(),
                     baseSummary.durationSeconds(),
+                    baseSummary.sampleCount(),
+                    baseSummary.totalCompressions(),
+                    baseSummary.validCompressions(),
                     baseSummary.avgDepthMm(),
+                    baseSummary.avgDepthProgress(),
                     baseSummary.avgRateCpm(),
                     baseSummary.recoilPct(),
+                    baseSummary.recoilOkCount(),
+                    baseSummary.incompleteRecoilCount(),
                     baseSummary.pausesCount(),
                     calculateScore(baseSummary),
                     baseSummary.latestFlags()

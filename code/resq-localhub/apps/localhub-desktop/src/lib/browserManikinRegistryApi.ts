@@ -15,6 +15,9 @@ export type ManikinRegistryEntry = {
   rssi: number | null;       // WiFi signal strength in dBm
   battery: number | null;
   sessionActive: boolean | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  lastErrorId?: string | null;
 };
 
 function getManikinsRegistryUrl(): string {

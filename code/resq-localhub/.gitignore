@@ -1,11 +1,15 @@
 # Logs
 *.log
 logs/
+prompt_change.txt
+scripts/
+docs/
 
 # Environment files
 .env
 .env.local
 .env.*.local
+infra/mosquitto/passwords
 
 # Node / frontend
 node_modules/
@@ -21,6 +25,7 @@ Cargo.lock
 # Java / Maven
 *.class
 *.jar
+!apps/localhub-desktop/src-tauri/resources/hub-api/resq-hub-api.jar
 *.war
 *.ear
 .mvn/wrapper/maven-wrapper.jar
@@ -30,7 +35,25 @@ target/
 .idea/
 .vscode/
 *.iml
+.codex/*
+!.copilot/skills/
+.copilot/skills/*
+!.copilot/skills/graphify/
+!.copilot/skills/graphify/**
+
+.github/
+.codex/*
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/graphify/
+!.codex/skills/graphify/**
 
 # OS
 Thumbs.db
 .DS_Store
+
+.docs/*
+
+# Graphify knowledge graph outputs
+graphify-out/
+.agents/

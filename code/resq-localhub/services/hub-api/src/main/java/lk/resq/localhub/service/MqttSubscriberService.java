@@ -2,6 +2,10 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
+import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
+import lk.resq.localhub.model.firmware.FirmwareEventRecord;
+import lk.resq.localhub.model.firmware.FirmwareTopics;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttClient;
@@ -11,6 +15,7 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -18,12 +23,15 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class MqttSubscriberService {
@@ -32,10 +40,20 @@ public class MqttSubscriberService {
 
     // Keep topic handling canonical in one place for this slice.
     private static final List<String> SUBSCRIPTIONS = List.of(
+            FirmwareTopics.statusTopic("+"),
+            FirmwareTopics.heartbeatTopic("+"),
+            FirmwareTopics.telemetryTopic("+"),
+            FirmwareTopics.debugTopic("+"),
+            FirmwareTopics.eventsTopic("+"),
+            FirmwareTopics.calibrationEventsTopic("+"),
+            FirmwareTopics.errorEventsTopic("+"),
             "resq/manikins/+/status",
             "resq/manikins/+/heartbeat",
             "resq/manikins/+/telemetry",
+            "resq/manikins/+/debug",
             "resq/manikins/+/events",
+            "resq/manikins/+/events/calibration",
+            "resq/manikins/+/events/error",
             "resq/manikins/+/live"
     );
 
@@ -43,29 +61,65 @@ public class MqttSubscriberService {
     private final ManikinRegistryService manikinRegistryService;
     private final ActiveSessionService activeSessionService;
     private final LiveStreamService liveStreamService;
+    private final FirmwarePersistenceRepository firmwarePersistenceRepository;
 
     private final String brokerUrl;
     private final String clientId;
+    private final String username;
+    private final String password;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong acceptedTelemetryCount = new AtomicLong(0);
+    private final AtomicLong rejectedTelemetryCount = new AtomicLong(0);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private MqttClient mqttClient;
+
+    @Autowired
+    public MqttSubscriberService(
+            ObjectMapper objectMapper,
+            ManikinRegistryService manikinRegistryService,
+            ActiveSessionService activeSessionService,
+            LiveStreamService liveStreamService,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
+            @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
+            @Value("${resq.mqtt.username:}") String username,
+            @Value("${resq.mqtt.password:}") String password
+    ) {
+        this.objectMapper = objectMapper;
+        this.manikinRegistryService = manikinRegistryService;
+        this.activeSessionService = activeSessionService;
+        this.liveStreamService = liveStreamService;
+        this.firmwarePersistenceRepository = firmwarePersistenceRepository;
+        this.brokerUrl = brokerUrl;
+        this.clientId = clientId;
+        this.username = normalize(username);
+        this.password = password;
+    }
 
     public MqttSubscriberService(
             ObjectMapper objectMapper,
             ManikinRegistryService manikinRegistryService,
             ActiveSessionService activeSessionService,
             LiveStreamService liveStreamService,
-            @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
-            @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId
+            String brokerUrl,
+            String clientId,
+            String username,
+            String password
     ) {
-        this.objectMapper = objectMapper;
-        this.manikinRegistryService = manikinRegistryService;
-        this.activeSessionService = activeSessionService;
-        this.liveStreamService = liveStreamService;
-        this.brokerUrl = brokerUrl;
-        this.clientId = clientId;
+        this(
+                objectMapper,
+                manikinRegistryService,
+                activeSessionService,
+                liveStreamService,
+                defaultFirmwarePersistenceRepository(),
+                brokerUrl,
+                clientId,
+                username,
+                password
+        );
+        this.firmwarePersistenceRepository.initialize();
     }
 
     @PostConstruct
@@ -133,6 +187,7 @@ public class MqttSubscriberService {
         options.setCleanSession(true);
         options.setAutomaticReconnect(true);
         options.setConnectionTimeout(5);
+        applyCredentials(options);
 
         mqttClient.setCallback(new MqttCallback() {
             @Override
@@ -162,54 +217,29 @@ public class MqttSubscriberService {
         logger.info("MQTT subscriber subscribed to {} topic patterns", SUBSCRIPTIONS.size());
     }
 
-    private void handleMessage(String topic, MqttMessage message) {
+    private void applyCredentials(MqttConnectOptions options) {
+        if (username == null) {
+            return;
+        }
+
+        options.setUserName(username);
+        if (password != null && !password.isBlank()) {
+            options.setPassword(password.toCharArray());
+        }
+    }
+
+    void handleMessage(String topic, MqttMessage message) {
         ParsedTopic parsedTopic = parseTopic(topic);
         if (parsedTopic == null) {
+            logger.debug("Ignored MQTT topic outside the firmware contract: {}", topic);
             return;
         }
 
         String payloadText = new String(message.getPayload(), StandardCharsets.UTF_8);
 
+        JsonNode payload;
         try {
-            JsonNode payload = parsePayload(payloadText, topic);
-
-            switch (parsedTopic.messageType) {
-                case "status" -> {
-                    manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
-                    publishInstructorLiveSnapshot();
-                    logger.info("Processed MQTT status message for {}", parsedTopic.deviceId);
-                }
-                case "heartbeat" -> {
-                    manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
-                    publishInstructorLiveSnapshot();
-                    logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
-                }
-                case "telemetry" -> {
-                    try {
-                        manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, payload);
-                    } catch (RuntimeException error) {
-                        logger.warn(
-                                "Failed to update live registry from telemetry for {}. Continuing with session accumulator update.",
-                                parsedTopic.deviceId,
-                                error
-                        );
-                    }
-
-                    // Bridge telemetry into active-session summary accumulation for the same device.
-                    activeSessionService.recordTelemetry(parsedTopic.deviceId, payload);
-                    publishInstructorLiveSnapshot();
-                    publishSessionLiveForDevice(parsedTopic.deviceId);
-                    logger.info("Processed MQTT telemetry message for {} and forwarded to active-session accumulator", parsedTopic.deviceId);
-                }
-                case "events" -> {
-                    manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
-                    publishInstructorLiveSnapshot();
-                    logger.info("Processed MQTT event message for {}", parsedTopic.deviceId);
-                }
-                default -> {
-                    // Ignore unknown messages.
-                }
-            }
+            payload = parsePayload(payloadText, topic);
         } catch (Exception error) {
             logger.warn(
                     "Invalid MQTT JSON payload on topic {}. Raw payload: {}. Error message: {}",
@@ -218,6 +248,205 @@ public class MqttSubscriberService {
                     error.getMessage(),
                     error
             );
+            return;
+        }
+
+        try {
+            if (parsedTopic.canonicalFirmwareTopic) {
+                persistCanonicalMessage(topic, parsedTopic, payload);
+            }
+
+            switch (parsedTopic.messageType) {
+                case "status" -> {
+                    manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT status message for {}", parsedTopic.deviceId);
+                }
+                case "heartbeat" -> {
+                    manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
+                }
+                case "telemetry" -> {
+                    TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                            TelemetryPayloadNormalizer.normalize(payload, parsedTopic.deviceId);
+                    if (!normalization.ok()) {
+                        long rejected = rejectedTelemetryCount.incrementAndGet();
+                        logger.warn(
+                                "Rejected MQTT telemetry for device {} on topic {} during normalization: {} (accepted={}, rejected={})",
+                                parsedTopic.deviceId,
+                                topic,
+                                normalization.reason(),
+                                acceptedTelemetryCount.get(),
+                                rejected
+                        );
+                        return;
+                    }
+
+                    JsonNode normalizedPayload = objectMapper.valueToTree(normalization.value());
+                    ActiveSessionService.TelemetryValidationResult validation =
+                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, normalizedPayload);
+                    if (!validation.accepted()) {
+                        long rejected = rejectedTelemetryCount.incrementAndGet();
+                        logger.warn(
+                                "Rejected MQTT telemetry for device {} on topic {}: {} (accepted={}, rejected={})",
+                                parsedTopic.deviceId,
+                                topic,
+                                validation.reason(),
+                                acceptedTelemetryCount.get(),
+                                rejected
+                        );
+                        return;
+                    }
+
+                    if (!normalization.warnings().isEmpty()) {
+                        logger.info(
+                                "Normalized MQTT telemetry for device {} session {} with warnings: {}",
+                                validation.deviceId(),
+                                validation.sessionId(),
+                                normalization.warnings()
+                        );
+                    }
+
+                    manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, normalizedPayload);
+                    activeSessionService.recordTelemetry(parsedTopic.deviceId, normalizedPayload);
+                    long accepted = acceptedTelemetryCount.incrementAndGet();
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForDevice(parsedTopic.deviceId);
+                    logger.info(
+                            "Accepted MQTT telemetry for device {} session {} and forwarded to active-session accumulator (accepted={}, rejected={})",
+                            parsedTopic.deviceId,
+                            validation.sessionId(),
+                            accepted,
+                            rejectedTelemetryCount.get()
+                    );
+                }
+                case "debug" -> {
+                    manikinRegistryService.updateFromDebug(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT debug message for {}", parsedTopic.deviceId);
+                }
+                case "events" -> {
+                    manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT event message for {}", parsedTopic.deviceId);
+                }
+                case "events/calibration" -> {
+                    manikinRegistryService.updateFromCalibrationEvent(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT calibration event for {}", parsedTopic.deviceId);
+                }
+                case "events/error" -> {
+                    manikinRegistryService.updateFromErrorEvent(parsedTopic.deviceId, payload);
+                    publishInstructorLiveSnapshot();
+                    publishSessionLiveForPayload(payload);
+                    logger.info("Processed MQTT error event for {}", parsedTopic.deviceId);
+                }
+                default -> {
+                    // Ignore unknown messages.
+                }
+            }
+        } catch (Exception error) {
+            logger.warn(
+                    "Failed to process MQTT payload on topic {}. Raw payload: {}. Error message: {}",
+                    topic,
+                    payloadText,
+                    error.getMessage(),
+                    error
+            );
+        }
+    }
+
+    private void persistCanonicalMessage(String topic, ParsedTopic parsedTopic, JsonNode payload) {
+        String payloadJson = payload.toString();
+        Instant receivedAt = Instant.now();
+        Integer eventId = integer(payload, "event_id", "eventId");
+        String replyId = firstText(payload, "reply_id", "replyId", "request_id", "requestId");
+        String requestId = firstText(payload, "request_id", "requestId");
+        String status = firstText(payload, "status");
+        String result = firstText(payload, "result");
+        String reasonId = firstText(payload, "reason_id", "reasonId");
+        Integer actionId = integer(payload, "action_id", "actionId");
+        Integer progressId = integer(payload, "progress_id", "progressId");
+        String firmwareState = firstText(payload, "state");
+        String sessionId = firstText(payload, "sessionId", "session_id");
+        Long tsMs = longValue(payload, "ts_ms", "tsMs");
+
+        if ("debug".equals(parsedTopic.messageType)) {
+            firmwarePersistenceRepository.saveDebugSnapshot(new FirmwareDebugSnapshotRecord(
+                    0L,
+                    parsedTopic.deviceId,
+                    requestId,
+                    integer(payload, "pressure_0_raw", "pressure0Raw"),
+                    integer(payload, "pressure_1_raw", "pressure1Raw"),
+                    integer(payload, "pressure_2_raw", "pressure2Raw"),
+                    integer(payload, "hall_raw", "hallRaw"),
+                    tsMs,
+                    receivedAt,
+                    payloadJson
+            ));
+        } else {
+            firmwarePersistenceRepository.saveFirmwareEvent(new FirmwareEventRecord(
+                    0L,
+                    parsedTopic.deviceId,
+                    topic,
+                    parsedTopic.messageType,
+                    eventId,
+                    replyId,
+                    requestId,
+                    status,
+                    result,
+                    reasonId,
+                    actionId,
+                    progressId,
+                    firmwareState,
+                    sessionId,
+                    tsMs,
+                    receivedAt,
+                    payloadJson
+            ));
+
+            if ("events/calibration".equals(parsedTopic.messageType)) {
+                firmwarePersistenceRepository.saveCalibrationResult(new FirmwareCalibrationResultRecord(
+                        0L,
+                        parsedTopic.deviceId,
+                        firstText(payload, "profile_id", "profileId"),
+                        requestId,
+                        replyId,
+                        eventId,
+                        result,
+                        status,
+                        progressId,
+                        reasonId,
+                        actionId,
+                        firmwareState,
+                        calibrationState(result),
+                        tsMs,
+                        receivedAt,
+                        payloadJson
+                ));
+            }
+        }
+
+        if (replyId != null) {
+            boolean updated = firmwarePersistenceRepository.updateCommandFromReply(
+                    replyId,
+                    eventId,
+                    status,
+                    payloadJson,
+                    reasonId,
+                    actionId,
+                    receivedAt
+            );
+
+            if (!updated) {
+                logger.info("Observed firmware reply {} on {} but no matching command request was found", replyId, topic);
+            }
         }
     }
 
@@ -257,29 +486,61 @@ public class MqttSubscriberService {
         return normalized;
     }
 
-    private ParsedTopic parseTopic(String topic) {
-        // Expected structure: resq/manikins/{deviceId}/{kind}
+    ParsedTopic parseTopic(String topic) {
+        if (topic == null || topic.isBlank()) {
+            return null;
+        }
+
         String[] parts = topic.split("/");
-        if (parts.length != 4) {
+        if (parts.length < 3 || !"resq".equals(parts[0])) {
             return null;
         }
 
-        if (!"resq".equals(parts[0]) || !"manikins".equals(parts[1])) {
-            return null;
+        if ("manikins".equals(parts[1])) {
+            if (parts.length < 4) {
+                return null;
+            }
+
+            String deviceId = parts[2];
+            if (deviceId == null || deviceId.isBlank()) {
+                return null;
+            }
+
+            return parseMessageType(deviceId, parts, 3, false);
         }
 
-        String deviceId = parts[2];
+        String deviceId = parts[1];
         if (deviceId == null || deviceId.isBlank()) {
             return null;
         }
 
-        String kind = parts[3].toLowerCase(Locale.ROOT);
+        return parseMessageType(deviceId, parts, 2, true);
+    }
+
+    private ParsedTopic parseMessageType(String deviceId, String[] parts, int messageIndex, boolean canonicalFirmwareTopic) {
+        if (parts.length <= messageIndex) {
+            return null;
+        }
+
+        String kind = parts[messageIndex].toLowerCase(Locale.ROOT);
         String normalizedType = switch (kind) {
             case "status" -> "status";
             case "heartbeat" -> "heartbeat";
             case "telemetry" -> "telemetry";
-            case "events" -> "events";
-            case "live" -> "telemetry"; // Compatibility: treat /live as telemetry.
+            case "debug" -> "debug";
+            case "events" -> {
+                if (parts.length > messageIndex + 1) {
+                    String subKind = parts[messageIndex + 1].toLowerCase(Locale.ROOT);
+                    if ("calibration".equals(subKind)) {
+                        yield "events/calibration";
+                    }
+                    if ("error".equals(subKind)) {
+                        yield "events/error";
+                    }
+                }
+                yield "events";
+            }
+            case "live" -> "telemetry";
             default -> null;
         };
 
@@ -287,7 +548,20 @@ public class MqttSubscriberService {
             return null;
         }
 
-        return new ParsedTopic(deviceId, normalizedType);
+        return new ParsedTopic(deviceId, normalizedType, canonicalFirmwareTopic);
+    }
+
+    private static Boolean calibrationState(String result) {
+        if (result == null) {
+            return null;
+        }
+
+        String normalized = result.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "PASS", "READY", "CALIBRATED" -> true;
+            case "FAIL", "FAILED", "CANCELLED", "CANCELED" -> false;
+            default -> null;
+        };
     }
 
     private void publishInstructorLiveSnapshot() {
@@ -304,6 +578,104 @@ public class MqttSubscriberService {
                 .ifPresent(view -> liveStreamService.publishSessionLive(view.sessionId(), view));
     }
 
-    private record ParsedTopic(String deviceId, String messageType) {
+    private void publishSessionLiveForPayload(JsonNode payload) {
+        String sessionId = text(payload, "sessionId");
+        if (sessionId == null) {
+            sessionId = text(payload, "session_id");
+        }
+
+        if (sessionId == null) {
+            return;
+        }
+
+        String resolvedSessionId = sessionId;
+        activeSessionService.getSessionLiveView(resolvedSessionId)
+                .or(() -> manikinRegistryService.getSessionLiveView(resolvedSessionId))
+                .ifPresent(view -> liveStreamService.publishSessionLive(resolvedSessionId, view));
+    }
+
+    private static String text(JsonNode payload, String key) {
+        if (payload == null) {
+            return null;
+        }
+
+        JsonNode node = payload.get(key);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+
+        String value = node.asText().trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    private static String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String firstText(JsonNode payload, String... keys) {
+        for (String key : keys) {
+            String value = text(payload, key);
+            if (value != null) {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static FirmwarePersistenceRepository defaultFirmwarePersistenceRepository() {
+        return new FirmwarePersistenceRepository(Path.of(System.getProperty("user.home"), ".resq-localhub", "hub-api.sqlite").toString());
+    }
+
+    private static Integer integer(JsonNode payload, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isInt() || node.isLong() || node.isIntegralNumber()) {
+                return node.asInt();
+            }
+
+            if (node.isTextual()) {
+                try {
+                    return Integer.parseInt(node.asText().trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static Long longValue(JsonNode payload, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isNumber()) {
+                return node.asLong();
+            }
+
+            if (node.isTextual()) {
+                try {
+                    return Long.parseLong(node.asText().trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+
+        return null;
+    }
+
+    record ParsedTopic(String deviceId, String messageType, boolean canonicalFirmwareTopic) {
     }
 }

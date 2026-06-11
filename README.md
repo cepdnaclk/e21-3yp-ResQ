@@ -1,320 +1,202 @@
-<<<<<<< HEAD
 # ResQ
 
-ResQ is a smart CPR training system designed to support real-time, objective CPR practice feedback using a sensor-enabled manikin prototype, a local-first dashboard, and a backend that can run locally or in the cloud.
+**ResQ** is a smart CPR training system designed to make CPR practice more measurable, objective, and useful for both trainees and instructors.
 
-This repository includes:
-
-- A React/Vite frontend
-- A Spring Boot backend
-- Dual database support for local development and cloud deployment
-- Prototype workflow documentation for the CPR manikin hardware, firmware, calibration, dashboard, and roadmap
+The project combines a sensor-enabled CPR manikin prototype with a local-first software platform that gives real-time feedback during CPR practice and supports after-session review. ResQ is built for training and education, not for clinical diagnosis, treatment, or real patient care.
 
 ---
 
-## Project Goal
+## Project Idea
 
-The goal of ResQ is to build a CPR training system that can provide useful feedback during practice sessions.
+In many CPR training sessions, learners depend mainly on instructor observation to understand whether their compressions are deep enough, fast enough, properly released, and consistently performed. This can be difficult when one instructor supervises multiple trainees or when learners need repeated feedback to improve their technique.
 
-The system focuses on measuring and presenting:
+ResQ addresses this problem by turning a CPR manikin into a feedback-enabled training station. The system measures important CPR performance indicators during practice and presents them in a simple dashboard so trainees can correct mistakes and instructors can review performance more objectively.
 
-- Compression count
+The main idea is to provide a low-cost, locally buildable CPR training solution that supports practical learning environments such as university labs, skills labs, training centres, and outreach training sessions.
+
+---
+
+## Vision
+
+Our vision is to create an affordable CPR training platform that helps improve the quality of CPR practice through real-time, objective feedback.
+
+ResQ aims to support:
+
+- Better trainee self-correction during practice
+- Easier instructor supervision
+- More consistent CPR performance assessment
+- Local-first training without depending on internet access
+- Session records for review, improvement tracking, and academic evaluation
+- A prototype that can be improved toward future pilot testing with medical education partners
+
+The long-term direction is to make ResQ useful not only as a final-year project prototype, but also as a practical foundation for future CPR training research, validation, and product development.
+
+---
+
+## What ResQ Measures
+
+ResQ focuses on the core CPR performance areas that are important during training:
+
+- Compression depth
 - Compression rate
-- Compression depth estimate
-- Recoil quality
-- Pause time
+- Compression count
+- Chest recoil or full release
+- Pauses and interruptions
 - Hand placement or placement drift
-- Session-level score summary
-- Instructor comments and review data
+- Overall session quality
+- Instructor review and feedback
 
-ResQ is intended for training and educational use only. It is not certified for clinical use or real patient care.
-
----
-
-## Repository Structure
-
-```text
-frontend/
-  React + Vite user interface
-
-backend/
-  Spring Boot API
-
-backend/src/main/resources/schema-local.sql
-  SQLite schema for local development
-
-backend/src/main/resources/schema-cloud.sql
-  PostgreSQL schema for cloud deployment
-
-docs/
-  Project documentation, calibration notes, test plans, and design notes
-```
+These measurements are intended to help learners understand their CPR technique in a clearer and more objective way.
 
 ---
 
-## Run Locally
+## System Overview
 
-### Frontend
+At a high level, ResQ has three major parts:
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### 1. Sensor-Enabled Manikin Prototype
 
-The Vite development server will start the frontend.
+The manikin prototype is designed to detect CPR compression behaviour using embedded sensing. The current concept includes a chest overlay or retrofit module that can be placed on or integrated with a training manikin.
 
-The Vite dev server proxies `/api` requests to:
+### 2. Local Hub Application
 
-```text
-http://localhost:8080
-```
+The Local Hub is the instructor-side application. It supports local training sessions, live feedback, session control, and after-session review. The system is designed to work on a local network so CPR training can continue even without internet access.
+
+### 3. Dashboards for Feedback and Review
+
+The dashboard provides live CPR feedback during practice and session summaries after the session ends. The instructor can monitor trainee performance, review session results, and use the data for discussion or evaluation.
 
 ---
 
-### Backend
+## Project Scope
 
-```bash
-cd backend
-mvn spring-boot:run
-```
+### In Scope
 
-By default, the backend uses the local profile and runs with SQLite.
+ResQ currently focuses on:
 
----
+- Building a working CPR training prototype
+- Measuring key CPR practice metrics from a manikin
+- Showing live feedback during a training session
+- Supporting instructor-led session start and end workflow
+- Saving and reviewing session summaries
+- Supporting local-first operation
+- Preparing the system for testing, demonstration, and academic evaluation
+- Designing the solution to be affordable and locally buildable
 
-## Database Profiles
+### Out of Scope
 
-### Local Profile
+ResQ is not intended to be:
 
-The local profile is intended for development and local testing.
+- A certified medical device
+- A patient monitoring system
+- A clinical decision-making system
+- A replacement for certified CPR instructors
+- A final commercial product at the current prototype stage
 
-```text
-Database: SQLite
-Default Spring profile: local
-Database file: backend/data/resq-local.db
-Schema file: backend/src/main/resources/schema-local.sql
-```
-
----
-
-### Cloud Profile
-
-The cloud profile is intended for PostgreSQL deployment.
-
-Set the active Spring profile:
-
-```bash
-SPRING_PROFILES_ACTIVE=cloud
-```
-
-Provide the following environment variables:
-
-```bash
-SPRING_DATASOURCE_URL=<your-postgresql-url>
-SPRING_DATASOURCE_USERNAME=<your-username>
-SPRING_DATASOURCE_PASSWORD=<your-password>
-```
-
-Cloud schema file:
-
-```text
-backend/src/main/resources/schema-cloud.sql
-```
+The current project focuses on building and validating a functional educational prototype.
 
 ---
 
-## API Endpoints
+## Current Project Status
 
-The backend exposes the same hub routes expected by the frontend UI.
+ResQ is currently in the active implementation and integration stage.
 
-```text
-POST /api/auth/login
-GET  /api/hub/health
-GET  /api/mock/live
-GET  /api/mock/session/active
-POST /api/mock/session/start
-POST /api/mock/session/end
-GET  /api/mock/session/last-summary
-```
+### Completed or Mostly Defined
 
-These endpoints support authentication testing, hub health checks, live mock data, active session state, session start/end, and session summary retrieval.
+- Project concept and problem definition
+- Core CPR training feedback goals
+- Local-first system direction
+- Main software and firmware architecture direction
+- Dashboard role direction for instructor and trainee views
+- Manikin sensing concept using pressure/depth-related measurements
+- Safety and educational-use boundaries
+- Initial documentation and system requirements
 
----
+### In Progress
 
-# Getting Started: Prototype Workflow
+- Firmware development for the sensor-enabled manikin
+- Local Hub application development
+- Instructor dashboard workflow
+- Live training session flow
+- Calibration and readiness workflow
+- Sensor hardware integration
+- Manikin chest overlay / prototype refinement
+- Session summary and export workflow
+- End-to-end testing between firmware, Local Hub, and dashboard
 
-This section describes the planned hardware, firmware, dashboard, calibration, and roadmap workflow for the CPR manikin prototype.
+### Planned Next
 
----
-
-## 1. Hardware Prototype
-
-Build the CPR manikin sensing stack using:
-
-- A 2×2 TPU bladder array
-- Sternum plate
-- Chest-like cover or stitched overlay
-- Pressure sensor or sensors with ADC
-- Hall sensor and magnet for sternum movement tracking
-
-The hardware prototype should be designed to give a realistic compression feel while still allowing sensor readings to be collected reliably.
-
----
-
-## 2. Firmware
-
-The firmware should read sensor values and calculate meaningful CPR training metrics.
-
-Firmware responsibilities:
-
-- Read pressure sensor data
-- Read Hall sensor or depth-related sensor data
-- Detect compression events
-- Estimate compression depth in millimetres
-- Calculate compression rate in compressions per minute
-- Detect pause time
-- Detect recoil or incomplete release
-- Estimate placement drift such as left, right, up, or down
-- Send data to the dashboard/backend
-
-Main computed values:
-
-```text
-compression count
-rate_cpm
-depth_mm
-pause_time
-recoil_ok
-placement_drift
-```
+- Complete stable calibration workflow
+- Improve live feedback accuracy and reliability
+- Finalize hardware prototype assembly
+- Validate sensor readings through repeated trials
+- Improve dashboard usability for demonstrations
+- Prepare final project evaluation and demonstration
+- Explore optional cloud sync and long-term session history after the local system is stable
 
 ---
 
-## 3. Dashboard
+## Intended Users
 
-The dashboard should support live monitoring and after-session review.
+ResQ is mainly designed for:
 
-Planned dashboard features:
-
-- Live graphs
-- Real-time indicators
-- Compression depth feedback
-- Compression rate feedback
-- Recoil feedback
-- Pause detection
-- Session save
-- Score summary
-- Instructor comments box
-- Export or review of completed sessions
+- CPR trainees
+- Medical and nursing students
+- First-aid learners
+- Instructors and trainers
+- Academic evaluators
+- Training centres or institutions interested in objective CPR practice feedback
 
 ---
 
-## Calibration
+## Educational Value
 
-Calibration is important because raw sensor values are not automatically meaningful.
+ResQ helps turn CPR training from only observation-based feedback into a more data-supported learning experience.
 
-Required calibration steps:
+For trainees, it gives clearer feedback on what they are doing well and what they need to improve.
 
-### 1. Zero Calibration
+For instructors, it supports more consistent supervision, easier review, and better documentation of training sessions.
 
-Take a baseline reading when there is no load on the manikin.
-
-This helps remove sensor offset and makes future readings relative to the resting state.
-
----
-
-### 2. Depth Calibration
-
-Use known displacement steps to map sensor readings to actual compression depth.
-
-Example:
-
-```text
-0 mm
-10 mm
-20 mm
-30 mm
-40 mm
-50 mm
-60 mm
-```
-
-This helps convert Hall sensor or displacement-related readings into depth in millimetres.
-
----
-
-### 3. Pressure Calibration
-
-Calibrate each bladder or pressure channel.
-
-This can be done using either:
-
-- Absolute pressure values, or
-- Relative ratio-based normalization between bladder readings
-
-This is useful for placement detection and consistency between sessions.
-
----
-
-### 4. Threshold Tuning
-
-Tune CPR feedback thresholds for different training profiles.
-
-Example profiles:
-
-- Adult CPR profile
-- Child CPR profile
-- Beginner training profile
-- Advanced training profile
-
-Calibration notes should be documented under:
-
-```text
-/docs/calibration
-```
-
----
-
-## Roadmap
-
-Planned next steps:
-
-- [ ] Finalize mechanical stack with stable compressibility and durability
-- [ ] Lock the sensor strategy: pressure + depth, or depth-only MVP
-- [ ] Implement robust compression event detection using hysteresis and debounce
-- [ ] Build instructor dashboard mock and convert it into a working prototype UI
-- [ ] Add session logging
-- [ ] Add CSV/PDF export
-- [ ] Add validation with repeated trials
-- [ ] Define a basic scoring rubric
-- [ ] Improve calibration documentation
-- [ ] Prepare for final demonstration and evaluation
+For the project team, it provides a complete engineering challenge involving hardware prototyping, embedded systems, local networking, real-time dashboards, software architecture, data handling, and user-centred design.
 
 ---
 
 ## Safety and Ethics
 
-- ResQ is for CPR training use only.
-- ResQ is not certified for clinical use.
-- ResQ must not be used for real patient care or clinical decision-making.
-- Sensitive personal data should not be stored in public repositories.
-- Feedback thresholds should reference accepted CPR training guidelines.
-- CPR guideline citations should be added before final academic submission.
+ResQ is strictly a CPR training and education tool.
+
+- It must not be used for real patient care.
+- It must not be treated as a certified medical device.
+- CPR feedback rules should be reviewed with qualified medical educators.
+- Trainee data should be handled responsibly.
+- Sensitive information should not be stored in public repositories.
+- The system should be evaluated carefully before being used in any formal training workflow.
+
+---
+
+## Project Direction
+
+The immediate goal is to complete a stable prototype that can demonstrate the full training flow:
+
+```text
+Prepare manikin
+Start local training session
+Perform CPR practice
+Show live feedback
+End session
+Review performance summary
+Use results for learning and improvement
+```
+
+After the local prototype becomes stable, the project can be extended with better hardware refinement, improved scoring, pilot validation, optional cloud-based history, and broader training analytics.
 
 ---
 
 ## License
 
-To be decided.
+License to be decided.
 
-Possible options:
-
-- MIT
-- Apache-2.0
-- All rights reserved
-
-Until the license is finalized, assume:
+Until a license is finalized, assume:
 
 ```text
 All rights reserved.
@@ -324,4 +206,4 @@ All rights reserved.
 
 ## Contact
 
-For questions, design suggestions, collaboration requests, or issue reporting, open an issue in this repository.
+For questions, collaboration, feedback, or issue reporting, contact the ResQ project team or open an issue in this repository.

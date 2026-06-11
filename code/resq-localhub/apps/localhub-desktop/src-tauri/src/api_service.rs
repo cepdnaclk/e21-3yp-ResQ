@@ -1,187 +1,158 @@
-use serde::Serialize;
 use std::{
-    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
 };
-use tauri::State;
+use tauri::{Manager, State};
 
 #[derive(Default)]
 pub struct ApiServiceState {
     child: Mutex<Option<Child>>,
 }
 
-#[derive(Serialize, Clone)]
-pub struct ApiServiceStatus {
-    pub running: bool,
-    pub pid: Option<u32>,
-}
-
-const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
-
 impl ApiServiceState {
-    fn backend_dir() -> Result<PathBuf, String> {
-        let backend_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(BACKEND_RELATIVE_PATH);
-
-        if !backend_dir.exists() {
-            return Err(format!("Backend project not found at {}", backend_dir.display()));
-        }
-
-        Ok(backend_dir)
-    }
-
-    fn snapshot_status(child_slot: &mut Option<Child>) -> ApiServiceStatus {
-        if let Some(child) = child_slot.as_mut() {
-            if matches!(child.try_wait(), Ok(Some(_))) {
-                *child_slot = None;
-            }
-        }
-
-        match child_slot.as_ref() {
-            Some(child) => ApiServiceStatus {
-                running: true,
-                pid: Some(child.id()),
-            },
-            None => ApiServiceStatus {
-                running: false,
-                pid: None,
-            },
-        }
-    }
-
-    fn build_command(backend_dir: &Path) -> Command {
-        #[cfg(target_os = "windows")]
-        {
-            let wrapper = backend_dir.join("mvnw.cmd");
-
-            if wrapper.exists() {
-                let mut command = Command::new("cmd");
-                command.args(["/C", "mvnw.cmd", "spring-boot:run"]);
-                command.current_dir(backend_dir);
-                command.stdin(Stdio::null());
-                return command;
-            }
-
-            let mut command = Command::new("mvn");
-            command.arg("spring-boot:run");
-            command.current_dir(backend_dir);
-            command.stdin(Stdio::null());
-            return command;
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let wrapper = backend_dir.join("mvnw");
-
-            if wrapper.exists() {
-                let mut command = Command::new("./mvnw");
-                command.arg("spring-boot:run");
-                command.current_dir(backend_dir);
-                command.stdin(Stdio::null());
-                return command;
-            }
-
-            let mut command = Command::new("mvn");
-            command.arg("spring-boot:run");
-            command.current_dir(backend_dir);
-            command.stdin(Stdio::null());
-            command
-        }
-    }
-
-    pub fn start(&self) -> Result<ApiServiceStatus, String> {
+    pub fn start_with_app(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let mut child_slot = self
             .child
             .lock()
             .map_err(|_| "Failed to lock backend state".to_string())?;
 
-        let current_status = Self::snapshot_status(&mut child_slot);
-        if current_status.running {
-            return Ok(current_status);
-        }
-
-        let backend_dir = Self::backend_dir()?;
-        let mut command = Self::build_command(&backend_dir);
-        let child = command
-            .spawn()
-            .map_err(|error| format!("Failed to start backend: {error}"))?;
-
-        let pid = child.id();
-        *child_slot = Some(child);
-
-        Ok(ApiServiceStatus {
-            running: true,
-            pid: Some(pid),
-        })
-    }
-
-    pub fn stop(&self) -> Result<ApiServiceStatus, String> {
-        let mut child_slot = self
-            .child
-            .lock()
-            .map_err(|_| "Failed to lock backend state".to_string())?;
-
-        Self::snapshot_status(&mut child_slot);
-
-        if let Some(mut child) = child_slot.take() {
-            Self::terminate_child(&mut child)?;
-        }
-
-        Ok(ApiServiceStatus {
-            running: false,
-            pid: None,
-        })
-    }
-
-    fn terminate_child(child: &mut Child) -> Result<(), String> {
-        #[cfg(target_os = "windows")]
-        {
-            let pid = child.id().to_string();
-            let taskkill_status = Command::new("taskkill")
-                .args(["/PID", &pid, "/T", "/F"])
-                .status();
-
-            if let Ok(status) = taskkill_status {
-                if !status.success() {
-                    let _ = child.kill();
-                }
-            } else {
-                let _ = child.kill();
-            }
-
-            let _ = child.wait();
+        if Self::child_is_running(&mut child_slot)? {
             return Ok(());
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            child
-                .kill()
-                .map_err(|error| format!("Failed to stop backend: {error}"))?;
-            let _ = child.wait();
-            Ok(())
+        let resource_dir = app.path().resource_dir().map_err(|error| {
+            format!("Failed to resolve application resource directory: {error}")
+        })?;
+        let jar_path = resource_dir.join("hub-api").join("resq-hub-api.jar");
+        let config_path = resource_dir
+            .join("config")
+            .join("application-release.properties");
+
+        if !jar_path.is_file() {
+            return Err(format!("Backend JAR not found: {}", jar_path.display()));
         }
+
+        if !config_path.is_file() {
+            return Err(format!(
+                "Backend config not found: {}",
+                config_path.display()
+            ));
+        }
+
+        let child = Command::new("java")
+            .arg("-jar")
+            .arg(&jar_path)
+            .arg(format!(
+                "--spring.config.location={}",
+                config_path.display()
+            ))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| {
+                format!("Failed to start backend API. Is Java installed? Error: {error}")
+            })?;
+
+        *child_slot = Some(child);
+        Ok(())
+    }
+
+    pub fn stop(&self) -> Result<(), String> {
+        let mut child_slot = self
+            .child
+            .lock()
+            .map_err(|_| "Failed to lock backend state".to_string())?;
+
+        if let Some(child) = child_slot.as_mut() {
+            Self::terminate_child(child)?;
+        }
+
+        *child_slot = None;
+        Ok(())
+    }
+
+    pub fn is_running(&self) -> Result<bool, String> {
+        let mut child_slot = self
+            .child
+            .lock()
+            .map_err(|_| "Failed to lock backend state".to_string())?;
+
+        Self::child_is_running(&mut child_slot)
+    }
+
+    fn child_is_running(child_slot: &mut Option<Child>) -> Result<bool, String> {
+        let has_exited = match child_slot.as_mut() {
+            Some(child) => child
+                .try_wait()
+                .map_err(|error| format!("Failed to query backend status: {error}"))?
+                .is_some(),
+            None => false,
+        };
+
+        if has_exited {
+            *child_slot = None;
+        }
+
+        Ok(child_slot.is_some())
+    }
+
+    fn terminate_child(child: &mut Child) -> Result<(), String> {
+        if child
+            .try_wait()
+            .map_err(|error| format!("Failed to query backend status: {error}"))?
+            .is_none()
+        {
+            Self::kill_child(child)?;
+        }
+
+        child
+            .wait()
+            .map_err(|error| format!("Failed to wait for backend shutdown: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn kill_child(child: &mut Child) -> Result<(), String> {
+        let pid = child.id().to_string();
+        let taskkill_result = Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        if matches!(taskkill_result, Ok(status) if status.success()) {
+            return Ok(());
+        }
+
+        child
+            .kill()
+            .map_err(|error| format!("Failed to stop backend: {error}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn kill_child(child: &mut Child) -> Result<(), String> {
+        child
+            .kill()
+            .map_err(|error| format!("Failed to stop backend: {error}"))
     }
 }
 
 #[tauri::command]
-pub fn start_api_service(state: State<'_, ApiServiceState>) -> Result<ApiServiceStatus, String> {
-    state.start()
+pub fn start_api_service(
+    app: tauri::AppHandle,
+    state: State<'_, ApiServiceState>,
+) -> Result<(), String> {
+    state.start_with_app(&app)
 }
 
 #[tauri::command]
-pub fn stop_api_service(state: State<'_, ApiServiceState>) -> Result<ApiServiceStatus, String> {
+pub fn stop_api_service(state: State<'_, ApiServiceState>) -> Result<(), String> {
     state.stop()
 }
 
 #[tauri::command]
-pub fn get_api_service_status(
-    state: State<'_, ApiServiceState>,
-) -> Result<ApiServiceStatus, String> {
-    let mut child_slot = state
-        .child
-        .lock()
-        .map_err(|_| "Failed to lock backend state".to_string())?;
-
-    Ok(ApiServiceState::snapshot_status(&mut child_slot))
+pub fn get_api_service_status(state: State<'_, ApiServiceState>) -> Result<bool, String> {
+    state.is_running()
 }

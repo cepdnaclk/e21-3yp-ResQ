@@ -4,6 +4,8 @@ import java.time.Instant;
 
 public record ManikinLiveSummary(
         String deviceId,
+        String sessionId,
+        String manikinId,
         boolean online,
         Instant lastSeen,
         String state,
@@ -25,6 +27,11 @@ public record ManikinLiveSummary(
         String activeSessionId,
         String activeTraineeId,
         Instant activeSessionStartedAt,
-        String activeSessionScenario
+        String activeSessionScenario,
+        LiveMetricPayload latestMetric,
+        Long seq,
+        String connectionState,
+        boolean stale,
+        boolean offline
 ) {
 }

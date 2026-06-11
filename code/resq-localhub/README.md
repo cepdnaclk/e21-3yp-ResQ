@@ -29,6 +29,14 @@ It is a Windows-first desktop application intended for an instructor PC to manag
 
 ## Quick Start
 
+For a Windows-first local demo path, start with:
+
+- [Local demo runbook](docs/local-demo-runbook.md)
+- [Local demo launcher](scripts/local-demo/start-local-demo.ps1)
+- [Local firmware simulator smoke test](docs/local-firmware-simulator-smoke-test.md)
+- [Real ESP32 integration smoke test](docs/real-esp32-localhub-integration-smoke-test.md)
+- [Local firmware integration handoff](docs/localhub-firmware-integration-handoff.md)
+
 ### 1) Backend API
 
 ```powershell
@@ -50,6 +58,19 @@ For broker lifecycle control from the desktop app, Mosquitto path resolution is:
 
 - `MOSQUITTO_EXE` environment variable (if set), otherwise `mosquitto` from PATH
 - `MOSQUITTO_CONF` environment variable (if set), otherwise `infra/mosquitto/mosquitto.conf`
+
+Local Mosquitto exposes two development listeners:
+
+- TCP MQTT on `1883` for ESP32 devices and the backend subscriber
+- MQTT-over-WebSocket on `9001` for future browser dashboard display clients
+
+To verify the broker config directly:
+
+```powershell
+mosquitto -c infra/mosquitto/mosquitto.conf -v
+Test-NetConnection localhost -Port 1883
+Test-NetConnection localhost -Port 9001
+```
 
 The LAN Info card now reads hostname and primary local IPv4 from Tauri. If no non-loopback IPv4 is found, it shows `Not detected`.
 
@@ -128,3 +149,7 @@ See:
 - `docs/architecture-overview.md`
 - `docs/open-source-plan.md`
 - `docs/development-plan.md`
+- `docs/local-demo-runbook.md`
+- `docs/local-firmware-simulator-smoke-test.md`
+- `docs/real-esp32-localhub-integration-smoke-test.md`
+- `docs/localhub-firmware-integration-handoff.md`

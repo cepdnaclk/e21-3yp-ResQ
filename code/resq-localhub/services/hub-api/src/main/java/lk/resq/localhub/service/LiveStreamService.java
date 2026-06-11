@@ -105,10 +105,18 @@ public class LiveStreamService {
         try {
             Object safePayload = (payload != null) ? payload : Map.of();
             emitter.send(SseEmitter.event().name(eventName).data(safePayload, MediaType.APPLICATION_JSON));
-        } catch (IOException | IllegalStateException error) {
+        } catch (IOException | RuntimeException error) {
             onFailure.run();
-            emitter.complete();
+            completeQuietly(emitter);
             logger.debug("Removed disconnected SSE emitter while sending {} event", eventName, error);
+        }
+    }
+
+    private void completeQuietly(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (RuntimeException error) {
+            logger.debug("Ignoring SSE emitter completion failure after send error", error);
         }
     }
 

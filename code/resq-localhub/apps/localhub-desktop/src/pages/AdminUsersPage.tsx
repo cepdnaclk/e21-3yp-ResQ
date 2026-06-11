@@ -207,7 +207,7 @@ export default function AdminUsersPage() {
           style={{
             padding: "60px 24px",
             textAlign: "center",
-            background: "#ffffff",
+            background: "var(--surface-strong)",
             borderRadius: "16px",
             boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
           }}
@@ -223,7 +223,7 @@ export default function AdminUsersPage() {
                 style={{
                   padding: "60px 24px",
                   textAlign: "center",
-                  background: "#ffffff",
+                  background: "var(--surface-strong)",
                   borderRadius: "16px",
                   boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
                 }}
@@ -243,12 +243,12 @@ export default function AdminUsersPage() {
                     <div
                       key={user.id}
                       style={{
-                        background: "#ffffff",
+                        background: "var(--surface-strong)",
                         borderRadius: "14px",
                         padding: "20px",
                         boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08), 0 8px 16px rgba(0, 0, 0, 0.04)",
                         transition: "all 0.3s ease",
-                        border: "1px solid #e2e8f0",
+                        border: "1px solid var(--line)",
                         opacity: isDisabled ? 0.7 : 1,
                       }}
                       onMouseEnter={(e) => {
@@ -280,7 +280,7 @@ export default function AdminUsersPage() {
                         </div>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#0f172a" }}>{user.displayName}</h3>
+                            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "var(--text)" }}>{user.displayName}</h3>
                             {isCurrentUser && (
                               <span
                                 style={{
@@ -296,7 +296,7 @@ export default function AdminUsersPage() {
                               </span>
                             )}
                           </div>
-                          <p style={{ margin: 0, fontSize: "0.85rem", color: "#64748b", fontFamily: "monospace" }}>{user.username}</p>
+                          <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--muted)", fontFamily: "monospace" }}>{user.username}</p>
                         </div>
                         {isDisabled && (
                           <div
@@ -369,7 +369,7 @@ export default function AdminUsersPage() {
                         </button>
                       )}
                       {(isCurrentUser || isAdmin) && (
-                        <div style={{ padding: "10px", background: "#f1f5f9", borderRadius: "8px", textAlign: "center", fontSize: "0.85rem", color: "#64748b" }}>
+                        <div style={{ padding: "10px", background: "var(--surface-soft)", borderRadius: "8px", textAlign: "center", fontSize: "0.85rem", color: "var(--muted)" }}>
                           {isCurrentUser ? "Current user" : "Admin account"}
                         </div>
                       )}
@@ -504,7 +504,7 @@ export default function AdminUsersPage() {
                   (e.currentTarget as HTMLInputElement).style.boxShadow = "none";
                 }}
               />
-              <span style={{ fontSize: "0.8rem", color: "#64748b" }}>Minimum 8 characters</span>
+              <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Minimum 8 characters</span>
             </label>
 
             {formError && (

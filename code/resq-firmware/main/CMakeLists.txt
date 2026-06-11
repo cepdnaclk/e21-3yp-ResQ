@@ -1,14 +1,35 @@
 idf_component_register(
-    SRCS "main.c"
-    INCLUDE_DIRS "."
+    SRCS
+        "main.c"
+
+    INCLUDE_DIRS
+        "."
+
     REQUIRES
-        sensor_runtime
-        app_config
-        provisioning
-        network
-        messaging
-        protocol
+        config
+        adc_shared_service
         runtime
-        device_identity
-        board_config
+        error_manager
+        runtime_helpers
+        provisioning_manager
+        wifi_manager
+        backend_register_client
+        mqtt_manager
+        session_manager
+        cpr_metrics
+        telemetry_publisher
+        buzzer_manager
+        session_active_manager
+        paired_idle_manager
+        calibration_manager
+        calibration_fail_manager
+        calibration_state_manager
+        system_button_manager
+        firmware_state_machine
+        nvs_flash
+        esp_event
+        esp_netif
+        esp_wifi
+        esp_timer
+        freertos
 )

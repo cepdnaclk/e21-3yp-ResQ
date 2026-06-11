@@ -1,45 +1,122 @@
-// This file handles the API calls related to manikin pairing and provisioning.
-// "Provisioning" means giving a new manikin its network and identity settings
-// so it can join the local hub for the first time.
+// Browser-safe helpers for local firmware onboarding/provisioning.
 
-// This is the shape of data the backend returns when we request a pairing token.
-// The backend generates a one-time token tied to this specific deviceId.
-export type PairingTokenResponse = {
-  deviceId: string;
-  token: string;       // the one-time secret the manikin uses to prove its identity
-  expiresAt: string;   // ISO date string — the token is only valid until this time
+export type HubServiceInfoResponse = {
+  ok: boolean;
+  backend_base_url: string;
+  mqtt_host: string;
+  mqtt_port: number;
+  dashboard_url?: string | null;
+  local_ip?: string | null;
 };
 
-// Builds the URL for the pair-request endpoint.
-// We use window.location.hostname so this works whether you're on localhost
-// or accessing from a phone on the same LAN (e.g. 192.168.1.5).
-function getPairRequestUrl(): string {
-  return `http://${window.location.hostname}:18080/api/manikins/pair-request`;
+export type FirmwareProvisioningPayload = {
+  wifi_ssid: string;
+  wifi_pass: string;
+  backend_base_url: string;
+};
+
+export type EspProvisioningUrlInput = {
+  espSetupBaseUrl?: string;
+  espProvisionPath?: string;
+  wifiSsid: string;
+  wifiPassword: string;
+  backendBaseUrl: string;
+  autoSave?: boolean;
+};
+
+export type DeviceRegistrationResponse = {
+  ok: boolean;
+  device_id: string;
+  mqtt_host: string;
+  mqtt_port: number;
+};
+
+function backendBase(): string {
+  return `http://${window.location.hostname}:18080`;
 }
 
-// Asks the backend to create a pairing request for the given deviceId.
-// The backend returns a one-time token that the manikin will use
-// to confirm its identity during provisioning.
-export async function requestManikinPairing(
-  deviceId: string
-): Promise<PairingTokenResponse> {
-  const response = await fetch(getPairRequestUrl(), {
+export async function fetchHubServiceInfo(): Promise<HubServiceInfoResponse> {
+  const response = await fetch(`${backendBase()}/api/hub/service-info`);
+  if (!response.ok) {
+    throw new Error(`Service info request failed (${response.status})`);
+  }
+  return response.json() as Promise<HubServiceInfoResponse>;
+}
+
+export function buildFirmwareProvisioningPayload(
+  serviceInfo: HubServiceInfoResponse,
+  wifiSsid: string,
+  wifiPassword: string,
+): FirmwareProvisioningPayload {
+  return {
+    wifi_ssid: wifiSsid,
+    wifi_pass: wifiPassword,
+    backend_base_url: serviceInfo.backend_base_url,
+  };
+}
+
+function normalizeEspBaseUrl(rawBaseUrl: string | undefined): string {
+  const trimmed = (rawBaseUrl ?? "http://192.168.4.1").trim();
+  const fallback = "http://192.168.4.1";
+  if (!trimmed) {
+    return fallback;
+  }
+  return trimmed.replace(/\/+$/g, "") || fallback;
+}
+
+function normalizeEspPath(rawPath: string | undefined): string {
+  const trimmed = (rawPath ?? "/").trim();
+  if (!trimmed) {
+    return "/";
+  }
+
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  const collapsed = withLeadingSlash.replace(/\/{2,}/g, "/");
+  if (collapsed === "/") {
+    return "/";
+  }
+
+  return collapsed.replace(/\/+$/g, "") || "/";
+}
+
+export function buildEspProvisioningUrl({
+  espSetupBaseUrl = "http://192.168.4.1",
+  espProvisionPath = "/",
+  wifiSsid,
+  wifiPassword,
+  backendBaseUrl,
+  autoSave = true,
+}: EspProvisioningUrlInput): string {
+  const base = normalizeEspBaseUrl(espSetupBaseUrl);
+  const path = normalizeEspPath(espProvisionPath);
+  const url = new URL(`${base}${path}`);
+
+  url.searchParams.set("wifi_ssid", wifiSsid.trim());
+  url.searchParams.set("wifi_pass", wifiPassword.trim());
+  url.searchParams.set("backend_base_url", backendBaseUrl.trim());
+
+  if (autoSave) {
+    url.searchParams.set("auto", "1");
+  }
+
+  return url.toString();
+}
+
+export async function registerFirmwareDevice(payload: {
+  mac?: string;
+  chip_id?: string;
+  firmware_version?: string;
+  device_label?: string;
+} = {}): Promise<DeviceRegistrationResponse> {
+  const response = await fetch(`${backendBase()}/api/devices/register`, {
     method: "POST",
-    credentials: "include",   // sends the login session cookie so the backend knows who you are
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ deviceId }),
+    body: JSON.stringify(payload),
   });
-
-  // If the backend returned an error (like 403 Forbidden or 400 Bad Request),
-  // we throw an error with a readable message so the UI can show it to the user.
   if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new Error(
-      errorData?.message ?? `Pairing request failed (${response.status})`
-    );
+    throw new Error(`Device registration failed (${response.status})`);
   }
-
-  return response.json() as Promise<PairingTokenResponse>;
+  return response.json() as Promise<DeviceRegistrationResponse>;
 }
