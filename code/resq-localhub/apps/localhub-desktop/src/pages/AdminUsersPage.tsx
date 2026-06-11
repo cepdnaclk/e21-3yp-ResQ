@@ -3,6 +3,7 @@ import type { AuthUser, CreateUserRequest, UserRole } from "@resq/shared";
 import { USER_ROLES } from "@resq/shared";
 import { useAuth } from "../auth/AuthContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { RosterSyncCard } from "../components/RosterSyncCard";
 
 function getRoleIcon(role: UserRole): string {
   switch (role) {
@@ -119,6 +120,9 @@ export default function AdminUsersPage() {
 
   return (
     <div style={{ fontFamily: "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif", background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)", minHeight: "100vh", padding: "40px 24px" }}>
+      {/* Cloud Roster Sync — ADMIN only */}
+      <RosterSyncCard />
+
       {/* Header Section */}
       <div
         style={{

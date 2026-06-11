@@ -46,6 +46,7 @@ import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel
 import { FirmwareProvisioningPanel } from "../components/FirmwareProvisioningPanel";
 import { DeviceRegistryPanel } from "../components/DeviceRegistryPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
+import { CoursesPanel } from "../components/CoursesPanel";
 import { Dialog } from "../components/ui/dialog";
 import { Button } from "../components/ui";
 import { RefreshCw } from "lucide-react";
@@ -1073,505 +1074,17 @@ export default function InstructorDashboard({
 
         {/* Center-Right Column */}
         <div className="dashboard-column center-right-column">
-          <div className="live-manikins-section">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <LiveManikinsIcon size={18} />
-                <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#0f172a" }}>Live Manikins</h3>
-              </div>
-              <LiveStreamStatusBadge state={manikinsStreamState} />
-            </div>
-
-            {manikinsLoading ? (
-              <p style={{ margin: 0, color: "#475569" }}>Loading live manikin data...</p>
-            ) : null}
-
-            {!manikinsLoading && manikinsError ? (
-              <p style={{ margin: 0, color: "#b91c1c" }}>
-                Unable to load live manikins. {manikinsError}
-              </p>
-            ) : null}
-
-            {!manikinsLoading && !manikinsError && manikins.length === 0 ? (
-              <div className="empty-state-dark">
-                No manikins publishing yet. Start publishing to resq/&lt;deviceId&gt;/status...
-              </div>
-            ) : null}
-
-            {!manikinsLoading && !manikinsError && manikins.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-                {manikins.map((manikin) => {
-                  const activeSession = getEffectiveSession(manikin.deviceId, manikin);
-                  const active = Boolean(activeSession?.sessionId);
-                  const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
-                  const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
-                  const calibrationAction = calibrationActionByDevice[manikin.deviceId] ?? "idle";
-                  const readiness = readinessByDevice[manikin.deviceId];
-                  const readinessIsKnown = readinessKnown(readiness);
-                  const startReadinessBlocked = startBlockedByReadiness(readiness);
-                  const startDisabled = actionState !== "idle" || startReadinessBlocked;
-                  const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
-                  const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
-                  const calibrationProgress = progressFromId(readiness?.progressId);
-                  const isCalibrating = effectiveFirmwareState === "CALIBRATING";
-
-                  return (
-                    <div key={manikin.deviceId} className="manikin-stack-card">
-                      {/* Sub-element 1: Dashboard Overview */}
-                      <article className="dashboard-overview-subcard">
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                              <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>{manikin.deviceId}</h3>
-                              <Sparkline seed={manikin.deviceId} />
-                            </div>
-                            <div className="chips-container" style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                              <Chip icon={<DeviceMetricIcon kind="id" />}>{manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}</Chip>
-                              <Chip icon={<DeviceMetricIcon kind="seen" />}>{manikin.lastSeen ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}` : "Never seen"}</Chip>
-                              <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.calibrated ? "Calibrated" : "Not calibrated"}</Chip>
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
-                            <StatusDot label={manikin.online ? "Online" : "Offline"} status={manikin.online ? "online" : "offline"} />
-                            <SessionStateBadge active={active} />
-                          </div>
-                        </div>
-
-                        <p style={{ margin: "0 0 12px 0", color: "#475569" }}>State: <strong>{effectiveFirmwareState}</strong></p>
-
-                        {isCalibrating ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-                            <ProgressRing value={calibrationProgress} />
-                            <span style={{ color: "#475569", fontWeight: 600 }}>Calibration in progress</span>
-                          </div>
-                        ) : null}
-
-                        {/* Trainee Selection UI */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginBottom: "12px", fontSize: "0.95rem" }}>
-                          <div style={{ fontWeight: 600, color: "#0f172a" }}>Select Trainee</div>
-
-                          {/* Mode Selection */}
-                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSessionDrafts((current) => ({
-                                  ...current,
-                                  [manikin.deviceId]: {
-                                    ...current[manikin.deviceId],
-                                    traineeMode: "select",
-                                  },
-                                }))
-                              }
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: "4px",
-                                border: "1px solid #cbd5e1",
-                                background:
-                                  sessionDrafts[manikin.deviceId]?.traineeMode === "select"
-                                    ? "#005A9C"
-                                    : "#e2e8f0",
-                                color:
-                                  sessionDrafts[manikin.deviceId]?.traineeMode === "select"
-                                    ? "#ffffff"
-                                    : "#0f172a",
-                                cursor: "pointer",
-                                fontSize: "0.85rem",
-                              }}
-                            >
-                              Select
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSessionDrafts((current) => ({
-                                  ...current,
-                                  [manikin.deviceId]: {
-                                    ...current[manikin.deviceId],
-                                    traineeMode: "quick",
-                                  },
-                                }))
-                              }
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: "4px",
-                                border: "1px solid #cbd5e1",
-                                background:
-                                  sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
-                                    ? "#005A9C"
-                                    : "#e2e8f0",
-                                color:
-                                  sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
-                                    ? "#ffffff"
-                                    : "#0f172a",
-                                cursor: "pointer",
-                                fontSize: "0.85rem",
-                              }}
-                            >
-                              Quick Add
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSessionDrafts((current) => ({
-                                  ...current,
-                                  [manikin.deviceId]: {
-                                    ...current[manikin.deviceId],
-                                    traineeMode: "guest",
-                                  },
-                                }))
-                              }
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: "4px",
-                                border: "1px solid #cbd5e1",
-                                background:
-                                  sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
-                                    ? "#005A9C"
-                                    : "#e2e8f0",
-                                color:
-                                  sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
-                                    ? "#ffffff"
-                                    : "#0f172a",
-                                cursor: "pointer",
-                                fontSize: "0.85rem",
-                              }}
-                            >
-                              Guest
-                            </button>
-                          </div>
-
-                          {/* Select Mode UI */}
-                          {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
-                            <select
-                              value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
-                              onChange={(event) =>
-                                setSessionDrafts((current) => ({
-                                  ...current,
-                                  [manikin.deviceId]: {
-                                    ...current[manikin.deviceId],
-                                    traineeRecordId: event.target.value,
-                                  },
-                                }))
-                              }
-                              style={{
-                                padding: "8px",
-                                borderRadius: "6px",
-                                border: "1px solid #cbd5e1",
-                                background: "#ffffff",
-                                color: "#0f172a",
-                                outline: "none",
-                              }}
-                            >
-                              <option value="" style={{ color: "#0f172a" }}>-- Select a trainee --</option>
-                              {traineesLoading && <option style={{ color: "#0f172a" }}>Loading...</option>}
-                              {!traineesLoading &&
-                                trainees.map((trainee) => (
-                                  <option key={trainee.id} value={trainee.id} style={{ color: "#0f172a" }}>
-                                    {trainee.displayName} ({trainee.traineeCode})
-                                  </option>
-                                ))}
-                            </select>
-                          )}
-
-                          {/* Quick Add Mode UI */}
-                          {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                              <input
-                                type="text"
-                                placeholder="Trainee Code"
-                                value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
-                                onChange={(event) =>
-                                  setSessionDrafts((current) => ({
-                                    ...current,
-                                    [manikin.deviceId]: {
-                                      ...current[manikin.deviceId],
-                                      quickTraineeCode: event.target.value,
-                                    },
-                                  }))
-                                }
-                                style={{
-                                  padding: "8px",
-                                  borderRadius: "6px",
-                                  border: "1px solid #cbd5e1",
-                                  background: "#ffffff",
-                                  color: "#0f172a",
-                                  outline: "none",
-                                }}
-                              />
-                              <input
-                                type="text"
-                                placeholder="Display Name"
-                                value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
-                                onChange={(event) =>
-                                  setSessionDrafts((current) => ({
-                                    ...current,
-                                    [manikin.deviceId]: {
-                                      ...current[manikin.deviceId],
-                                      quickTraineeName: event.target.value,
-                                    },
-                                  }))
-                                }
-                                style={{
-                                  padding: "8px",
-                                  borderRadius: "6px",
-                                  border: "1px solid #cbd5e1",
-                                  background: "#ffffff",
-                                  color: "#0f172a",
-                                  outline: "none",
-                                }}
-                              />
-                              <input
-                                type="text"
-                                placeholder="Group (optional)"
-                                value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
-                                onChange={(event) =>
-                                  setSessionDrafts((current) => ({
-                                    ...current,
-                                    [manikin.deviceId]: {
-                                      ...current[manikin.deviceId],
-                                      quickTraineeGroup: event.target.value,
-                                    },
-                                  }))
-                                }
-                                style={{
-                                  padding: "8px",
-                                  borderRadius: "6px",
-                                  border: "1px solid #cbd5e1",
-                                  background: "#ffffff",
-                                  color: "#0f172a",
-                                  outline: "none",
-                                }}
-                              />
-                            </div>
-                          )}
-
-                          {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
-                            <p style={{ margin: "4px 0 0 0", color: "#475569" }}>
-                              Session will start without a specific trainee assignment.
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Start/End buttons */}
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
-                          {currentUser && currentUser.role !== "TRAINEE" ? (
-                            !active ? (
-                              <button
-                                type="button"
-                                onClick={() => handleStartSession(manikin.deviceId)}
-                                disabled={startDisabled}
-                                style={{
-                                  padding: "8px 14px",
-                                  borderRadius: "6px",
-                                  border: "none",
-                                  background: startDisabled ? "#e2e8f0" : "#16a34a",
-                                  color: startDisabled ? "#94a3b8" : "#ffffff",
-                                  cursor: startDisabled ? "not-allowed" : "pointer",
-                                  fontWeight: 600,
-                                }}
-                                title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
-                              >
-                                Start Session
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
-                                disabled={actionState !== "idle"}
-                                style={{
-                                  padding: "8px 14px",
-                                  borderRadius: "6px",
-                                  border: "none",
-                                  background: actionState !== "idle" ? "#e2e8f0" : "#dc2626",
-                                  color: actionState !== "idle" ? "#94a3b8" : "#ffffff",
-                                  cursor: actionState !== "idle" ? "not-allowed" : "pointer",
-                                  fontWeight: 600,
-                                }}
-                              >
-                                End Session
-                              </button>
-                            )
-                          ) : null}
-                        </div>
-
-                        {/* Technical details toggle */}
-                        <button
-                          type="button"
-                          style={{
-                            border: "none",
-                            background: "none",
-                            color: "#005A9C",
-                            fontWeight: 700,
-                            cursor: "pointer",
-                            padding: 0,
-                            textAlign: "left",
-                            marginBottom: "12px",
-                          }}
-                          onClick={() =>
-                            setExpandedDeviceDetails((current) => ({
-                              ...current,
-                              [manikin.deviceId]: !current[manikin.deviceId],
-                            }))
-                          }
-                        >
-                          {isExpanded ? "Hide technical details" : "Show technical details"}
-                        </button>
-
-                        {isExpanded ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.9rem", color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginBottom: "12px" }}>
-                            <div>Device ID: {manikin.deviceId}</div>
-                            <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
-                            <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
-                            <div>Progress ID: {readiness?.progressId ?? "-"}</div>
-                            <div>Firmware state: {readiness?.firmwareState ?? "-"}</div>
-                            <div>Reason: {readiness?.reasonId ?? "-"}</div>
-                            <div>Action: {readiness?.actionId ?? "-"}</div>
-                          </div>
-                        ) : null}
-
-                        {active ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "#f8fafc", borderRadius: "8px", padding: "12px", border: "1px solid #e2e8f0" }}>
-                            <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-                              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Session:</div>
-                              <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a", wordBreak: "break-all" }}>{activeSession!.sessionId}</div>
-                            </div>
-                            <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-                              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Trainee:</div>
-                              <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>{activeSession!.traineeId ?? "-"}</div>
-                            </div>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Trainee Link:</div>
-                              <div style={{ background: "#f1f5f9", color: "#0f172a", border: "1px solid #e2e8f0", padding: "6px 10px", borderRadius: 6, fontWeight: 800, wordBreak: "break-all" }}>
-                                {traineeLink ?? buildTraineeLandingUrl()}
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "4px" }}>
-                              <button
-                                type="button"
-                                onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
-                                className="cta-royal"
-                                style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "0.85rem" }}
-                              >
-                                Open Trainee Dashboard (In-App)
-                              </button>
-                              {traineeLink ? (
-                                <a href={traineeLink} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#f1f5f9", color: "#0f172a", fontWeight: 700, textDecoration: "none", fontSize: "0.85rem" }}>
-                                  Open Trainee Link
-                                </a>
-                              ) : null}
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {sessionMessageByDevice[manikin.deviceId] ? (
-                          <div style={{ marginTop: 6 }}>
-                            {(() => {
-                              const deviceMessage = sessionMessageByDevice[manikin.deviceId];
-
-                              if (!deviceMessage) {
-                                return null;
-                              }
-
-                              return deviceMessage.includes("Calibration requested") ? (
-                                <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 999, background: "#fff1f2", color: "#b91c1c", fontWeight: 800, fontSize: "0.86rem" }}>
-                                  {deviceMessage}
-                                </span>
-                              ) : (
-                                <p style={{ margin: 0, color: "#475569", fontSize: "0.9rem" }}>{deviceMessage}</p>
-                              );
-                            })()}
-                          </div>
-                        ) : null}
-                      </article>
-
-                      {/* Sub-element 2: PPI */}
-                      <article className="ppi-subcard">
-                        <h4 className="ppi-title text-sm font-bold text-slate-300 mt-0 mb-3 uppercase tracking-wider">
-                          Performance Proximity Indicator (PPI)
-                        </h4>
-                        <InstructorLiveMetrics
-                          deviceId={manikin.deviceId}
-                          sessionId={activeSession?.sessionId ?? null}
-                          active={active}
-                        />
-
-                        <div style={{ display: "grid", gap: "6px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginTop: "14px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                            <p style={{ margin: 0, fontSize: "0.9rem", color: "#0f172a", fontWeight: 700 }}>Readiness</p>
-                            <IndicatorBadge
-                              label={!readinessIsKnown ? "Unknown" : readiness?.readyForSession ? "Ready" : "Not Ready"}
-                              status={!readinessIsKnown ? "neutral" : readiness?.readyForSession ? "ok" : "warn"}
-                            />
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#475569", fontSize: "0.85rem" }}>
-                            <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
-                            <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
-                            <span>Result: {readiness?.latestResult ?? "-"}</span>
-                            <span>Progress: {readiness?.progressId ?? "-"}</span>
-                            <span>Reason: {readiness?.reasonId ?? "-"}</span>
-                            <span>Action: {readiness?.actionId ?? "-"}</span>
-                          </div>
-                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
-                            <button
-                              type="button"
-                              onClick={() => handleCancelCalibration(manikin.deviceId)}
-                              disabled={calibrationAction !== "idle"}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: "6px",
-                                border: "1px solid #cbd5e1",
-                                background: calibrationAction !== "idle" ? "#e2e8f0" : "#f1f5f9",
-                                color: calibrationAction !== "idle" ? "#94a3b8" : "#0f172a",
-                                cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
-                                fontWeight: 700,
-                                fontSize: "0.85rem",
-                              }}
-                            >
-                              {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedCalibrationDeviceId(manikin.deviceId);
-                                setIsCalibrationOpen(true);
-                              }}
-                              style={{
-                                display: "inline-flex",
-                                gap: 6,
-                                alignItems: "center",
-                                fontSize: "0.85rem",
-                                color: "#005A9C",
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                fontWeight: 700,
-                                padding: 0,
-                                alignSelf: "center",
-                              }}
-                            >
-                              <CalibrationIcon size={14} />
-                              <span>Open Calibration Settings</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        <div style={{ marginTop: "12px" }}>
-                          <FirmwareDiagnosticsPanel
-                            deviceId={manikin.deviceId}
-                            readiness={readiness}
-                            liveSummary={manikin}
-                          />
-                        </div>
-                      </article>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
+          {currentUser && currentUser.role !== "TRAINEE" && (
+            <CoursesPanel
+              role={currentUser.role as "ADMIN" | "INSTRUCTOR" | "TRAINEE"}
+              manikins={manikins}
+              readinessByDevice={readinessByDevice}
+              onSessionStarted={(sessionId, deviceId) => {
+                onOpenTraineeDashboard?.(sessionId);
+              }}
+            />
+          )}
         </div>
-
       </div>
 
       {/* ── 4 Tool Cards ─────────────────────────────────────────────────── */}
@@ -1676,6 +1189,507 @@ export default function InstructorDashboard({
               View Sessions
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* ── Live Manikins Section ────────────────────────────────────────── */}
+      <div className="live-manikins-container" style={{ marginTop: "32px", display: "flex", flexDirection: "column", gap: "24px" }}>
+        <div className="live-manikins-section">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <LiveManikinsIcon size={18} />
+              <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700, color: "#0f172a" }}>Live Manikins</h3>
+            </div>
+            <LiveStreamStatusBadge state={manikinsStreamState} />
+          </div>
+
+          {manikinsLoading ? (
+            <p style={{ margin: 0, color: "#475569" }}>Loading live manikin data...</p>
+          ) : null}
+
+          {!manikinsLoading && manikinsError ? (
+            <p style={{ margin: 0, color: "#b91c1c" }}>
+              Unable to load live manikins. {manikinsError}
+            </p>
+          ) : null}
+
+          {!manikinsLoading && !manikinsError && manikins.length === 0 ? (
+            <div className="empty-state-dark">
+              No manikins publishing yet. Start publishing to resq/&lt;deviceId&gt;/status...
+            </div>
+          ) : null}
+
+          {!manikinsLoading && !manikinsError && manikins.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              {manikins.map((manikin) => {
+                const activeSession = getEffectiveSession(manikin.deviceId, manikin);
+                const active = Boolean(activeSession?.sessionId);
+                const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
+                const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
+                const calibrationAction = calibrationActionByDevice[manikin.deviceId] ?? "idle";
+                const readiness = readinessByDevice[manikin.deviceId];
+                const readinessIsKnown = readinessKnown(readiness);
+                const startReadinessBlocked = startBlockedByReadiness(readiness);
+                const startDisabled = actionState !== "idle" || startReadinessBlocked;
+                const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
+                const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
+                const calibrationProgress = progressFromId(readiness?.progressId);
+                const isCalibrating = effectiveFirmwareState === "CALIBRATING";
+
+                return (
+                  <div key={manikin.deviceId} className="manikin-stack-card">
+                    {/* Sub-element 1: Dashboard Overview */}
+                    <article className="dashboard-overview-subcard">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                            <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>{manikin.deviceId}</h3>
+                            <Sparkline seed={manikin.deviceId} />
+                          </div>
+                          <div className="chips-container" style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                            <Chip icon={<DeviceMetricIcon kind="id" />}>{manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}</Chip>
+                            <Chip icon={<DeviceMetricIcon kind="seen" />}>{manikin.lastSeen ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}` : "Never seen"}</Chip>
+                            <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.calibrated ? "Calibrated" : "Not calibrated"}</Chip>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                          <StatusDot label={manikin.online ? "Online" : "Offline"} status={manikin.online ? "online" : "offline"} />
+                          <SessionStateBadge active={active} />
+                        </div>
+                      </div>
+
+                      <p style={{ margin: "0 0 12px 0", color: "#475569" }}>State: <strong>{effectiveFirmwareState}</strong></p>
+
+                      {isCalibrating ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                          <ProgressRing value={calibrationProgress} />
+                          <span style={{ color: "#475569", fontWeight: 600 }}>Calibration in progress</span>
+                        </div>
+                      ) : null}
+
+                      {/* Trainee Selection UI */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginBottom: "12px", fontSize: "0.95rem" }}>
+                        <div style={{ fontWeight: 600, color: "#0f172a" }}>Select Trainee</div>
+
+                        {/* Mode Selection */}
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSessionDrafts((current) => ({
+                                ...current,
+                                [manikin.deviceId]: {
+                                  ...current[manikin.deviceId],
+                                  traineeMode: "select",
+                                },
+                              }))
+                            }
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              background:
+                                sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                  ? "#005A9C"
+                                  : "#e2e8f0",
+                              color:
+                                sessionDrafts[manikin.deviceId]?.traineeMode === "select"
+                                  ? "#ffffff"
+                                  : "#0f172a",
+                              cursor: "pointer",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            Select
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSessionDrafts((current) => ({
+                                ...current,
+                                [manikin.deviceId]: {
+                                  ...current[manikin.deviceId],
+                                  traineeMode: "quick",
+                                },
+                              }))
+                            }
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              background:
+                                sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                  ? "#005A9C"
+                                  : "#e2e8f0",
+                              color:
+                                sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
+                                  ? "#ffffff"
+                                  : "#0f172a",
+                              cursor: "pointer",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            Quick Add
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSessionDrafts((current) => ({
+                                ...current,
+                                [manikin.deviceId]: {
+                                  ...current[manikin.deviceId],
+                                  traineeMode: "guest",
+                                },
+                              }))
+                            }
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "4px",
+                              border: "1px solid #cbd5e1",
+                              background:
+                                sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                  ? "#005A9C"
+                                  : "#e2e8f0",
+                              color:
+                                sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
+                                  ? "#ffffff"
+                                  : "#0f172a",
+                              cursor: "pointer",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            Guest
+                          </button>
+                        </div>
+
+                        {/* Select Mode UI */}
+                        {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
+                          <select
+                            value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
+                            onChange={(event) =>
+                              setSessionDrafts((current) => ({
+                                ...current,
+                                [manikin.deviceId]: {
+                                  ...current[manikin.deviceId],
+                                  traineeRecordId: event.target.value,
+                                },
+                              }))
+                            }
+                            style={{
+                              padding: "8px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              background: "#ffffff",
+                              color: "#0f172a",
+                              outline: "none",
+                            }}
+                          >
+                            <option value="" style={{ color: "#0f172a" }}>-- Select a trainee --</option>
+                            {traineesLoading && <option style={{ color: "#0f172a" }}>Loading...</option>}
+                            {!traineesLoading &&
+                              trainees.map((trainee) => (
+                                <option key={trainee.id} value={trainee.id} style={{ color: "#0f172a" }}>
+                                  {trainee.displayName} ({trainee.traineeCode})
+                                </option>
+                              ))}
+                          </select>
+                        )}
+
+                        {/* Quick Add Mode UI */}
+                        {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                            <input
+                              type="text"
+                              placeholder="Trainee Code"
+                              value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
+                              onChange={(event) =>
+                                setSessionDrafts((current) => ({
+                                  ...current,
+                                  [manikin.deviceId]: {
+                                    ...current[manikin.deviceId],
+                                    quickTraineeCode: event.target.value,
+                                  },
+                                }))
+                              }
+                              style={{
+                                padding: "8px",
+                                borderRadius: "6px",
+                                border: "1px solid #cbd5e1",
+                                background: "#ffffff",
+                                color: "#0f172a",
+                                outline: "none",
+                              }}
+                            />
+                            <input
+                              type="text"
+                              placeholder="Display Name"
+                              value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
+                              onChange={(event) =>
+                                setSessionDrafts((current) => ({
+                                  ...current,
+                                  [manikin.deviceId]: {
+                                    ...current[manikin.deviceId],
+                                    quickTraineeName: event.target.value,
+                                  },
+                                }))
+                              }
+                              style={{
+                                padding: "8px",
+                                borderRadius: "6px",
+                                border: "1px solid #cbd5e1",
+                                background: "#ffffff",
+                                color: "#0f172a",
+                                outline: "none",
+                              }}
+                            />
+                            <input
+                              type="text"
+                              placeholder="Group (optional)"
+                              value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
+                              onChange={(event) =>
+                                setSessionDrafts((current) => ({
+                                  ...current,
+                                  [manikin.deviceId]: {
+                                    ...current[manikin.deviceId],
+                                    quickTraineeGroup: event.target.value,
+                                  },
+                                }))
+                              }
+                              style={{
+                                padding: "8px",
+                                borderRadius: "6px",
+                                border: "1px solid #cbd5e1",
+                                background: "#ffffff",
+                                color: "#0f172a",
+                                outline: "none",
+                              }}
+                            />
+                          </div>
+                        )}
+
+                        {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
+                          <p style={{ margin: "4px 0 0 0", color: "#475569" }}>
+                            Session will start without a specific trainee assignment.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Start/End buttons */}
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px" }}>
+                        {currentUser && currentUser.role !== "TRAINEE" ? (
+                          !active ? (
+                            <button
+                              type="button"
+                              onClick={() => handleStartSession(manikin.deviceId)}
+                              disabled={startDisabled}
+                              style={{
+                                padding: "8px 14px",
+                                borderRadius: "6px",
+                                border: "none",
+                                background: startDisabled ? "#e2e8f0" : "#16a34a",
+                                color: startDisabled ? "#94a3b8" : "#ffffff",
+                                cursor: startDisabled ? "not-allowed" : "pointer",
+                                fontWeight: 600,
+                              }}
+                              title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
+                            >
+                              Start Session
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
+                              disabled={actionState !== "idle"}
+                              style={{
+                                padding: "8px 14px",
+                                borderRadius: "6px",
+                                border: "none",
+                                background: actionState !== "idle" ? "#e2e8f0" : "#dc2626",
+                                color: actionState !== "idle" ? "#94a3b8" : "#ffffff",
+                                cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
+                              End Session
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+
+                      {/* Technical details toggle */}
+                      <button
+                        type="button"
+                        style={{
+                          border: "none",
+                          background: "none",
+                          color: "#005A9C",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          padding: 0,
+                          textAlign: "left",
+                          marginBottom: "12px",
+                        }}
+                        onClick={() =>
+                          setExpandedDeviceDetails((current) => ({
+                            ...current,
+                            [manikin.deviceId]: !current[manikin.deviceId],
+                          }))
+                        }
+                      >
+                        {isExpanded ? "Hide technical details" : "Show technical details"}
+                      </button>
+
+                      {isExpanded ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "0.9rem", color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginBottom: "12px" }}>
+                          <div>Device ID: {manikin.deviceId}</div>
+                          <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
+                          <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
+                          <div>Progress ID: {readiness?.progressId ?? "-"}</div>
+                          <div>Firmware state: {readiness?.firmwareState ?? "-"}</div>
+                          <div>Reason: {readiness?.reasonId ?? "-"}</div>
+                          <div>Action: {readiness?.actionId ?? "-"}</div>
+                        </div>
+                      ) : null}
+
+                      {active ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", background: "#f8fafc", borderRadius: "8px", padding: "12px", border: "1px solid #e2e8f0" }}>
+                          <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                            <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Session:</div>
+                            <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a", wordBreak: "break-all" }}>{activeSession!.sessionId}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                            <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Trainee:</div>
+                            <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>{activeSession!.traineeId ?? "-"}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Trainee Link:</div>
+                            <div style={{ background: "#f1f5f9", color: "#0f172a", border: "1px solid #e2e8f0", padding: "6px 10px", borderRadius: 6, fontWeight: 800, wordBreak: "break-all" }}>
+                              {traineeLink ?? buildTraineeLandingUrl()}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "4px" }}>
+                            <button
+                              type="button"
+                              onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
+                              className="cta-royal"
+                              style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "0.85rem" }}
+                            >
+                              Open Trainee Dashboard (In-App)
+                            </button>
+                            {traineeLink ? (
+                              <a href={traineeLink} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#f1f5f9", color: "#0f172a", fontWeight: 700, textDecoration: "none", fontSize: "0.85rem" }}>
+                                Open Trainee Link
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {sessionMessageByDevice[manikin.deviceId] ? (
+                        <div style={{ marginTop: 6 }}>
+                          {(() => {
+                            const deviceMessage = sessionMessageByDevice[manikin.deviceId];
+
+                            if (!deviceMessage) {
+                              return null;
+                            }
+
+                            return deviceMessage.includes("Calibration requested") ? (
+                              <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 999, background: "#fff1f2", color: "#b91c1c", fontWeight: 800, fontSize: "0.86rem" }}>
+                                {deviceMessage}
+                              </span>
+                            ) : (
+                              <p style={{ margin: 0, color: "#475569", fontSize: "0.9rem" }}>{deviceMessage}</p>
+                            );
+                          })()}
+                        </div>
+                      ) : null}
+                    </article>
+
+                    {/* Sub-element 2: PPI */}
+                    <article className="ppi-subcard">
+                      <h4 className="ppi-title text-sm font-bold text-slate-300 mt-0 mb-3 uppercase tracking-wider">
+                        Performance Proximity Indicator (PPI)
+                      </h4>
+                      <InstructorLiveMetrics
+                        deviceId={manikin.deviceId}
+                        sessionId={activeSession?.sessionId ?? null}
+                        active={active}
+                      />
+
+                      <div style={{ display: "grid", gap: "6px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", marginTop: "14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                          <p style={{ margin: 0, fontSize: "0.9rem", color: "#0f172a", fontWeight: 700 }}>Readiness</p>
+                          <IndicatorBadge
+                            label={!readinessIsKnown ? "Unknown" : readiness?.readyForSession ? "Ready" : "Not Ready"}
+                            status={!readinessIsKnown ? "neutral" : readiness?.readyForSession ? "ok" : "warn"}
+                          />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#475569", fontSize: "0.85rem" }}>
+                          <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
+                          <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
+                          <span>Result: {readiness?.latestResult ?? "-"}</span>
+                          <span>Progress: {readiness?.progressId ?? "-"}</span>
+                          <span>Reason: {readiness?.reasonId ?? "-"}</span>
+                          <span>Action: {readiness?.actionId ?? "-"}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelCalibration(manikin.deviceId)}
+                            disabled={calibrationAction !== "idle"}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              background: calibrationAction !== "idle" ? "#e2e8f0" : "#f1f5f9",
+                              color: calibrationAction !== "idle" ? "#94a3b8" : "#0f172a",
+                              cursor: calibrationAction !== "idle" ? "not-allowed" : "pointer",
+                              fontWeight: 700,
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCalibrationDeviceId(manikin.deviceId);
+                              setIsCalibrationOpen(true);
+                            }}
+                            style={{
+                              display: "inline-flex",
+                              gap: 6,
+                              alignItems: "center",
+                              fontSize: "0.85rem",
+                              color: "#005A9C",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              fontWeight: 700,
+                              padding: 0,
+                              alignSelf: "center",
+                            }}
+                          >
+                            <CalibrationIcon size={14} />
+                            <span>Open Calibration Settings</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: "12px" }}>
+                        <FirmwareDiagnosticsPanel
+                          deviceId={manikin.deviceId}
+                          readiness={readiness}
+                          liveSummary={manikin}
+                        />
+                      </div>
+                    </article>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
 

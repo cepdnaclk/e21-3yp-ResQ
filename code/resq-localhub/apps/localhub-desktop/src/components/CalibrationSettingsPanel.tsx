@@ -431,7 +431,7 @@ export function CalibrationSettingsPanel({
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" style={{ marginBottom: "0px" }}>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Live Device</label>
           <Select
@@ -467,7 +467,7 @@ export function CalibrationSettingsPanel({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2.5 mb-6">
+      <div className="flex flex-wrap gap-2.5 mt-2 mb-6" style={{ marginTop: "10px", gap: "10px" }}>
         <Badge variant="default" className="badge-device bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium">
           Device: {selectedDeviceLabel}
         </Badge>
@@ -518,7 +518,7 @@ export function CalibrationSettingsPanel({
               <div key={field.key} className="flex flex-col gap-1.5">
                 <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{field.label}</span>
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-[#005A9C] dark:text-blue-400 border border-blue-100 dark:border-blue-800 flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-[#005A9C] dark:text-blue-400 border border-blue-100 dark:border-blue-800 flex-shrink-0" style={{ position: "relative", left: "-6px", marginRight: "8px" }}>
                     {field.icon}
                   </div>
                   <Input
