@@ -9,6 +9,7 @@ docs/
 .env
 .env.local
 .env.*.local
+cloud-sync.env
 infra/mosquitto/passwords
 
 # Node / frontend

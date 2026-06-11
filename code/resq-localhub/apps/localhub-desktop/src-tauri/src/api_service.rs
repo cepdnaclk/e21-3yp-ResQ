@@ -1,5 +1,7 @@
 use serde::Serialize;
 use std::{
+    collections::HashMap,
+    env, fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -18,6 +20,16 @@ pub struct ApiServiceStatus {
 }
 
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
+const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
+const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
+const CLOUD_SYNC_ENV_KEYS: [&str; 6] = [
+    "RESQ_ROSTER_SYNC_ENABLED",
+    "RESQ_ROSTER_SYNC_BASE_URL",
+    "RESQ_ROSTER_SYNC_HUB_ID",
+    "RESQ_ROSTER_SYNC_HUB_KEY",
+    "RESQ_ROSTER_SYNC_FIXED_DELAY_MS",
+    "RESQ_ROSTER_SYNC_TIMEOUT_MS",
+];
 
 impl ApiServiceState {
     fn backend_dir() -> Result<PathBuf, String> {
@@ -28,6 +40,89 @@ impl ApiServiceState {
         }
 
         Ok(backend_dir)
+    }
+
+    fn user_home_dir() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .or_else(|| env::var_os("HOME").map(PathBuf::from))
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            env::var_os("HOME").map(PathBuf::from)
+        }
+    }
+
+    fn load_cloud_sync_config() -> HashMap<String, String> {
+        let Some(home_dir) = Self::user_home_dir() else {
+            eprintln!("LocalHub cloud sync config was not loaded: user home directory not found");
+            return HashMap::new();
+        };
+
+        let config_path = home_dir
+            .join(CLOUD_SYNC_CONFIG_DIR)
+            .join(CLOUD_SYNC_CONFIG_FILE);
+        let contents = match fs::read_to_string(&config_path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return HashMap::new();
+            }
+            Err(error) => {
+                eprintln!(
+                    "LocalHub cloud sync config could not be read from {}: {error}",
+                    config_path.display()
+                );
+                return HashMap::new();
+            }
+        };
+
+        let mut config = HashMap::new();
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            if CLOUD_SYNC_ENV_KEYS.contains(&key) {
+                config.insert(key.to_string(), value.trim().to_string());
+            }
+        }
+
+        eprintln!(
+            "Loaded LocalHub cloud sync config from {}",
+            config_path.display()
+        );
+        config
+    }
+
+    fn apply_cloud_sync_environment(command: &mut Command) {
+        let config = Self::load_cloud_sync_config();
+
+        for key in CLOUD_SYNC_ENV_KEYS {
+            if env::var_os(key).is_none() {
+                if let Some(value) = config.get(key) {
+                    command.env(key, value);
+                }
+            }
+        }
+
+        let value_is_configured = |key: &str| match env::var_os(key) {
+            Some(value) => !value.is_empty(),
+            None => config.get(key).is_some_and(|value| !value.is_empty()),
+        };
+        let base_url_configured = value_is_configured("RESQ_ROSTER_SYNC_BASE_URL");
+        let hub_id_configured = value_is_configured("RESQ_ROSTER_SYNC_HUB_ID");
+
+        eprintln!(
+            "LocalHub cloud sync configuration: base-url configured={base_url_configured}, hub-id configured={hub_id_configured}"
+        );
     }
 
     fn snapshot_status(child_slot: &mut Option<Child>) -> ApiServiceStatus {
@@ -102,6 +197,7 @@ impl ApiServiceState {
 
         let backend_dir = Self::backend_dir()?;
         let mut command = Self::build_command(&backend_dir);
+        Self::apply_cloud_sync_environment(&mut command);
         let child = command
             .spawn()
             .map_err(|error| format!("Failed to start backend: {error}"))?;
