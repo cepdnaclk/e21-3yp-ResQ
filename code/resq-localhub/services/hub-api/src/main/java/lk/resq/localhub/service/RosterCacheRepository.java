@@ -155,15 +155,16 @@ public class RosterCacheRepository {
         try (Connection connection = openConnection();
              PreparedStatement ps = connection.prepareStatement("""
                      INSERT INTO cloud_synced_users
-                       (cloud_user_id, display_name, email, role, active, updated_at, last_synced_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                       (cloud_user_id, display_name, email, role, active, updated_at, last_synced_at, local_login_hash)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                      ON CONFLICT(cloud_user_id) DO UPDATE SET
-                       display_name   = excluded.display_name,
-                       email          = excluded.email,
-                       role           = excluded.role,
-                       active         = excluded.active,
-                       updated_at     = excluded.updated_at,
-                       last_synced_at = excluded.last_synced_at
+                       display_name     = excluded.display_name,
+                       email            = excluded.email,
+                       role             = excluded.role,
+                       active           = excluded.active,
+                       updated_at       = excluded.updated_at,
+                       last_synced_at   = excluded.last_synced_at,
+                       local_login_hash = excluded.local_login_hash
                      """)) {
             ps.setString(1, user.cloudUserId());
             ps.setString(2, user.displayName());
@@ -172,6 +173,7 @@ public class RosterCacheRepository {
             ps.setInt(5, user.active() ? 1 : 0);
             ps.setString(6, nullableInstantStr(user.updatedAt()));
             ps.setString(7, syncedAt.toString());
+            ps.setString(8, user.localLoginHash());
             ps.executeUpdate();
         } catch (SQLException error) {
             throw new IllegalStateException(

@@ -76,9 +76,8 @@ class AuthServiceTest {
         String hash = encoder.encode(password);
 
         // Insert into roster cache repository
-        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-1", "Cloud Instructor", email, "INSTRUCTOR", true, Instant.now());
+        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-1", "Cloud Instructor", email, "INSTRUCTOR", true, Instant.now(), hash);
         rosterRepository.upsertUser(cloudUser, Instant.now());
-        rosterRepository.updateLocalLoginHash("cloud-id-1", hash);
 
         // Login
         LoginRequest request = new LoginRequest(email, password);
@@ -102,9 +101,8 @@ class AuthServiceTest {
         String password = "cloudPassword123";
         String hash = encoder.encode(password);
 
-        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-2", "Inactive Instructor", email, "INSTRUCTOR", false, Instant.now());
+        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-2", "Inactive Instructor", email, "INSTRUCTOR", false, Instant.now(), hash);
         rosterRepository.upsertUser(cloudUser, Instant.now());
-        rosterRepository.updateLocalLoginHash("cloud-id-2", hash);
 
         LoginRequest request = new LoginRequest(email, password);
         assertThatThrownBy(() -> authService.login(request))
@@ -116,7 +114,7 @@ class AuthServiceTest {
         String email = "nohash@example.com";
         String password = "cloudPassword123";
 
-        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-3", "No Hash Instructor", email, "INSTRUCTOR", true, Instant.now());
+        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-3", "No Hash Instructor", email, "INSTRUCTOR", true, Instant.now(), null);
         rosterRepository.upsertUser(cloudUser, Instant.now());
         // Do not set password hash
 
@@ -131,9 +129,8 @@ class AuthServiceTest {
         String password = "cloudPassword123";
         String hash = encoder.encode(password);
 
-        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-4", "Me Instructor", email, "INSTRUCTOR", true, Instant.now());
+        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-4", "Me Instructor", email, "INSTRUCTOR", true, Instant.now(), hash);
         rosterRepository.upsertUser(cloudUser, Instant.now());
-        rosterRepository.updateLocalLoginHash("cloud-id-4", hash);
 
         LoginRequest request = new LoginRequest(email, password);
         AuthTokenIssue issue = authService.login(request);
@@ -156,9 +153,8 @@ class AuthServiceTest {
         String password = "cloudPassword123";
         String hash = encoder.encode(password);
 
-        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-5", "Shadow Instructor", email, "INSTRUCTOR", true, Instant.now());
+        CloudRosterUser cloudUser = new CloudRosterUser("cloud-id-5", "Shadow Instructor", email, "INSTRUCTOR", true, Instant.now(), hash);
         rosterRepository.upsertUser(cloudUser, Instant.now());
-        rosterRepository.updateLocalLoginHash("cloud-id-5", hash);
 
         // 1. Successful login creates local shadow record
         LoginRequest request = new LoginRequest(email, password);
@@ -169,7 +165,7 @@ class AuthServiceTest {
         assertThat(authRepository.findUserById("cloud-id-5")).isPresent();
 
         // 2. Mark the cloud user inactive in sync cache
-        CloudRosterUser inactiveCloudUser = new CloudRosterUser("cloud-id-5", "Shadow Instructor", email, "INSTRUCTOR", false, Instant.now());
+        CloudRosterUser inactiveCloudUser = new CloudRosterUser("cloud-id-5", "Shadow Instructor", email, "INSTRUCTOR", false, Instant.now(), hash);
         rosterRepository.upsertUser(inactiveCloudUser, Instant.now());
 
         // 3. Login attempt must fail now despite shadow row existing
