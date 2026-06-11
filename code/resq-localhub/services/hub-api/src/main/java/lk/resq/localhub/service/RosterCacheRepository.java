@@ -5,6 +5,9 @@ import lk.resq.localhub.model.cloudsync.CloudRosterCourse;
 import lk.resq.localhub.model.cloudsync.CloudRosterEnrollment;
 import lk.resq.localhub.model.cloudsync.CloudRosterInstructorAssignment;
 import lk.resq.localhub.model.cloudsync.CloudRosterUser;
+import lk.resq.localhub.model.roster.CourseInstructorView;
+import lk.resq.localhub.model.roster.CourseStudentView;
+import lk.resq.localhub.model.roster.CourseView;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
@@ -518,5 +521,227 @@ public class RosterCacheRepository {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    // -------------------------------------------------------------------------
+    // Course-scoped / Classroom queries (Phase 4A)
+    // -------------------------------------------------------------------------
+
+    public synchronized List<CourseView> listCoursesForAdmin() {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT cloud_course_id, course_code, title, description, instructor_cloud_user_id, active
+                     FROM local_courses
+                     WHERE active = 1
+                     ORDER BY title ASC
+                     """)) {
+            List<CourseView> courses = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    courses.add(mapCourse(rs));
+                }
+            }
+            return courses;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to list active courses for admin", error);
+        }
+    }
+
+    public synchronized List<CourseView> listCoursesForInstructor(String instructorId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT c.cloud_course_id, c.course_code, c.title, c.description, c.instructor_cloud_user_id, c.active
+                     FROM local_courses c
+                     JOIN local_course_instructors ci ON c.cloud_course_id = ci.cloud_course_id
+                     JOIN cloud_synced_users u ON ci.instructor_cloud_user_id = u.cloud_user_id
+                     WHERE ci.instructor_cloud_user_id = ?
+                       AND ci.active = 1
+                       AND c.active = 1
+                       AND u.active = 1
+                     ORDER BY c.title ASC
+                     """)) {
+            ps.setString(1, instructorId);
+            List<CourseView> courses = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    courses.add(mapCourse(rs));
+                }
+            }
+            return courses;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to list courses for instructor " + instructorId, error);
+        }
+    }
+
+    public synchronized List<CourseView> listCoursesForTrainee(String traineeId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT c.cloud_course_id, c.course_code, c.title, c.description, c.instructor_cloud_user_id, c.active
+                     FROM local_courses c
+                     JOIN local_course_enrollments ce ON c.cloud_course_id = ce.cloud_course_id
+                     JOIN cloud_synced_users u ON ce.trainee_cloud_user_id = u.cloud_user_id
+                     WHERE ce.trainee_cloud_user_id = ?
+                       AND ce.active = 1
+                       AND c.active = 1
+                       AND u.active = 1
+                     ORDER BY c.title ASC
+                     """)) {
+            ps.setString(1, traineeId);
+            List<CourseView> courses = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    courses.add(mapCourse(rs));
+                }
+            }
+            return courses;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to list courses for trainee " + traineeId, error);
+        }
+    }
+
+    public synchronized Optional<CourseView> findCourseById(String courseId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT cloud_course_id, course_code, title, description, instructor_cloud_user_id, active
+                     FROM local_courses
+                     WHERE cloud_course_id = ? AND active = 1
+                     LIMIT 1
+                     """)) {
+            ps.setString(1, courseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(mapCourse(rs));
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to find course by id " + courseId, error);
+        }
+    }
+
+    public synchronized boolean isInstructorAssigned(String courseId, String instructorId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT COUNT(*) AS count
+                     FROM local_course_instructors ci
+                     JOIN cloud_synced_users u ON ci.instructor_cloud_user_id = u.cloud_user_id
+                     JOIN local_courses c ON ci.cloud_course_id = c.cloud_course_id
+                     WHERE ci.cloud_course_id = ?
+                       AND ci.instructor_cloud_user_id = ?
+                       AND ci.active = 1
+                       AND c.active = 1
+                       AND u.active = 1
+                     """)) {
+            ps.setString(1, courseId);
+            ps.setString(2, instructorId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt("count") > 0;
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to check instructor assignment for course " + courseId, error);
+        }
+    }
+
+    public synchronized boolean isTraineeEnrolled(String courseId, String traineeId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT COUNT(*) AS count
+                     FROM local_course_enrollments ce
+                     JOIN cloud_synced_users u ON ce.trainee_cloud_user_id = u.cloud_user_id
+                     JOIN local_courses c ON ce.cloud_course_id = c.cloud_course_id
+                     WHERE ce.cloud_course_id = ?
+                       AND ce.trainee_cloud_user_id = ?
+                       AND ce.active = 1
+                       AND c.active = 1
+                       AND u.active = 1
+                     """)) {
+            ps.setString(1, courseId);
+            ps.setString(2, traineeId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt("count") > 0;
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to check trainee enrollment for course " + courseId, error);
+        }
+    }
+
+    public synchronized List<CourseStudentView> listStudentsForCourse(String courseId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT u.cloud_user_id, u.display_name, u.email, ce.enrolled_at
+                     FROM local_course_enrollments ce
+                     JOIN cloud_synced_users u ON ce.trainee_cloud_user_id = u.cloud_user_id
+                     JOIN local_courses c ON ce.cloud_course_id = c.cloud_course_id
+                     WHERE ce.cloud_course_id = ?
+                       AND ce.active = 1
+                       AND c.active = 1
+                       AND u.active = 1
+                     ORDER BY u.display_name ASC
+                     """)) {
+            ps.setString(1, courseId);
+            List<CourseStudentView> students = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    students.add(mapStudent(rs));
+                }
+            }
+            return students;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to list students for course " + courseId, error);
+        }
+    }
+
+    public synchronized List<CourseInstructorView> listInstructorsForCourse(String courseId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT u.cloud_user_id, u.display_name, u.email
+                     FROM local_course_instructors ci
+                     JOIN cloud_synced_users u ON ci.instructor_cloud_user_id = u.cloud_user_id
+                     JOIN local_courses c ON ci.cloud_course_id = c.cloud_course_id
+                     WHERE ci.cloud_course_id = ?
+                       AND ci.active = 1
+                       AND c.active = 1
+                       AND u.active = 1
+                     ORDER BY u.display_name ASC
+                     """)) {
+            ps.setString(1, courseId);
+            List<CourseInstructorView> instructors = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    instructors.add(mapInstructor(rs));
+                }
+            }
+            return instructors;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to list instructors for course " + courseId, error);
+        }
+    }
+
+    private CourseView mapCourse(ResultSet rs) throws SQLException {
+        return new CourseView(
+                rs.getString("cloud_course_id"),
+                rs.getString("course_code"),
+                rs.getString("title"),
+                rs.getString("description"),
+                rs.getString("instructor_cloud_user_id"),
+                rs.getInt("active") == 1
+        );
+    }
+
+    private CourseStudentView mapStudent(ResultSet rs) throws SQLException {
+        return new CourseStudentView(
+                rs.getString("cloud_user_id"),
+                rs.getString("display_name"),
+                rs.getString("email"),
+                rs.getString("enrolled_at")
+        );
+    }
+
+    private CourseInstructorView mapInstructor(ResultSet rs) throws SQLException {
+        return new CourseInstructorView(
+                rs.getString("cloud_user_id"),
+                rs.getString("display_name"),
+                rs.getString("email")
+        );
     }
 }
