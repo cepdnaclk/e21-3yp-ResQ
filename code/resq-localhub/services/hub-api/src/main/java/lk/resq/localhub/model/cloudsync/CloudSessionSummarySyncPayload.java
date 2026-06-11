@@ -18,6 +18,7 @@ public record CloudSessionSummarySyncPayload(
         String manikinId,
         String traineeId,
         String instructorId,
+        String courseId,
         @JsonFormat(shape = JsonFormat.Shape.STRING)
         Instant startedAt,
         @JsonFormat(shape = JsonFormat.Shape.STRING)

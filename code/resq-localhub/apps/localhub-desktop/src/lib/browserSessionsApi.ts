@@ -1,6 +1,7 @@
 export type SessionStartRequest = {
   deviceId: string;
-  traineeId?: string | null;
+  courseId: string;
+  traineeId: string;
   scenario?: string | null;
   notes?: string | null;
 };
@@ -137,8 +138,17 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
   });
 
   if (!response.ok) {
-    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
-    throw new Error(errorResponse?.error ?? `Failed to start session (${response.status})`);
+    if (response.status === 400) {
+      throw new Error("Select a course and enrolled trainee before starting the session.");
+    }
+    if (response.status === 403) {
+      throw new Error("You are not allowed to start a session for this course or trainee.");
+    }
+    if (response.status === 409) {
+      throw new Error("This device or session is already active.");
+    }
+
+    throw new Error("Failed to start session.");
   }
 
   return readJsonResponse<SessionStartResponse>(response);

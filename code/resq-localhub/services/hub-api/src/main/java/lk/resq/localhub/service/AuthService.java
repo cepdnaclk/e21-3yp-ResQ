@@ -10,6 +10,7 @@ import lk.resq.localhub.model.CreateUserRequest;
 import lk.resq.localhub.model.LoginRequest;
 
 import lk.resq.localhub.model.UserRole;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +47,7 @@ public class AuthService {
     private final ChronoUnit sessionTtlUnit = ChronoUnit.HOURS;
     private final long sessionTtlHours;
 
+    @Autowired
     public AuthService(
             LocalAuthRepository authRepository,
             ObjectMapper objectMapper,
@@ -54,6 +56,15 @@ public class AuthService {
         this.authRepository = authRepository;
         this.objectMapper = objectMapper;
         this.sessionTtlHours = Math.max(1L, sessionTtlHours);
+    }
+
+    public AuthService(
+            LocalAuthRepository authRepository,
+            RosterCacheRepository rosterRepository,
+            ObjectMapper objectMapper,
+            long sessionTtlHours
+    ) {
+        this(authRepository, objectMapper, sessionTtlHours);
     }
 
     public AuthBootstrapResponse bootstrap() {

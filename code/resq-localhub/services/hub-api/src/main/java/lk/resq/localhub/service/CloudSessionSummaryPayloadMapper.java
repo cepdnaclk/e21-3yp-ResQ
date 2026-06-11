@@ -31,6 +31,7 @@ public class CloudSessionSummaryPayloadMapper {
                 null,
                 session.traineeId(),
                 session.instructorId(),
+                session.courseId(),
                 startedAt,
                 endedAt,
                 durationMs(summary),

@@ -51,10 +51,15 @@ final class TelemetryPayloadNormalizer {
         }
 
         Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
-        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil", "depth_ok");
+        Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
+        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
         Double pauseS = firstDouble(payload, "pauseS", "pause_s");
-        Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions", "valid_compression_count");
+        Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions");
+        Integer validCompressionCount = firstInt(payload, "validCompressionCount", "valid_compression_count");
+        Integer recoilOkCount = firstInt(payload, "recoilOkCount", "recoil_ok_count");
+        Integer incompleteRecoilCount = firstInt(payload, "incompleteRecoilCount", "incomplete_recoil_count");
         String handPlacement = firstText(payload, "handPlacement", "hand_placement");
+        Double pressureBalancePct = firstDouble(payload, "pressureBalancePct", "pressure_balance_pct");
         Object flags = jsonValue(payload.get("flags"));
         if (flags == null) {
             flags = jsonValue(payload.get("quality_flags"));
@@ -70,7 +75,7 @@ final class TelemetryPayloadNormalizer {
             }
         }
 
-        if (depthMm == null && depthProgress == null && rateCpm == null && recoilOk == null) {
+        if (depthMm == null && depthProgress == null && depthOk == null && rateCpm == null && recoilOk == null) {
             return TelemetryNormalizationResult.rejected("payload is missing required metric-first fields", warnings);
         }
 
@@ -88,12 +93,17 @@ final class TelemetryPayloadNormalizer {
                 jsonValue(payload.get("timestamp")),
                 depthMm,
                 depthProgress,
+                depthOk,
                 rateCpm,
                 recoilOk,
                 pauseS,
                 compressionCount,
+                validCompressionCount,
+                recoilOkCount,
+                incompleteRecoilCount,
                 handPlacement,
                 flags,
+                pressureBalancePct,
                 sourceMode,
                 debugRaw
         );
@@ -121,6 +131,19 @@ final class TelemetryPayloadNormalizer {
         }
         if (metric.compressionCount() != null && metric.compressionCount() < 0) {
             return "compressionCount cannot be negative";
+        }
+        if (metric.validCompressionCount() != null && metric.validCompressionCount() < 0) {
+            return "validCompressionCount cannot be negative";
+        }
+        if (metric.recoilOkCount() != null && metric.recoilOkCount() < 0) {
+            return "recoilOkCount cannot be negative";
+        }
+        if (metric.incompleteRecoilCount() != null && metric.incompleteRecoilCount() < 0) {
+            return "incompleteRecoilCount cannot be negative";
+        }
+        if (metric.pressureBalancePct() != null
+                && (metric.pressureBalancePct() < 0.0 || metric.pressureBalancePct() > 100.0)) {
+            return "pressureBalancePct is outside the accepted range";
         }
         if (metric.seq() != null && metric.seq() < 0) {
             return "seq cannot be negative";

@@ -1,5 +1,7 @@
 package lk.resq.localhub.service;
 
+import java.util.ArrayList;
+import java.util.List;
 import jakarta.annotation.PostConstruct;
 import lk.resq.localhub.model.cloudsync.CloudRosterCourse;
 import lk.resq.localhub.model.cloudsync.CloudRosterEnrollment;
@@ -482,6 +484,34 @@ public class RosterCacheRepository {
             }
         } catch (SQLException error) {
             throw new IllegalStateException("Failed to find course by id " + courseId, error);
+        }
+    }
+
+    public synchronized Optional<CloudRosterUser> findSyncedUserById(String userId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT cloud_user_id, display_name, email, role, active, updated_at
+                     FROM cloud_synced_users
+                     WHERE cloud_user_id = ?
+                     LIMIT 1
+                     """)) {
+            ps.setString(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                String updatedAt = rs.getString("updated_at");
+                return Optional.of(new CloudRosterUser(
+                        rs.getString("cloud_user_id"),
+                        rs.getString("display_name"),
+                        rs.getString("email"),
+                        rs.getString("role"),
+                        rs.getInt("active") == 1,
+                        updatedAt == null ? null : Instant.parse(updatedAt)
+                ));
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to find synced user by id " + userId, error);
         }
     }
 

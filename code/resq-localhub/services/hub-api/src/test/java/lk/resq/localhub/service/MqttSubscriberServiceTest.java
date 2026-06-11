@@ -187,8 +187,16 @@ class MqttSubscriberServiceTest {
         assertThat(liveView.latestDepthMm()).isNull();
         assertThat(liveView.latestMetric()).isNotNull();
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.78);
+        assertThat(liveView.latestMetric().depthOk()).isTrue();
         assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
-        assertThat(liveView.latestRecoilOk()).isTrue();
+        assertThat(liveView.latestRecoilOk()).isNull();
+        assertThat(liveView.latestMetric().compressionCount()).isEqualTo(1);
+        assertThat(liveView.latestMetric().validCompressionCount()).isZero();
+        assertThat(liveView.latestMetric().recoilOkCount()).isZero();
+        assertThat(liveView.latestMetric().incompleteRecoilCount()).isZero();
+        assertThat(liveView.latestMetric().handPlacement()).isEqualTo("CENTER");
+        assertThat(liveView.latestMetric().pressureBalancePct()).isEqualTo(92.9);
+        assertThat(liveView.pressureBalancePct()).isEqualTo(92.9);
         assertThat(liveView.latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
     }
 

@@ -35,7 +35,7 @@ public class ManikinLiveController {
     @GetMapping("/live")
     public List<ManikinLiveSummary> listLiveManikins(HttpServletRequest request) {
         try {
-            authService.requireRole(request, UserRole.INSTRUCTOR);
+            authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
             return manikinRegistryService.getLiveSummaries().stream()
                     .map(activeSessionService::decorateLiveSummary)
                     .toList();
@@ -51,7 +51,7 @@ public class ManikinLiveController {
     @GetMapping("/live/{deviceId}")
     public ResponseEntity<ManikinLiveSummary> getLiveManikin(HttpServletRequest request, @PathVariable String deviceId) {
         try {
-            authService.requireRole(request, UserRole.INSTRUCTOR);
+            authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
             return manikinRegistryService.getLiveSummary(deviceId)
                     .map(activeSessionService::decorateLiveSummary)
                     .map(ResponseEntity::ok)

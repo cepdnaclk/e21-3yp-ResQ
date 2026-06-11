@@ -273,30 +273,28 @@ public class MqttSubscriberService {
                     TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
                             TelemetryPayloadNormalizer.normalize(payload, parsedTopic.deviceId);
                     if (!normalization.ok()) {
-                        long rejected = rejectedTelemetryCount.incrementAndGet();
+                        rejectedTelemetryCount.incrementAndGet();
                         logger.warn(
-                                "Rejected MQTT telemetry for device {} on topic {} during normalization: {} (accepted={}, rejected={})",
+                                "Rejected session telemetry for device {} session {}: {}",
                                 parsedTopic.deviceId,
-                                topic,
-                                normalization.reason(),
-                                acceptedTelemetryCount.get(),
-                                rejected
+                                text(payload, "session_id") != null
+                                        ? text(payload, "session_id")
+                                        : text(payload, "sessionId"),
+                                normalization.reason()
                         );
                         return;
                     }
 
                     JsonNode normalizedPayload = objectMapper.valueToTree(normalization.value());
                     ActiveSessionService.TelemetryValidationResult validation =
-                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, normalizedPayload);
+                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, payload);
                     if (!validation.accepted()) {
-                        long rejected = rejectedTelemetryCount.incrementAndGet();
+                        rejectedTelemetryCount.incrementAndGet();
                         logger.warn(
-                                "Rejected MQTT telemetry for device {} on topic {}: {} (accepted={}, rejected={})",
+                                "Rejected session telemetry for device {} session {}: {}",
                                 parsedTopic.deviceId,
-                                topic,
-                                validation.reason(),
-                                acceptedTelemetryCount.get(),
-                                rejected
+                                normalization.value().sessionId(),
+                                validation.reason()
                         );
                         return;
                     }
@@ -312,15 +310,17 @@ public class MqttSubscriberService {
 
                     manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, normalizedPayload);
                     activeSessionService.recordTelemetry(parsedTopic.deviceId, normalizedPayload);
-                    long accepted = acceptedTelemetryCount.incrementAndGet();
+                    acceptedTelemetryCount.incrementAndGet();
                     publishInstructorLiveSnapshot();
-                    publishSessionLiveForDevice(parsedTopic.deviceId);
                     logger.info(
-                            "Accepted MQTT telemetry for device {} session {} and forwarded to active-session accumulator (accepted={}, rejected={})",
+                            "Accepted session telemetry deviceId={} sessionId={} tsMs={} compressionCount={} depthProgress={} rateCpm={} pressureBalancePct={}",
                             parsedTopic.deviceId,
                             validation.sessionId(),
-                            accepted,
-                            rejectedTelemetryCount.get()
+                            normalization.value().tsMs(),
+                            normalization.value().compressionCount(),
+                            normalization.value().depthProgress(),
+                            normalization.value().rateCpm(),
+                            normalization.value().pressureBalancePct()
                     );
                 }
                 case "debug" -> {
