@@ -30,7 +30,7 @@ public class CloudSessionSummaryPayloadMapper {
                 session.deviceId(),
                 null,
                 session.traineeId(),
-                null,
+                session.instructorId(),
                 startedAt,
                 endedAt,
                 durationMs(summary),
