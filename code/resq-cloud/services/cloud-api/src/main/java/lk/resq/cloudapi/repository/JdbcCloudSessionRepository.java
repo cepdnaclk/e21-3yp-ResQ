@@ -23,7 +23,7 @@ import java.util.UUID;
 public class JdbcCloudSessionRepository implements CloudSessionRepository {
 
     private static final String SELECT_COLUMNS = """
-            SELECT cloud_session_id, idempotency_key, payload_json, received_at, updated_at
+            SELECT cloud_session_id, idempotency_key, course_id, payload_json, received_at, updated_at
             FROM cloud_session_summaries
             """;
 
@@ -83,12 +83,12 @@ public class JdbcCloudSessionRepository implements CloudSessionRepository {
                         INSERT INTO cloud_session_summaries (
                             cloud_session_id, idempotency_key, local_hub_id, local_session_id,
                             contract_version, entity_type, device_id, manikin_id, trainee_id,
-                            instructor_id, session_status, started_at, ended_at, duration_ms,
+                            instructor_id, course_id, session_status, started_at, ended_at, duration_ms,
                             total_compressions, valid_compressions, avg_depth_mm, avg_rate_cpm,
                             recoil_ok_pct, pause_count, score, source, payload_json,
                             received_at, updated_at
                         ) VALUES (
-                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             CAST(? AS JSONB), ?, ?
                         )
                         """,
@@ -102,6 +102,7 @@ public class JdbcCloudSessionRepository implements CloudSessionRepository {
                 payload.manikinId(),
                 payload.traineeId(),
                 payload.instructorId(),
+                payload.courseId(),
                 payload.status(),
                 timestamp(payload.startedAt()),
                 timestamp(payload.endedAt()),
@@ -126,7 +127,7 @@ public class JdbcCloudSessionRepository implements CloudSessionRepository {
                         UPDATE cloud_session_summaries SET
                             local_hub_id = ?, local_session_id = ?, contract_version = ?,
                             entity_type = ?, device_id = ?, manikin_id = ?, trainee_id = ?,
-                            instructor_id = ?, session_status = ?, started_at = ?, ended_at = ?,
+                            instructor_id = ?, course_id = ?, session_status = ?, started_at = ?, ended_at = ?,
                             duration_ms = ?, total_compressions = ?, valid_compressions = ?,
                             avg_depth_mm = ?, avg_rate_cpm = ?, recoil_ok_pct = ?, pause_count = ?,
                             score = ?, source = ?, payload_json = CAST(? AS JSONB), updated_at = ?
@@ -140,6 +141,7 @@ public class JdbcCloudSessionRepository implements CloudSessionRepository {
                 payload.manikinId(),
                 payload.traineeId(),
                 payload.instructorId(),
+                payload.courseId(),
                 payload.status(),
                 timestamp(payload.startedAt()),
                 timestamp(payload.endedAt()),
