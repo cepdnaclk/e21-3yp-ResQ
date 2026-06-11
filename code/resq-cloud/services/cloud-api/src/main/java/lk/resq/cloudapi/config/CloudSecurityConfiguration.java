@@ -24,7 +24,8 @@ public class CloudSecurityConfiguration {
     @Bean
     SecurityFilterChain cloudSecurityFilterChain(
             HttpSecurity http,
-            CloudJwtAuthenticationFilter jwtFilter
+            CloudJwtAuthenticationFilter jwtFilter,
+            CloudHubAuthenticationFilter hubFilter
     ) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
@@ -43,6 +44,8 @@ public class CloudSecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/cloud/health").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/cloud/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/sync/session-summaries").permitAll()
+                        // Roster pull: authenticated only by hub API key (ROLE_HUB), NOT permitAll.
+                        .requestMatchers(HttpMethod.GET, "/api/sync/roster").hasRole("HUB")
                         .requestMatchers("/api/cloud/auth/me", "/api/cloud/auth/logout").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/cloud/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/cloud/users/**").hasRole("ADMIN")
@@ -58,6 +61,9 @@ public class CloudSecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/sync/session-summaries/**")
                             .hasAnyRole("ADMIN", "INSTRUCTOR")
                         .anyRequest().authenticated())
+                // Hub filter runs before JWT filter so it can authenticate hub requests
+                // independently of JWT tokens.
+                .addFilterBefore(hubFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
