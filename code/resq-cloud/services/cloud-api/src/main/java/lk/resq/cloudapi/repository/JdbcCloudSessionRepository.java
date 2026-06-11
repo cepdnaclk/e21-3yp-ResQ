@@ -206,4 +206,95 @@ public class JdbcCloudSessionRepository implements CloudSessionRepository {
                 ? "UNASSIGNED_LOCAL_HUB"
                 : localHubId.trim();
     }
+
+    @Override
+    public List<CloudSessionRecord> findWithFilters(
+            String courseId,
+            String traineeId,
+            String instructorId,
+            Instant dateFrom,
+            Instant dateTo,
+            List<String> allowedCourseIds,
+            String allowNullCourseIfInstructorMatches,
+            String allowNullCourseIfTraineeMatches,
+            Integer limit,
+            Integer offset
+    ) {
+        StringBuilder sql = new StringBuilder(SELECT_COLUMNS);
+        sql.append(" WHERE 1=1");
+        List<Object> params = new java.util.ArrayList<>();
+
+        if (courseId != null) {
+            sql.append(" AND course_id = ?");
+            params.add(courseId);
+        }
+        if (traineeId != null) {
+            sql.append(" AND trainee_id = ?");
+            params.add(traineeId);
+        }
+        if (instructorId != null) {
+            sql.append(" AND instructor_id = ?");
+            params.add(instructorId);
+        }
+        if (dateFrom != null) {
+            sql.append(" AND started_at >= ?");
+            params.add(Timestamp.from(dateFrom));
+        }
+        if (dateTo != null) {
+            sql.append(" AND started_at <= ?");
+            params.add(Timestamp.from(dateTo));
+        }
+
+        // Apply course accessibility scoping + null course ownership
+        if (allowedCourseIds != null) {
+            sql.append(" AND (");
+            boolean hasCondition = false;
+            if (!allowedCourseIds.isEmpty()) {
+                sql.append("course_id IN (");
+                for (int i = 0; i < allowedCourseIds.size(); i++) {
+                    if (i > 0) sql.append(", ");
+                    sql.append("?");
+                    params.add(allowedCourseIds.get(i));
+                }
+                sql.append(")");
+                hasCondition = true;
+            }
+
+            if (allowNullCourseIfInstructorMatches != null) {
+                if (hasCondition) {
+                    sql.append(" OR ");
+                }
+                sql.append("(course_id IS NULL AND instructor_id = ?)");
+                params.add(allowNullCourseIfInstructorMatches);
+                hasCondition = true;
+            }
+
+            if (allowNullCourseIfTraineeMatches != null) {
+                if (hasCondition) {
+                    sql.append(" OR ");
+                }
+                sql.append("(course_id IS NULL AND trainee_id = ?)");
+                params.add(allowNullCourseIfTraineeMatches);
+                hasCondition = true;
+            }
+
+            if (!hasCondition) {
+                sql.append("1=0");
+            }
+            sql.append(")");
+        }
+
+        sql.append(" ORDER BY started_at DESC, received_at DESC");
+
+        if (limit != null) {
+            sql.append(" LIMIT ?");
+            params.add(limit);
+        }
+        if (offset != null) {
+            sql.append(" OFFSET ?");
+            params.add(offset);
+        }
+
+        return jdbcTemplate.query(sql.toString(), rowMapper, params.toArray());
+    }
 }

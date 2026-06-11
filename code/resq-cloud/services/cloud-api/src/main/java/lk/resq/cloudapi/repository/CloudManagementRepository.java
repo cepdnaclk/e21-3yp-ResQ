@@ -52,4 +52,10 @@ public interface CloudManagementRepository {
     List<CloudEnrollment> findCourseEnrollments(String courseId);
 
     void deactivateEnrollment(String courseId, String traineeId);
+
+    List<String> findAssignedCourseIds(String instructorId);
+
+    void assignInstructor(String courseId, String instructorId);
+
+    List<lk.resq.cloudapi.model.CloudRosterInstructorAssignment> findAllInstructorAssignments();
 }

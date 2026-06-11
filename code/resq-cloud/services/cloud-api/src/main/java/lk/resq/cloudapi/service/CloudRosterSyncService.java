@@ -115,15 +115,27 @@ public class CloudRosterSyncService {
                 ))
                 .collect(Collectors.toList());
 
-        // Instructor assignments derived from courses with a non-null instructorId.
-        List<CloudRosterInstructorAssignment> instructorAssignments = courses.stream()
-                .filter(c -> c.instructorId() != null)
-                .map(c -> new CloudRosterInstructorAssignment(
+        // Instructor assignments derived from courses with a non-null instructorId, plus cloud_course_instructors.
+        List<CloudRosterInstructorAssignment> instructorAssignments = new ArrayList<>();
+        for (CloudCourse c : courses) {
+            if (c.instructorId() != null) {
+                instructorAssignments.add(new CloudRosterInstructorAssignment(
                         c.courseId(),
                         c.instructorId(),
                         c.active()
-                ))
-                .collect(Collectors.toList());
+                ));
+            }
+        }
+        List<CloudRosterInstructorAssignment> dbAssignments = managementRepository.findAllInstructorAssignments();
+        for (CloudRosterInstructorAssignment dbA : dbAssignments) {
+            if (courseIds.contains(dbA.courseId())) {
+                boolean duplicate = instructorAssignments.stream()
+                        .anyMatch(a -> a.courseId().equals(dbA.courseId()) && a.instructorUserId().equals(dbA.instructorUserId()));
+                if (!duplicate) {
+                    instructorAssignments.add(dbA);
+                }
+            }
+        }
 
         List<CloudRosterEnrollment> rosterEnrollments = enrollments.stream()
                 .map(e -> new CloudRosterEnrollment(

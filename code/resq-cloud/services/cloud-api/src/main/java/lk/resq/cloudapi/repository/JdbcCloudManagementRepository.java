@@ -6,6 +6,7 @@ import lk.resq.cloudapi.model.CloudUser;
 import lk.resq.cloudapi.model.CloudUserCredentials;
 import lk.resq.cloudapi.model.CloudUserRole;
 import lk.resq.cloudapi.model.CloudRosterUser;
+import lk.resq.cloudapi.model.CloudRosterInstructorAssignment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -305,6 +306,46 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
                 rs.getBoolean("active"),
                 instant(rs, "enrolled_at")
         );
+    }
+
+    @Override
+    public List<String> findAssignedCourseIds(String instructorId) {
+        return jdbcTemplate.queryForList("""
+                SELECT DISTINCT CAST(course_id AS VARCHAR) FROM (
+                    SELECT course_id FROM cloud_courses WHERE instructor_id = ? AND active = TRUE
+                    UNION
+                    SELECT course_id FROM cloud_course_instructors WHERE instructor_id = ? AND active = TRUE
+                ) t
+                """, String.class, uuid(instructorId), uuid(instructorId));
+    }
+
+    @Override
+    public void assignInstructor(String courseId, String instructorId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cloud_course_instructors WHERE course_id = ? AND instructor_id = ?",
+                Integer.class, uuid(courseId), uuid(instructorId));
+        if (count != null && count > 0) {
+            jdbcTemplate.update(
+                    "UPDATE cloud_course_instructors SET active = TRUE WHERE course_id = ? AND instructor_id = ?",
+                    uuid(courseId), uuid(instructorId));
+        } else {
+            jdbcTemplate.update(
+                    "INSERT INTO cloud_course_instructors (course_id, instructor_id, active) VALUES (?, ?, TRUE)",
+                    uuid(courseId), uuid(instructorId));
+        }
+    }
+
+    @Override
+    public List<CloudRosterInstructorAssignment> findAllInstructorAssignments() {
+        return jdbcTemplate.query("""
+                SELECT course_id, instructor_id, active
+                FROM cloud_course_instructors
+                WHERE active = TRUE
+                """, (rs, rowNum) -> new CloudRosterInstructorAssignment(
+                    rs.getObject("course_id", java.util.UUID.class).toString(),
+                    rs.getObject("instructor_id", java.util.UUID.class).toString(),
+                    rs.getBoolean("active")
+                ));
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {

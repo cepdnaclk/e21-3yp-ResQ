@@ -15,6 +15,19 @@ public interface CloudSessionRepository {
 
     List<CloudSessionRecord> findAll();
 
+    List<CloudSessionRecord> findWithFilters(
+            String courseId,
+            String traineeId,
+            String instructorId,
+            java.time.Instant dateFrom,
+            java.time.Instant dateTo,
+            List<String> allowedCourseIds,
+            String allowNullCourseIfInstructorMatches,
+            String allowNullCourseIfTraineeMatches,
+            Integer limit,
+            Integer offset
+    );
+
     record SaveResult(CloudSessionRecord record, boolean created) {
     }
 }
