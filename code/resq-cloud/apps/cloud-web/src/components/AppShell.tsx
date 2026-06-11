@@ -57,10 +57,15 @@ export function AppShell({ currentPath, user, onLogout, children }: AppShellProp
         {user.role !== "TRAINEE" ? (
           <>
             <NavLink href="/sessions" active={currentPath.startsWith("/sessions")}>Sessions</NavLink>
+            <NavLink href="/reports" active={currentPath === "/reports"}>Session Reports</NavLink>
             <NavLink href="/analytics" active={currentPath === "/analytics"}>Analytics</NavLink>
             <NavLink href="/management/courses" active={currentPath.startsWith("/management/courses")}>Courses</NavLink>
           </>
-        ) : null}
+        ) : (
+          <>
+            <NavLink href="/reports" active={currentPath === "/reports"}>Session Reports</NavLink>
+          </>
+        )}
         {user.role === "ADMIN" ? (
           <>
             <span className="nav-divider" aria-hidden="true" />

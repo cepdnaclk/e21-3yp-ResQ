@@ -15,12 +15,14 @@ export function routeFromPath(pathname: string):
   | { name: "course-detail"; courseId: string }
   | { name: "login" }
   | { name: "profile" }
+  | { name: "reports" }
   | { name: "redirect" } {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   if (normalized === "/") return { name: "redirect" };
   if (normalized === "/login") return { name: "login" };
   if (normalized === "/me") return { name: "profile" };
   if (normalized === "/sessions") return { name: "sessions" };
+  if (normalized === "/reports") return { name: "reports" };
   if (normalized === "/analytics") return { name: "analytics" };
   if (normalized === "/management/users") return { name: "users" };
   if (normalized === "/management/courses") return { name: "courses" };

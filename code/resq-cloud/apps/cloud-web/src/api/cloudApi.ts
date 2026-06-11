@@ -20,6 +20,7 @@ export interface CloudSessionPayload {
   sessionId?: string | null;
   deviceId?: string | null;
   manikinId?: string | null;
+  courseId?: string | null;
   traineeId?: string | null;
   instructorId?: string | null;
   startedAt?: string | null;
@@ -238,6 +239,46 @@ export function removeCloudEnrollment(courseId: string, traineeId: string): Prom
     { method: "DELETE" },
   );
 }
+
+export interface SessionSummaryFilters {
+  courseId?: string;
+  traineeId?: string;
+  instructorId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type CloudSessionSummaryPayload = CloudSessionPayload;
+
+export interface CloudSessionSummaryRecord {
+  cloudSessionId: string;
+  idempotencyKey: string;
+  payload: CloudSessionSummaryPayload;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function listSessionSummaries(filters: SessionSummaryFilters): Promise<CloudSessionSummaryRecord[]> {
+  const params = new URLSearchParams();
+  
+  const limit = filters.limit !== undefined ? filters.limit : 50;
+  const offset = filters.offset !== undefined ? filters.offset : 0;
+  
+  params.append("limit", String(limit));
+  params.append("offset", String(offset));
+
+  if (filters.courseId) params.append("courseId", filters.courseId);
+  if (filters.traineeId) params.append("traineeId", filters.traineeId);
+  if (filters.instructorId) params.append("instructorId", filters.instructorId);
+  if (filters.dateFrom) params.append("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.append("dateTo", filters.dateTo);
+
+  const query = params.toString();
+  return requestJson(`/api/cloud/session-summaries${query ? `?${query}` : ""}`);
+}
+
 
 export class CloudApiError extends Error {
   constructor(message: string, readonly status?: number) {

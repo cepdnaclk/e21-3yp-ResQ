@@ -14,6 +14,7 @@ import { CoursesPage } from "./pages/CoursesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SessionDetailPage } from "./pages/SessionDetailPage";
+import { SessionReportsPage } from "./pages/SessionReportsPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { navigate, routeFromPath } from "./router";
@@ -98,6 +99,7 @@ export default function App() {
         ? <CourseDetailPage courseId={route.courseId} readOnly={session.user.role !== "ADMIN"} />
         : null}
       {route.name === "profile" ? <ProfilePage user={session.user} /> : null}
+      {route.name === "reports" ? <SessionReportsPage user={session.user} /> : null}
       {route.name === "redirect" || route.name === "login"
         ? <div className="route-loading">Opening cloud review...</div>
         : null}
@@ -106,7 +108,7 @@ export default function App() {
 }
 
 function isRouteAllowed(routeName: ReturnType<typeof routeFromPath>["name"], role: CloudUserRole) {
-  if (routeName === "login" || routeName === "redirect" || routeName === "profile") return true;
+  if (routeName === "login" || routeName === "redirect" || routeName === "profile" || routeName === "reports") return true;
   if (role === "TRAINEE") return false;
   if (role === "INSTRUCTOR") return routeName !== "users";
   return true;
