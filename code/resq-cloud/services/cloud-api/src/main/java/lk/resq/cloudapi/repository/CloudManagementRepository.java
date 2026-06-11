@@ -29,7 +29,11 @@ public interface CloudManagementRepository {
 
     void updateLastLogin(String userId, Instant lastLoginAt);
 
+    void updateLocalLoginHash(String userId, String localLoginHash);
+
     List<CloudUser> findAllUsers();
+
+    List<lk.resq.cloudapi.model.CloudRosterUser> findAllRosterUsers();
 
     CloudCourse insertCourse(CloudCourse course);
 

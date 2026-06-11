@@ -73,7 +73,7 @@ public class CloudRosterSyncService {
         //    selected courses (instructors) or enrollments (trainees + instructors).
         //    For simplicity we pull all users and filter in-memory — the table is
         //    small enough for MVP. Replace with a targeted query if it grows large.
-        List<CloudUser> allUsers = managementRepository.findAllUsers();
+        List<CloudRosterUser> allRosterUsers = managementRepository.findAllRosterUsers();
 
         // 3. Collect enrollments for the scoped courses.
         List<CloudEnrollment> enrollments = new ArrayList<>();
@@ -99,16 +99,8 @@ public class CloudRosterSyncService {
         }
 
         // 5. Map to DTOs — exclude password_hash (intentionally not in CloudUser record).
-        List<CloudRosterUser> rosterUsers = allUsers.stream()
-                .filter(u -> relevantUserIds.contains(u.userId()))
-                .map(u -> new CloudRosterUser(
-                        u.userId(),
-                        u.displayName(),
-                        u.email(),
-                        u.role().name(),
-                        u.active(),
-                        u.updatedAt()
-                ))
+        List<CloudRosterUser> rosterUsers = allRosterUsers.stream()
+                .filter(u -> relevantUserIds.contains(u.cloudUserId()))
                 .collect(Collectors.toList());
 
         List<CloudRosterCourse> rosterCourses = courses.stream()

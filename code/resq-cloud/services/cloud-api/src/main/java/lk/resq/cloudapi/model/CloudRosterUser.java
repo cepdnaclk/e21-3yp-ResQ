@@ -12,6 +12,7 @@ public record CloudRosterUser(
         String email,        // nullable
         String role,         // ADMIN | INSTRUCTOR | TRAINEE
         boolean active,
-        Instant updatedAt
+        Instant updatedAt,
+        String localLoginHash // nullable (Phase 3A)
 ) {
 }

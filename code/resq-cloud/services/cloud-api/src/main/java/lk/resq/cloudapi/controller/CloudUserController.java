@@ -3,6 +3,7 @@ package lk.resq.cloudapi.controller;
 import lk.resq.cloudapi.model.CloudUser;
 import lk.resq.cloudapi.model.CreateCloudUserRequest;
 import lk.resq.cloudapi.model.UpdateCloudPasswordRequest;
+import lk.resq.cloudapi.model.UpdateLocalHubPasswordRequest;
 import lk.resq.cloudapi.service.CloudManagementService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,5 +55,14 @@ public class CloudUserController {
     ) {
         service.updateUserPassword(userId, request);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{userId}/localhub-password")
+    public ResponseEntity<CloudUser> setLocalHubPassword(
+            @PathVariable String userId,
+            @RequestBody UpdateLocalHubPasswordRequest request
+    ) {
+        CloudUser user = service.updateLocalHubPassword(userId, request);
+        return ResponseEntity.ok(user);
     }
 }

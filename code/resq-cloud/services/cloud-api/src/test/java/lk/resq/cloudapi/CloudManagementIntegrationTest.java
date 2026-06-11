@@ -278,4 +278,52 @@ class CloudManagementIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         return "Bearer " + objectMapper.readTree(response).path("accessToken").asText();
     }
+
+    @Test
+    void setLocalHubPasswordSecuredAndRosterIncludesHash() throws Exception {
+        // 1. Create trainee and course, and enroll them
+        JsonNode user = createUser("Offline Trainee", "offline@resq.test", "TRAINEE");
+        String userId = user.path("userId").asText();
+        JsonNode course = createCourse("CPR-OFFLINE", "Offline CPR Course", null);
+        enroll(course, user);
+
+        // 2. Non-admin is rejected
+        mockMvc.perform(post("/api/cloud/users/{id}/localhub-password", userId)
+                        .contentType("application/json")
+                        .content("""
+                                {"password":"localhubPassword123"}
+                                """))
+                .andExpect(status().isUnauthorized());
+
+        // 3. Admin successfully sets LocalHub password and receives sanitized user info
+        mockMvc.perform(post("/api/cloud/users/{id}/localhub-password", userId)
+                        .header(AUTHORIZATION, adminAuthorization)
+                        .contentType("application/json")
+                        .content("""
+                                {"password":"localhubPassword123"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Offline Trainee"))
+                .andExpect(jsonPath("$.localLoginHash").doesNotExist())
+                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+
+        // 4. Normal details fetch does not expose hash
+        mockMvc.perform(get("/api/cloud/users/{id}", userId)
+                        .header(AUTHORIZATION, adminAuthorization))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.localLoginHash").doesNotExist());
+
+        // 5. Register a test hub and pull roster sync with auth headers
+        String hubId = "hub-test-01";
+        String rawKey = "hub-secret-123";
+        String keyHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(rawKey);
+        jdbcTemplate.update("INSERT INTO cloud_hub_api_keys (hub_id, hub_name, key_hash, active) VALUES (?, ?, ?, ?)",
+                hubId, "Test Hub", keyHash, true);
+
+        mockMvc.perform(get("/api/sync/roster")
+                        .header("X-ResQ-Hub-Id", hubId)
+                        .header("X-ResQ-Hub-Key", rawKey))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.users[?(@.cloudUserId == '%s')].localLoginHash".formatted(userId)).exists());
+    }
 }

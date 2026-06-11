@@ -5,6 +5,7 @@ import lk.resq.cloudapi.model.CloudEnrollment;
 import lk.resq.cloudapi.model.CloudUser;
 import lk.resq.cloudapi.model.CloudUserCredentials;
 import lk.resq.cloudapi.model.CloudUserRole;
+import lk.resq.cloudapi.model.CloudRosterUser;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -126,6 +127,16 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
     }
 
     @Override
+    public void updateLocalLoginHash(String userId, String localLoginHash) {
+        jdbcTemplate.update(
+                "UPDATE cloud_users SET local_login_hash = ?, updated_at = ? WHERE user_id = ?",
+                localLoginHash,
+                timestamp(Instant.now()),
+                uuid(userId)
+        );
+    }
+
+    @Override
     public void updateLastLogin(String userId, Instant lastLoginAt) {
         jdbcTemplate.update(
                 "UPDATE cloud_users SET last_login_at = ? WHERE user_id = ?",
@@ -137,6 +148,23 @@ public class JdbcCloudManagementRepository implements CloudManagementRepository 
     @Override
     public List<CloudUser> findAllUsers() {
         return jdbcTemplate.query(USER_SELECT + " ORDER BY display_name, user_id", userMapper);
+    }
+
+    @Override
+    public List<CloudRosterUser> findAllRosterUsers() {
+        return jdbcTemplate.query("""
+                SELECT user_id, display_name, email, role, active, updated_at, local_login_hash
+                FROM cloud_users
+                ORDER BY display_name, user_id
+                """, (rs, rowNum) -> new CloudRosterUser(
+                    rs.getObject("user_id", java.util.UUID.class).toString(),
+                    rs.getString("display_name"),
+                    rs.getString("email"),
+                    rs.getString("role"),
+                    rs.getBoolean("active"),
+                    rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant(),
+                    rs.getString("local_login_hash")
+                ));
     }
 
     @Override

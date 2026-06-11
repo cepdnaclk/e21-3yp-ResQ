@@ -8,6 +8,7 @@ import lk.resq.cloudapi.model.CreateCloudCourseRequest;
 import lk.resq.cloudapi.model.CreateCloudEnrollmentRequest;
 import lk.resq.cloudapi.model.CreateCloudUserRequest;
 import lk.resq.cloudapi.model.UpdateCloudPasswordRequest;
+import lk.resq.cloudapi.model.UpdateLocalHubPasswordRequest;
 import lk.resq.cloudapi.repository.CloudManagementRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -77,6 +78,17 @@ public class CloudManagementService {
         }
         String password = requiredPassword(request.password());
         repository.updatePassword(userId, passwordEncoder.encode(password), Instant.now());
+    }
+
+    @Transactional
+    public CloudUser updateLocalHubPassword(String userId, UpdateLocalHubPasswordRequest request) {
+        CloudUser user = getUser(userId);
+        if (request == null) {
+            throw badRequest("Request body is required");
+        }
+        String password = requiredPassword(request.password());
+        repository.updateLocalLoginHash(userId, passwordEncoder.encode(password));
+        return user;
     }
 
     public List<CloudUser> listUsers() {
