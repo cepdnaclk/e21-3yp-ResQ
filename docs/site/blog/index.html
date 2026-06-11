@@ -236,6 +236,11 @@
                         <figure class="post-figure">
                             <img src="../assets/img/blog/img2.jpg" alt="Prototype Overlay Jacket Development" />
                         </figure>
+
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/img3.xml" alt="Testing Sensors" />
+                        </figure>
+
                     </div>
                 </div>
             </article>
@@ -309,6 +314,58 @@
             <article class="post card">
                 <header class="post-header">
                     <div class="post-meta">
+                        <span class="badge">Development Update</span>
+                        <span class="badge badge-soft">System Integration</span>
+                        <span class="post-date">25.04.2026</span>
+                    </div>
+
+                    <h2 class="post-title"> Core Firmware, Hardware, and Local Hub Pipeline Completed</h2>
+                    <p class="post-subtitle">
+                        We have successfully unified the ESP32-C3 firmware, hardware sensors, and a localized desktop dashboard to establish a live, end-to-end telemetry pipeline for ResQ.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text">
+                            <p>
+                                As part of the system integration phase, we successfully completed the core firmware flow,
+                                Local Hub implementation, and physical hardware wiring for our basic working prototype. 
+                                The ESP32-C3 firmware has been fully optimized to manage critical device operations, 
+                                including network provisioning, secure pairing, session start/end controls, and the 
+                                continuous streaming of real-time sensor telemetry via the MQTT protocol.
+                            </p>
+
+                            <p>
+                                On the hardware side, the pipeline now actively processes inputs from integrated pressure sensors and
+                                Hall-effect sensors. In parallel, the ResQ Local Hub was developed to handle localized network operations.
+                                Built using a Node runtime within a lightweight Tauri desktop environment, the Hub hosts the local MQTT broker,
+                                manages backend microservices, and powers the interface designed for live session monitoring.
+                            </p>
+
+                            <p>
+                                With the firmware, Local Hub, and hardware pipeline now connected end-to-end, the ResQ system is fully operational.
+                                We are now able to capture live data directly from the prototype jacket and visualize critical metrics on the dashboard
+                                in real time. Moving forward, our next steps will focus on system hardening, improving live-state responsiveness, 
+                                and validating the setup across multiple simulated CPR training scenarios—specifically targeting the precise measurement
+                                of compression rate, recoil rate, depth, and hand placement.
+                            </p>
+                        </div>
+
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/img4.png" alt="Testing Output" />
+                        </figure>
+
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/img5.png" alt="Setup" />
+                        </figure>
+                    </div>
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
                         <span class="badge">Milestone</span>
                         <span class="badge badge-soft">Milestone 2</span>
                         <span class="post-date">27.04.2026</span>
@@ -337,7 +394,17 @@
                         </div>
 
                         <figure class="post-figure">
-                            <img src="../assets/img/blog/img5.jpg" alt="MVP Presentation Session — Milestone 2" />
+                            <img src="../assets/img/blog/img6.png" alt="MVP Presentation Session — Milestone 2" />
+                            <figcaption class="muted">MVP Presentation Session(Milestone 2)  — 27.04.2026</figcaption>
+                        </figure>
+
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/img7.jpg" alt="MVP Presentation Session — Milestone 2" />
+                            <figcaption class="muted">MVP Presentation Session(Milestone 2)  — 27.04.2026</figcaption>
+                        </figure>
+
+                        <figure class="post-figure">
+                            <img src="../assets/img/blog/img8.png" alt="MVP Presentation Session — Milestone 2" />
                             <figcaption class="muted">MVP Presentation Session(Milestone 2)  — 27.04.2026</figcaption>
                         </figure>
 
@@ -350,8 +417,6 @@
                     </div>
                 </div>
             </article>
-
-
 
             <article class="post card">
                 <header class="post-header">
