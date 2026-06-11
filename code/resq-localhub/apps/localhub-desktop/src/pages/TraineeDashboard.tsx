@@ -24,6 +24,7 @@ import {
   fetchSessionLive,
   type SessionLiveView,
 } from "../lib/browserSessionsApi";
+import { CoursesPanel } from "../components/CoursesPanel";
 
 /**
  * Browser-safe Trainee Dashboard.
@@ -1047,6 +1048,8 @@ export default function TraineeDashboard({
             <WaitingSessionStory />
           </section>
         )}
+
+        <CoursesPanel role={currentUser?.role ?? "TRAINEE"} />
       </div>
     </div>
   );

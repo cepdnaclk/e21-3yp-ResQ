@@ -44,6 +44,7 @@ import {
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
+import { CoursesPanel } from "../components/CoursesPanel";
 import { QRCodeSVG as QR } from "qrcode.react";
 import ProvisioningIcon from "../components/icons/ProvisioningIcon";
 import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
@@ -1559,6 +1560,8 @@ export default function InstructorDashboard({
           calibrationAction={selectedCalibrationDeviceId ? calibrationActionByDevice[selectedCalibrationDeviceId] ?? "idle" : "idle"}
           onRunCalibration={handleRunCalibration}
         />
+
+        <CoursesPanel role={currentUser?.role ?? "INSTRUCTOR"} />
 
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
