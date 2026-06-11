@@ -2,6 +2,8 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.ActiveSessionInfo;
+import lk.resq.localhub.model.AuthUser;
+import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionEndRequest;
@@ -41,7 +43,30 @@ public class ActiveSessionService {
     private final TraineeRecordsRepository traineeRecordsRepository;
     private final FirmwareCalibrationService firmwareCalibrationService;
     private final SyncQueueService syncQueueService;
+    private final RosterCacheRepository rosterRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository
+    ) {
+        this.manikinRegistryService = manikinRegistryService;
+        this.mqttCommandPublisherService = mqttCommandPublisherService;
+        this.localSessionRepository = localSessionRepository;
+        this.liveStreamService = liveStreamService;
+        this.traineeRecordsRepository = traineeRecordsRepository;
+        this.firmwareCalibrationService = firmwareCalibrationService;
+        this.syncQueueService = syncQueueService;
+        this.rosterRepository = rosterRepository;
+    }
+
+    // Overload for backward compatibility / tests
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
             MqttCommandPublisherService mqttCommandPublisherService,
@@ -51,13 +76,7 @@ public class ActiveSessionService {
             FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService
     ) {
-        this.manikinRegistryService = manikinRegistryService;
-        this.mqttCommandPublisherService = mqttCommandPublisherService;
-        this.localSessionRepository = localSessionRepository;
-        this.liveStreamService = liveStreamService;
-        this.traineeRecordsRepository = traineeRecordsRepository;
-        this.firmwareCalibrationService = firmwareCalibrationService;
-        this.syncQueueService = syncQueueService;
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null);
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -90,7 +109,103 @@ public class ActiveSessionService {
                 true,
                 normalize(request.scenario()),
                 normalize(request.notes()),
+                null,
+                request.courseId(),
                 null
+        );
+
+        sessionsById.put(sessionId, state);
+        activeSessionIdByDeviceId.put(deviceId, sessionId);
+
+        try {
+            mqttCommandPublisherService.publishSessionStart(new SessionStartCommandPayload(
+                    sessionId,
+                    deviceId,
+                    state.traineeId,
+                    startedAt,
+                    state.scenario
+            ));
+            publishInstructorLiveSnapshot();
+            logger.info("Started session {} for device {}", sessionId, deviceId);
+        } catch (RuntimeException error) {
+            sessionsById.remove(sessionId, state);
+            activeSessionIdByDeviceId.remove(deviceId, sessionId);
+            logger.warn("Rolled back session {} for device {} because the start command could not be published", sessionId, deviceId, error);
+            throw new MqttCommandPublishException("Failed to publish session start command for device " + deviceId, error);
+        }
+
+        return toStartResponse(state);
+    }
+
+    public synchronized SessionStartResponse startSession(SessionStartRequest request, AuthUser actor) {
+        String deviceId = normalize(request.deviceId());
+        if (deviceId == null) {
+            throw new IllegalArgumentException("deviceId is required");
+        }
+
+        String existingSessionId = activeSessionIdByDeviceId.get(deviceId);
+        if (existingSessionId != null) {
+            ActiveSessionState existing = sessionsById.get(existingSessionId);
+            if (existing != null && existing.active) {
+                throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
+            }
+        }
+        firmwareCalibrationService.sessionStartBlockReason(deviceId)
+                .ifPresent(reason -> {
+                    throw new IllegalStateException(reason);
+                });
+
+        if (actor == null) {
+            throw new UnauthorizedException("Authentication is required.");
+        }
+
+        if (actor.role() == UserRole.TRAINEE) {
+            throw new ForbiddenException("Trainees are not allowed to start instructor-led sessions.");
+        }
+
+        String courseId = normalize(request.courseId());
+        String traineeId = normalize(request.traineeId());
+
+        if (courseId == null || traineeId == null) {
+            throw new IllegalArgumentException("courseId and traineeId are required");
+        }
+
+        if (rosterRepository != null) {
+            // Validate courseId refers to an active synced course
+            var course = rosterRepository.findCourseById(courseId)
+                    .orElseThrow(() -> new NoSuchElementException("Course not found or inactive: " + courseId));
+
+            // Validate traineeId refers to an active synced user with role TRAINEE
+            var trainee = rosterRepository.findSyncedUserById(traineeId)
+                    .filter(u -> u.active() && "TRAINEE".equalsIgnoreCase(u.role()))
+                    .orElseThrow(() -> new NoSuchElementException("Trainee not found or inactive: " + traineeId));
+
+            // Validate traineeId is enrolled in courseId through local_course_enrollments.active = 1
+            if (!rosterRepository.isTraineeEnrolled(courseId, traineeId)) {
+                throw new ForbiddenException("Trainee " + traineeId + " is not enrolled in course " + courseId);
+            }
+
+            // For INSTRUCTOR, current AuthUser.id must be assigned to courseId through local_course_instructors.active = 1
+            if (actor.role() == UserRole.INSTRUCTOR) {
+                if (!rosterRepository.isInstructorAssigned(courseId, actor.id())) {
+                    throw new ForbiddenException("Instructor " + actor.id() + " is not assigned to course " + courseId);
+                }
+            }
+        }
+
+        String sessionId = UUID.randomUUID().toString();
+        Instant startedAt = Instant.now();
+        ActiveSessionState state = new ActiveSessionState(
+                sessionId,
+                deviceId,
+                traineeId,
+                startedAt,
+                true,
+                normalize(request.scenario()),
+                normalize(request.notes()),
+                null,
+                courseId,
+                actor.id()
         );
 
         sessionsById.put(sessionId, state);
@@ -459,7 +574,9 @@ public class ActiveSessionService {
                 state.startedAt,
                 state.active,
                 state.scenario,
-                state.notes
+                state.notes,
+                state.courseId,
+                state.instructorId
         );
     }
 
@@ -473,7 +590,9 @@ public class ActiveSessionService {
                 state.endedAt,
                 state.scenario,
                 state.notes,
-                summary
+                summary,
+                state.courseId,
+                state.instructorId
         );
     }
 
@@ -554,6 +673,8 @@ public class ActiveSessionService {
         private final SessionTelemetryAccumulator accumulator;
         private boolean active;
         private Instant endedAt;
+        private final String courseId;
+        private final String instructorId;
 
         private ActiveSessionState(
                 String sessionId,
@@ -563,7 +684,9 @@ public class ActiveSessionService {
                 boolean active,
                 String scenario,
                 String notes,
-                Instant endedAt
+                Instant endedAt,
+                String courseId,
+                String instructorId
         ) {
             this.sessionId = sessionId;
             this.deviceId = deviceId;
@@ -574,6 +697,8 @@ public class ActiveSessionService {
             this.notes = notes;
             this.endedAt = endedAt;
             this.accumulator = new SessionTelemetryAccumulator();
+            this.courseId = courseId;
+            this.instructorId = instructorId;
         }
     }
 

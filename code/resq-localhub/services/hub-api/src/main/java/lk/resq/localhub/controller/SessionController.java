@@ -46,12 +46,14 @@ public class SessionController {
     @PostMapping("/start")
     public ResponseEntity<?> startSession(HttpServletRequest request, @RequestBody SessionStartRequest requestBody) {
         try {
-            AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
-            SessionStartResponse response = activeSessionService.startSession(requestBody);
+            AuthUser actor = authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
+            SessionStartResponse response = activeSessionService.startSession(requestBody, actor);
             authService.audit(actor.id(), "SESSION_STARTED", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
+        } catch (NoSuchElementException error) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiErrorResponse(error.getMessage()));
         } catch (IllegalStateException error) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {
