@@ -18,6 +18,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -132,6 +134,8 @@ public class RosterCacheRepository {
                 statement.executeUpdate("""
                         INSERT OR IGNORE INTO roster_sync_state (sync_key)
                         VALUES ('""" + SYNC_STATE_KEY + "')");
+
+                ensureColumn(connection, "cloud_synced_users", "local_login_hash", "TEXT NULL");
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException(
@@ -353,6 +357,108 @@ public class RosterCacheRepository {
     }
 
     // -------------------------------------------------------------------------
+    // Synced cloud user lookups & updates
+    // -------------------------------------------------------------------------
+
+    public synchronized Optional<SyncedUserRecord> findSyncedUserByEmail(String email) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT cloud_user_id, display_name, email, role, active, local_login_hash
+                     FROM cloud_synced_users
+                     WHERE lower(email) = lower(?)
+                     LIMIT 1
+                     """)) {
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new SyncedUserRecord(
+                        rs.getString("cloud_user_id"),
+                        rs.getString("display_name"),
+                        rs.getString("email"),
+                        rs.getString("role"),
+                        rs.getInt("active") == 1,
+                        rs.getString("local_login_hash")
+                ));
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to look up synced user by email " + email, error);
+        }
+    }
+
+    public synchronized Optional<SyncedUserRecord> findSyncedUserById(String cloudUserId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT cloud_user_id, display_name, email, role, active, local_login_hash
+                     FROM cloud_synced_users
+                     WHERE cloud_user_id = ?
+                     LIMIT 1
+                     """)) {
+            ps.setString(1, cloudUserId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new SyncedUserRecord(
+                        rs.getString("cloud_user_id"),
+                        rs.getString("display_name"),
+                        rs.getString("email"),
+                        rs.getString("role"),
+                        rs.getInt("active") == 1,
+                        rs.getString("local_login_hash")
+                ));
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to look up synced user by id " + cloudUserId, error);
+        }
+    }
+
+    public synchronized void updateLocalLoginHash(String cloudUserId, String passwordHash) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     UPDATE cloud_synced_users
+                     SET local_login_hash = ?
+                     WHERE cloud_user_id = ?
+                     """)) {
+          ps.setString(1, passwordHash);
+          ps.setString(2, cloudUserId);
+          int updated = ps.executeUpdate();
+          if (updated == 0) {
+              throw new IllegalArgumentException("Synced cloud user " + cloudUserId + " not found.");
+          }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to update local login hash for user " + cloudUserId, error);
+        }
+    }
+
+    public synchronized List<SyncedUserRecord> listSyncedUsers() {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT cloud_user_id, display_name, email, role, active, local_login_hash
+                     FROM cloud_synced_users
+                     ORDER BY display_name ASC
+                     """)) {
+            List<SyncedUserRecord> users = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    users.add(new SyncedUserRecord(
+                            rs.getString("cloud_user_id"),
+                            rs.getString("display_name"),
+                            rs.getString("email"),
+                            rs.getString("role"),
+                            rs.getInt("active") == 1,
+                            rs.getString("local_login_hash")
+                    ));
+                }
+            }
+            return users;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to list synced cloud users", error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Inner types
     // -------------------------------------------------------------------------
 
@@ -367,12 +473,38 @@ public class RosterCacheRepository {
     ) {
     }
 
+    public record SyncedUserRecord(
+            String cloudUserId,
+            String displayName,
+            String email,
+            String role,
+            boolean active,
+            String localLoginHash
+    ) {
+    }
+
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
 
     private Connection openConnection() throws SQLException {
         return DriverManager.getConnection(jdbcUrl);
+    }
+
+    private static void ensureColumn(Connection connection, String tableName, String columnName, String definition) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("PRAGMA table_info(" + tableName + ")")) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    if (columnName.equalsIgnoreCase(resultSet.getString("name"))) {
+                        return;
+                    }
+                }
+            }
+        }
+
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + definition);
+        }
     }
 
     private static String nullableInstantStr(Instant value) {
