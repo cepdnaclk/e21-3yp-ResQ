@@ -1,6 +1,7 @@
 export type SessionStartRequest = {
   deviceId: string;
-  traineeId?: string | null;
+  courseId: string;
+  traineeId: string;
   scenario?: string | null;
   notes?: string | null;
 };
@@ -9,6 +10,8 @@ export type SessionStartResponse = {
   sessionId: string;
   deviceId: string;
   traineeId: string | null;
+  courseId?: string | null;
+  instructorId?: string | null;
   startedAt: string;
   active: boolean;
   scenario: string | null;
@@ -56,6 +59,8 @@ export type SessionEndResponse = {
   sessionId: string;
   deviceId: string;
   traineeId: string | null;
+  courseId?: string | null;
+  instructorId?: string | null;
   startedAt: string;
   ended: boolean;
   endedAt: string;

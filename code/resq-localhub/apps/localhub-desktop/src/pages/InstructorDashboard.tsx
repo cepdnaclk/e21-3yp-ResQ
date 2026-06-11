@@ -45,6 +45,12 @@ import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { CoursesPanel } from "../components/CoursesPanel";
+import {
+  listCourses,
+  listCourseStudents,
+  type CourseView,
+  type CourseStudentView,
+} from "../lib/browserRosterSyncApi";
 import { QRCodeSVG as QR } from "qrcode.react";
 import ProvisioningIcon from "../components/icons/ProvisioningIcon";
 import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
@@ -367,13 +373,21 @@ export default function InstructorDashboard({
 
   // Trainee selection state (per device)
   type SessionDraft = {
+    courseId?: string;
+    traineeId?: string;
     traineeRecordId?: string;
-    traineeMode: "select" | "quick" | "guest";
+    traineeMode?: "select" | "quick" | "guest";
     quickTraineeName?: string;
     quickTraineeCode?: string;
     quickTraineeGroup?: string;
   };
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, SessionDraft>>({});
+
+  // Courses and Roster management
+  const [courses, setCourses] = useState<CourseView[]>([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+  const [coursesError, setCoursesError] = useState<string | null>(null);
+  const [studentsByCourse, setStudentsByCourse] = useState<Record<string, CourseStudentView[]>>({});
 
   // Trainee records management
   const [trainees, setTrainees] = useState<TraineeRecord[]>([]);
@@ -493,6 +507,18 @@ export default function InstructorDashboard({
         setTraineesError(message);
       } finally {
         setTraineesLoading(false);
+      }
+    }
+    async function loadCourses() {
+      try {
+        const fetchedCourses = await listCourses();
+        setCourses(fetchedCourses);
+        setCoursesError(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load courses.";
+        setCoursesError(message);
+      } finally {
+        setCoursesLoading(false);
       }
     }
     async function loadRegistry() {
@@ -620,6 +646,7 @@ export default function InstructorDashboard({
     loadManikins();
     loadRecentSessions();
     loadTrainees();
+    loadCourses();
     loadRegistry();
     connectManikinStream();
 
@@ -842,15 +869,64 @@ export default function InstructorDashboard({
     return fromBackend ?? sessionCache[deviceId] ?? null;
   }
 
-  async function handleStartSession(deviceId: string) {
+  async function handleSelectCourseForDevice(deviceId: string, courseId: string) {
+    setSessionDrafts((current) => ({
+      ...current,
+      [deviceId]: {
+        ...current[deviceId],
+        courseId,
+        traineeId: "", // Reset traineeId when selected course changes (Correction 3)
+      },
+    }));
+
+    if (!courseId) return;
+
+    // Fetch students for this course if not already cached and not TRAINEE (Correction 2)
+    if (currentUser?.role !== "TRAINEE" && !studentsByCourse[courseId]) {
+      try {
+        const studentsList = await listCourseStudents(courseId);
+        setStudentsByCourse((prev) => ({
+          ...prev,
+          [courseId]: studentsList,
+        }));
+      } catch (err) {
+        console.error(`Failed to load students for course ${courseId}:`, err);
+        setSessionMessageByDevice((current) => ({
+          ...current,
+          [deviceId]: err instanceof Error ? err.message : "Failed to load course students",
+        }));
+      }
+    }
+  }
+
+  async function handleStartSessionWithParams(deviceId: string, courseId: string, traineeId: string) {
+    return handleStartSession(deviceId, { courseId, traineeId });
+  }
+
+  async function handleStartSession(deviceId: string, overrideDraft?: { courseId: string; traineeId: string }) {
     const manikin = manikinByDeviceId.get(deviceId);
     if (!manikin) {
       return;
     }
 
-    const draft = sessionDrafts[deviceId];
-    if (!draft) {
-      setSessionMessageByDevice((current) => ({ ...current, [deviceId]: "Please select a trainee mode." }));
+    const draft = overrideDraft || sessionDrafts[deviceId];
+    
+    // Disabling / validation checks (Correction 4 & 5)
+    if (!draft || !draft.courseId || !draft.traineeId || !deviceId) {
+      setSessionMessageByDevice((current) => ({ ...current, [deviceId]: "Please select both a course and a trainee." }));
+      return;
+    }
+
+    // Check device readiness
+    const readiness = readinessByDevice[deviceId];
+    if (startBlockedByReadiness(readiness)) {
+      setSessionMessageByDevice((current) => ({ ...current, [deviceId]: "Device is not ready for a session." }));
+      return;
+    }
+
+    // Prevent double submit (Correction 5)
+    const actionState = sessionActionByDevice[deviceId] ?? "idle";
+    if (actionState === "starting") {
       return;
     }
 
@@ -858,30 +934,14 @@ export default function InstructorDashboard({
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
     try {
-      const request: any = {
+      // Shape must match exactly (Correction 6 & 7):
+      const request = {
         deviceId,
+        courseId: draft.courseId,
+        traineeId: draft.traineeId,
         scenario: manikin.activeSessionScenario ?? null,
         notes: null,
       };
-
-      // Build trainee info based on selected mode
-      if (draft.traineeMode === "select") {
-        if (!draft.traineeRecordId) {
-          throw new Error("Please select a trainee from the list.");
-        }
-        request.traineeRecordId = draft.traineeRecordId;
-      } else if (draft.traineeMode === "quick") {
-        if (!draft.quickTraineeName || !draft.quickTraineeCode) {
-          throw new Error("Please enter trainee name and code for quick add.");
-        }
-        request.quickTrainee = {
-          traineeCode: draft.quickTraineeCode,
-          displayName: draft.quickTraineeName,
-          groupName: draft.quickTraineeGroup || null,
-        };
-      } else if (draft.traineeMode === "guest") {
-        request.guestLabel = "Guest Trainee";
-      }
 
       const response = await startSession(request);
       setSessionCache((current) => ({ ...current, [deviceId]: response }));
@@ -894,6 +954,7 @@ export default function InstructorDashboard({
         ...current,
         [deviceId]: error instanceof Error ? error.message : "Failed to start session.",
       }));
+      throw error; // rethrow so that modal caller can catch and show error
     } finally {
       setSessionActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
     }
@@ -1561,7 +1622,12 @@ export default function InstructorDashboard({
           onRunCalibration={handleRunCalibration}
         />
 
-        <CoursesPanel role={currentUser?.role ?? "INSTRUCTOR"} />
+        <CoursesPanel
+          role={currentUser?.role ?? "INSTRUCTOR"}
+          manikins={manikins}
+          readinessByDevice={readinessByDevice}
+          onStartSession={handleStartSessionWithParams}
+        />
 
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
@@ -1607,7 +1673,13 @@ export default function InstructorDashboard({
                 const readiness = readinessByDevice[manikin.deviceId];
                 const readinessIsKnown = readinessKnown(readiness);
                 const startReadinessBlocked = startBlockedByReadiness(readiness);
-                const startDisabled = actionState !== "idle" || startReadinessBlocked;
+                const draft = sessionDrafts[manikin.deviceId];
+                const startDisabled =
+                  actionState !== "idle" ||
+                  startReadinessBlocked ||
+                  !draft?.courseId ||
+                  !draft?.traineeId ||
+                  !manikin.deviceId;
                 const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
                 const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
                 const calibrationProgress = progressFromId(readiness?.progressId);
@@ -1699,109 +1771,42 @@ export default function InstructorDashboard({
 
                     {/* Trainee Selection UI */}
                     <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
-                      <div style={{ fontWeight: 600 }}>Select Trainee</div>
-
-                      {/* Mode Selection */}
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "select",
-                              },
-                            }))
-                          }
+                      <div style={{ display: "grid", gap: "4px" }}>
+                        <label htmlFor={`course-select-${manikin.deviceId}`} style={{ fontWeight: 600 }}>Select Course</label>
+                        <select
+                          id={`course-select-${manikin.deviceId}`}
+                          value={sessionDrafts[manikin.deviceId]?.courseId || ""}
+                          onChange={(event) => handleSelectCourseForDevice(manikin.deviceId, event.target.value)}
                           style={{
-                            padding: "4px 10px",
+                            padding: "6px 8px",
                             borderRadius: "4px",
                             border: "1px solid #cbd5e1",
-                            background:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
-                                ? "#0f172a"
-                                : "#ffffff",
-                            color:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
-                                ? "#ffffff"
-                                : "#334155",
-                            cursor: "pointer",
-                            fontSize: "0.8rem",
+                            fontFamily: "inherit",
+                            fontSize: "0.85rem",
                           }}
                         >
-                          Select
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "quick",
-                              },
-                            }))
-                          }
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "4px",
-                            border: "1px solid #cbd5e1",
-                            background:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
-                                ? "#0f172a"
-                                : "#ffffff",
-                            color:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
-                                ? "#ffffff"
-                                : "#334155",
-                            cursor: "pointer",
-                            fontSize: "0.8rem",
-                          }}
-                        >
-                          Quick Add
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "guest",
-                              },
-                            }))
-                          }
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "4px",
-                            border: "1px solid #cbd5e1",
-                            background:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
-                                ? "#0f172a"
-                                : "#ffffff",
-                            color:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
-                                ? "#ffffff"
-                                : "#334155",
-                            cursor: "pointer",
-                            fontSize: "0.8rem",
-                          }}
-                        >
-                          Guest
-                        </button>
+                          <option value="">-- Select Course --</option>
+                          {coursesLoading && <option>Loading courses...</option>}
+                          {!coursesLoading &&
+                            courses.map((c) => (
+                              <option key={c.cloudCourseId} value={c.cloudCourseId}>
+                                {c.courseCode ? `[${c.courseCode}] ` : ""}{c.title}
+                              </option>
+                            ))}
+                        </select>
                       </div>
 
-                      {/* Select Mode UI */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
+                      <div style={{ display: "grid", gap: "4px" }}>
+                        <label htmlFor={`trainee-select-${manikin.deviceId}`} style={{ fontWeight: 600 }}>Select Trainee</label>
                         <select
-                          value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
+                          id={`trainee-select-${manikin.deviceId}`}
+                          value={sessionDrafts[manikin.deviceId]?.traineeId || ""}
                           onChange={(event) =>
                             setSessionDrafts((current) => ({
                               ...current,
                               [manikin.deviceId]: {
                                 ...current[manikin.deviceId],
-                                traineeRecordId: event.target.value,
+                                traineeId: event.target.value,
                               },
                             }))
                           }
@@ -1812,93 +1817,21 @@ export default function InstructorDashboard({
                             fontFamily: "inherit",
                             fontSize: "0.85rem",
                           }}
+                          disabled={!sessionDrafts[manikin.deviceId]?.courseId}
                         >
-                          <option value="">-- Select a trainee --</option>
-                          {traineesLoading && <option>Loading...</option>}
-                          {!traineesLoading &&
-                            trainees.map((trainee) => (
-                              <option key={trainee.id} value={trainee.id}>
-                                {trainee.displayName} ({trainee.traineeCode})
-                              </option>
+                          <option value="">-- Select Enrolled Trainee --</option>
+                          {sessionDrafts[manikin.deviceId]?.courseId &&
+                            (studentsByCourse[sessionDrafts[manikin.deviceId]!.courseId!]?.length === 0 ? (
+                              <option disabled>No students enrolled</option>
+                            ) : (
+                              studentsByCourse[sessionDrafts[manikin.deviceId]!.courseId!]?.map((student) => (
+                                <option key={student.cloudUserId} value={student.cloudUserId}>
+                                  {student.displayName} ({student.email})
+                                </option>
+                              ))
                             ))}
                         </select>
-                      )}
-
-                      {/* Quick Add Mode UI */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
-                        <div style={{ display: "grid", gap: "6px" }}>
-                          <input
-                            type="text"
-                            placeholder="Trainee Code"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeCode: event.target.value,
-                                },
-                              }))
-                            }
-                            style={{
-                              padding: "6px 8px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              fontFamily: "inherit",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                          <input
-                            type="text"
-                            placeholder="Display Name"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeName: event.target.value,
-                                },
-                              }))
-                            }
-                            style={{
-                              padding: "6px 8px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              fontFamily: "inherit",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                          <input
-                            type="text"
-                            placeholder="Group (optional)"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeGroup: event.target.value,
-                                },
-                              }))
-                            }
-                            style={{
-                              padding: "6px 8px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              fontFamily: "inherit",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      {/* Guest Mode - no input needed */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
-                        <p style={{ margin: "4px 0", color: "#64748b", fontSize: "0.8rem" }}>
-                          Session will start without a specific trainee assignment.
-                        </p>
-                      )}
+                      </div>
                     </div>
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>

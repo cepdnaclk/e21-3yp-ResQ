@@ -11,12 +11,22 @@ import {
   type CourseInstructorView,
   type SyncStateRecord,
 } from "../lib/browserRosterSyncApi";
+import { type ManikinLiveSummary } from "../lib/browserManikinsApi";
+import { type FirmwareReadinessResponse } from "../lib/browserFirmwareApi";
 
 type CoursesPanelProps = {
   role: "ADMIN" | "INSTRUCTOR" | "TRAINEE";
+  manikins?: ManikinLiveSummary[];
+  readinessByDevice?: Record<string, FirmwareReadinessResponse | null>;
+  onStartSession?: (deviceId: string, courseId: string, traineeId: string) => Promise<void>;
 };
 
-export function CoursesPanel({ role }: CoursesPanelProps) {
+export function CoursesPanel({
+  role,
+  manikins = [],
+  readinessByDevice = {},
+  onStartSession,
+}: CoursesPanelProps) {
   const [syncStatus, setSyncStatus] = useState<SyncStateRecord | null>(null);
   const [courses, setCourses] = useState<CourseView[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,10 +35,18 @@ export function CoursesPanel({ role }: CoursesPanelProps) {
 
   const [selectedCourse, setSelectedCourse] = useState<CourseView | null>(null);
   const [students, setStudents] = useState<CourseStudentView[]>([]);
+  const [studentsCache, setStudentsCache] = useState<Record<string, CourseStudentView[]>>({});
   const [instructors, setInstructors] = useState<CourseInstructorView[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Modal Start Session states
+  const [modalTraineeId, setModalTraineeId] = useState("");
+  const [modalDeviceId, setModalDeviceId] = useState("");
+  const [modalStarting, setModalStarting] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalSuccess, setModalSuccess] = useState<string | null>(null);
 
   const fetchCoursesAndStatus = async () => {
     setLoading(true);
@@ -69,24 +87,74 @@ export function CoursesPanel({ role }: CoursesPanelProps) {
     setSelectedCourse(course);
     setDetailLoading(true);
     setDetailError(null);
-    setStudents([]);
-    setInstructors([]);
     setDialogOpen(true);
+
+    // Reset modal inputs and messages (Correction 3)
+    setModalTraineeId("");
+    setModalDeviceId("");
+    setModalError(null);
+    setModalSuccess(null);
 
     try {
       // Instructors can be viewed by all roles
       const fetchedInstructors = await listCourseInstructors(course.cloudCourseId);
       setInstructors(fetchedInstructors);
 
-      // Enrolled students can only be viewed by ADMIN or INSTRUCTOR (403 for TRAINEE)
+      // Enrolled students can only be viewed by ADMIN or INSTRUCTOR (403 for TRAINEE) (Correction 2)
       if (role !== "TRAINEE") {
-        const fetchedStudents = await listCourseStudents(course.cloudCourseId);
-        setStudents(fetchedStudents);
+        if (studentsCache[course.cloudCourseId]) {
+          setStudents(studentsCache[course.cloudCourseId]);
+        } else {
+          const fetchedStudents = await listCourseStudents(course.cloudCourseId);
+          setStudents(fetchedStudents);
+          setStudentsCache((prev) => ({ ...prev, [course.cloudCourseId]: fetchedStudents }));
+        }
       }
     } catch (err) {
       setDetailError(err instanceof Error ? err.message : "Failed to load course details");
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const startBlockedByReadiness = (readiness: FirmwareReadinessResponse | null | undefined): boolean => {
+    if (!readiness) return false;
+    const state = readiness.firmwareState ?? "";
+    if (state === "READY_FOR_SESSION") return false;
+    return (
+      !readiness.readyForSession ||
+      state === "CALIBRATING" ||
+      state === "CALIBRATION_FAIL" ||
+      state === "ERROR"
+    );
+  };
+
+  const handleModalStartSession = async () => {
+    if (!selectedCourse || !modalTraineeId || !modalDeviceId || !onStartSession) return;
+
+    // Disabling / validation checks (Correction 4 & 5)
+    const readiness = readinessByDevice?.[modalDeviceId];
+    if (startBlockedByReadiness(readiness)) {
+      setModalError("Selected device is not ready for a session.");
+      return;
+    }
+
+    if (modalStarting) return; // Prevent double submit (Correction 5)
+
+    setModalStarting(true);
+    setModalError(null);
+    setModalSuccess(null);
+
+    try {
+      await onStartSession(modalDeviceId, selectedCourse.cloudCourseId, modalTraineeId);
+      setModalSuccess(`Successfully started session on ${modalDeviceId}!`);
+      // Reset selections on success (Correction 3)
+      setModalTraineeId("");
+      setModalDeviceId("");
+    } catch (err) {
+      setModalError(err instanceof Error ? err.message : "Failed to start session");
+    } finally {
+      setModalStarting(false);
     }
   };
 
@@ -267,6 +335,108 @@ export function CoursesPanel({ role }: CoursesPanelProps) {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Start CPR Session Section - Admin/Instructor only (Correction 9) */}
+            {role !== "TRAINEE" && onStartSession && manikins.length > 0 && (
+              <div>
+                <div style={styles.sectionHeading}>Start CPR Session</div>
+                <div style={{ display: "grid", gap: "10px", padding: "12px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0", marginTop: "4px" }}>
+                  <div>
+                    <label htmlFor="modal-trainee-select" style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "#475569", marginBottom: "4px" }}>
+                      Select Enrolled Trainee
+                    </label>
+                    <select
+                      id="modal-trainee-select"
+                      value={modalTraineeId}
+                      onChange={(e) => {
+                        setModalTraineeId(e.target.value);
+                        setModalError(null);
+                        setModalSuccess(null);
+                      }}
+                      style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem", background: "#ffffff" }}
+                    >
+                      <option value="">-- Select Trainee --</option>
+                      {students.map((student) => (
+                        <option key={student.cloudUserId} value={student.cloudUserId}>
+                          {student.displayName} ({student.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="modal-device-select" style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "#475569", marginBottom: "4px" }}>
+                      Select Device / Manikin
+                    </label>
+                    <select
+                      id="modal-device-select"
+                      value={modalDeviceId}
+                      onChange={(e) => {
+                        setModalDeviceId(e.target.value);
+                        setModalError(null);
+                        setModalSuccess(null);
+                      }}
+                      style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid #cbd5e1", fontSize: "0.85rem", background: "#ffffff" }}
+                    >
+                      <option value="">-- Select Manikin --</option>
+                      {manikins.map((manikin) => {
+                        const readiness = readinessByDevice?.[manikin.deviceId];
+                        const isBlocked = startBlockedByReadiness(readiness);
+                        const statusLabel = isBlocked ? "Not Ready" : "Ready";
+                        return (
+                          <option key={manikin.deviceId} value={manikin.deviceId}>
+                            {manikin.deviceId} ({statusLabel})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {modalError && (
+                    <div style={{ color: "#ef4444", fontSize: "0.85rem", fontWeight: 500 }}>
+                      {modalError}
+                    </div>
+                  )}
+
+                  {modalSuccess && (
+                    <div style={{ color: "#16a34a", fontSize: "0.85rem", fontWeight: 500 }}>
+                      {modalSuccess}
+                    </div>
+                  )}
+
+                  {(() => {
+                    const selectedReadiness = modalDeviceId ? readinessByDevice?.[modalDeviceId] : null;
+                    const deviceNotReady = startBlockedByReadiness(selectedReadiness);
+                    const modalStartDisabled =
+                      !modalTraineeId ||
+                      !modalDeviceId ||
+                      deviceNotReady ||
+                      modalStarting;
+
+                    return (
+                      <button
+                        type="button"
+                        disabled={modalStartDisabled}
+                        onClick={handleModalStartSession}
+                        style={{
+                          padding: "10px",
+                          borderRadius: "6px",
+                          border: "none",
+                          fontWeight: 600,
+                          background: modalStartDisabled ? "#cbd5e1" : "#2563eb",
+                          color: modalStartDisabled ? "#94a3b8" : "#ffffff",
+                          cursor: modalStartDisabled ? "not-allowed" : "pointer",
+                          fontSize: "0.85rem",
+                          transition: "background 150ms ease",
+                        }}
+                      >
+                        {modalStarting ? "Starting Session..." : "Start CPR Session"}
+                      </button>
+                    );
+                  })()}
+                </div>
               </div>
             )}
           </div>

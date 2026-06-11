@@ -10,9 +10,17 @@ import {
   startSession,
 } from "../lib/browserSessionsApi";
 import { getReadiness } from "../lib/browserFirmwareApi";
+import { listCourses, listCourseStudents } from "../lib/browserRosterSyncApi";
 
 vi.mock("../lib/browserHealthApi", () => ({
   fetchBrowserHealth: vi.fn(),
+}));
+
+vi.mock("../lib/browserRosterSyncApi", () => ({
+  listCourses: vi.fn(),
+  listCourseStudents: vi.fn(),
+  listCourseInstructors: vi.fn(() => Promise.resolve([])),
+  getRosterSyncStatus: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock("../auth/AuthContext", () => ({
@@ -138,6 +146,24 @@ describe("InstructorDashboard", () => {
     vi.mocked(fetchLiveManikins).mockResolvedValue([]);
     vi.mocked(fetchCompletedSessions).mockResolvedValue([]);
     vi.mocked(fetchCompletedSession).mockResolvedValue(null as never);
+    vi.mocked(listCourses).mockResolvedValue([
+      {
+        cloudCourseId: "course-123",
+        courseCode: "RSQ-101",
+        title: "Introduction to ResQ",
+        description: "Intro course",
+        instructorCloudUserId: "instructor-1",
+        active: true,
+      },
+    ]);
+    vi.mocked(listCourseStudents).mockResolvedValue([
+      {
+        cloudUserId: "trainee-123",
+        displayName: "Trainee One",
+        email: "trainee1@example.com",
+        enrolledAt: new Date().toISOString(),
+      },
+    ]);
     vi.mocked(getReadiness).mockResolvedValue({
       deviceId: "MAN-01",
       firmwareState: null,
@@ -208,13 +234,20 @@ describe("InstructorDashboard", () => {
     render(<InstructorDashboard embeddedInDesktop />);
 
     expect(await screen.findByRole("heading", { name: "MAN-01" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Guest" }));
+    
+    const courseSelect = await screen.findByLabelText("Select Course");
+    await userEvent.selectOptions(courseSelect, "course-123");
+
+    const traineeSelect = await screen.findByLabelText("Select Trainee");
+    await userEvent.selectOptions(traineeSelect, "trainee-123");
+
     await userEvent.click(screen.getByRole("button", { name: "Start Session" }));
 
     await waitFor(() => {
       expect(startSession).toHaveBeenCalledWith({
         deviceId: "MAN-01",
-        guestLabel: "Guest Trainee",
+        courseId: "course-123",
+        traineeId: "trainee-123",
         scenario: null,
         notes: null,
       });
@@ -241,6 +274,12 @@ describe("InstructorDashboard", () => {
     });
 
     render(<InstructorDashboard embeddedInDesktop />);
+
+    const courseSelect = await screen.findByLabelText("Select Course");
+    await userEvent.selectOptions(courseSelect, "course-123");
+
+    const traineeSelect = await screen.findByLabelText("Select Trainee");
+    await userEvent.selectOptions(traineeSelect, "trainee-123");
 
     const startButton = await screen.findByRole("button", { name: "Start Session" });
     await waitFor(() => expect(getReadiness).toHaveBeenCalledWith("MAN-01"));
