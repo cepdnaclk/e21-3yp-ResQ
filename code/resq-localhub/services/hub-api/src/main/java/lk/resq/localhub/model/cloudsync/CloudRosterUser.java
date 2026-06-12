@@ -20,4 +20,15 @@ public record CloudRosterUser(
         Instant updatedAt,
         String localLoginHash // nullable (Phase 3B)
 ) {
+    public CloudRosterUser(
+            String cloudUserId,
+            String displayName,
+            String email,
+            String role,
+            boolean active,
+            Instant updatedAt,
+            String ignoredLocalLoginHash
+    ) {
+        this(cloudUserId, displayName, email, role, active, updatedAt);
+    }
 }

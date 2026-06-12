@@ -56,20 +56,28 @@ The desktop Home page also includes `Start API` and `Stop API` buttons that laun
 
 ### LocalHub Cloud Roster Sync
 
-To configure roster sync for the backend started by the Tauri app, create:
+To configure roster sync for a backend launched automatically by the Tauri app, create:
 
 ```text
 C:\Users\<name>\.resq-localhub\cloud-sync.env
 ```
 
-On other platforms, use `~/.resq-localhub/cloud-sync.env`. Start from
-`apps/localhub-desktop/cloud-sync.env.example`, replace the placeholder values,
-and restart the Tauri app.
+On other platforms, use `~/.resq-localhub/cloud-sync.env`. Start from the placeholder template at
+`apps/localhub-desktop/cloud-sync.env.example`, replace the placeholder values locally, and restart
+the Tauri app.
 
-The file accepts `KEY=value` lines, blank lines, and comments beginning with
-`#`. Existing `RESQ_ROSTER_SYNC_*` process environment values take precedence
-over values in the file, so manual PowerShell configuration continues to work.
-Keep `cloud-sync.env` local because it contains the hub key.
+The file accepts `KEY=value` lines, blank lines, and comments beginning with `#`. Supported keys are:
+
+- `RESQ_ROSTER_SYNC_ENABLED`
+- `RESQ_ROSTER_SYNC_BASE_URL`
+- `RESQ_ROSTER_SYNC_HUB_ID`
+- `RESQ_ROSTER_SYNC_HUB_KEY`
+- `RESQ_ROSTER_SYNC_FIXED_DELAY_MS`
+- `RESQ_ROSTER_SYNC_TIMEOUT_MS`
+
+Environment variables already set on the Tauri process take precedence over values in this file, so
+the existing manual PowerShell configuration continues to work. Keep the real file local; do not
+commit hub credentials.
 
 For broker lifecycle control from the desktop app, Mosquitto path resolution is:
 

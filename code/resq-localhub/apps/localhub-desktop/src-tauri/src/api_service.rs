@@ -1,13 +1,13 @@
-use serde::Serialize;
 use std::{
     collections::HashMap,
     env, fs,
-    ffi::OsString,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
 };
-use tauri::State;
+
+use serde::Serialize;
+use tauri::{Manager, State};
 
 #[derive(Default)]
 pub struct ApiServiceState {
@@ -21,9 +21,9 @@ pub struct ApiServiceStatus {
 }
 
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
-const CLOUD_SYNC_CONFIG_DIRECTORY: &str = ".resq-localhub";
+const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
 const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
-const ROSTER_SYNC_ENV_KEYS: [&str; 6] = [
+const CLOUD_SYNC_ENV_KEYS: [&str; 6] = [
     "RESQ_ROSTER_SYNC_ENABLED",
     "RESQ_ROSTER_SYNC_BASE_URL",
     "RESQ_ROSTER_SYNC_HUB_ID",
@@ -41,6 +41,87 @@ impl ApiServiceState {
         }
 
         Ok(backend_dir)
+    }
+
+    fn user_home_dir() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .or_else(|| env::var_os("HOME").map(PathBuf::from))
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            env::var_os("HOME").map(PathBuf::from)
+        }
+    }
+
+    fn load_cloud_sync_config() -> HashMap<String, String> {
+        let Some(home_dir) = Self::user_home_dir() else {
+            eprintln!("LocalHub cloud sync config was not loaded: user home directory not found");
+            return HashMap::new();
+        };
+
+        let config_path = home_dir
+            .join(CLOUD_SYNC_CONFIG_DIR)
+            .join(CLOUD_SYNC_CONFIG_FILE);
+        let contents = match fs::read_to_string(&config_path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return HashMap::new(),
+            Err(error) => {
+                eprintln!(
+                    "LocalHub cloud sync config could not be read from {}: {error}",
+                    config_path.display()
+                );
+                return HashMap::new();
+            }
+        };
+
+        let mut config = HashMap::new();
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            if CLOUD_SYNC_ENV_KEYS.contains(&key) {
+                config.insert(key.to_string(), value.trim().to_string());
+            }
+        }
+
+        eprintln!(
+            "Loaded LocalHub cloud sync config from {}",
+            config_path.display()
+        );
+        config
+    }
+
+    fn apply_cloud_sync_environment(command: &mut Command) {
+        let config = Self::load_cloud_sync_config();
+
+        for key in CLOUD_SYNC_ENV_KEYS {
+            if env::var_os(key).is_none() {
+                if let Some(value) = config.get(key) {
+                    command.env(key, value);
+                }
+            }
+        }
+
+        let value_is_configured = |key: &str| match env::var_os(key) {
+            Some(value) => !value.is_empty(),
+            None => config.get(key).is_some_and(|value| !value.is_empty()),
+        };
+        let base_url_configured = value_is_configured("RESQ_ROSTER_SYNC_BASE_URL");
+        let hub_id_configured = value_is_configured("RESQ_ROSTER_SYNC_HUB_ID");
+
+        eprintln!(
+            "LocalHub cloud sync configuration: base-url configured={base_url_configured}, hub-id configured={hub_id_configured}"
+        );
     }
 
     fn snapshot_status(child_slot: &mut Option<Child>) -> ApiServiceStatus {
@@ -62,76 +143,7 @@ impl ApiServiceState {
         }
     }
 
-    fn cloud_sync_config_path() -> Option<PathBuf> {
-        #[cfg(target_os = "windows")]
-        let home_dir = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
-
-        #[cfg(not(target_os = "windows"))]
-        let home_dir = env::var_os("HOME");
-
-        home_dir.map(|home| {
-            PathBuf::from(home)
-                .join(CLOUD_SYNC_CONFIG_DIRECTORY)
-                .join(CLOUD_SYNC_CONFIG_FILE)
-        })
-    }
-
-    fn parse_cloud_sync_config(contents: &str) -> HashMap<String, String> {
-        contents
-            .lines()
-            .filter_map(|line| {
-                let line = line.trim().trim_start_matches('\u{feff}');
-                if line.is_empty() || line.starts_with('#') {
-                    return None;
-                }
-
-                let (key, value) = line.split_once('=')?;
-                let key = key.trim();
-                if !ROSTER_SYNC_ENV_KEYS.contains(&key) {
-                    return None;
-                }
-
-                Some((key.to_string(), value.trim().to_string()))
-            })
-            .collect()
-    }
-
-    fn roster_sync_environment() -> HashMap<String, OsString> {
-        let mut values = ROSTER_SYNC_ENV_KEYS
-            .iter()
-            .filter_map(|key| env::var_os(key).map(|value| ((*key).to_string(), value)))
-            .collect::<HashMap<_, _>>();
-
-        if let Some(config_path) = Self::cloud_sync_config_path() {
-            match fs::read_to_string(&config_path) {
-                Ok(contents) => {
-                    for (key, value) in Self::parse_cloud_sync_config(&contents) {
-                        values.entry(key).or_insert_with(|| OsString::from(value));
-                    }
-                    println!(
-                        "Loaded LocalHub cloud sync configuration from {}",
-                        config_path.display()
-                    );
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => eprintln!(
-                    "Unable to read LocalHub cloud sync configuration from {}: {}",
-                    config_path.display(),
-                    error
-                ),
-            }
-        }
-
-        println!(
-            "Roster sync configuration: base-url={}, hub-id={}",
-            values.contains_key("RESQ_ROSTER_SYNC_BASE_URL"),
-            values.contains_key("RESQ_ROSTER_SYNC_HUB_ID")
-        );
-
-        values
-    }
-
-    fn build_command(backend_dir: &Path) -> Command {
+    fn build_dev_command(backend_dir: &Path) -> Command {
         #[cfg(target_os = "windows")]
         {
             let wrapper = backend_dir.join("mvnw.cmd");
@@ -171,7 +183,44 @@ impl ApiServiceState {
         }
     }
 
-    pub fn start(&self) -> Result<ApiServiceStatus, String> {
+    fn build_packaged_command(app: &tauri::AppHandle) -> Result<Option<Command>, String> {
+        let resource_dir = match app.path().resource_dir() {
+            Ok(path) => path,
+            Err(_) => return Ok(None),
+        };
+
+        let jar_path = resource_dir.join("hub-api").join("resq-hub-api.jar");
+        let config_path = resource_dir
+            .join("config")
+            .join("application-release.properties");
+
+        if jar_path.is_file() && config_path.is_file() {
+            let mut command = Command::new("java");
+            command
+                .arg("-jar")
+                .arg(&jar_path)
+                .arg(format!(
+                    "--spring.config.location={}",
+                    config_path.display()
+                ))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            return Ok(Some(command));
+        }
+
+        if jar_path.exists() || config_path.exists() {
+            return Err(format!(
+                "Incomplete packaged backend resources. Expected JAR at {} and config at {}",
+                jar_path.display(),
+                config_path.display()
+            ));
+        }
+
+        Ok(None)
+    }
+
+    pub fn start_with_app(&self, app: &tauri::AppHandle) -> Result<ApiServiceStatus, String> {
         let mut child_slot = self
             .child
             .lock()
@@ -182,9 +231,16 @@ impl ApiServiceState {
             return Ok(current_status);
         }
 
-        let backend_dir = Self::backend_dir()?;
-        let mut command = Self::build_command(&backend_dir);
-        command.envs(Self::roster_sync_environment());
+        let mut command = match Self::build_packaged_command(app)? {
+            Some(command) => command,
+            None => {
+                let backend_dir = Self::backend_dir()?;
+                Self::build_dev_command(&backend_dir)
+            }
+        };
+
+        Self::apply_cloud_sync_environment(&mut command);
+
         let child = command
             .spawn()
             .map_err(|error| format!("Failed to start backend: {error}"))?;
@@ -217,39 +273,53 @@ impl ApiServiceState {
     }
 
     fn terminate_child(child: &mut Child) -> Result<(), String> {
-        #[cfg(target_os = "windows")]
+        if child
+            .try_wait()
+            .map_err(|error| format!("Failed to query backend status: {error}"))?
+            .is_none()
         {
-            let pid = child.id().to_string();
-            let taskkill_status = Command::new("taskkill")
-                .args(["/PID", &pid, "/T", "/F"])
-                .status();
+            Self::kill_child(child)?;
+        }
 
-            if let Ok(status) = taskkill_status {
-                if !status.success() {
-                    let _ = child.kill();
-                }
-            } else {
-                let _ = child.kill();
-            }
+        child
+            .wait()
+            .map_err(|error| format!("Failed to wait for backend shutdown: {error}"))?;
+        Ok(())
+    }
 
-            let _ = child.wait();
+    #[cfg(target_os = "windows")]
+    fn kill_child(child: &mut Child) -> Result<(), String> {
+        let pid = child.id().to_string();
+        let taskkill_result = Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        if matches!(taskkill_result, Ok(status) if status.success()) {
             return Ok(());
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            child
-                .kill()
-                .map_err(|error| format!("Failed to stop backend: {error}"))?;
-            let _ = child.wait();
-            Ok(())
-        }
+        child
+            .kill()
+            .map_err(|error| format!("Failed to stop backend: {error}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn kill_child(child: &mut Child) -> Result<(), String> {
+        child
+            .kill()
+            .map_err(|error| format!("Failed to stop backend: {error}"))
     }
 }
 
 #[tauri::command]
-pub fn start_api_service(state: State<'_, ApiServiceState>) -> Result<ApiServiceStatus, String> {
-    state.start()
+pub fn start_api_service(
+    app: tauri::AppHandle,
+    state: State<'_, ApiServiceState>,
+) -> Result<ApiServiceStatus, String> {
+    state.start_with_app(&app)
 }
 
 #[tauri::command]

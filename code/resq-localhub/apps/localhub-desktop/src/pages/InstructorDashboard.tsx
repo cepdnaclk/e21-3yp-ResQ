@@ -10,11 +10,6 @@ import {
   type ManikinLiveSummary,
 } from "../lib/browserManikinsApi";
 import {
-  fetchTrainees,
-  createTrainee,
-  type TraineeRecord,
-} from "../lib/browserTraineesApi";
-import {
   endSession,
   fetchCompletedSession,
   fetchCompletedSessions,
@@ -22,6 +17,12 @@ import {
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
+import {
+  fetchCourses,
+  fetchCourseStudents,
+  type CourseOption,
+  type CourseStudentOption,
+} from "../lib/browserCoursesApi";
 import { useLiveSession } from "../hooks/useLiveSession";
 import {
   buildEspProvisioningUrl,
@@ -45,12 +46,6 @@ import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
 import { CoursesPanel } from "../components/CoursesPanel";
-import {
-  listCourses,
-  listCourseStudents,
-  type CourseView,
-  type CourseStudentView,
-} from "../lib/browserRosterSyncApi";
 import { QRCodeSVG as QR } from "qrcode.react";
 import ProvisioningIcon from "../components/icons/ProvisioningIcon";
 import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
@@ -371,28 +366,17 @@ export default function InstructorDashboard({
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
   const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
 
-  // Trainee selection state (per device)
   type SessionDraft = {
-    courseId?: string;
-    traineeId?: string;
-    traineeRecordId?: string;
-    traineeMode?: "select" | "quick" | "guest";
-    quickTraineeName?: string;
-    quickTraineeCode?: string;
-    quickTraineeGroup?: string;
+    courseId: string;
+    traineeId: string;
   };
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, SessionDraft>>({});
-
-  // Courses and Roster management
-  const [courses, setCourses] = useState<CourseView[]>([]);
+  const [courses, setCourses] = useState<CourseOption[]>([]);
   const [coursesLoading, setCoursesLoading] = useState(true);
   const [coursesError, setCoursesError] = useState<string | null>(null);
-  const [studentsByCourse, setStudentsByCourse] = useState<Record<string, CourseStudentView[]>>({});
-
-  // Trainee records management
-  const [trainees, setTrainees] = useState<TraineeRecord[]>([]);
-  const [traineesLoading, setTraineesLoading] = useState(true);
-  const [traineesError, setTraineesError] = useState<string | null>(null);
+  const [studentsByCourseId, setStudentsByCourseId] = useState<Record<string, CourseStudentOption[]>>({});
+  const [studentsLoadingByCourseId, setStudentsLoadingByCourseId] = useState<Record<string, boolean>>({});
+  const [studentsErrorByCourseId, setStudentsErrorByCourseId] = useState<Record<string, string | null>>({});
 
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
   const [sessionActionByDevice, setSessionActionByDevice] = useState<Record<string, SessionActionState>>({});
@@ -450,7 +434,8 @@ export default function InstructorDashboard({
       for (const manikin of live) {
         if (!next[manikin.deviceId]) {
           next[manikin.deviceId] = {
-            traineeMode: "select",
+            courseId: "",
+            traineeId: "",
           };
         }
       }
@@ -497,26 +482,13 @@ export default function InstructorDashboard({
       }
     }
 
-    async function loadTrainees() {
-      try {
-        const records = await fetchTrainees();
-        setTrainees(records);
-        setTraineesError(null);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to load trainee records.";
-        setTraineesError(message);
-      } finally {
-        setTraineesLoading(false);
-      }
-    }
     async function loadCourses() {
       try {
-        const fetchedCourses = await listCourses();
-        setCourses(fetchedCourses);
+        const records = await fetchCourses();
+        setCourses(records);
         setCoursesError(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to load courses.";
-        setCoursesError(message);
+        setCoursesError(error instanceof Error ? error.message : "Failed to load synced courses.");
       } finally {
         setCoursesLoading(false);
       }
@@ -645,7 +617,6 @@ export default function InstructorDashboard({
     loadServiceInfo();
     loadManikins();
     loadRecentSessions();
-    loadTrainees();
     loadCourses();
     loadRegistry();
     connectManikinStream();
@@ -869,64 +840,74 @@ export default function InstructorDashboard({
     return fromBackend ?? sessionCache[deviceId] ?? null;
   }
 
-  async function handleSelectCourseForDevice(deviceId: string, courseId: string) {
+  async function handleCourseChange(deviceId: string, courseId: string) {
     setSessionDrafts((current) => ({
       ...current,
       [deviceId]: {
-        ...current[deviceId],
         courseId,
-        traineeId: "", // Reset traineeId when selected course changes (Correction 3)
+        traineeId: "",
       },
     }));
+    setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
-    if (!courseId) return;
+    if (!courseId || studentsByCourseId[courseId] || studentsLoadingByCourseId[courseId]) {
+      return;
+    }
 
-    // Fetch students for this course if not already cached and not TRAINEE (Correction 2)
-    if (currentUser?.role !== "TRAINEE" && !studentsByCourse[courseId]) {
-      try {
-        const studentsList = await listCourseStudents(courseId);
-        setStudentsByCourse((prev) => ({
-          ...prev,
-          [courseId]: studentsList,
-        }));
-      } catch (err) {
-        console.error(`Failed to load students for course ${courseId}:`, err);
-        setSessionMessageByDevice((current) => ({
-          ...current,
-          [deviceId]: err instanceof Error ? err.message : "Failed to load course students",
-        }));
-      }
+    setStudentsLoadingByCourseId((current) => ({ ...current, [courseId]: true }));
+    setStudentsErrorByCourseId((current) => ({ ...current, [courseId]: null }));
+
+    try {
+      const students = await fetchCourseStudents(courseId);
+      setStudentsByCourseId((current) => ({ ...current, [courseId]: students }));
+    } catch (error) {
+      setStudentsErrorByCourseId((current) => ({
+        ...current,
+        [courseId]: error instanceof Error ? error.message : "Failed to load enrolled trainees.",
+      }));
+    } finally {
+      setStudentsLoadingByCourseId((current) => ({ ...current, [courseId]: false }));
     }
   }
 
   async function handleStartSessionWithParams(deviceId: string, courseId: string, traineeId: string) {
+    setSessionDrafts((current) => ({
+      ...current,
+      [deviceId]: {
+        courseId,
+        traineeId,
+      },
+    }));
+
     return handleStartSession(deviceId, { courseId, traineeId });
   }
 
-  async function handleStartSession(deviceId: string, overrideDraft?: { courseId: string; traineeId: string }) {
+  async function handleStartSession(deviceId: string, overrideDraft?: SessionDraft) {
     const manikin = manikinByDeviceId.get(deviceId);
     if (!manikin) {
       return;
     }
 
-    const draft = overrideDraft || sessionDrafts[deviceId];
-    
-    // Disabling / validation checks (Correction 4 & 5)
-    if (!draft || !draft.courseId || !draft.traineeId || !deviceId) {
-      setSessionMessageByDevice((current) => ({ ...current, [deviceId]: "Please select both a course and a trainee." }));
+    const draft = overrideDraft ?? sessionDrafts[deviceId];
+    if (!draft?.courseId || !draft.traineeId) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: "Select a course and enrolled trainee before starting the session.",
+      }));
       return;
     }
 
-    // Check device readiness
     const readiness = readinessByDevice[deviceId];
     if (startBlockedByReadiness(readiness)) {
-      setSessionMessageByDevice((current) => ({ ...current, [deviceId]: "Device is not ready for a session." }));
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: "Device is not ready for a session.",
+      }));
       return;
     }
 
-    // Prevent double submit (Correction 5)
     const actionState = sessionActionByDevice[deviceId] ?? "idle";
-    if (actionState === "starting") {
+    if (actionState !== "idle") {
       return;
     }
 
@@ -934,16 +915,14 @@ export default function InstructorDashboard({
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
     try {
-      // Shape must match exactly (Correction 6 & 7):
-      const request = {
+      const response = await startSession({
         deviceId,
         courseId: draft.courseId,
         traineeId: draft.traineeId,
         scenario: manikin.activeSessionScenario ?? null,
         notes: null,
-      };
+      });
 
-      const response = await startSession(request);
       setSessionCache((current) => ({ ...current, [deviceId]: response }));
       setSessionMessageByDevice((current) => ({
         ...current,
@@ -954,7 +933,10 @@ export default function InstructorDashboard({
         ...current,
         [deviceId]: error instanceof Error ? error.message : "Failed to start session.",
       }));
-      throw error; // rethrow so that modal caller can catch and show error
+
+      if (overrideDraft) {
+        throw error;
+      }
     } finally {
       setSessionActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
     }
@@ -1662,6 +1644,25 @@ export default function InstructorDashboard({
             </div>
           ) : null}
 
+          {!manikinsLoading
+            && !manikinsError
+            && manikins.length > 0
+            && manikins.every((manikin) => startBlockedByReadiness(readinessByDevice[manikin.deviceId])) ? (
+              <div
+                style={{
+                  marginBottom: "10px",
+                  padding: "12px",
+                  borderRadius: "8px",
+                  border: "1px solid #f59e0b",
+                  background: "#fffbeb",
+                  color: "#92400e",
+                  fontSize: "0.88rem",
+                }}
+              >
+                No manikin is ready for a session. Complete calibration or resolve the device readiness issue before starting.
+              </div>
+            ) : null}
+
           {!manikinsLoading && !manikinsError && manikins.length > 0 ? (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px" }}>
               {manikins.map((manikin) => {
@@ -1673,13 +1674,21 @@ export default function InstructorDashboard({
                 const readiness = readinessByDevice[manikin.deviceId];
                 const readinessIsKnown = readinessKnown(readiness);
                 const startReadinessBlocked = startBlockedByReadiness(readiness);
-                const draft = sessionDrafts[manikin.deviceId];
+                const sessionDraft = sessionDrafts[manikin.deviceId] ?? { courseId: "", traineeId: "" };
+                const selectedCourseStudents = sessionDraft.courseId
+                  ? studentsByCourseId[sessionDraft.courseId] ?? []
+                  : [];
+                const studentsLoading = sessionDraft.courseId
+                  ? studentsLoadingByCourseId[sessionDraft.courseId] ?? false
+                  : false;
+                const studentsError = sessionDraft.courseId
+                  ? studentsErrorByCourseId[sessionDraft.courseId] ?? null
+                  : null;
                 const startDisabled =
-                  actionState !== "idle" ||
-                  startReadinessBlocked ||
-                  !draft?.courseId ||
-                  !draft?.traineeId ||
-                  !manikin.deviceId;
+                  actionState !== "idle"
+                  || startReadinessBlocked
+                  || !sessionDraft.courseId
+                  || !sessionDraft.traineeId;
                 const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
                 const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
                 const calibrationProgress = progressFromId(readiness?.progressId);
@@ -1769,14 +1778,16 @@ export default function InstructorDashboard({
                       liveSummary={manikin}
                     />
 
-                    {/* Trainee Selection UI */}
-                    <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
-                      <div style={{ display: "grid", gap: "4px" }}>
-                        <label htmlFor={`course-select-${manikin.deviceId}`} style={{ fontWeight: 600 }}>Select Course</label>
+                    {!active && currentUser && currentUser.role !== "TRAINEE" ? (
+                      <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
+                        <label htmlFor={`course-${manikin.deviceId}`} style={{ fontWeight: 600 }}>
+                          Course
+                        </label>
                         <select
-                          id={`course-select-${manikin.deviceId}`}
-                          value={sessionDrafts[manikin.deviceId]?.courseId || ""}
-                          onChange={(event) => handleSelectCourseForDevice(manikin.deviceId, event.target.value)}
+                          id={`course-${manikin.deviceId}`}
+                          value={sessionDraft.courseId}
+                          onChange={(event) => void handleCourseChange(manikin.deviceId, event.target.value)}
+                          disabled={coursesLoading || actionState !== "idle"}
                           style={{
                             padding: "6px 8px",
                             borderRadius: "4px",
@@ -1785,31 +1796,33 @@ export default function InstructorDashboard({
                             fontSize: "0.85rem",
                           }}
                         >
-                          <option value="">-- Select Course --</option>
-                          {coursesLoading && <option>Loading courses...</option>}
-                          {!coursesLoading &&
-                            courses.map((c) => (
-                              <option key={c.cloudCourseId} value={c.cloudCourseId}>
-                                {c.courseCode ? `[${c.courseCode}] ` : ""}{c.title}
-                              </option>
-                            ))}
+                          <option value="">{coursesLoading ? "Loading courses..." : "-- Select a course --"}</option>
+                          {courses.map((course) => (
+                            <option key={course.courseId} value={course.courseId}>
+                              {course.courseCode ? `${course.courseCode} - ` : ""}{course.title}
+                            </option>
+                          ))}
                         </select>
-                      </div>
+                        {coursesError ? (
+                          <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.8rem" }}>{coursesError}</p>
+                        ) : null}
 
-                      <div style={{ display: "grid", gap: "4px" }}>
-                        <label htmlFor={`trainee-select-${manikin.deviceId}`} style={{ fontWeight: 600 }}>Select Trainee</label>
+                        <label htmlFor={`trainee-${manikin.deviceId}`} style={{ fontWeight: 600 }}>
+                          Enrolled Trainee
+                        </label>
                         <select
-                          id={`trainee-select-${manikin.deviceId}`}
-                          value={sessionDrafts[manikin.deviceId]?.traineeId || ""}
+                          id={`trainee-${manikin.deviceId}`}
+                          value={sessionDraft.traineeId}
                           onChange={(event) =>
                             setSessionDrafts((current) => ({
                               ...current,
                               [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
+                                ...(current[manikin.deviceId] ?? sessionDraft),
                                 traineeId: event.target.value,
                               },
                             }))
                           }
+                          disabled={!sessionDraft.courseId || studentsLoading || actionState !== "idle"}
                           style={{
                             padding: "6px 8px",
                             borderRadius: "4px",
@@ -1817,22 +1830,38 @@ export default function InstructorDashboard({
                             fontFamily: "inherit",
                             fontSize: "0.85rem",
                           }}
-                          disabled={!sessionDrafts[manikin.deviceId]?.courseId}
                         >
-                          <option value="">-- Select Enrolled Trainee --</option>
-                          {sessionDrafts[manikin.deviceId]?.courseId &&
-                            (studentsByCourse[sessionDrafts[manikin.deviceId]!.courseId!]?.length === 0 ? (
-                              <option disabled>No students enrolled</option>
-                            ) : (
-                              studentsByCourse[sessionDrafts[manikin.deviceId]!.courseId!]?.map((student) => (
-                                <option key={student.cloudUserId} value={student.cloudUserId}>
-                                  {student.displayName} ({student.email})
-                                </option>
-                              ))
-                            ))}
+                          <option value="">
+                            {!sessionDraft.courseId
+                              ? "Select a course first"
+                              : studentsLoading
+                                ? "Loading enrolled trainees..."
+                                : "-- Select an enrolled trainee --"}
+                          </option>
+                          {selectedCourseStudents.map((student) => (
+                            <option key={student.traineeId} value={student.traineeId}>
+                              {student.displayName}{student.email && student.email !== student.displayName ? ` (${student.email})` : ""}
+                            </option>
+                          ))}
                         </select>
+                        {studentsError ? (
+                          <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.8rem" }}>{studentsError}</p>
+                        ) : null}
+                        {!studentsLoading
+                          && sessionDraft.courseId
+                          && !studentsError
+                          && selectedCourseStudents.length === 0 ? (
+                            <p style={{ margin: 0, color: "#64748b", fontSize: "0.8rem" }}>
+                              No enrolled trainees are available for this course.
+                            </p>
+                          ) : null}
+                        {startReadinessBlocked ? (
+                          <p style={{ margin: 0, color: "#92400e", fontSize: "0.8rem" }}>
+                            This manikin is not ready for a session.
+                          </p>
+                        ) : null}
                       </div>
-                    </div>
+                    ) : null}
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       {currentUser && currentUser.role !== "TRAINEE" ? (

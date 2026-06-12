@@ -130,6 +130,9 @@ class ActiveSessionServiceTest {
                   "depth_ok": true,
                   "rate_cpm": 111,
                   "compression_count": 1,
+                  "valid_compression_count": 1,
+                  "recoil_ok_count": 1,
+                  "incomplete_recoil_count": 0,
                   "pause_s": 0.2,
                   "flags": "DEPTH_OK,RATE_OK,RECOIL_OK"
                 }
@@ -141,6 +144,10 @@ class ActiveSessionServiceTest {
         var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
         assertThat(liveView.latestDepthMm()).isNull();
         assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
+        assertThat(liveView.latestMetric()).isNotNull();
+        assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.78);
+        assertThat(liveView.latestMetric().depthOk()).isTrue();
+        assertThat(liveView.latestMetric().compressionCount()).isEqualTo(1);
 
         SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
         assertThat(completed.summary().sampleCount()).isEqualTo(1);
@@ -152,6 +159,55 @@ class ActiveSessionServiceTest {
         assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
         assertThat(completed.summary().incompleteRecoilCount()).isEqualTo(0);
         assertThat(completed.summary().latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
+    }
+
+    @Test
+    void replacesSessionLiveMetricOnEveryAcceptedTelemetryUpdate() throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Live update smoke",
+                null
+        ));
+
+        service.recordTelemetry("M01", objectMapper.readTree("""
+                {
+                  "device_id": "M01",
+                  "session_id": "%s",
+                  "event_type": "session_telemetry",
+                  "state": "SESSION_ACTIVE",
+                  "ts_ms": 100,
+                  "depth_progress": 0.2,
+                  "rate_cpm": 102,
+                  "compression_count": 10,
+                  "pressure_balance_pct": 19.0
+                }
+                """.formatted(session.sessionId())));
+        service.recordTelemetry("M01", objectMapper.readTree("""
+                {
+                  "device_id": "M01",
+                  "session_id": "%s",
+                  "event_type": "session_telemetry",
+                  "state": "SESSION_ACTIVE",
+                  "ts_ms": 200,
+                  "depth_progress": 1.0,
+                  "rate_cpm": 137,
+                  "compression_count": 11,
+                  "pressure_balance_pct": 73.5
+                }
+                """.formatted(session.sessionId())));
+
+        var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
+        assertThat(liveView.latestMetric().tsMs()).isEqualTo(200L);
+        assertThat(liveView.latestMetric().depthProgress()).isEqualTo(1.0);
+        assertThat(liveView.latestMetric().rateCpm()).isEqualTo(137.0);
+        assertThat(liveView.latestMetric().compressionCount()).isEqualTo(11);
+        assertThat(liveView.latestMetric().pressureBalancePct()).isEqualTo(73.5);
+        assertThat(liveView.pressureBalancePct()).isEqualTo(73.5);
     }
 
     @Test
