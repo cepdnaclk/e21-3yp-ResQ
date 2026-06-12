@@ -26,9 +26,8 @@ public record CloudRosterUser(
             String email,
             String role,
             boolean active,
-            Instant updatedAt,
-            String ignoredLocalLoginHash
+            Instant updatedAt
     ) {
-        this(cloudUserId, displayName, email, role, active, updatedAt);
+        this(cloudUserId, displayName, email, role, active, updatedAt, null);
     }
 }
