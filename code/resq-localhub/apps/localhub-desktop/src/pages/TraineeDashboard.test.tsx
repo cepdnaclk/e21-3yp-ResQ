@@ -30,8 +30,8 @@ describe("TraineeDashboard", () => {
   it("shows the waiting session story when no session is assigned", async () => {
     render(<TraineeDashboard embeddedInDesktop />);
 
-    expect(await screen.findByRole("heading", { name: "Ready for the next CPR scenario" })).toBeInTheDocument();
-    expect(screen.getByText("Ready for the next CPR scenario")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Awaiting instructor assignment" })).toBeInTheDocument();
+    expect(screen.getByText("Awaiting instructor assignment")).toBeInTheDocument();
     expect(screen.getByText("Helpful tip")).toBeInTheDocument();
   });
 });

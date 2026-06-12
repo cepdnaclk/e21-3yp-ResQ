@@ -1,3 +1,5 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
+
 // This file handles the manikin registry API — the management view
 // that shows all known devices with their current status.
 // This is separate from browserManikinsApi.ts which handles the
@@ -21,7 +23,7 @@ export type ManikinRegistryEntry = {
 };
 
 function getManikinsRegistryUrl(): string {
-  return `http://${window.location.hostname}:18080/api/manikins`;
+  return `${getHubApiBaseUrl()}/api/manikins`;
 }
 
 // Fetches all known manikins from the registry.

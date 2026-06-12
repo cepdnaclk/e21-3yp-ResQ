@@ -7,6 +7,7 @@ import type {
   LoginRequest,
   LoginResponse,
 } from "@resq/shared";
+import { getHubApiBaseUrl } from "./hubApiUrl";
 import { getStoredToken } from "./tokenStore";
 
 export type AuthErrorResponse = {
@@ -14,7 +15,7 @@ export type AuthErrorResponse = {
 };
 
 function getAuthBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/auth`;
+  return `${getHubApiBaseUrl()}/api/auth`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -78,8 +79,10 @@ export async function createFirstAdmin(request: CreateFirstAdminRequest): Promis
 }
 
 export async function fetchCurrentUser(): Promise<AuthUser | null> {
+  const token = getStoredToken();
   const response = await fetch(`${getAuthBaseUrl()}/me`, {
     credentials: "include",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
 
   if (response.status === 401) {
@@ -94,9 +97,11 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
 }
 
 export async function logout(): Promise<void> {
+  const token = getStoredToken();
   await fetch(`${getAuthBaseUrl()}/logout`, {
     method: "POST",
     credentials: "include",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   });
 }
 

@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod api_service;
 mod broker_service;
 mod commands;
@@ -21,18 +23,35 @@ fn main() {
         .manage(api_service::ApiServiceState::default())
         .manage(broker_service::BrokerServiceState::default())
         .setup(|app| {
+            eprintln!("LocalHub setup started");
             let app_handle = app.handle().clone();
 
+            eprintln!("Broker start requested");
             let broker_state = app.state::<broker_service::BrokerServiceState>();
-            if let Err(error) = broker_state.start_with_app(&app_handle) {
-                eprintln!("Failed to auto-start MQTT broker: {error}");
+            match broker_state.start_with_app(&app_handle) {
+                Ok(_) => {
+                    eprintln!("Broker start completed successfully or already running");
+                }
+                Err(error) => {
+                    eprintln!("Failed to auto-start MQTT broker: {error}");
+                }
             }
 
+            eprintln!("API start requested");
             let api_state = app.state::<api_service::ApiServiceState>();
-            if let Err(error) = api_state.start_with_app(&app_handle) {
-                eprintln!("Failed to auto-start backend: {error}");
+            match api_state.start_with_app(&app_handle) {
+                Ok(status) => {
+                    eprintln!(
+                        "API start completed successfully: running={}, pid={:?}",
+                        status.running, status.pid
+                    );
+                }
+                Err(error) => {
+                    eprintln!("Failed to auto-start backend: {error}");
+                }
             }
 
+            eprintln!("LocalHub setup completed");
             Ok(())
         })
         .on_window_event(|window, event| {

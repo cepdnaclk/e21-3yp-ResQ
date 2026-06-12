@@ -13,7 +13,7 @@
 
   <groupId>lk.resq</groupId>
   <artifactId>hub-api</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.1-SNAPSHOT</version>
   <name>hub-api</name>
   <description>ResQ Local Hub API</description>
 

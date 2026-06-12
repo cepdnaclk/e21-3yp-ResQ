@@ -20,6 +20,12 @@ pub struct ApiServiceStatus {
     pub pid: Option<u32>,
 }
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
 const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
 const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
@@ -183,41 +189,72 @@ impl ApiServiceState {
         }
     }
 
-    fn build_packaged_command(app: &tauri::AppHandle) -> Result<Option<Command>, String> {
-        let resource_dir = match app.path().resource_dir() {
-            Ok(path) => path,
-            Err(_) => return Ok(None),
-        };
+    fn clean_windows_path(path: &Path) -> PathBuf {
+        let path_str = path.to_string_lossy();
+        if path_str.starts_with(r"\\?\") {
+            PathBuf::from(&path_str[4..])
+        } else {
+            path.to_path_buf()
+        }
+    }
+
+    fn packaged_java_path(resource_dir: &Path) -> PathBuf {
+        #[cfg(target_os = "windows")]
+        {
+            resource_dir.join("jre").join("bin").join("java.exe")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            resource_dir.join("jre").join("bin").join("java")
+        }
+    }
+
+    fn build_packaged_command(app: &tauri::AppHandle) -> Result<Command, String> {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Failed to resolve packaged resource directory: {error}"))?;
 
         let jar_path = resource_dir.join("hub-api").join("resq-hub-api.jar");
         let config_path = resource_dir
             .join("config")
             .join("application-release.properties");
+        let java_path = Self::packaged_java_path(&resource_dir);
 
-        if jar_path.is_file() && config_path.is_file() {
-            let mut command = Command::new("java");
+        if jar_path.is_file() && config_path.is_file() && java_path.is_file() {
+            let clean_jar = Self::clean_windows_path(&jar_path);
+            let clean_config = Self::clean_windows_path(&config_path);
+            let clean_java = Self::clean_windows_path(&java_path);
+
+            let mut command = Command::new(clean_java);
             command
                 .arg("-jar")
-                .arg(&jar_path)
+                .arg(&clean_jar)
                 .arg(format!(
                     "--spring.config.location={}",
-                    config_path.display()
+                    clean_config.display()
                 ))
+                .current_dir(&resource_dir)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
-            return Ok(Some(command));
+            return Ok(command);
         }
 
-        if jar_path.exists() || config_path.exists() {
-            return Err(format!(
-                "Incomplete packaged backend resources. Expected JAR at {} and config at {}",
-                jar_path.display(),
-                config_path.display()
-            ));
-        }
+        Err(format!(
+            "Incomplete packaged backend resources. Expected JAR at {}, config at {}, and Java runtime at {}",
+            jar_path.display(),
+            config_path.display(),
+            java_path.display()
+        ))
+    }
 
-        Ok(None)
+    fn hide_window(command: &mut Command) {
+        #[cfg(target_os = "windows")]
+        {
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
     }
 
     pub fn start_with_app(&self, app: &tauri::AppHandle) -> Result<ApiServiceStatus, String> {
@@ -231,21 +268,47 @@ impl ApiServiceState {
             return Ok(current_status);
         }
 
-        let mut command = match Self::build_packaged_command(app)? {
-            Some(command) => command,
-            None => {
-                let backend_dir = Self::backend_dir()?;
-                Self::build_dev_command(&backend_dir)
-            }
+        let is_debug = cfg!(debug_assertions);
+        let mut command = if is_debug {
+            // Unconditionally use dev command in debug/dev builds
+            let backend_dir = Self::backend_dir()?;
+            eprintln!("Backend dev project directory: {}", backend_dir.display());
+            let mut cmd = Self::build_dev_command(&backend_dir);
+            cmd.stdout(Stdio::inherit());
+            cmd.stderr(Stdio::inherit());
+            cmd
+        } else {
+            Self::build_packaged_command(app)?
         };
 
+        if is_debug {
+            eprintln!("Mode selected: Development (Dev)");
+        } else {
+            eprintln!("Mode selected: Packaged (Release)");
+        }
+
         Self::apply_cloud_sync_environment(&mut command);
+        Self::hide_window(&mut command);
+
+        eprintln!(
+            "Backend working directory: {}",
+            command
+                .get_current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "default".to_string())
+        );
+        eprintln!(
+            "Backend command path: {}",
+            command.get_program().to_string_lossy()
+        );
+        eprintln!("Backend command configuration: {:?}", command);
 
         let child = command
             .spawn()
             .map_err(|error| format!("Failed to start backend: {error}"))?;
 
         let pid = child.id();
+        eprintln!("Backend process spawned successfully with PID: {}", pid);
         *child_slot = Some(child);
 
         Ok(ApiServiceStatus {
@@ -290,12 +353,14 @@ impl ApiServiceState {
     #[cfg(target_os = "windows")]
     fn kill_child(child: &mut Child) -> Result<(), String> {
         let pid = child.id().to_string();
-        let taskkill_result = Command::new("taskkill")
+        let mut taskkill = Command::new("taskkill");
+        taskkill
             .args(["/PID", &pid, "/T", "/F"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        Self::hide_window(&mut taskkill);
+        let taskkill_result = taskkill.status();
 
         if matches!(taskkill_result, Ok(status) if status.success()) {
             return Ok(());

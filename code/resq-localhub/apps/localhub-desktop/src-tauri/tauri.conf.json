@@ -1,17 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ResQ Local Hub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "resq.ce.pdn.ac.lk",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:release",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "ResQ Local Hub",
         "width": 1200,
         "height": 800,
@@ -31,6 +32,7 @@
     "resources": {
       "resources/hub-api/resq-hub-api.jar": "hub-api/resq-hub-api.jar",
       "resources/config/application-release.properties": "config/application-release.properties",
+      "resources/jre": "jre",
       "resources/mosquitto": "mosquitto"
     }
   }

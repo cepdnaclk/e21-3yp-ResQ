@@ -72,17 +72,6 @@ public class AuthService {
         this.sessionTtlHours = Math.max(1L, sessionTtlHours);
     }
 
-    public AuthService(
-            LocalAuthRepository authRepository,
-            RosterCacheRepository rosterRepository,
-            ObjectMapper objectMapper,
-            long sessionTtlHours
-    ) {
-        this.authRepository = authRepository;
-        this.rosterCacheRepository = rosterRepository;
-        this.objectMapper = objectMapper;
-        this.sessionTtlHours = Math.max(1L, sessionTtlHours);
-    }
 
     public AuthBootstrapResponse bootstrap() {
         return new AuthBootstrapResponse(!authRepository.hasUsers());
