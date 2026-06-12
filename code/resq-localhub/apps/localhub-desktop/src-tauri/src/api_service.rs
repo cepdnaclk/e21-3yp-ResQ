@@ -20,6 +20,12 @@ pub struct ApiServiceStatus {
     pub pid: Option<u32>,
 }
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
 const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
 const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
@@ -220,6 +226,13 @@ impl ApiServiceState {
         Ok(None)
     }
 
+    fn hide_window(command: &mut Command) {
+        #[cfg(target_os = "windows")]
+        {
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+    }
+
     pub fn start_with_app(&self, app: &tauri::AppHandle) -> Result<ApiServiceStatus, String> {
         let mut child_slot = self
             .child
@@ -240,6 +253,7 @@ impl ApiServiceState {
         };
 
         Self::apply_cloud_sync_environment(&mut command);
+        Self::hide_window(&mut command);
 
         let child = command
             .spawn()
@@ -290,12 +304,14 @@ impl ApiServiceState {
     #[cfg(target_os = "windows")]
     fn kill_child(child: &mut Child) -> Result<(), String> {
         let pid = child.id().to_string();
-        let taskkill_result = Command::new("taskkill")
+        let mut taskkill = Command::new("taskkill");
+        taskkill
             .args(["/PID", &pid, "/T", "/F"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        Self::hide_window(&mut taskkill);
+        let taskkill_result = taskkill.status();
 
         if matches!(taskkill_result, Ok(status) if status.success()) {
             return Ok(());
