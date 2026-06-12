@@ -6,3 +6,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+
+if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn();
+}

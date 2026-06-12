@@ -208,10 +208,10 @@ describe("InstructorDashboard", () => {
     });
   });
 
-  it("shows healthy status when health endpoint returns ok", async () => {
+  it("shows connecting status when EventSource is available", async () => {
     render(<InstructorDashboard embeddedInDesktop />);
 
-    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect(await screen.findByText("Connecting")).toBeInTheDocument();
   });
 
   it("shows stream unavailable when EventSource is not available", async () => {

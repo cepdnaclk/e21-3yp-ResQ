@@ -15,6 +15,7 @@ export type UseLiveSessionOptions = {
   mqttUsername?: string | null;
   mqttPassword?: string | null;
   backendBaseUrl?: string;
+  debugMqtt?: boolean;
 };
 
 export function useLiveSession(options: UseLiveSessionOptions): LiveClientState {
@@ -35,8 +36,9 @@ export function useLiveSession(options: UseLiveSessionOptions): LiveClientState 
       mqttUsername,
       mqttPassword,
       backendBaseUrl,
+      debugMqtt: options.debugMqtt,
     }),
-    [backendBaseUrl, deviceId, enabled, mqttPassword, mqttUrl, mqttUsername, sessionId],
+    [backendBaseUrl, deviceId, enabled, mqttPassword, mqttUrl, mqttUsername, sessionId, options.debugMqtt],
   );
 
   const [state, setState] = useState<LiveClientState>(() => ({

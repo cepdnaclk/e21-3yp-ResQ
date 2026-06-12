@@ -23,6 +23,7 @@ export type LiveClientOptions = {
   offlineAfterMs?: number;
   pollingIntervalMs?: number;
   recoveryProbeIntervalMs?: number;
+  debugMqtt?: boolean;
 };
 
 export type LiveClientState = LiveFallbackSnapshot & {
@@ -157,10 +158,10 @@ class LiveClientManager implements LiveClientSubscription {
 
     this.emit();
     this.staleTimer = window.setInterval(() => this.refreshHealthFlags(), 500);
-    if (this.options.sessionId) {
-      this.startSse();
-    } else {
+    if (this.options.debugMqtt) {
       this.startMqtt(false);
+    } else {
+      this.startSse();
     }
   }
 
@@ -326,7 +327,7 @@ class LiveClientManager implements LiveClientSubscription {
   }
 
   private startRecoveryProbeLoop(): void {
-    if (this.options.sessionId || this.recoveryTimer !== null || this.activeSource === "mqtt") {
+    if (this.options.sessionId || this.recoveryTimer !== null || this.activeSource === "mqtt" || !this.options.debugMqtt) {
       return;
     }
 

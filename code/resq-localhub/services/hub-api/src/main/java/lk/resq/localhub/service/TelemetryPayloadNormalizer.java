@@ -2,12 +2,17 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.LiveMetricPayload;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 final class TelemetryPayloadNormalizer {
+
+    private static final Logger logger = LoggerFactory.getLogger(TelemetryPayloadNormalizer.class);
+    private static final double DEFAULT_TARGET_DEPTH_MM = 50.0;
 
     private TelemetryPayloadNormalizer() {
     }
@@ -49,6 +54,11 @@ final class TelemetryPayloadNormalizer {
                 }
             }
         }
+        if (depthMm == null && depthProgress != null) {
+            depthMm = depthProgress * DEFAULT_TARGET_DEPTH_MM;
+            warnings.add("calculated depthMm from depthProgress using fallback target depth");
+            logger.info("Calculated fallback depthMm={} from depthProgress={} for device={}", depthMm, depthProgress, deviceId);
+        }
 
         Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
         Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
@@ -60,9 +70,9 @@ final class TelemetryPayloadNormalizer {
         Integer incompleteRecoilCount = firstInt(payload, "incompleteRecoilCount", "incomplete_recoil_count");
         String handPlacement = firstText(payload, "handPlacement", "hand_placement");
         Double pressureBalancePct = firstDouble(payload, "pressureBalancePct", "pressure_balance_pct");
-        Object flags = jsonValue(payload.get("flags"));
+        String flags = normalizeFlags(payload.get("flags"));
         if (flags == null) {
-            flags = jsonValue(payload.get("quality_flags"));
+            flags = normalizeFlags(payload.get("quality_flags"));
         }
         String feedback = firstText(payload, "feedback");
         if (flags == null && feedback != null) {
@@ -259,6 +269,42 @@ final class TelemetryPayloadNormalizer {
             }
         }
         return null;
+    }
+
+    private static String normalizeFlags(JsonNode flagsNode) {
+        if (flagsNode == null || flagsNode.isNull()) {
+            return null;
+        }
+        if (flagsNode.isArray()) {
+            List<String> items = new ArrayList<>();
+            for (JsonNode item : flagsNode) {
+                if (item.isTextual()) {
+                    items.add(item.asText());
+                }
+            }
+            return String.join(",", items);
+        }
+        if (flagsNode.isTextual()) {
+            String val = flagsNode.asText().trim();
+            if (val.startsWith("[") && val.endsWith("]")) {
+                try {
+                    String clean = val.substring(1, val.length() - 1);
+                    String[] tokens = clean.split(",");
+                    List<String> items = new ArrayList<>();
+                    for (String t : tokens) {
+                        String cleanToken = t.trim().replaceAll("^\"|\"$|^'|'$", "").trim();
+                        if (!cleanToken.isEmpty()) {
+                            items.add(cleanToken);
+                        }
+                    }
+                    return String.join(",", items);
+                } catch (Exception e) {
+                    // Ignore and fall through
+                }
+            }
+            return val;
+        }
+        return flagsNode.asText();
     }
 
     private static Object jsonValue(JsonNode node) {

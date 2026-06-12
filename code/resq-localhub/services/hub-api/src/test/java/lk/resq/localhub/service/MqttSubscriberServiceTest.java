@@ -184,7 +184,7 @@ class MqttSubscriberServiceTest {
 
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
         assertThat(liveView.deviceId()).isEqualTo("M01");
-        assertThat(liveView.latestDepthMm()).isNull();
+        assertThat(liveView.latestDepthMm()).isEqualTo(39.0);
         assertThat(liveView.latestMetric()).isNotNull();
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.78);
         assertThat(liveView.latestMetric().depthOk()).isTrue();

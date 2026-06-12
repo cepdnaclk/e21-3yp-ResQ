@@ -4,6 +4,7 @@ import lk.resq.localhub.model.SessionLiveView;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.LiveStreamService;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ForbiddenException;
 import org.springframework.http.ResponseEntity;
@@ -61,11 +62,23 @@ public class LiveStreamController {
     @GetMapping(path = "/sessions/live/{sessionId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> streamSessionLive(HttpServletRequest request, @PathVariable String sessionId) {
         try {
-            // TODO: allow TRAINEE to subscribe to their own session when ownership is implemented.
-            authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
+            AuthUser actor = authService.requireAuth(request);
             SessionLiveView initialPayload = activeSessionService.getSessionLiveView(sessionId)
                     .or(() -> manikinRegistryService.getSessionLiveView(sessionId))
                     .orElse(null);
+
+            if (initialPayload == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+
+            if (actor.role() == UserRole.TRAINEE) {
+                if (initialPayload.traineeId() == null || !initialPayload.traineeId().equalsIgnoreCase(actor.username())) {
+                    throw new ForbiddenException("You can only view your own active session.");
+                }
+            } else {
+                authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
+            }
+
             SseEmitter emitter = liveStreamService.subscribeSession(sessionId, initialPayload);
             return ResponseEntity.ok(emitter);
         } catch (ForbiddenException e) {
