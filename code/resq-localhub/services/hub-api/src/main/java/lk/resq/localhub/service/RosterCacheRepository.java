@@ -619,6 +619,7 @@ public class RosterCacheRepository {
         }
     }
 
+
     public synchronized boolean isInstructorAssigned(String courseId, String instructorId) {
         try (Connection connection = openConnection();
              PreparedStatement ps = connection.prepareStatement("""

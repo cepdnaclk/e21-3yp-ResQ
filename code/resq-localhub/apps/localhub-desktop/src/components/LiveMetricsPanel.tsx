@@ -44,6 +44,15 @@ export function LiveMetricsPanel({
 
       <LiveModeMessage state={state} />
 
+      {!state.latestMetric ? (
+        <p
+          role="status"
+          style={{ margin: 0, padding: "10px", borderRadius: "8px", background: "#f8fafc", color: "#475569", fontSize: "0.88rem" }}
+        >
+          Waiting for CPR telemetry...
+        </p>
+      ) : null}
+
       {traineeFriendly ? (
         <div style={{ padding: "12px", borderRadius: "8px", border: "1px solid #dbeafe", background: "#eff6ff" }}>
           <p style={{ margin: 0, color: "#1d4ed8", fontSize: "1rem", fontWeight: 800 }}>{primaryCue}</p>
@@ -62,11 +71,16 @@ export function LiveMetricsPanel({
         }}
       >
         <MetricCard label="Depth" value={formatDepth(state.latestMetric, unavailable)} muted={muted} />
+        <MetricCard label="Depth OK" value={formatStatus(state.latestMetric?.depthOk, unavailable)} muted={muted} />
         <MetricCard label="Rate" value={formatNumber(state.latestMetric?.rateCpm, "cpm", unavailable)} muted={muted} />
         <MetricCard label="Recoil" value={formatRecoil(state.latestMetric, unavailable)} muted={muted} />
         <MetricCard label="Pause" value={formatNumber(state.latestMetric?.pauseS, "s", unavailable)} muted={muted} />
         <MetricCard label="Compressions" value={formatCount(state.latestMetric?.compressionCount, unavailable)} muted={muted} />
+        <MetricCard label="Valid Compressions" value={formatCount(state.latestMetric?.validCompressionCount, unavailable)} muted={muted} />
+        <MetricCard label="Recoil OK Count" value={formatCount(state.latestMetric?.recoilOkCount, unavailable)} muted={muted} />
+        <MetricCard label="Incomplete Recoil" value={formatCount(state.latestMetric?.incompleteRecoilCount, unavailable)} muted={muted} />
         <MetricCard label="Hand Placement" value={unavailable ? "Offline" : state.latestMetric?.handPlacement ?? "-"} muted={muted} />
+        <MetricCard label="Pressure Balance" value={formatPercentage(state.latestMetric?.pressureBalancePct, unavailable)} muted={muted} />
       </div>
 
       <div style={{ display: "grid", gap: "6px" }}>
@@ -261,6 +275,16 @@ function formatCount(value: number | null | undefined, unavailable: boolean): st
   return value === null || value === undefined ? "-" : String(value);
 }
 
+function formatPercentage(value: number | null | undefined, unavailable: boolean): string {
+  if (unavailable) {
+    return "Offline";
+  }
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)}%`;
+}
+
 function formatRecoil(metric: LiveMetricPayload | null | undefined, unavailable: boolean): string {
   if (unavailable) {
     return "Offline";
@@ -269,6 +293,16 @@ function formatRecoil(metric: LiveMetricPayload | null | undefined, unavailable:
     return "-";
   }
   return metric.recoilOk ? "OK" : "Release fully";
+}
+
+function formatStatus(value: boolean | null | undefined, unavailable: boolean): string {
+  if (unavailable) {
+    return "Offline";
+  }
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return value ? "OK" : "Needs improvement";
 }
 
 function formatTimestamp(value: string | number): string {

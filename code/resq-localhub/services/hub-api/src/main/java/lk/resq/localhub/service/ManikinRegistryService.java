@@ -107,6 +107,11 @@ public class ManikinRegistryService {
                 state.pressureBalancePct = sum > 0 ? 100.0 - ((absDiff * 100.0) / sum) : null;
                 state.pressureSkewed = state.pressureBalancePct != null && state.pressureBalancePct < 88.0;
             }
+            Double payloadPressureBalancePct = firstDouble(payload, null, "pressureBalancePct", "pressure_balance_pct");
+            if (payloadPressureBalancePct != null) {
+                state.pressureBalancePct = payloadPressureBalancePct;
+                state.pressureSkewed = payloadPressureBalancePct < 88.0;
+            }
 
             state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
             state.latestMetric = new LiveMetricPayload(
@@ -118,12 +123,23 @@ public class ManikinRegistryService {
                     jsonValue(payload.get("timestamp")),
                     state.latestDepthMm,
                     payloadDepthProgress,
+                    firstBoolean(payload, null, "depthOk", "depth_ok"),
                     state.latestRateCpm,
                     state.latestRecoilOk,
                     state.latestPauseS,
                     compressionCount,
+                    firstInt(payload, "validCompressionCount", null) != null
+                            ? firstInt(payload, "validCompressionCount", null)
+                            : firstInt(payload, "valid_compression_count", null),
+                    firstInt(payload, "recoilOkCount", null) != null
+                            ? firstInt(payload, "recoilOkCount", null)
+                            : firstInt(payload, "recoil_ok_count", null),
+                    firstInt(payload, "incompleteRecoilCount", null) != null
+                            ? firstInt(payload, "incompleteRecoilCount", null)
+                            : firstInt(payload, "incomplete_recoil_count", null),
                     firstText(payload, "handPlacement", "hand_placement", null),
                     jsonValue(payload.get("flags")),
+                    state.pressureBalancePct,
                     firstText(payload, "sourceMode", "source_mode", null),
                     jsonValue(payload.get("debugRaw"))
             );

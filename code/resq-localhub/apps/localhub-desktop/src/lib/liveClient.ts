@@ -157,7 +157,11 @@ class LiveClientManager implements LiveClientSubscription {
 
     this.emit();
     this.staleTimer = window.setInterval(() => this.refreshHealthFlags(), 500);
-    this.startMqtt(false);
+    if (this.options.sessionId) {
+      this.startSse();
+    } else {
+      this.startMqtt(false);
+    }
   }
 
   getState(): LiveClientState {
@@ -322,7 +326,7 @@ class LiveClientManager implements LiveClientSubscription {
   }
 
   private startRecoveryProbeLoop(): void {
-    if (this.recoveryTimer !== null || this.activeSource === "mqtt") {
+    if (this.options.sessionId || this.recoveryTimer !== null || this.activeSource === "mqtt") {
       return;
     }
 

@@ -347,6 +347,16 @@ public class ActiveSessionService {
             return TelemetryValidationResult.rejected("payload sessionId is missing");
         }
 
+        String eventType = firstText(payload, null, "eventType", "event_type");
+        if (eventType != null && !"session_telemetry".equalsIgnoreCase(eventType)) {
+            return TelemetryValidationResult.rejected("payload eventType is not session_telemetry");
+        }
+
+        String firmwareState = firstText(payload, null, "state");
+        if (firmwareState != null && !"SESSION_ACTIVE".equalsIgnoreCase(firmwareState)) {
+            return TelemetryValidationResult.rejected("payload state is not SESSION_ACTIVE");
+        }
+
         ActiveSessionState state = sessionsById.get(payloadSessionId);
         if (state == null || !state.active) {
             return TelemetryValidationResult.rejected("session is not active");
@@ -404,15 +414,20 @@ public class ActiveSessionService {
                 metric.depthProgress(),
                 metric.rateCpm(),
                 metric.recoilOk(),
-            metric.pauseS(),
-            metric.compressionCount(),
+                metric.pauseS(),
+                metric.compressionCount(),
+                metric.validCompressionCount(),
+                metric.recoilOkCount(),
+                metric.incompleteRecoilCount(),
                 flagsToString(metric.flags())
         );
         if (metric.seq() != null) {
             lastAcceptedSeqBySessionId.put(state.sessionId, metric.seq());
         }
+        state.latestMetric = metric;
+        state.latestMetricReceivedAt = Instant.now();
         getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
-        logger.info(
+        logger.debug(
             "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, depthProgress={}, rateCpm={}, recoilOk={}, pauseS={})",
             state.sessionId,
             state.deviceId,
@@ -503,14 +518,17 @@ public class ActiveSessionService {
         ManikinLiveSummary summary = manikinRegistryService.getLiveSummary(state.deviceId)
                 .orElse(null);
 
-        Double liveDepthMm = state.accumulator.lastDepthMm();
-        Double liveRateCpm = state.accumulator.lastRateCpm();
-        Boolean liveRecoilOk = state.accumulator.lastRecoilOk();
-        Double livePauseS = state.accumulator.lastPauseS();
-        String liveFlags = state.accumulator.latestFlags();
+        LiveMetricPayload latestMetric = state.latestMetric;
+        Double liveDepthMm = latestMetric != null ? latestMetric.depthMm() : state.accumulator.lastDepthMm();
+        Double liveRateCpm = latestMetric != null ? latestMetric.rateCpm() : state.accumulator.lastRateCpm();
+        Boolean liveRecoilOk = latestMetric != null ? latestMetric.recoilOk() : state.accumulator.lastRecoilOk();
+        Double livePauseS = latestMetric != null ? latestMetric.pauseS() : state.accumulator.lastPauseS();
+        String liveFlags = latestMetric != null ? flagsToString(latestMetric.flags()) : state.accumulator.latestFlags();
         Long liveForce1 = summary != null ? summary.latestForce1() : null;
         Long liveForce2 = summary != null ? summary.latestForce2() : null;
-        Double livePressureBalancePct = summary != null ? summary.pressureBalancePct() : null;
+        Double livePressureBalancePct = latestMetric != null
+                ? latestMetric.pressureBalancePct()
+                : (summary != null ? summary.pressureBalancePct() : null);
         Boolean livePressureSkewed = summary != null ? summary.pressureSkewed() : null;
 
         return Optional.of(new SessionLiveView(
@@ -522,7 +540,9 @@ public class ActiveSessionService {
                 state.startedAt,
                 state.scenario,
                 state.notes,
-                summary != null ? summary.lastSeen() : null,
+                state.latestMetricReceivedAt != null
+                        ? state.latestMetricReceivedAt
+                        : (summary != null ? summary.lastSeen() : null),
                 summary != null ? summary.state() : "unknown",
                 summary != null && summary.online(),
                 summary != null ? summary.ip() : null,
@@ -540,8 +560,8 @@ public class ActiveSessionService {
                 liveForce2,
                 livePressureBalancePct,
                 livePressureSkewed,
-                summary != null ? summary.latestMetric() : null,
-                summary != null ? summary.seq() : null,
+                latestMetric,
+                latestMetric != null ? latestMetric.seq() : null,
                 summary != null ? summary.connectionState() : "CONNECTING",
                 summary != null && summary.stale(),
                 summary == null || summary.offline()
@@ -675,6 +695,8 @@ public class ActiveSessionService {
         private Instant endedAt;
         private final String courseId;
         private final String instructorId;
+        private volatile LiveMetricPayload latestMetric;
+        private volatile Instant latestMetricReceivedAt;
 
         private ActiveSessionState(
                 String sessionId,
@@ -737,14 +759,27 @@ public class ActiveSessionService {
         private Double lastPauseS;
         private String latestFlags;
 
-        private void record(Double depthMm, Double depthProgress, Double rateCpm, Boolean recoilOk, Double pauseS, Integer compressionCount, String flags) {
+        private void record(
+                Double depthMm,
+                Double depthProgress,
+                Double rateCpm,
+                Boolean recoilOk,
+                Double pauseS,
+                Integer compressionCount,
+                Integer validCompressionCount,
+                Integer recoilOkCount,
+                Integer incompleteRecoilCount,
+                String flags
+        ) {
             sampleCount++;
 
             if (compressionCount != null && compressionCount > 0) {
-                totalCompressions += compressionCount;
-                if (Boolean.TRUE.equals(recoilOk)) {
-                    validCompressions += compressionCount;
-                }
+                totalCompressions = Math.max(totalCompressions, compressionCount);
+            }
+            if (validCompressionCount != null) {
+                validCompressions = Math.max(validCompressions, validCompressionCount);
+            } else if (compressionCount != null && Boolean.TRUE.equals(recoilOk)) {
+                validCompressions = Math.max(validCompressions, compressionCount);
             }
 
             if (depthMm != null) {
@@ -767,11 +802,17 @@ public class ActiveSessionService {
 
             if (recoilOk != null) {
                 lastRecoilOk = recoilOk;
-                if (recoilOk) {
+                if (recoilOkCount == null && incompleteRecoilCount == null && recoilOk) {
                     recoilTrueCount++;
-                } else {
+                } else if (recoilOkCount == null && incompleteRecoilCount == null) {
                     recoilFalseCount++;
                 }
+            }
+            if (recoilOkCount != null) {
+                recoilTrueCount = Math.max(recoilTrueCount, recoilOkCount);
+            }
+            if (incompleteRecoilCount != null) {
+                recoilFalseCount = Math.max(recoilFalseCount, incompleteRecoilCount);
             }
 
             if (pauseS != null && pauseS > 0.5) {

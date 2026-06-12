@@ -10,6 +10,7 @@ import lk.resq.localhub.model.CreateUserRequest;
 import lk.resq.localhub.model.LoginRequest;
 
 import lk.resq.localhub.model.UserRole;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,7 +48,7 @@ public class AuthService {
     private final ChronoUnit sessionTtlUnit = ChronoUnit.HOURS;
     private final long sessionTtlHours;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public AuthService(
             LocalAuthRepository authRepository,
             RosterCacheRepository rosterCacheRepository,
@@ -67,6 +68,18 @@ public class AuthService {
     ) {
         this.authRepository = authRepository;
         this.rosterCacheRepository = null;
+        this.objectMapper = objectMapper;
+        this.sessionTtlHours = Math.max(1L, sessionTtlHours);
+    }
+
+    public AuthService(
+            LocalAuthRepository authRepository,
+            RosterCacheRepository rosterRepository,
+            ObjectMapper objectMapper,
+            long sessionTtlHours
+    ) {
+        this.authRepository = authRepository;
+        this.rosterCacheRepository = rosterRepository;
         this.objectMapper = objectMapper;
         this.sessionTtlHours = Math.max(1L, sessionTtlHours);
     }
@@ -108,8 +121,10 @@ public class AuthService {
             return issue;
         }
 
-        // 2. Try cloud-synced user lookup
-        Optional<RosterCacheRepository.SyncedUserRecord> cloudUserOpt = rosterCacheRepository.findSyncedUserByEmail(username);
+        // 2. Try cloud-synced user lookup when the roster cache is available.
+        Optional<RosterCacheRepository.SyncedUserRecord> cloudUserOpt = rosterCacheRepository == null
+                ? Optional.empty()
+                : rosterCacheRepository.findSyncedUserByEmail(username);
         if (cloudUserOpt.isPresent()) {
             RosterCacheRepository.SyncedUserRecord cloudUser = cloudUserOpt.get();
             if (!cloudUser.active()) {

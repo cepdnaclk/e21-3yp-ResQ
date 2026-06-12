@@ -42,7 +42,7 @@ public class LiveStreamController {
     @GetMapping(path = "/manikins/live", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> streamManikinsLive(HttpServletRequest request) {
         try {
-            authService.requireRole(request, UserRole.INSTRUCTOR);
+            authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
             SseEmitter emitter = liveStreamService.subscribeInstructor(
                     manikinRegistryService.getLiveSummaries().stream()
                             .map(activeSessionService::decorateLiveSummary)
@@ -62,7 +62,7 @@ public class LiveStreamController {
     public ResponseEntity<SseEmitter> streamSessionLive(HttpServletRequest request, @PathVariable String sessionId) {
         try {
             // TODO: allow TRAINEE to subscribe to their own session when ownership is implemented.
-            authService.requireRole(request, UserRole.INSTRUCTOR);
+            authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
             SessionLiveView initialPayload = activeSessionService.getSessionLiveView(sessionId)
                     .or(() -> manikinRegistryService.getSessionLiveView(sessionId))
                     .orElse(null);
