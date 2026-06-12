@@ -22,7 +22,7 @@
                       class="brand-logo"
                       data-logo
                       data-logo-light="../assets/img/logo/resq-logo-256.png"
-                      data-logo-dark="../assets/img/logo/resq-logo-dark-256.png"
+                      data-logo-dark="../assets/img/logo/resq-logo-light-256.jpg"
                       src="../assets/img/logo/resq-logo-256.png"
                       alt="ResQ logo"
                     />
@@ -245,13 +245,15 @@
                             </figure>
                         </div>-->
 
-                        <div style="display: flex; flex-direction: column; gap: 4px; flex: 0 0 250px; max-width: 200px; width: 100%;">
-                            <figure class="post-figure" style="margin: 0;">
-                                <img src="../assets/img/blog/img2.jpg" alt="Prototype Overlay Jacket Development" style="width: 100%; height: auto; border-radius: 6px; object-fit: cover;" />
+                        
+
+                        <div style="display: flex !important; flex-direction: column !important; gap: 0px !important; flex: 0 0 250px; max-width: 200px; width: 100%;">
+                            <figure class="post-figure" style="margin: 0px !important; padding: 0px !important; line-height: 0 !important;">
+                                <img src="../assets/img/blog/img2.jpg" alt="Prototype Overlay Jacket Development" style="width: 100%; height: auto; margin: 0px !important; padding: 0px !important; display: block !important; border-top-left-radius: 6px; border-top-right-radius: 6px; object-fit: cover;" />
                             </figure>
-                            
-                            <figure class="post-figure" style="margin: 0;">
-                                <img src="../assets/img/blog/img3.png" alt="Testing Sensors" style="width: 100%; height: auto; border-radius: 6px; object-fit: cover;" />
+    
+                             <figure class="post-figure" style="margin: 0px !important; padding: 0px !important; line-height: 0 !important;">
+                                <img src="../assets/img/blog/img3.png" alt="Testing Sensors" style="width: 100%; height: auto; margin: 0px !important; padding: 0px !important; display: block !important; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; object-fit: cover;" />
                             </figure>
                         </div>
 
@@ -507,12 +509,9 @@
                                 </figure>
                             </div>
                         </div>
-
                     </div>
-                </div>
             </article>
-            
-            <!-- Blog 7 : Core Infrastructure -->
+
             <article class="post card">
                 <header class="post-header">
                     <div class="post-meta">
@@ -529,7 +528,7 @@
 
                 <div class="post-body">
                     <div class="post-content-row">
-                        <div class="post-text" style="flex: 1; min-width: 0;"
+                        <div class="post-text" style="flex: 1; min-width: 0;">
                             <p>
                                 The firmware was enhanced with a state machine architecture, session management, communication workflows,
                                 and interrupt-based handling for button presses and error conditions.
@@ -539,13 +538,11 @@
                                 We have achieved a major technical milestone by finalizing the core software infrastructure of the ResQ system. This development bridges our embedded hardware layer and localized control systems, bringing us to a fully functional working version of the platform.
                             </p>
 
-                            <p>The software architecture was advanced across two parallel tracks:
-                                <ul>
-                                    <li> Firmware State Machine Architecture: The ESP32-C3 firmware was upgraded to a reliable state machine architecture. This includes dedicated session management protocols, standardized communication workflows, and interrupt-based handling for immediate responses to physical button presses and unexpected error conditions.</li>
-                                    <li> Local Hub & MQTT Framework: The Local Hub backend is now seamlessly unified with our MQTT communication framework. This layer effectively handles device discovery and management, asynchronous data processing, session logging, and instantaneous dashboard state updates.</li>
-                                </ul>
-                            </p>            
-
+                            <p>The software architecture was advanced across two parallel tracks:</p>
+                            <ul>
+                                <li><strong>Firmware State Machine Architecture:</strong> The ESP32-C3 firmware was upgraded to a reliable state machine architecture. This includes dedicated session management protocols, standardized communication workflows, and interrupt-based handling for immediate responses to physical button presses and unexpected error conditions.</li>
+                                <li><strong>Local Hub & MQTT Framework:</strong> The Local Hub backend is now seamlessly unified with our MQTT communication framework. This layer effectively handles device discovery and management, asynchronous data processing, session logging, and instantaneous dashboard state updates.</li>
+                            </ul>           
 
                             <p>
                                 With these core software modules fully integrated, ResQ is now capable of running continuous, live-monitored CPR training sessions from start to finish. Having established a stable end-to-end data pipeline, our next phase will shift toward rigorous system testing, real-world data validation, and performance optimization under continuous operation.
@@ -559,7 +556,6 @@
                                     <source src="../assets/img/blog/vid3.mp4" type="video/mp4" />
                                     Your browser does not support the video tag.
                                 </video>
-                                <!--<p class="post-video-note">Optional note: duration, context, or recording date.</p>-->
                             </div>
                             <figcaption class="muted">24.05.2026</figcaption>
                         </figure>
@@ -567,7 +563,6 @@
                 </div>
             </article>
 
-            <!-- Blog 8 : PCB design -->
             <article class="post card">
                 <header class="post-header">
                     <div class="post-meta">
@@ -589,14 +584,12 @@
                                 The ResQ project has taken a major leap forward in physical development, focusing heavily on structural design, hardware consolidation, and rigorous full-system testing to transition our prototype into a refined, reliable product.
                             </p>
 
-                            <p>
-                                This phase achieved key milestones across three main areas:
-                                <ul>
-                                    <li><strong>Custom CAD & Physical Design:</strong> We finalized the comprehensive CAD modeling for the ResQ device casing and the protective PCB enclosure, optimizing them for 3D printing fabrication. Concurrently, we advanced the design of the chest overlay, evaluating specialized manufacturing solutions and materials to ensure structural durability and realistic physical resistance during compressions.</li>
-                                    <li><strong>PCB Integration:</strong> Our custom PCB was finalized and mounted into the prototype. This allowed us to clean up the physical hardware footprint, eliminate loose wiring, and execute full-system testing that unifies the firmware, physical sensors, MQTT communication pipeline, and desktop dashboard.</li>
-                                    <li><strong>System Diagnostics & Calibration:</strong> Putting the fully integrated system through its paces under real-world conditions revealed critical calibration challenges. Our team thoroughly analyzed these data offsets and implemented firmware-level fixes, significantly increasing measurement accuracy and long-term system reliability.</li>
-                                </ul>
-                            </p>
+                            <p>This phase achieved key milestones across three main areas:</p>
+                            <ul>
+                                <li><strong>Custom CAD & Physical Design:</strong> We finalized the comprehensive CAD modeling for the ResQ device casing and the protective PCB enclosure, optimizing them for 3D printing fabrication. Concurrently, we advanced the design of the chest overlay, evaluating specialized manufacturing solutions and materials to ensure structural durability and realistic physical resistance during compressions.</li>
+                                <li><strong>PCB Integration:</strong> Our custom PCB was finalized and mounted into the prototype. This allowed us to clean up the physical hardware footprint, eliminate loose wiring, and execute full-system testing that unifies the firmware, physical sensors, MQTT communication pipeline, and desktop dashboard.</li>
+                                <li><strong>System Diagnostics & Calibration:</strong> Putting the fully integrated system through its paces under real-world conditions revealed critical calibration challenges. Our team thoroughly analyzed these data offsets and implemented firmware-level fixes, significantly increasing measurement accuracy and long-term system reliability.</li>
+                            </ul>
 
                             <p>
                                 With the physical architecture locked in and the end-to-end data pipeline thoroughly validated, ResQ is closer than ever to a dependable, deployment-ready CPR training solution.
@@ -605,7 +598,7 @@
                     </div>
                     <div style="display: flex; flex-direction: row; gap: 4px; width: 100%; margin-top: 16px;">
                         <figure class="post-figure" style="margin: 0; flex: 1;">
-                                <img src="../assets/img/blog/img11.jpg" alt="CAD Design" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
+                            <img src="../assets/img/blog/img11.jpg" alt="CAD Design" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
                         </figure>
                         
                         <figure class="post-figure" style="margin: 0; flex: 1;">
@@ -622,6 +615,7 @@
                     </div>
                 </div>
             </article>
+            
 
         </div>
     </section>
