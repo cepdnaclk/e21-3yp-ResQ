@@ -2,7 +2,7 @@ param(
     [string]$DeviceId = "M01",
     [ValidateSet("pass", "fail")]
     [string]$CalibrationMode = "pass",
-    [switch]$SkipSimulator,
+    [switch]$RunSimulator,
     [switch]$SkipWatcher,
     [switch]$SkipDesktop,
     [switch]$SkipBroker,
@@ -63,7 +63,7 @@ if (-not $SkipDesktop) {
     $launched.Add("desktop")
 }
 
-if (-not $SkipSimulator) {
+if ($RunSimulator) {
     $simulatorScript = Join-Path $repoRoot "scripts\local-demo\start-firmware-simulator.ps1"
     $simulatorCommand = "& {0} -DeviceId {1} -CalibrationMode {2}" -f (Quote-Path $simulatorScript), (Quote-Path $DeviceId), (Quote-Path $CalibrationMode)
     Start-DemoWindow -Title "Firmware Simulator" -WorkingDirectory $repoRoot -Command $simulatorCommand
