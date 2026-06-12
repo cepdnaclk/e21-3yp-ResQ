@@ -54,6 +54,9 @@ impl BrokerServiceState {
             )
         })?;
 
+        eprintln!("Broker executable path: {}", executable_path.display());
+        eprintln!("Broker working directory: {}", working_dir.display());
+
         let child = Command::new(&executable_path)
             .arg("-c")
             .arg(&config_path)
@@ -63,6 +66,9 @@ impl BrokerServiceState {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|error| format!("Failed to start Mosquitto broker: {error}"))?;
+
+        let pid = child.id();
+        eprintln!("Broker process spawned with PID: {}", pid);
 
         *child_slot = Some(child);
         Ok(())

@@ -183,6 +183,15 @@ impl ApiServiceState {
         }
     }
 
+    fn clean_windows_path(path: &Path) -> PathBuf {
+        let path_str = path.to_string_lossy();
+        if path_str.starts_with(r"\\?\") {
+            PathBuf::from(&path_str[4..])
+        } else {
+            path.to_path_buf()
+        }
+    }
+
     fn build_packaged_command(app: &tauri::AppHandle) -> Result<Option<Command>, String> {
         let resource_dir = match app.path().resource_dir() {
             Ok(path) => path,
@@ -195,13 +204,16 @@ impl ApiServiceState {
             .join("application-release.properties");
 
         if jar_path.is_file() && config_path.is_file() {
+            let clean_jar = Self::clean_windows_path(&jar_path);
+            let clean_config = Self::clean_windows_path(&config_path);
+
             let mut command = Command::new("java");
             command
                 .arg("-jar")
-                .arg(&jar_path)
+                .arg(&clean_jar)
                 .arg(format!(
                     "--spring.config.location={}",
-                    config_path.display()
+                    clean_config.display()
                 ))
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -231,21 +243,62 @@ impl ApiServiceState {
             return Ok(current_status);
         }
 
-        let mut command = match Self::build_packaged_command(app)? {
-            Some(command) => command,
-            None => {
-                let backend_dir = Self::backend_dir()?;
-                Self::build_dev_command(&backend_dir)
+        let is_debug = cfg!(debug_assertions);
+        let mut selected_packaged = false;
+
+        let mut command = if is_debug {
+            // Unconditionally use dev command in debug/dev builds
+            let backend_dir = Self::backend_dir()?;
+            eprintln!("Backend dev project directory: {}", backend_dir.display());
+            let mut cmd = Self::build_dev_command(&backend_dir);
+            cmd.stdout(Stdio::inherit());
+            cmd.stderr(Stdio::inherit());
+            cmd
+        } else {
+            // In release builds, try build_packaged_command first, fallback to dev command
+            match Self::build_packaged_command(app)? {
+                Some(cmd) => {
+                    selected_packaged = true;
+                    cmd
+                }
+                None => {
+                    let backend_dir = Self::backend_dir()?;
+                    eprintln!("Backend dev project directory: {}", backend_dir.display());
+                    let mut cmd = Self::build_dev_command(&backend_dir);
+                    cmd.stdout(Stdio::inherit());
+                    cmd.stderr(Stdio::inherit());
+                    cmd
+                }
             }
         };
 
+        if selected_packaged {
+            eprintln!("Mode selected: Packaged (Release)");
+        } else {
+            eprintln!("Mode selected: Development (Dev)");
+        }
+
         Self::apply_cloud_sync_environment(&mut command);
+
+        eprintln!(
+            "Backend working directory: {}",
+            command
+                .get_current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "default".to_string())
+        );
+        eprintln!(
+            "Backend command path: {}",
+            command.get_program().to_string_lossy()
+        );
+        eprintln!("Backend command configuration: {:?}", command);
 
         let child = command
             .spawn()
             .map_err(|error| format!("Failed to start backend: {error}"))?;
 
         let pid = child.id();
+        eprintln!("Backend process spawned successfully with PID: {}", pid);
         *child_slot = Some(child);
 
         Ok(ApiServiceStatus {
