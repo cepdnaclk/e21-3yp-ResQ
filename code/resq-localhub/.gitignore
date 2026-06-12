@@ -27,6 +27,7 @@ Cargo.lock
 *.class
 *.jar
 !apps/localhub-desktop/src-tauri/resources/hub-api/resq-hub-api.jar
+apps/localhub-desktop/src-tauri/resources/jre/
 *.war
 *.ear
 .mvn/wrapper/maven-wrapper.jar

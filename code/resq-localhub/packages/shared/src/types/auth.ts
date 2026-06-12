@@ -15,6 +15,7 @@ export type LoginRequest = {
 
 export type LoginResponse = {
   user: AuthUser;
+  token: string;
   expiresAt: string;
 };
 

@@ -5,7 +5,7 @@
   "identifier": "resq.ce.pdn.ac.lk",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:release",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -32,6 +32,7 @@
     "resources": {
       "resources/hub-api/resq-hub-api.jar": "hub-api/resq-hub-api.jar",
       "resources/config/application-release.properties": "config/application-release.properties",
+      "resources/jre": "jre",
       "resources/mosquitto": "mosquitto"
     }
   }

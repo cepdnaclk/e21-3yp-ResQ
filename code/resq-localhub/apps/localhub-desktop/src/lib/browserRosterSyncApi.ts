@@ -1,3 +1,4 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
 import { getStoredToken } from "./tokenStore";
 
 export interface SyncStateRecord {
@@ -32,7 +33,7 @@ export interface CourseInstructorView {
 }
 
 function getBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api`;
+  return `${getHubApiBaseUrl()}/api`;
 }
 
 function getHeaders(): HeadersInit {

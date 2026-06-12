@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getHubApiBaseUrl } from "./hubApiUrl";
 
 export type AppInfo = {
   appName: string;
@@ -29,7 +30,7 @@ export type NetworkInfo = {
 };
 
 // Keep the backend URL in one place so it is easy to change later.
-export const HUB_API_BASE_URL = "http://localhost:18080";
+export const HUB_API_BASE_URL = getHubApiBaseUrl();
 
 const HUB_HEALTH_PATH = "/api/hub/health";
 

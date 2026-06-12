@@ -1,3 +1,5 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
+
 export type SessionStartRequest = {
   deviceId: string;
   courseId: string;
@@ -107,15 +109,15 @@ export type ApiErrorResponse = {
 };
 
 function getSessionsBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/sessions`;
+  return `${getHubApiBaseUrl()}/api/sessions`;
 }
 
 function getSessionsExportBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/export/sessions`;
+  return `${getHubApiBaseUrl()}/api/export/sessions`;
 }
 
 function getSessionReviewExportBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/sessions`;
+  return `${getHubApiBaseUrl()}/api/sessions`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -194,7 +196,7 @@ export async function fetchSessionLive(sessionId: string): Promise<SessionLiveVi
 }
 
 export function getSessionLiveStreamUrl(sessionId: string): string {
-  return `http://${window.location.hostname}:18080/api/stream/sessions/live/${encodeURIComponent(sessionId)}`;
+  return `${getHubApiBaseUrl()}/api/stream/sessions/live/${encodeURIComponent(sessionId)}`;
 }
 
 export async function fetchCompletedSession(sessionId: string): Promise<CompletedSession> {

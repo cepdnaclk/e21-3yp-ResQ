@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --port 1420",
     "build": "tsc && vite build",
+    "prepare:release": "node tools/prepare-release.mjs",
+    "build:release": "npm run prepare:release && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",

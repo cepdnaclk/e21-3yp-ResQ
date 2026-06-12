@@ -179,7 +179,7 @@ public class AuthController {
                     .path("/")
                     .maxAge(maxAgeSeconds)
                     .build();
-            LoginResponse response = new LoginResponse(issue.user(), issue.expiresAt());
+            LoginResponse response = new LoginResponse(issue.user(), token, issue.expiresAt());
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())
                     .body(response);
