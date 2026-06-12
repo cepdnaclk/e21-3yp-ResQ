@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "ResQ Local Hub",
         "width": 1200,
         "height": 800,

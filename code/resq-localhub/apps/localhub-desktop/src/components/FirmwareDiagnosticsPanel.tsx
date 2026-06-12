@@ -145,7 +145,10 @@ export function FirmwareDiagnosticsPanel({ deviceId, readiness, liveSummary }: F
       viewport.scrollTop = viewport.scrollHeight;
     }
 
-    logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const logEnd = logEndRef.current;
+    if (logEnd && typeof logEnd.scrollIntoView === "function") {
+      logEnd.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
   }, [liveTail, recentCommands.length, recentEvents.length, recentDebugSnapshots.length]);
 
   return (

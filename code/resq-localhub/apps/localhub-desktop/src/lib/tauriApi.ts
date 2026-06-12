@@ -47,8 +47,7 @@ export async function stopApiService(): Promise<void> {
 }
 
 export async function getApiServiceStatus(): Promise<ApiServiceStatus> {
-  const running = await invoke<boolean>("get_api_service_status");
-  return { running, pid: null };
+  return invoke<ApiServiceStatus>("get_api_service_status");
 }
 
 export async function startBrokerService(): Promise<void> {
