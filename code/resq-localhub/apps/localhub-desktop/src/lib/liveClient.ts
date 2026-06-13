@@ -4,6 +4,7 @@ import type {
   LiveMetricPayload,
   LiveSourceMode,
 } from "@resq/shared";
+import { getHubApiBaseUrl, getLocalServiceHost } from "./hubApiUrl";
 import { createMqttLiveClient, type MqttLiveClient } from "./mqttLiveClient";
 import { createPollingLiveClient, type PollingLiveClient } from "./pollingLiveClient";
 import { createSseLiveClient, type SseLiveClient } from "./sseLiveClient";
@@ -59,11 +60,7 @@ export function createLiveClient(
 }
 
 export function getDefaultBackendBaseUrl(): string {
-  if (typeof window === "undefined") {
-    return "http://localhost:18080";
-  }
-
-  return `http://${window.location.hostname}:18080`;
+  return getHubApiBaseUrl();
 }
 
 export function getDefaultMqttWebSocketUrl(): string {
@@ -77,7 +74,7 @@ export function getDefaultMqttWebSocketUrl(): string {
   }
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.hostname}:9001`;
+  return `${protocol}//${getLocalServiceHost()}:9001`;
 }
 
 function initialState(options: LiveClientOptions): LiveClientState {

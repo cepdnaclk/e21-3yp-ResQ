@@ -198,22 +198,36 @@ impl ApiServiceState {
         }
     }
 
-    fn build_packaged_command(app: &tauri::AppHandle) -> Result<Option<Command>, String> {
-        let resource_dir = match app.path().resource_dir() {
-            Ok(path) => path,
-            Err(_) => return Ok(None),
-        };
+    fn packaged_java_path(resource_dir: &Path) -> PathBuf {
+        #[cfg(target_os = "windows")]
+        {
+            resource_dir.join("jre").join("bin").join("java.exe")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            resource_dir.join("jre").join("bin").join("java")
+        }
+    }
+
+    fn build_packaged_command(app: &tauri::AppHandle) -> Result<Command, String> {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Failed to resolve packaged resource directory: {error}"))?;
 
         let jar_path = resource_dir.join("hub-api").join("resq-hub-api.jar");
         let config_path = resource_dir
             .join("config")
             .join("application-release.properties");
+        let java_path = Self::packaged_java_path(&resource_dir);
 
-        if jar_path.is_file() && config_path.is_file() {
+        if jar_path.is_file() && config_path.is_file() && java_path.is_file() {
             let clean_jar = Self::clean_windows_path(&jar_path);
             let clean_config = Self::clean_windows_path(&config_path);
+            let clean_java = Self::clean_windows_path(&java_path);
 
-            let mut command = Command::new("java");
+            let mut command = Command::new(clean_java);
             command
                 .arg("-jar")
                 .arg(&clean_jar)
@@ -221,21 +235,19 @@ impl ApiServiceState {
                     "--spring.config.location={}",
                     clean_config.display()
                 ))
+                .current_dir(&resource_dir)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
-            return Ok(Some(command));
+            return Ok(command);
         }
 
-        if jar_path.exists() || config_path.exists() {
-            return Err(format!(
-                "Incomplete packaged backend resources. Expected JAR at {} and config at {}",
-                jar_path.display(),
-                config_path.display()
-            ));
-        }
-
-        Ok(None)
+        Err(format!(
+            "Incomplete packaged backend resources. Expected JAR at {}, config at {}, and Java runtime at {}",
+            jar_path.display(),
+            config_path.display(),
+            java_path.display()
+        ))
     }
 
     fn hide_window(command: &mut Command) {
@@ -257,8 +269,6 @@ impl ApiServiceState {
         }
 
         let is_debug = cfg!(debug_assertions);
-        let mut selected_packaged = false;
-
         let mut command = if is_debug {
             // Unconditionally use dev command in debug/dev builds
             let backend_dir = Self::backend_dir()?;
@@ -268,27 +278,13 @@ impl ApiServiceState {
             cmd.stderr(Stdio::inherit());
             cmd
         } else {
-            // In release builds, try build_packaged_command first, fallback to dev command
-            match Self::build_packaged_command(app)? {
-                Some(cmd) => {
-                    selected_packaged = true;
-                    cmd
-                }
-                None => {
-                    let backend_dir = Self::backend_dir()?;
-                    eprintln!("Backend dev project directory: {}", backend_dir.display());
-                    let mut cmd = Self::build_dev_command(&backend_dir);
-                    cmd.stdout(Stdio::inherit());
-                    cmd.stderr(Stdio::inherit());
-                    cmd
-                }
-            }
+            Self::build_packaged_command(app)?
         };
 
-        if selected_packaged {
-            eprintln!("Mode selected: Packaged (Release)");
-        } else {
+        if is_debug {
             eprintln!("Mode selected: Development (Dev)");
+        } else {
+            eprintln!("Mode selected: Packaged (Release)");
         }
 
         Self::apply_cloud_sync_environment(&mut command);

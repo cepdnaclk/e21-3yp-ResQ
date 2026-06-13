@@ -1,3 +1,4 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
 import { getStoredToken } from "./tokenStore";
 
 export interface TraineeRecord {
@@ -11,14 +12,12 @@ export interface TraineeRecord {
   archivedAt: string | null;
 }
 
-const BASE_URL = "http://localhost:18080";
-
 /**
  * Fetch list of active trainee records.
  */
 export async function fetchTrainees(): Promise<TraineeRecord[]> {
   const token = getStoredToken();
-  const response = await fetch(`${BASE_URL}/api/trainees`, {
+  const response = await fetch(`${getHubApiBaseUrl()}/api/trainees`, {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
@@ -37,7 +36,7 @@ export async function fetchTrainees(): Promise<TraineeRecord[]> {
  */
 export async function fetchTraineeById(id: string): Promise<TraineeRecord> {
   const token = getStoredToken();
-  const response = await fetch(`${BASE_URL}/api/trainees/${id}`, {
+  const response = await fetch(`${getHubApiBaseUrl()}/api/trainees/${id}`, {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
@@ -66,7 +65,7 @@ export interface CreateTraineeRequest {
  */
 export async function createTrainee(request: CreateTraineeRequest): Promise<TraineeRecord> {
   const token = getStoredToken();
-  const response = await fetch(`${BASE_URL}/api/trainees`, {
+  const response = await fetch(`${getHubApiBaseUrl()}/api/trainees`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -95,7 +94,7 @@ export interface UpdateTraineeRequest {
  */
 export async function updateTrainee(id: string, request: UpdateTraineeRequest): Promise<TraineeRecord> {
   const token = getStoredToken();
-  const response = await fetch(`${BASE_URL}/api/trainees/${id}`, {
+  const response = await fetch(`${getHubApiBaseUrl()}/api/trainees/${id}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -118,7 +117,7 @@ export async function updateTrainee(id: string, request: UpdateTraineeRequest): 
  */
 export async function archiveTrainee(id: string): Promise<void> {
   const token = getStoredToken();
-  const response = await fetch(`${BASE_URL}/api/trainees/${id}/archive`, {
+  const response = await fetch(`${getHubApiBaseUrl()}/api/trainees/${id}/archive`, {
     method: "POST",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -11,6 +11,7 @@ import {
   logout as logoutRequest,
   setupFirstAdmin as setupFirstAdminRequest,
 } from "../lib/authApi";
+import { isTauriRuntime, waitForHubApiReady } from "../lib/hubApiUrl";
 import { getStoredToken, setStoredToken } from "../lib/tokenStore";
 
 type AuthContextValue = {
@@ -43,6 +44,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function loadAuthState() {
       try {
+        if (isTauriRuntime()) {
+          await waitForHubApiReady();
+        }
+
         const [statusResponse, userResponse] = await Promise.all([
           fetchAuthStatus(),
           fetchCurrentUser(),
@@ -80,22 +85,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function login(request: LoginRequest) {
     const response = await loginRequest(request);
-    // backend sets HttpOnly cookie; optional token support if stored elsewhere
-    // mark that a session likely exists; backend uses HttpOnly cookie
-    try {
-      setStoredToken("session");
-      setToken("session");
-    } catch {}
+    setStoredToken(response.token);
+    setToken(response.token);
     setCurrentUser(response.user);
     return response;
   }
 
   async function setupFirstAdmin(request: CreateFirstAdminRequest) {
     const response = await setupFirstAdminRequest(request);
-    try {
-      setStoredToken("session");
-      setToken("session");
-    } catch {}
+    setStoredToken(response.token);
+    setToken(response.token);
     setCurrentUser(response.user);
     return response;
   }
@@ -103,10 +102,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function createFirstAdmin(request: CreateFirstAdminRequest) {
     // alias for setupFirstAdminRequest - backend uses /setup
     const response = await setupFirstAdminRequest(request);
-    try {
-      setStoredToken("session");
-      setToken("session");
-    } catch {}
+    setStoredToken(response.token);
+    setToken(response.token);
     setCurrentUser(response.user);
     return response;
   }

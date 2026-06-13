@@ -109,6 +109,19 @@ npm install
 npm run tauri:dev
 ```
 
+### Windows Release Build
+
+The build machine needs Node.js, Rust, and a Java 17 JDK with `JAVA_HOME` set. The installed
+application does not require Java because the release build creates and bundles its own runtime.
+
+```powershell
+cd apps/localhub-desktop
+npm run tauri:build
+```
+
+This command rebuilds the Spring Boot JAR, creates the bundled Java runtime, builds the frontend,
+and produces both NSIS and MSI installers under `src-tauri/target/release/bundle`.
+
 ## Current Scope
 
 This first pass only creates a clean, runnable skeleton:

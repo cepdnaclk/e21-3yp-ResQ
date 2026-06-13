@@ -1,3 +1,5 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
+
 type JsonRecord = Record<string, unknown>;
 
 export type CourseOption = {
@@ -13,7 +15,7 @@ export type CourseStudentOption = {
 };
 
 function getCoursesBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/courses`;
+  return `${getHubApiBaseUrl()}/api/courses`;
 }
 
 function asRecord(value: unknown): JsonRecord | null {

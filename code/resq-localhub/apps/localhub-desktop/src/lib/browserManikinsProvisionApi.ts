@@ -1,3 +1,5 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
+
 // Browser-safe helpers for local firmware onboarding/provisioning.
 
 export type HubServiceInfoResponse = {
@@ -32,7 +34,7 @@ export type DeviceRegistrationResponse = {
 };
 
 function backendBase(): string {
-  return `http://${window.location.hostname}:18080`;
+  return getHubApiBaseUrl();
 }
 
 export async function fetchHubServiceInfo(): Promise<HubServiceInfoResponse> {
