@@ -49,7 +49,8 @@ class ActiveSessionServiceTest {
 
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", "S-WRONG", 1, 52, 110)), "session is not active");
         assertRejected(service.validateTelemetryBinding("M02", valid), "payload deviceId does not match MQTT topic deviceId");
-        assertRejected(service.validateTelemetryBinding("M01", telemetryWithoutSession("M01")), "payload sessionId is missing");
+        assertThat(service.validateTelemetryBinding("M01", telemetryWithoutSession("M01")).accepted()).isTrue();
+        assertRejected(service.validateTelemetryBinding("M02", telemetryWithoutSession("M02")), "payload sessionId is missing");
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, -1, 110)), "depthMm is outside");
         assertRejected(service.validateTelemetryBinding("M01", objectMapper.readTree("""
                 {

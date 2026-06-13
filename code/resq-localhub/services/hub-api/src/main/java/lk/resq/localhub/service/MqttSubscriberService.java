@@ -62,6 +62,7 @@ public class MqttSubscriberService {
     private final ActiveSessionService activeSessionService;
     private final LiveStreamService liveStreamService;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
+    private final RateEstimatorRegistry rateEstimatorRegistry;
 
     private final String brokerUrl;
     private final String clientId;
@@ -82,6 +83,7 @@ public class MqttSubscriberService {
             ActiveSessionService activeSessionService,
             LiveStreamService liveStreamService,
             FirmwarePersistenceRepository firmwarePersistenceRepository,
+            RateEstimatorRegistry rateEstimatorRegistry,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
@@ -92,10 +94,36 @@ public class MqttSubscriberService {
         this.activeSessionService = activeSessionService;
         this.liveStreamService = liveStreamService;
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
+        this.rateEstimatorRegistry = rateEstimatorRegistry;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
         this.password = password;
+    }
+
+    public MqttSubscriberService(
+            ObjectMapper objectMapper,
+            ManikinRegistryService manikinRegistryService,
+            ActiveSessionService activeSessionService,
+            LiveStreamService liveStreamService,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            String brokerUrl,
+            String clientId,
+            String username,
+            String password
+    ) {
+        this(
+                objectMapper,
+                manikinRegistryService,
+                activeSessionService,
+                liveStreamService,
+                firmwarePersistenceRepository,
+                new RateEstimatorRegistry(),
+                brokerUrl,
+                clientId,
+                username,
+                password
+        );
     }
 
     public MqttSubscriberService(
@@ -114,6 +142,7 @@ public class MqttSubscriberService {
                 activeSessionService,
                 liveStreamService,
                 defaultFirmwarePersistenceRepository(),
+                new RateEstimatorRegistry(),
                 brokerUrl,
                 clientId,
                 username,
@@ -270,8 +299,15 @@ public class MqttSubscriberService {
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
+                    String payloadSessionId = firstText(payload, "sessionId", "session_id");
+                    if (payloadSessionId == null) {
+                        payloadSessionId = activeSessionService.findActiveSessionForDevice(parsedTopic.deviceId)
+                                .map(lk.resq.localhub.model.ActiveSessionInfo::sessionId)
+                                .orElse(null);
+                    }
+
                     TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                            TelemetryPayloadNormalizer.normalize(payload, parsedTopic.deviceId);
+                            TelemetryPayloadNormalizer.normalize(payload, parsedTopic.deviceId, payloadSessionId, rateEstimatorRegistry);
                     if (!normalization.ok()) {
                         rejectedTelemetryCount.incrementAndGet();
                         logger.warn(
@@ -312,15 +348,18 @@ public class MqttSubscriberService {
                     activeSessionService.recordTelemetry(parsedTopic.deviceId, normalizedPayload);
                     acceptedTelemetryCount.incrementAndGet();
                     publishInstructorLiveSnapshot();
+
+                    String traineeId = activeSessionService.findActiveSessionForDevice(parsedTopic.deviceId)
+                            .map(lk.resq.localhub.model.ActiveSessionInfo::traineeId)
+                            .orElse("unknown");
                     logger.info(
-                            "Accepted session telemetry deviceId={} sessionId={} tsMs={} compressionCount={} depthProgress={} rateCpm={} pressureBalancePct={}",
+                            "Processed telemetry: deviceId={}, sessionId={}, traineeId={}, rateCpm={}, compressionCount={}, streamTargets=[instructor SSE, trainee SSE (/api/stream/sessions/live/{})]",
                             parsedTopic.deviceId,
-                            validation.sessionId(),
-                            normalization.value().tsMs(),
-                            normalization.value().compressionCount(),
-                            normalization.value().depthProgress(),
+                            normalization.value().sessionId(),
+                            traineeId,
                             normalization.value().rateCpm(),
-                            normalization.value().pressureBalancePct()
+                            normalization.value().compressionCount(),
+                            normalization.value().sessionId()
                     );
                 }
                 case "debug" -> {

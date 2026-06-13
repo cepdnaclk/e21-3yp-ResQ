@@ -109,7 +109,9 @@ public class SessionController {
             AuthUser actor = authService.requireAuth(request);
             return activeSessionService.findCompletedSession(sessionId)
                     .<ResponseEntity<?>>map(session -> {
-                        if (actor.role() == UserRole.TRAINEE && (session.traineeId() == null || !session.traineeId().equalsIgnoreCase(actor.username()))) {
+                        if (actor.role() == UserRole.TRAINEE && (session.traineeId() == null || 
+                            (!session.traineeId().equalsIgnoreCase(actor.id()) && 
+                             !session.traineeId().equalsIgnoreCase(actor.username())))) {
                             throw new ForbiddenException("You can only view your own session results.");
                         }
 
@@ -164,7 +166,9 @@ public class SessionController {
             return activeSessionService.getSessionLiveView(sessionId)
                     .or(() -> manikinRegistryService.getSessionLiveView(sessionId))
                     .<ResponseEntity<?>>map(session -> {
-                        if (actor.role() == UserRole.TRAINEE && (session.traineeId() == null || !session.traineeId().equalsIgnoreCase(actor.username()))) {
+                        if (actor.role() == UserRole.TRAINEE && (session.traineeId() == null || 
+                            (!session.traineeId().equalsIgnoreCase(actor.id()) && 
+                             !session.traineeId().equalsIgnoreCase(actor.username())))) {
                             throw new ForbiddenException("You can only view your own active session.");
                         }
 

@@ -228,6 +228,76 @@ class MqttSubscriberServiceTest {
         assertThat(liveView.latestRateCpm()).isNull();
     }
 
+    @Test
+    void verifiesTelemetryWithDerivedRatePressureBalanceDepthProgressAndSsePublishing() throws Exception {
+        ServiceFixture fixture = newFixture(newRepository());
+        var session = fixture.activeSessionService().startSession(new SessionStartRequest(
+                "M01",
+                "trainee-1",
+                null,
+                null,
+                null,
+                "smoke-test",
+                null
+        ));
+
+        // 1. Initial telemetry sample (start state)
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+            {
+              "session_id": "%s",
+              "ts_ms": 1000,
+              "depth_progress": 0.05,
+              "pressure_balance_pct": 91.5
+            }
+            """.formatted(session.sessionId())));
+
+        // 2. Crosses 0.2 depth progress (start of compression 1)
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+            {
+              "session_id": "%s",
+              "ts_ms": 1100,
+              "depth_progress": 0.25,
+              "pressure_balance_pct": 91.5
+            }
+            """.formatted(session.sessionId())));
+
+        // 3. Resets back below 0.1 depth progress (rearms)
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+            {
+              "session_id": "%s",
+              "ts_ms": 1300,
+              "depth_progress": 0.05,
+              "pressure_balance_pct": 91.5
+            }
+            """.formatted(session.sessionId())));
+
+        // 4. Crosses 0.2 depth progress again (start of compression 2)
+        // Interval is 1600 - 1100 = 500 ms -> rate is 60000 / 500 = 120 cpm
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+            {
+              "session_id": "%s",
+              "ts_ms": 1600,
+              "depth_progress": 0.25,
+              "pressure_balance_pct": 91.5
+            }
+            """.formatted(session.sessionId())));
+
+        // Check active session live view
+        var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
+        assertThat(liveView.pressureBalancePct()).isEqualTo(91.5);
+        assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.25);
+        assertThat(liveView.latestRateCpm()).isEqualTo(120.0);
+
+        // Check captured trainee SSE outputs
+        var capturedViews = fixture.liveStreamService().getSessionLiveViews();
+        assertThat(capturedViews).isNotEmpty();
+        var lastView = capturedViews.get(capturedViews.size() - 1);
+        assertThat(lastView.sessionId()).isEqualTo(session.sessionId());
+        assertThat(lastView.traineeId()).isEqualTo("trainee-1");
+        assertThat(lastView.pressureBalancePct()).isEqualTo(91.5);
+        assertThat(lastView.latestRateCpm()).isEqualTo(120.0);
+    }
+
     private MqttSubscriberService newService(FirmwarePersistenceRepository repository) throws Exception {
         return newFixture(repository).subscriber();
     }
@@ -236,7 +306,7 @@ class MqttSubscriberServiceTest {
         ManikinRegistryService registry = new ManikinRegistryService(12);
         MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService(repository);
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
-        LiveStreamService liveStreamService = new NoopLiveStreamService();
+        CapturingLiveStreamService liveStreamService = new CapturingLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
         CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
             Path.of("target", "mqtt-subscriber-calibration-test-" + UUID.randomUUID() + ".sqlite").toString()
@@ -279,10 +349,10 @@ class MqttSubscriberServiceTest {
                 null,
                 null
         );
-        return new ServiceFixture(subscriber, activeSessionService);
+        return new ServiceFixture(subscriber, activeSessionService, liveStreamService);
     }
 
-    private record ServiceFixture(MqttSubscriberService subscriber, ActiveSessionService activeSessionService) {
+    private record ServiceFixture(MqttSubscriberService subscriber, ActiveSessionService activeSessionService, CapturingLiveStreamService liveStreamService) {
     }
 
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {
@@ -323,9 +393,18 @@ class MqttSubscriberServiceTest {
         }
     }
 
-    private static final class NoopLiveStreamService extends LiveStreamService {
+    private static final class CapturingLiveStreamService extends LiveStreamService {
+        private final List<lk.resq.localhub.model.SessionLiveView> sessionLiveViews = new java.util.ArrayList<>();
+
         @Override
         public void publishSessionLive(String sessionId, lk.resq.localhub.model.SessionLiveView payload) {
+            if (payload != null) {
+                sessionLiveViews.add(payload);
+            }
+        }
+
+        public List<lk.resq.localhub.model.SessionLiveView> getSessionLiveViews() {
+            return sessionLiveViews;
         }
     }
 
