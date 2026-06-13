@@ -52,6 +52,7 @@ export function StartSessionWizardPage() {
         // Parse query params
         const params = new URLSearchParams(window.location.search);
         const preselectedCourseId = params.get("courseId");
+        const preselectedTraineeId = params.get("traineeId");
         if (preselectedCourseId) {
           const foundCourse = coursesRes.find(
             (c) => (c.cloudCourseId || c.courseId || (c as any).id) === preselectedCourseId
@@ -62,7 +63,20 @@ export function StartSessionWizardPage() {
             try {
               const studentsRes = await fetchCourseStudents(resolvedCourseId);
               setStudents(studentsRes);
-              setStep(2); // Jump directly to trainee selection (Correction 4)
+              
+              if (preselectedTraineeId) {
+                const foundTrainee = studentsRes.find(
+                  (s) => (s.cloudUserId || s.traineeId || (s as any).id || (s as any).userId || (s as any).username) === preselectedTraineeId
+                );
+                if (foundTrainee) {
+                  setSelectedTrainee(foundTrainee);
+                  setStep(3); // Jump directly to manikin selection
+                } else {
+                  setStep(2);
+                }
+              } else {
+                setStep(2);
+              }
             } catch (studentErr) {
               setError("Students could not be loaded. Run roster sync or check course assignments.");
             }
@@ -170,7 +184,7 @@ export function StartSessionWizardPage() {
       window.history.pushState({}, "", `/instructor/sessions/${res.sessionId}/live`);
       window.dispatchEvent(new PopStateEvent("popstate"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to launch session.");
+      setError("Could not start the session. Check course, trainee, and manikin readiness.");
       setStarting(false);
     }
   }
@@ -236,8 +250,7 @@ export function StartSessionWizardPage() {
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Step 1 — Select a Classroom Course</h3>
           {courses.length === 0 ? (
             <Card className="text-center py-12 max-w-md mx-auto">
-              <p className="text-slate-500 text-sm font-semibold">No courses assigned yet.</p>
-              <p className="text-slate-400 text-xs mt-1">Ask the LocalHub admin to sync rosters.</p>
+              <p className="text-slate-500 text-sm font-semibold">No courses assigned yet. Ask the LocalHub admin to sync the roster or assign you to a course.</p>
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -316,10 +329,24 @@ export function StartSessionWizardPage() {
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider text-center">
             Step 3 — Select a Ready Manikin Device
           </h3>
-          {manikins.length === 0 ? (
-            <Card className="text-center py-12 max-w-md mx-auto">
-              <p className="text-slate-500 text-sm font-semibold">No paired manikins found on this LocalHub.</p>
-              <p className="text-slate-400 text-xs mt-1">Please pair a device first.</p>
+          {manikins.length === 0 || manikins.filter(isManikinReady).length === 0 ? (
+            <Card className="text-center py-12 max-w-md mx-auto space-y-4">
+              <p className="text-slate-600 text-sm font-bold">No ready manikins available. Prepare a manikin before starting.</p>
+              <div className="flex gap-2.5 justify-center">
+                <Button type="button" variant="secondary" onClick={() => setStep(2)}>
+                  Back to Trainee
+                </Button>
+                {manikins.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="text-white font-bold"
+                    onClick={() => navigateTo("/instructor")}
+                  >
+                    Manage Manikins
+                  </Button>
+                )}
+              </div>
             </Card>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -331,14 +358,13 @@ export function StartSessionWizardPage() {
                 const ready = isManikinReady(m);
 
                 return (
-                  <button
+                  <div
                     key={m.deviceId}
-                    type="button"
-                    onClick={() => handleSelectManikin(m)}
-                    className="text-left w-full transition-transform"
+                    onClick={() => ready && handleSelectManikin(m)}
+                    className={`text-left w-full transition-transform ${ready ? "hover:scale-[1.01] cursor-pointer" : "cursor-default"}`}
                   >
                     <Card
-                      className={`border cursor-pointer transition-all p-5 flex flex-col justify-between h-32 ${
+                      className={`border cursor-pointer transition-all p-5 flex flex-col justify-between h-36 ${
                         isSelected
                           ? "border-teal-600 bg-teal-50/10 shadow-sm"
                           : ready
@@ -364,12 +390,24 @@ export function StartSessionWizardPage() {
 
                       {/* Clean medical-friendly disabled messages (Correction 4 / TASK 6) */}
                       {!ready && !checkingReadiness && (
-                        <p className="text-[10px] text-amber-600 font-bold mt-2">
-                          ⚠ Run readiness check before starting training.
-                        </p>
+                        <div className="mt-2 space-y-1.5">
+                          <p className="text-[10px] text-amber-600 font-bold">
+                            ⚠ Run readiness check before starting training.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigateTo(`/instructor/manikins/${encodeURIComponent(m.deviceId)}/readiness`);
+                            }}
+                            className="block w-full text-center text-[10px] font-bold bg-teal-50 hover:bg-teal-100/80 text-teal-700 border border-teal-100 rounded-lg py-1.5 px-2.5 transition-colors"
+                          >
+                            Prepare Manikin
+                          </button>
+                        </div>
                       )}
                     </Card>
-                  </button>
+                  </div>
                 );
               })}
             </div>

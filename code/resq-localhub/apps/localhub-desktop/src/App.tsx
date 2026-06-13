@@ -17,6 +17,7 @@ import V2AdminUsersPage from "./pages/v2/AdminUsersPage";
 import V2TechnicianDiagnosticsPage from "./pages/v2/TechnicianDiagnosticsPage";
 import V2AccessDeniedPage from "./pages/v2/AccessDeniedPage";
 import V2CoursesPage from "./pages/v2/CoursesPage";
+import V2CourseDetailPage from "./pages/v2/CourseDetailPage";
 import V2StartSessionWizardPage from "./pages/v2/StartSessionWizardPage";
 import V2ActiveSessionsPage from "./pages/v2/ActiveSessionsPage";
 
@@ -32,6 +33,7 @@ type RouteState =
   | { name: "login" }
   | { name: "setup" }
   | { name: "courses" }
+  | { name: "course-detail"; courseId: string }
   | { name: "start-session" }
   | { name: "live-sessions" }
   | { name: "instructor" }
@@ -79,6 +81,10 @@ function parseRoute(path: string): RouteState {
   // /sessions/:sessionId
   const sessionReviewMatch = p.match(/^\/sessions\/([^/]+)$/);
   if (sessionReviewMatch) return { name: "session-review", sessionId: decodeURIComponent(sessionReviewMatch[1]) };
+
+  // /courses/:courseId
+  const courseDetailMatch = p.match(/^\/courses\/([^/]+)$/);
+  if (courseDetailMatch) return { name: "course-detail", courseId: decodeURIComponent(courseDetailMatch[1]) };
 
   if (p === "/") return { name: "home" };
   return { name: "home" };
@@ -180,6 +186,9 @@ export default function App() {
   if (currentRoute.name === "courses" && !isInstructorOrAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
+  if (currentRoute.name === "course-detail" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
   if (currentRoute.name === "start-session" && !isInstructorOrAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
@@ -248,7 +257,7 @@ export default function App() {
     activeShellKey = "users";
   } else if (currentRoute.name === "diagnostics") {
     activeShellKey = "diagnostics";
-  } else if (currentRoute.name === "courses") {
+  } else if (currentRoute.name === "courses" || currentRoute.name === "course-detail") {
     activeShellKey = "courses";
   } else if (currentRoute.name === "start-session") {
     activeShellKey = "start-session";
@@ -317,6 +326,12 @@ export default function App() {
       {currentRoute.name === "admin-users" && <V2AdminUsersPage />}
       {currentRoute.name === "diagnostics" && <V2TechnicianDiagnosticsPage />}
       {currentRoute.name === "courses" && <V2CoursesPage />}
+      {currentRoute.name === "course-detail" && (
+        <V2CourseDetailPage
+          courseId={currentRoute.courseId}
+          onBack={() => navigate("/courses")}
+        />
+      )}
       {currentRoute.name === "start-session" && <V2StartSessionWizardPage />}
       {currentRoute.name === "live-sessions" && (
         <V2ActiveSessionsPage

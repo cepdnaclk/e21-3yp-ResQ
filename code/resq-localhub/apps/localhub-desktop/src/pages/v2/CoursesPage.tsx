@@ -217,7 +217,7 @@ export function CoursesPage() {
                     variant="secondary"
                     size="sm"
                     className="flex-1 font-bold text-xs py-2 bg-white"
-                    onClick={() => handleViewStudents(course)}
+                    onClick={() => navigateTo(`/courses/${encodeURIComponent(resolvedCourseId)}`)}
                   >
                     View Students
                   </Button>
@@ -226,7 +226,7 @@ export function CoursesPage() {
                     variant="primary"
                     size="sm"
                     className="flex-1 font-bold text-xs py-2 shadow-md text-white"
-                    onClick={() => navigateTo(`/start-session?courseId=${resolvedCourseId}`)}
+                    onClick={() => navigateTo(`/start-session?courseId=${encodeURIComponent(resolvedCourseId)}`)}
                   >
                     Start Session
                   </Button>
