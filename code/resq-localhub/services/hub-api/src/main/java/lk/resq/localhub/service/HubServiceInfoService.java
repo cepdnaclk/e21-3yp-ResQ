@@ -23,6 +23,8 @@ public class HubServiceInfoService {
     private final String mqttAdvertisedHost;
     private final int mqttPort;
     private final String dashboardUrl;
+    private final boolean cloudSyncEnabled;
+    private final boolean rosterSyncEnabled;
 
     public HubServiceInfoService(
             @Value("${server.port:18080}") int backendPort,
@@ -30,7 +32,9 @@ public class HubServiceInfoService {
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String mqttBrokerUrl,
             @Value("${resq.mqtt.advertised-host:}") String mqttAdvertisedHost,
             @Value("${resq.mqtt.port:1883}") int mqttPort,
-            @Value("${resq.localhub.dashboard-url:http://localhost:1420}") String dashboardUrl
+            @Value("${resq.localhub.dashboard-url:http://localhost:1420}") String dashboardUrl,
+            @Value("${resq.cloud-sync.enabled:false}") boolean cloudSyncEnabled,
+            @Value("${resq.roster-sync.enabled:false}") boolean rosterSyncEnabled
     ) {
         this.backendPort = backendPort;
         this.backendAdvertisedHost = normalize(backendAdvertisedHost);
@@ -38,6 +42,8 @@ public class HubServiceInfoService {
         this.mqttAdvertisedHost = normalize(mqttAdvertisedHost);
         this.mqttPort = mqttPort;
         this.dashboardUrl = dashboardUrl;
+        this.cloudSyncEnabled = cloudSyncEnabled;
+        this.rosterSyncEnabled = rosterSyncEnabled;
     }
 
     public HubServiceInfoResponse serviceInfo() {
@@ -52,7 +58,9 @@ public class HubServiceInfoService {
                 mqttHost,
                 resolvedMqttPort,
                 dashboardUrl,
-                localIp
+                localIp,
+                cloudSyncEnabled,
+                rosterSyncEnabled
         );
     }
 

@@ -179,6 +179,10 @@ public class MqttSubscriberService {
         }
     }
 
+    public boolean isMqttConnected() {
+        return mqttClient != null && mqttClient.isConnected();
+    }
+
     private void ensureConnected() {
         if (!running.get()) {
             return;
