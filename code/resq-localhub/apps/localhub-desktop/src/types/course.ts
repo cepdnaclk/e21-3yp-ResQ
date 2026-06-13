@@ -7,16 +7,19 @@ export type Course = {
   courseCode: string | null;
   title: string;
   name?: string;
+  cloudCourseId?: string;
 };
 
 export type CourseStudent = {
   traineeId: string;
   displayName: string;
   email: string | null;
+  cloudUserId?: string;
 };
 
 export type CourseInstructor = {
   instructorId: string;
   displayName: string;
   email: string | null;
+  cloudUserId?: string;
 };

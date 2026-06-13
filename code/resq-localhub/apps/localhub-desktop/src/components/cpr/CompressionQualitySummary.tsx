@@ -2,7 +2,7 @@
  * CompressionQualitySummary.tsx — Summary of a completed session's metrics.
  * Used on SessionReviewPage. Friendly labels, no raw values.
  */
-import { formatDepth, formatDuration, formatRate, formatRecoilPct, getScoreLabel, getScoreTone } from "../../utils/userFriendlyLabels";
+import { formatDepth, formatDuration, formatRate, formatRecoilPct } from "../../utils/userFriendlyLabels";
 import type { SessionSummary } from "../../types/session";
 
 type CompressionQualitySummaryProps = {
@@ -10,34 +10,79 @@ type CompressionQualitySummaryProps = {
 };
 
 export function CompressionQualitySummary({ summary }: CompressionQualitySummaryProps) {
-  const scoreTone = getScoreTone(summary.score);
-  const scoreLabel = getScoreLabel(summary.score);
+  // Calculate simple percentage guidelines for progress bars
+  const avgDepth = summary.avgDepthMm || 0;
+  const avgRate = summary.avgRateCpm || 0;
+  const recoilPct = summary.recoilPct || 0;
 
-  const scoreColor = {
-    excellent: "text-green-600 bg-green-50 border-green-200",
-    good:      "text-blue-600 bg-blue-50 border-blue-200",
-    fair:      "text-yellow-700 bg-yellow-50 border-yellow-200",
-    poor:      "text-red-600 bg-red-50 border-red-200",
-  }[scoreTone];
+  // Depth percentage accuracy (target ~50mm, max 60mm)
+  const depthAccuracy = Math.min(100, Math.round((avgDepth / 55) * 100));
+  // Rate accuracy (target 100-120 cpm, centered around 110)
+  const rateAccuracy = Math.min(100, Math.round((avgRate / 110) * 100));
 
   return (
-    <div className="space-y-5">
-      {/* Score */}
-      <div className={`rounded-2xl border-2 p-6 text-center ${scoreColor}`}>
-        <div className="text-6xl font-black">{summary.score}</div>
-        <div className="text-lg font-semibold mt-1">{scoreLabel}</div>
-        <div className="text-sm text-gray-500 mt-0.5">out of 100</div>
+    <div className="space-y-6">
+      {/* Target Progress Bars */}
+      <div className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-100/40">
+        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Target Accuracy Summary</h4>
+        
+        {/* Depth Bar */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-center text-xs font-bold text-slate-700">
+            <span>Average Depth Accuracy</span>
+            <span>{formatDepth(avgDepth)}</span>
+          </div>
+          <div className="w-full bg-slate-200/70 h-2 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                avgDepth >= 45 && avgDepth <= 55 ? "bg-emerald-500" : "bg-amber-500"
+              }`}
+              style={{ width: `${depthAccuracy}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Rate Bar */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-center text-xs font-bold text-slate-700">
+            <span>Average Rhythm Speed</span>
+            <span>{formatRate(avgRate)}</span>
+          </div>
+          <div className="w-full bg-slate-200/70 h-2 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                avgRate >= 100 && avgRate <= 120 ? "bg-emerald-500" : "bg-amber-500"
+              }`}
+              style={{ width: `${rateAccuracy}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Recoil Bar */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-center text-xs font-bold text-slate-700">
+            <span>Full Chest Release</span>
+            <span>{formatRecoilPct(recoilPct)}</span>
+          </div>
+          <div className="w-full bg-slate-200/70 h-2 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                recoilPct >= 90 ? "bg-emerald-500" : "bg-amber-500"
+              }`}
+              style={{ width: `${recoilPct}%` }}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Key metrics grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <Stat label="Duration" value={formatDuration(summary.durationSeconds)} />
-        <Stat label="Compressions" value={String(summary.totalCompressions)} />
-        <Stat label="Valid compressions" value={String(summary.validCompressions)} />
-        <Stat label="Avg depth" value={formatDepth(summary.avgDepthMm)} note="Target: ~50 mm" />
-        <Stat label="Avg rate" value={formatRate(summary.avgRateCpm)} note="Target: ~110 / min" />
-        <Stat label="Recoil success" value={formatRecoilPct(summary.recoilPct)} note="Target: >90%" />
-        <Stat label="Pauses" value={String(summary.pausesCount)} note="Fewer is better" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <Stat label="Total Duration" value={formatDuration(summary.durationSeconds)} />
+        <Stat label="Total Compressions" value={String(summary.totalCompressions)} />
+        <Stat label="Valid Compressions" value={String(summary.validCompressions)} />
+        <Stat label="Average Depth" value={formatDepth(summary.avgDepthMm)} note="Target: 50.0 - 60.0 mm" />
+        <Stat label="Average Rate" value={formatRate(summary.avgRateCpm)} note="Target: 100 - 120 / min" />
+        <Stat label="Pauses Detected" value={String(summary.pausesCount)} note="Target: 0 pauses" />
       </div>
     </div>
   );
@@ -45,10 +90,10 @@ export function CompressionQualitySummary({ summary }: CompressionQualitySummary
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-      <div className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</div>
-      <div className="text-xl font-bold text-gray-900 mt-0.5">{value}</div>
-      {note && <div className="text-xs text-gray-400 mt-0.5">{note}</div>}
+    <div className="bg-slate-50/50 rounded-xl p-4 border border-slate-100/40 space-y-0.5">
+      <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{label}</div>
+      <div className="text-lg font-black text-slate-800 tracking-tight font-mono">{value}</div>
+      {note && <div className="text-[10px] text-slate-400 font-semibold">{note}</div>}
     </div>
   );
 }

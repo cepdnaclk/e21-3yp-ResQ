@@ -22,9 +22,17 @@ import RadarManikin from "../components/icons/RadarManikin";
 import CounterFlip from "../components/icons/CounterFlip";
 import {
   fetchSessionLive,
+  fetchMyActiveSession,
+  fetchMySessionHistory,
   type SessionLiveView,
+  type CompletedSession,
 } from "../lib/browserSessionsApi";
 import { CoursesPanel } from "../components/CoursesPanel";
+import {
+  formatDuration,
+  formatDateTime,
+  getScoreLabel,
+} from "../utils/userFriendlyLabels";
 
 /**
  * Browser-safe Trainee Dashboard.
@@ -58,6 +66,8 @@ type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailabl
 type TraineeDashboardProps = {
   embeddedInDesktop?: boolean;
   initialSessionId?: string | null;
+  legacy?: boolean;
+  navigate?: (path: string) => void;
 };
 
 const WAITING_SESSION_TIPS = [
@@ -432,6 +442,8 @@ function WaitingSessionStory() {
 export default function TraineeDashboard({
   embeddedInDesktop = false,
   initialSessionId = null,
+  legacy = false,
+  navigate,
 }: TraineeDashboardProps) {
   const { currentUser, logout } = useAuth();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -440,6 +452,8 @@ export default function TraineeDashboard({
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [sensorHistory, setSensorHistory] = useState<SensorPoint[]>([]);
   const [cprProfile, setCprProfile] = useState<CprProfile>("adult");
+  const [history, setHistory] = useState<CompletedSession[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const liveState = useLiveSession({
     deviceId: session?.deviceId,
     sessionId,
@@ -466,6 +480,95 @@ export default function TraineeDashboard({
   useEffect(() => {
     setCprProfile(inferProfileFromScenario(session?.scenario));
   }, [session?.scenario]);
+
+  useEffect(() => {
+    if (legacy || currentUser?.role !== "TRAINEE") {
+      setHistoryLoading(false);
+      return;
+    }
+
+    async function loadHistory() {
+      try {
+        const data = await fetchMySessionHistory();
+        setHistory(data || []);
+      } catch (err) {
+        console.warn("Failed to load completed sessions history", err);
+      } finally {
+        setHistoryLoading(false);
+      }
+    }
+    loadHistory();
+  }, [legacy, currentUser]);
+
+  // V2 Polling (triggers redirect once active session starts)
+  useEffect(() => {
+    if (legacy || sessionId || currentUser?.role !== "TRAINEE") {
+      return;
+    }
+
+    let intervalId: number | undefined;
+
+    async function pollActiveSession() {
+      try {
+        const activeSession = await fetchMyActiveSession();
+        if (activeSession && activeSession.sessionId) {
+          if (intervalId) {
+            window.clearInterval(intervalId);
+            intervalId = undefined;
+          }
+          if (navigate) {
+            navigate(`/trainee/sessions/${activeSession.sessionId}/live`);
+          } else {
+            window.location.assign(`/trainee/sessions/${activeSession.sessionId}/live`);
+          }
+        }
+      } catch (err) {
+        // Silently ignore during discovery polling
+      }
+    }
+
+    pollActiveSession();
+    intervalId = window.setInterval(pollActiveSession, 4000);
+
+    return () => {
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [sessionId, currentUser?.role, legacy, navigate]);
+
+  // Legacy Polling (sets state inline)
+  useEffect(() => {
+    if (!legacy || sessionId || currentUser?.role !== "TRAINEE") {
+      return;
+    }
+
+    let intervalId: number | undefined;
+
+    async function pollActiveSession() {
+      try {
+        const activeSession = await fetchMyActiveSession();
+        if (activeSession && activeSession.sessionId) {
+          if (intervalId) {
+            window.clearInterval(intervalId);
+          }
+          setSessionId(activeSession.sessionId);
+          setSession(activeSession);
+        }
+      } catch (err) {
+        // Silently ignore
+      }
+    }
+
+    pollActiveSession();
+    intervalId = window.setInterval(pollActiveSession, 4000);
+
+    return () => {
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [sessionId, currentUser?.role, legacy]);
 
 
 
@@ -743,6 +846,207 @@ export default function TraineeDashboard({
     );
   }
 
+  if (!legacy) {
+    return (
+      <div className="min-h-screen bg-gradient-to-tr from-slate-100 via-teal-50/20 to-slate-50 text-slate-800 flex flex-col justify-between p-8 font-sans select-none animate-fadeIn">
+        {/* Top Header */}
+        <header className="flex justify-between items-center border-b border-slate-200/80 pb-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center p-1.5 shrink-0">
+              <img src="/resq-logo-dark-512.png" alt="ResQ Logo" className="w-full h-full object-contain brightness-0 invert" />
+            </div>
+            <div>
+              <h1 className="text-lg font-black tracking-tight text-slate-900 leading-tight">ResQ Practice Portal</h1>
+              <p className="text-[10px] text-teal-600 font-extrabold uppercase tracking-wider mt-0.5">CPR Training Suite</p>
+            </div>
+          </div>
+
+          {currentUser && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-500 font-semibold">
+                Signed in as <strong className="text-slate-700">{currentUser.displayName}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  logout().finally(() => {
+                    if (navigate) {
+                      navigate("/login");
+                    } else {
+                      window.location.assign("/login");
+                    }
+                  });
+                }}
+                className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all duration-200 border border-slate-200/80 cursor-pointer shadow-sm animate-fadeIn"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
+        </header>
+
+        {/* Main Waiting & History Area */}
+        <main className="flex-1 flex flex-col items-center justify-start my-8 max-w-4xl w-full mx-auto space-y-12">
+          {/* Waiting Card */}
+          <div className="bg-white border border-slate-100/80 rounded-[32px] p-12 text-center w-full max-w-xl mx-auto shadow-xl shadow-slate-100/50 space-y-8 animate-scaleUp">
+            {/* Soft Pulsing Animated Ring */}
+            <div className="flex justify-center">
+              <div className="relative w-20 h-20 flex items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-16 w-16 rounded-full bg-teal-400/25 opacity-75"></span>
+                <div className="relative inline-flex rounded-full h-16 w-16 bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-600 shadow-inner">
+                  <svg className="w-8 h-8 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h2 className="text-2xl font-black text-slate-800 tracking-tight leading-tight">
+                Waiting for your instructor to start a session
+              </h2>
+              <p className="text-sm text-slate-400 font-medium leading-relaxed max-w-md mx-auto">
+                Keep this screen open. Your practice view will appear automatically.
+              </p>
+            </div>
+
+            {/* Polling/Connection Status Label */}
+            <div className="pt-4 border-t border-slate-50 flex items-center justify-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
+              <span>Ready for pairing</span>
+            </div>
+          </div>
+
+          {/* My Practice History Section */}
+          <section className="w-full space-y-6 animate-fadeIn" style={{ animationDelay: "150ms" }}>
+            <div className="border-b border-slate-200/80 pb-3 flex justify-between items-center">
+              <h3 className="text-lg font-black text-slate-800 tracking-tight">My Practice History</h3>
+              {history.length > 0 && (
+                <span className="text-xs text-teal-600 font-extrabold uppercase bg-teal-50 px-2.5 py-1 rounded-full border border-teal-100">
+                  {history.length} {history.length === 1 ? "Session" : "Sessions"}
+                </span>
+              )}
+            </div>
+
+            {historyLoading ? (
+              <div className="bg-white border border-slate-100/80 rounded-[24px] p-12 text-center shadow-sm flex flex-col items-center justify-center space-y-3">
+                <div className="w-6 h-6 border-2 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Loading history...</p>
+              </div>
+            ) : history.length === 0 ? (
+              <div className="bg-white border border-slate-100/80 rounded-[24px] p-8 text-center text-slate-400 font-medium shadow-sm">
+                No completed sessions yet. Your practice results will appear here after training.
+              </div>
+            ) : (
+              <div className="space-y-4 w-full">
+                {history.map((s) => {
+                  const score = s.summary?.score;
+                  const hasScore = score !== undefined && score !== null;
+
+                  // Simple status badge: Excellent (>=85), Good (>=70), Needs practice (<70)
+                  const scoreLabel = hasScore
+                    ? score >= 85
+                      ? "Excellent"
+                      : score >= 70
+                      ? "Good"
+                      : "Needs practice"
+                    : "Needs practice";
+
+                  const badgeClass =
+                    scoreLabel === "Excellent"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                      : scoreLabel === "Good"
+                      ? "bg-amber-50 text-amber-700 border-amber-100"
+                      : "bg-rose-50 text-rose-700 border-rose-100";
+
+                  return (
+                    <div
+                      key={s.sessionId}
+                      className="bg-white border border-slate-150 rounded-2xl p-6 shadow-sm hover:border-teal-200/80 hover:shadow-md transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-6"
+                    >
+                      <div className="space-y-4 flex-1">
+                        {/* Title & Date */}
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h4 className="font-extrabold text-slate-800 text-base">
+                            {s.scenario || "CPR Practice"}
+                          </h4>
+                          <span className="text-xs text-slate-400 font-bold">
+                            {formatDateTime(s.endedAt)}
+                          </span>
+                        </div>
+
+                        {/* Concise Metrics Row */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Duration</span>
+                            <span className="text-sm text-slate-700 font-bold">{formatDuration(s.summary?.durationSeconds)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Compressions</span>
+                            <span className="text-sm text-slate-700 font-bold">
+                              {s.summary?.totalCompressions ?? 0} <span className="text-xs text-slate-400 font-medium">({s.summary?.validCompressions ?? 0} valid)</span>
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Avg Depth</span>
+                            <span className="text-sm text-slate-700 font-bold">
+                              {s.summary?.avgDepthMm ? `${s.summary.avgDepthMm.toFixed(1)} mm` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block">Avg Rate</span>
+                            <span className="text-sm text-slate-700 font-bold">
+                              {s.summary?.avgRateCpm ? `${Math.round(s.summary.avgRateCpm)} / min` : "—"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Score Badge & Action */}
+                      <div className="flex items-center justify-between md:justify-end gap-6 border-t md:border-t-0 pt-4 md:pt-0 border-slate-100 shrink-0">
+                        {hasScore && (
+                          <div className="flex flex-col md:items-end gap-1">
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-2xl font-black text-slate-800 leading-none">{score}%</span>
+                              <span className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-wider">Score</span>
+                            </div>
+                            <span className={`text-[9.5px] font-extrabold px-2 py-0.5 rounded-full border uppercase tracking-wider ${badgeClass}`}>
+                              {scoreLabel}
+                            </span>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (navigate) {
+                              navigate(`/sessions/${s.sessionId}`);
+                            } else {
+                              window.location.assign(`/sessions/${s.sessionId}`);
+                            }
+                          }}
+                          className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 transition-all cursor-pointer shadow-sm"
+                        >
+                          View Summary
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </main>
+
+        {/* Footer */}
+        <footer className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-4 border-t border-slate-100 shrink-0">
+          ResQ CPR Monitor • Connected to LocalHub host
+        </footer>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -753,6 +1057,33 @@ export default function TraineeDashboard({
               Assigned manikin live performance for one active session
             </p>
           </div>
+
+          {embeddedInDesktop && (
+            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+              <span style={{ fontSize: "0.85rem", color: "#64748b", fontWeight: 600 }}>
+                Signed in as <strong style={{ color: "#334155" }}>{currentUser?.displayName || "Trainee"}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  logout().finally(() => window.location.assign("/login"));
+                }}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+          )}
 
           {!embeddedInDesktop ? (
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>

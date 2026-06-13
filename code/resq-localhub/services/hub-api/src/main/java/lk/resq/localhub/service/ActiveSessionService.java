@@ -467,12 +467,53 @@ public class ActiveSessionService {
         );
     }
 
+    public Optional<SessionLiveView> findActiveSessionForTrainee(AuthUser actor) {
+        if (actor == null) {
+            return Optional.empty();
+        }
+        String actorId = actor.id();
+        String actorUsername = actor.username();
+        String actorEmail = null;
+        if (rosterRepository != null) {
+            actorEmail = rosterRepository.findSyncedUserById(actorId)
+                    .map(RosterCacheRepository.SyncedUserRecord::email)
+                    .orElse(null);
+        }
+
+        for (ActiveSessionState state : sessionsById.values()) {
+            if (state.active && state.traineeId != null) {
+                boolean match = state.traineeId.equalsIgnoreCase(actorId) ||
+                                state.traineeId.equalsIgnoreCase(actorUsername) ||
+                                (actorEmail != null && state.traineeId.equalsIgnoreCase(actorEmail));
+                if (match) {
+                    return getSessionLiveView(state.sessionId);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     public Optional<SessionEndResponse> findCompletedSession(String sessionId) {
         return localSessionRepository.findById(sessionId);
     }
 
     public List<SessionEndResponse> listCompletedSessions() {
         return localSessionRepository.findAll();
+    }
+
+    public List<SessionEndResponse> listCompletedSessionsForTrainee(AuthUser actor) {
+        if (actor == null) {
+            return List.of();
+        }
+        String actorId = actor.id();
+        String actorUsername = actor.username();
+        String actorEmail = null;
+        if (rosterRepository != null) {
+            actorEmail = rosterRepository.findSyncedUserById(actorId)
+                    .map(RosterCacheRepository.SyncedUserRecord::email)
+                    .orElse(null);
+        }
+        return localSessionRepository.findByTraineeIdOrUsernameOrEmail(actorId, actorUsername, actorEmail);
     }
 
     public Optional<ActiveSessionInfo> findActiveSessionForDevice(String deviceId) {

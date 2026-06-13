@@ -242,4 +242,75 @@ export function getSessionReviewExportUrl(sessionId: string, format: "json" | "c
   return `${getSessionReviewExportBaseUrl()}/${encodeURIComponent(sessionId)}/export?format=${format}`;
 }
 
+export type SyncQueueItem = {
+  id: string;
+  entityType: 'SESSION_SUMMARY';
+  entityId: string;
+  payloadJson: string;
+  syncStatus: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER';
+  retryCount: number;
+  lastError: string | null;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  syncedAt: string | null;
+};
+
+function getSyncQueueBaseUrl(): string {
+  return `${getHubApiBaseUrl()}/api/sync-queue`;
+}
+
+export async function fetchMyActiveSession(): Promise<SessionLiveView | null> {
+  const response = await fetch(`${getSessionsBaseUrl()}/my-active`, {
+    credentials: "include",
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
+    throw new Error(errorResponse?.error ?? `Failed to load active session (${response.status})`);
+  }
+
+  return readJsonResponse<SessionLiveView>(response);
+}
+
+export async function fetchMySessionHistory(): Promise<CompletedSession[]> {
+  const response = await fetch(`${getSessionsBaseUrl()}/my-history`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
+    throw new Error(errorResponse?.error ?? `Failed to load session history (${response.status})`);
+  }
+
+  const data: unknown = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid session history response");
+  }
+
+  return data as CompletedSession[];
+}
+
+export async function fetchSyncQueue(): Promise<SyncQueueItem[]> {
+  const response = await fetch(getSyncQueueBaseUrl(), {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
+    throw new Error(errorResponse?.error ?? `Failed to load sync queue (${response.status})`);
+  }
+
+  const data: unknown = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid sync queue response");
+  }
+
+  return data as SyncQueueItem[];
+}
+
 export { getErrorMessage };
+

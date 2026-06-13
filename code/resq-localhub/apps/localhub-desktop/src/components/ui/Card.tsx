@@ -8,8 +8,8 @@ type CardProps = React.HTMLAttributes<HTMLDivElement> & {
 
 const PADDING = {
   none: "",
-  sm: "p-3",
-  md: "p-5",
+  sm: "p-4",
+  md: "p-6",
   lg: "p-8",
 };
 
@@ -18,7 +18,7 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
     return (
       <div
         ref={ref}
-        className={`bg-white rounded-xl border border-gray-200 shadow-sm ${PADDING[padding]} ${className}`}
+        className={`bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05),0_10px_20px_-8px_rgba(0,0,0,0.02)] transition-all duration-300 ${PADDING[padding]} ${className}`}
         {...props}
       >
         {children}
@@ -38,10 +38,10 @@ type CardHeaderProps = {
 
 export function CardHeader({ title, subtitle, action, className = "" }: CardHeaderProps) {
   return (
-    <div className={`flex items-start justify-between gap-4 mb-4 ${className}`}>
+    <div className={`flex items-start justify-between gap-4 mb-5 ${className}`}>
       <div>
-        <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-        {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+        <h2 className="text-base font-bold text-slate-800 tracking-tight leading-tight">{title}</h2>
+        {subtitle && <p className="text-xs text-slate-400 mt-1 font-normal leading-relaxed">{subtitle}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>

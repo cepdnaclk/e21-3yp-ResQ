@@ -63,3 +63,17 @@ export type SessionEndResponse = {
 
 /** A completed session as returned by GET /api/sessions and GET /api/sessions/{id}. */
 export type CompletedSession = SessionEndResponse;
+
+export interface SyncQueueItem {
+  id: string;
+  entityType: 'SESSION_SUMMARY';
+  entityId: string;
+  payloadJson: string;
+  syncStatus: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER';
+  retryCount: number;
+  lastError: string | null;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  syncedAt: string | null;
+}
+

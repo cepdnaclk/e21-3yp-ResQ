@@ -26,7 +26,7 @@ export function AdminUsersPage() {
       const data = await fetchUsers();
       setUsers(data);
     } catch (err) {
-      setError("Failed to retrieve user accounts database.");
+      setError("Failed to retrieve user accounts directory.");
     } finally {
       setLoading(false);
     }
@@ -78,83 +78,84 @@ export function AdminUsersPage() {
   }
 
   if (loading) {
-    return <LoadingState message="Loading user accounts database..." />;
+    return <LoadingState message="Loading user accounts directory..." />;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 max-w-5xl mx-auto select-none">
       <PageHeader
-        title="User Accounts Management"
-        subtitle="Create, configure, and suspend accounts for training instructors, admins, and trainees."
+        title="User Accounts Directory"
+        subtitle="Manage login accounts for instructors, clinical coordinators, and trainees."
         actions={
           <Button
             type="button"
+            variant="primary"
             onClick={() => {
               setShowAddForm(!showAddForm);
               setFormError(null);
             }}
           >
-            {showAddForm ? "Hide Form" : "Create New User"}
+            {showAddForm ? "Close Form" : "Add Account"}
           </Button>
         }
       />
 
       {error && (
-        <Card className="border-red-200 bg-red-50 text-red-800 p-4">
-          <p className="text-sm font-semibold">{error}</p>
+        <Card className="border-rose-100 bg-rose-50/50 text-rose-800 p-4 animate-fadeIn">
+          <p className="text-xs font-semibold">{error}</p>
         </Card>
       )}
 
       {/* Add User Form Modal/Dropdown */}
       {showAddForm && (
-        <Card className="max-w-xl">
-          <CardHeader title="Create New Account" />
-          <form onSubmit={handleCreateUser} className="space-y-4 mt-2">
+        <Card className="max-w-xl mx-auto shadow-lg animate-fadeIn border border-slate-100 p-6">
+          <CardHeader title="Create User Account" />
+          <form onSubmit={handleCreateUser} className="space-y-4 mt-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700">Username</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Username</label>
                 <input
                   type="text"
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                   placeholder="e.g. jsmith"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700">Display Name</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Display Name</label>
                 <input
                   type="text"
                   required
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-                  placeholder="e.g. Jane Smith"
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                  placeholder="e.g. Dr. Alex Mercer"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700">Password</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Password</label>
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                   placeholder="••••••••"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700">Role</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Role</label>
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value as UserRole)}
-                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 >
                   <option value="TRAINEE">Trainee</option>
                   <option value="INSTRUCTOR">Instructor</option>
@@ -164,17 +165,17 @@ export function AdminUsersPage() {
             </div>
 
             {formError && (
-              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-semibold text-red-700">
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 text-xs font-semibold text-rose-700 leading-normal">
                 {formError}
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 mt-2">
               <Button type="button" variant="secondary" onClick={() => setShowAddForm(false)}>
                 Cancel
               </Button>
               <Button type="submit" loading={formLoading}>
-                Register Account
+                Add Account
               </Button>
             </div>
           </form>
@@ -182,35 +183,35 @@ export function AdminUsersPage() {
       )}
 
       {/* Users table */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-100 rounded-2xl shadow-[0_4px_16px_rgba(0,0,0,0.01)] overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-slate-100 text-xs">
+            <thead className="bg-slate-50/70">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-4.5 text-left font-bold text-slate-400 uppercase tracking-widest">
                   Username
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-4.5 text-left font-bold text-slate-400 uppercase tracking-widest">
                   Display Name
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-4.5 text-left font-bold text-slate-400 uppercase tracking-widest">
                   System Role
                 </th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-4.5 text-left font-bold text-slate-400 uppercase tracking-widest">
                   Account Status
                 </th>
-                <th scope="col" className="relative px-6 py-3">
+                <th scope="col" className="relative px-6 py-4.5">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200 text-gray-700">
+            <tbody className="bg-white divide-y divide-slate-100 text-slate-600 font-medium">
               {users.map((u) => (
-                <tr key={u.username} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap font-mono font-medium text-gray-900">
+                <tr key={u.username} className="hover:bg-slate-50/40 transition-colors duration-200">
+                  <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-800 font-mono">
                     {u.username}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
+                  <td className="px-6 py-4 whitespace-nowrap text-slate-700">
                     {u.displayName}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">

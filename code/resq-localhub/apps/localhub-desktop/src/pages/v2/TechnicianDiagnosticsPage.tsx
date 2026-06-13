@@ -8,6 +8,22 @@ import Button from "../../components/ui/Button";
 import LoadingState from "../../components/ui/LoadingState";
 import PageHeader from "../../components/ui/PageHeader";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { getJson } from "../../api/localHubClient";
+
+type HubHealth = {
+  ok: boolean;
+  service: string;
+  timestamp: string;
+};
+
+type ServiceInfo = {
+  ok: boolean;
+  backend_base_url: string;
+  mqtt_host: string;
+  mqtt_port: number;
+  dashboard_url: string;
+  local_ip: string;
+};
 
 export function TechnicianDiagnosticsPage() {
   const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
@@ -17,6 +33,11 @@ export function TechnicianDiagnosticsPage() {
   const [loadingDiag, setLoadingDiag] = useState(false);
   const [busyAction, setBusyAction] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Hub operational & access info states
+  const [hubHealth, setHubHealth] = useState<HubHealth | null>(null);
+  const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
+  const [loadingHub, setLoadingHub] = useState(false);
 
   async function loadManikins() {
     setLoadingList(true);
@@ -47,8 +68,25 @@ export function TechnicianDiagnosticsPage() {
     }
   }
 
+  async function loadHubStatus() {
+    setLoadingHub(true);
+    try {
+      const [healthRes, infoRes] = await Promise.all([
+        getJson<HubHealth>("/api/hub/health").catch(() => null),
+        getJson<ServiceInfo>("/api/hub/service-info").catch(() => null),
+      ]);
+      setHubHealth(healthRes);
+      setServiceInfo(infoRes);
+    } catch (err) {
+      console.warn("Could not load hub system status details", err);
+    } finally {
+      setLoadingHub(false);
+    }
+  }
+
   useEffect(() => {
     loadManikins();
+    loadHubStatus();
   }, []);
 
   useEffect(() => {
@@ -83,55 +121,113 @@ export function TechnicianDiagnosticsPage() {
         subtitle="Troubleshoot wireless signal strength, firmware flags, and raw sensor readings."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Selection Sidebar */}
-        <Card className="lg:col-span-1">
-          <CardHeader title="Select Device" />
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="deviceSelect" className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
-                Connected Manikins
-              </label>
-              <select
-                id="deviceSelect"
-                value={selectedDeviceId}
-                onChange={(e) => setSelectedDeviceId(e.target.value)}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
-              >
-                <option value="">-- Choose Device --</option>
-                {manikins.map((m) => (
-                  <option key={m.deviceId} value={m.deviceId}>
-                    {m.deviceId} ({m.online ? "Online" : "Offline"})
-                  </option>
-                ))}
-              </select>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-fadeIn">
+        {/* Selection & Status Sidebar */}
+        <div className="lg:col-span-1 space-y-6">
+          <Card>
+            <CardHeader title="Select Device" />
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="deviceSelect" className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                  Connected Manikins
+                </label>
+                <select
+                  id="deviceSelect"
+                  value={selectedDeviceId}
+                  onChange={(e) => setSelectedDeviceId(e.target.value)}
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 font-medium cursor-pointer"
+                >
+                  <option value="">-- Choose Device --</option>
+                  {manikins.map((m) => (
+                    <option key={m.deviceId} value={m.deviceId}>
+                      {m.deviceId} ({m.online ? "Online" : "Offline"})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="pt-2">
-              <Button
-                type="button"
-                className="w-full justify-center"
-                loading={busyAction}
-                disabled={!selectedDeviceId}
-                onClick={handleRequestDebug}
-              >
-                Request Debug Snapshot
-              </Button>
-            </div>
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  className="w-full justify-center"
+                  loading={busyAction}
+                  disabled={!selectedDeviceId}
+                  onClick={handleRequestDebug}
+                >
+                  Request Debug Snapshot
+                </Button>
+              </div>
 
-            <div className="pt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full justify-center"
-                disabled={!selectedDeviceId}
-                onClick={() => selectedDeviceId && loadDiagnostics(selectedDeviceId)}
-              >
-                Refresh Diagnostics
-              </Button>
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full justify-center"
+                  disabled={!selectedDeviceId}
+                  onClick={() => selectedDeviceId && loadDiagnostics(selectedDeviceId)}
+                >
+                  Refresh Diagnostics
+                </Button>
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+
+          {/* LocalHub System Status details (Correction 2) */}
+          <Card>
+            <CardHeader title="LocalHub System & Access" />
+            <div className="space-y-4 text-xs font-medium text-slate-600">
+              {loadingHub ? (
+                <p className="text-slate-400">Loading operational info...</p>
+              ) : (
+                <>
+                  <div>
+                    <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">System Operational Health</span>
+                    {hubHealth?.ok ? (
+                      <StatusBadge tone="success" label="Core Services Ready" dot={true} />
+                    ) : (
+                      <StatusBadge tone="warning" label="Needs Attention" dot={true} />
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-3 space-y-2">
+                    <div>
+                      <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Database Status</span>
+                      <span className="font-mono text-slate-700">{hubHealth?.ok ? "ONLINE" : "UNHEALTHY / CHECK LOGS"}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Service Orchestrator</span>
+                      <span className="font-mono text-slate-700">{hubHealth?.service || "LocalHub-Core"}</span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-3 space-y-2">
+                    <div>
+                      <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">LAN Shared Access Link</span>
+                      <a
+                        href={`http://${serviceInfo?.local_ip || "localhost"}:1420`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-teal-600 hover:underline break-all block mt-0.5"
+                      >
+                        http://{serviceInfo?.local_ip || "localhost"}:1420
+                      </a>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Backend Base URL</span>
+                      <span className="font-mono text-slate-700 break-all block mt-0.5">{serviceInfo?.backend_base_url || "N/A"}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Wireless MQTT Broker</span>
+                      <span className="font-mono text-slate-700 block mt-0.5">
+                        {serviceInfo?.mqtt_host || "127.0.0.1"}:{serviceInfo?.mqtt_port || 1883}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </Card>
+        </div>
 
         {/* Diagnostics Results */}
         <div className="lg:col-span-3 space-y-6">
@@ -229,9 +325,9 @@ export function TechnicianDiagnosticsPage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
-      <span className="text-xs text-gray-400 block font-medium uppercase tracking-wider">{label}</span>
-      <span className="text-sm font-bold text-gray-800 font-mono mt-1 block">{value}</span>
+    <div className="bg-slate-50/60 p-3.5 rounded-xl border border-slate-100/80">
+      <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">{label}</span>
+      <span className="text-sm font-black text-slate-800 font-mono mt-1 block tracking-tight">{value}</span>
     </div>
   );
 }

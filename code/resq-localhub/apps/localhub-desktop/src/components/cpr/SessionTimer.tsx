@@ -33,11 +33,13 @@ export function SessionTimer({ startedAt, active = true }: SessionTimerProps) {
   }, [startedAt, active]);
 
   return (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Duration</span>
-      <span className="text-3xl font-mono font-bold text-gray-900 tabular-nums">
+    <div className="flex flex-col items-center gap-1 py-1 select-none">
+      <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider block">Elapsed Time</span>
+      <span className="text-4xl font-mono font-extrabold text-slate-800 tabular-nums tracking-tight">
         {formatSeconds(elapsed)}
       </span>
     </div>
   );
 }
+
+export default SessionTimer;

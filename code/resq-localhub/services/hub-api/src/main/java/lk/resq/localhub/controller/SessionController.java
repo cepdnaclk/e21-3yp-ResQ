@@ -103,6 +103,35 @@ public class SessionController {
         }
     }
 
+    @GetMapping("/my-active")
+    public ResponseEntity<?> getMyActiveSession(HttpServletRequest request) {
+        try {
+            AuthUser actor = authService.requireAuth(request);
+            if (actor.role() != UserRole.TRAINEE) {
+                throw new ForbiddenException("Only trainees can access their active session.");
+            }
+            return activeSessionService.findActiveSessionForTrainee(actor)
+                    .<ResponseEntity<?>>map(ResponseEntity::ok)
+                    .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(Map.of("active", false)));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
+    @GetMapping("/my-history")
+    public ResponseEntity<?> getMyHistory(HttpServletRequest request) {
+        try {
+            AuthUser actor = authService.requireAuth(request);
+            if (actor.role() != UserRole.TRAINEE) {
+                throw new ForbiddenException("Only trainees can access their session history.");
+            }
+            return ResponseEntity.ok(activeSessionService.listCompletedSessionsForTrainee(actor));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
     @GetMapping("/{sessionId}")
     public ResponseEntity<?> getSession(HttpServletRequest request, @PathVariable String sessionId) {
         try {

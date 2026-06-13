@@ -9,21 +9,22 @@ type CueTone = "good" | "warning" | "danger" | "neutral" | "muted";
 type CoachingCueProps = {
   message: string;
   tone?: CueTone;
-  size?: "md" | "lg" | "xl";
+  size?: "md" | "lg" | "xl" | "2xl";
 };
 
-const TONE_CLASSES: Record<CueTone, { bg: string; text: string; border: string }> = {
-  good:    { bg: "bg-green-50", text: "text-green-800", border: "border-green-200" },
-  warning: { bg: "bg-yellow-50", text: "text-yellow-800", border: "border-yellow-200" },
-  danger:  { bg: "bg-red-50", text: "text-red-800", border: "border-red-200" },
-  neutral: { bg: "bg-blue-50", text: "text-blue-800", border: "border-blue-200" },
-  muted:   { bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" },
+const TONE_CLASSES: Record<CueTone, { bg: string; text: string; border: string; iconBg: string }> = {
+  good:    { bg: "bg-emerald-50/70", text: "text-emerald-800", border: "border-emerald-200/80", iconBg: "bg-emerald-100 text-emerald-600" },
+  warning: { bg: "bg-amber-50/70", text: "text-amber-800", border: "border-amber-200/80", iconBg: "bg-amber-100 text-amber-600" },
+  danger:  { bg: "bg-rose-50/70", text: "text-rose-800", border: "border-rose-200/80", iconBg: "bg-rose-100 text-rose-600" },
+  neutral: { bg: "bg-blue-50/70", text: "text-blue-800", border: "border-blue-200/80", iconBg: "bg-blue-100 text-blue-600" },
+  muted:   { bg: "bg-slate-50/80", text: "text-slate-600", border: "border-slate-200/60", iconBg: "bg-slate-100 text-slate-500" },
 };
 
 const SIZE_CLASSES: Record<string, string> = {
-  md: "text-xl py-5 px-6",
-  lg: "text-2xl py-7 px-8",
-  xl: "text-3xl py-10 px-10",
+  md: "text-lg py-4.5 px-6 rounded-2xl",
+  lg: "text-2xl py-6.5 px-8 rounded-2xl",
+  xl: "text-3xl sm:text-4xl py-10 px-8 rounded-[24px] shadow-sm shadow-slate-100/50",
+  "2xl": "text-4xl sm:text-5xl md:text-6xl py-14 px-10 rounded-[32px] shadow-lg shadow-slate-100/60",
 };
 
 function getToneFromMessage(message: string): CueTone {
@@ -40,11 +41,22 @@ export function CoachingCue({ message, tone, size = "lg" }: CoachingCueProps) {
 
   return (
     <div
-      className={`rounded-2xl border-2 ${cls.bg} ${cls.border} ${SIZE_CLASSES[size]} font-bold text-center ${cls.text} leading-snug`}
+      className={`relative border-2 ${cls.bg} ${cls.border} ${SIZE_CLASSES[size]} font-bold text-center ${cls.text} leading-snug flex flex-col items-center justify-center gap-3 transition-all duration-300`}
       role="status"
       aria-live="polite"
     >
-      {message}
+      {/* Visual icon marker depending on tone */}
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-bold text-sm ${cls.iconBg}`}>
+        {resolvedTone === "good" && "✓"}
+        {resolvedTone === "warning" && "!"}
+        {resolvedTone === "danger" && "⚠"}
+        {resolvedTone === "neutral" && "ℹ"}
+        {resolvedTone === "muted" && "◷"}
+      </div>
+      
+      <span className="tracking-tight max-w-xl">{message}</span>
     </div>
   );
 }
+
+export default CoachingCue;

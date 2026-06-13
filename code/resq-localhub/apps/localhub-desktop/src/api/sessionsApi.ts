@@ -9,6 +9,7 @@ import type {
   SessionEndRequest,
   SessionEndResponse,
   CompletedSession,
+  SyncQueueItem,
 } from "../types/session";
 import type { SessionLiveView } from "../types/live";
 
@@ -49,3 +50,32 @@ export async function fetchSessionLive(sessionId: string): Promise<SessionLiveVi
     throw err;
   }
 }
+
+/**
+ * GET /api/sessions/my-active
+ * Returns active session for logged-in trainee, or null if 404.
+ */
+export async function fetchMyActiveSession(): Promise<SessionLiveView | null> {
+  try {
+    return await getJson<SessionLiveView>("/api/sessions/my-active");
+  } catch (err) {
+    if (err instanceof Error && (err as Error & { status?: number }).status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/** GET /api/sessions/my-history */
+export async function fetchMySessionHistory(): Promise<CompletedSession[]> {
+  return getJson<CompletedSession[]>("/api/sessions/my-history");
+}
+
+/**
+ * GET /api/sync-queue
+ * Returns list of recent sync queue items.
+ */
+export async function fetchSyncQueue(): Promise<SyncQueueItem[]> {
+  return getJson<SyncQueueItem[]>("/api/sync-queue");
+}
+

@@ -2,21 +2,23 @@ import { useEffect, useState, useMemo } from "react";
 import { fetchLiveManikins } from "../../api/manikinsApi";
 import { fetchCourses } from "../../api/coursesApi";
 import { fetchTrainees } from "../../api/traineesApi";
-import { startSession } from "../../api/sessionsApi";
+import { startSession, fetchCompletedSessions } from "../../api/sessionsApi";
 import { subscribeToManikinsLive } from "../../api/liveEventsClient";
 import type { ManikinLiveSummary } from "../../types/manikin";
 import type { Course } from "../../types/course";
 import type { TraineeRecord } from "../../types/trainee";
+import type { CompletedSession } from "../../types/session";
+
+// Import UI components
 import Card, { CardHeader } from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
-import StatusBadge from "../../components/ui/StatusBadge";
 import LoadingState from "../../components/ui/LoadingState";
-import {
-  getDeviceStateLabel,
-  getDeviceStateTone,
-  isDeviceReady,
-  isSessionActive,
-} from "../../utils/userFriendlyLabels";
+import PageHeader from "../../components/ui/PageHeader";
+import MetricTile from "../../components/ui/MetricTile";
+
+// Import CPR components
+import DeviceCard from "../../components/cpr/DeviceCard";
+import { isDeviceReady, isSessionActive } from "../../utils/userFriendlyLabels";
 
 type InstructorDashboardPageProps = {
   onStartSession: (sessionId: string) => void;
@@ -34,6 +36,7 @@ export function InstructorDashboardPage({
   const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [trainees, setTrainees] = useState<TraineeRecord[]>([]);
+  const [completedSessions, setCompletedSessions] = useState<CompletedSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [startingForDevice, setStartingForDevice] = useState<string | null>(null);
 
@@ -48,14 +51,16 @@ export function InstructorDashboardPage({
   // Load initial data
   async function loadInitialData() {
     try {
-      const [manikinsRes, coursesRes, traineesRes] = await Promise.all([
+      const [manikinsRes, coursesRes, traineesRes, completedRes] = await Promise.all([
         fetchLiveManikins(),
         fetchCourses(),
         fetchTrainees(),
+        fetchCompletedSessions().catch(() => []),
       ]);
       setManikins(manikinsRes);
       setCourses(coursesRes);
       setTrainees(traineesRes);
+      setCompletedSessions(completedRes);
     } catch (err) {
       console.error("Failed to load initial dashboard data", err);
     } finally {
@@ -93,8 +98,15 @@ export function InstructorDashboardPage({
       }
     });
 
-    return { total: manikins.length, ready, active, offline };
-  }, [manikins]);
+    // Sessions completed today
+    const todayStr = new Date().toDateString();
+    const sessionsToday = completedSessions.filter((s) => {
+      if (!s.startedAt) return false;
+      return new Date(s.startedAt).toDateString() === todayStr;
+    }).length;
+
+    return { total: manikins.length, ready, active, offline, sessionsToday };
+  }, [manikins, completedSessions]);
 
   async function handleLaunchSession(e: React.FormEvent) {
     e.preventDefault();
@@ -124,141 +136,104 @@ export function InstructorDashboardPage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Instructor Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage connected devices and initiate training sessions.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={onViewRecentSessions}>
-            View Recent Sessions
-          </Button>
-          <Button type="button" variant="secondary" onClick={onPairNewManikin}>
-            Pair New Manikin
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Instructor Dashboard"
+        subtitle="Monitor connected manikins and manage live clinical training sessions."
+        actions={
+          <>
+            <Button type="button" variant="secondary" onClick={onViewRecentSessions}>
+              View Sessions
+            </Button>
+            <Button type="button" variant="primary" onClick={onPairNewManikin}>
+              Pair Manikin
+            </Button>
+          </>
+        }
+      />
 
       {/* Summary Counts Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card padding="sm" className="text-center">
-          <div className="text-2xl font-bold text-gray-900">{counts.total}</div>
-          <div className="text-xs text-gray-500 font-medium uppercase mt-0.5">Total Manikins</div>
-        </Card>
-        <Card padding="sm" className="text-center border-green-200 bg-green-50/50">
-          <div className="text-2xl font-bold text-green-700">{counts.ready}</div>
-          <div className="text-xs text-green-600 font-medium uppercase mt-0.5">Ready</div>
-        </Card>
-        <Card padding="sm" className="text-center border-blue-200 bg-blue-50/50">
-          <div className="text-2xl font-bold text-blue-700">{counts.active}</div>
-          <div className="text-xs text-blue-600 font-medium uppercase mt-0.5">Active Session</div>
-        </Card>
-        <Card padding="sm" className="text-center border-gray-200 bg-gray-50">
-          <div className="text-2xl font-bold text-gray-600">{counts.offline}</div>
-          <div className="text-xs text-gray-500 font-medium uppercase mt-0.5">Offline</div>
-        </Card>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <MetricTile
+          label="Ready Manikins"
+          value={counts.ready}
+          description="Ready for training sessions"
+          tone="green"
+        />
+        <MetricTile
+          label="Active Sessions"
+          value={counts.active}
+          description="Trainees currently practicing"
+          tone="teal"
+        />
+        <MetricTile
+          label="Needs Attention"
+          value={counts.offline}
+          description="Offline or calibration required"
+          tone="slate"
+        />
+        <MetricTile
+          label="Sessions Today"
+          value={counts.sessionsToday}
+          description="CPR practices completed today"
+          tone="green"
+        />
       </div>
 
-      {/* Device grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Device Card Grid Section */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Paired Manikins</h2>
+        </div>
+        
         {manikins.length === 0 ? (
-          <div className="md:col-span-3">
-            <Card className="text-center py-12">
-              <p className="text-gray-500 text-sm">No paired manikins found.</p>
-              <Button type="button" className="mt-4" onClick={onPairNewManikin}>
-                Pair your first manikin
-              </Button>
-            </Card>
-          </div>
+          <Card className="text-center py-16 max-w-xl mx-auto border border-dashed border-slate-200">
+            <div className="text-slate-300 text-3xl font-black mb-3">◰</div>
+            <p className="text-slate-500 text-sm font-semibold">No paired manikins found on this LocalHub.</p>
+            <p className="text-slate-400 text-xs mt-1">Ensure you have a paired trainer hardware nearby.</p>
+            <Button type="button" className="mt-6 font-bold" onClick={onPairNewManikin}>
+              Pair Manikin
+            </Button>
+          </Card>
         ) : (
-          manikins.map((m) => {
-            const isOnline = m.online && !m.offline;
-            const isReadyDevice = isDeviceReady(m.state, m.online, m.stale, m.offline);
-            const isActive = isSessionActive(m.state, m.sessionActive);
-            const displayState = isOnline ? (isActive ? "SESSION_ACTIVE" : m.state) : "offline";
-
-            return (
-              <Card key={m.deviceId} className="flex flex-col justify-between hover:border-gray-300 transition-all">
-                <div>
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="font-bold text-gray-800 tracking-tight font-mono">{m.deviceId}</span>
-                    <StatusBadge
-                      tone={getDeviceStateTone(displayState)}
-                      label={getDeviceStateLabel(displayState)}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5 text-sm text-gray-600">
-                    <div className="flex justify-between">
-                      <span>Connection:</span>
-                      <span className="font-semibold text-gray-800">
-                        {isOnline ? (m.stale ? "Signal Weak" : "Good") : "Disconnected"}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t border-gray-100 pt-3 mt-4 flex gap-2 justify-end">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onRunReadinessCheck(m.deviceId)}
-                  >
-                    Readiness Check
-                  </Button>
-                  {isReadyDevice && (
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="sm"
-                      onClick={() => {
-                        setStartingForDevice(m.deviceId);
-                        setStartError(null);
-                      }}
-                    >
-                      Start Session
-                    </Button>
-                  )}
-                  {isActive && m.activeSessionId && (
-                    <Button
-                      type="button"
-                      variant="success"
-                      size="sm"
-                      onClick={() => onStartSession(m.activeSessionId!)}
-                    >
-                      View Session
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            );
-          })
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {manikins.map((m) => (
+              <DeviceCard
+                key={m.deviceId}
+                manikin={m}
+                onRunReadinessCheck={onRunReadinessCheck}
+                onOpenStartModal={(did) => {
+                  setStartingForDevice(did);
+                  setStartError(null);
+                }}
+                onViewSession={onStartSession}
+              />
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Start Session Modal (Inline implementation) */}
+      {/* Start Session Modal (Inline implementation with modern overlay) */}
       {startingForDevice && (
-        <div className="fixed inset-0 z-50 bg-black/45 flex items-center justify-center p-4">
-          <Card className="max-w-md w-full" padding="lg">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="max-w-md w-full shadow-2xl animate-scaleUp border border-slate-100" padding="lg">
             <CardHeader
               title="Start CPR Training Session"
               subtitle={`Launch session for device: ${startingForDevice}`}
             />
-            <form onSubmit={handleLaunchSession} className="space-y-4 mt-2">
+            <form onSubmit={handleLaunchSession} className="space-y-5 mt-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                   Select Course
                 </label>
                 <select
                   required
                   value={selectedCourseId}
                   onChange={(e) => setSelectedCourseId(e.target.value)}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 >
-                  <option value="">-- Select Course --</option>
+                  <option value="">-- Choose Course --</option>
                   {courses.map((c) => (
                     <option key={c.courseId} value={c.courseId}>
                       {c.title}
@@ -268,16 +243,16 @@ export function InstructorDashboardPage({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                   Select Trainee
                 </label>
                 <select
                   required
                   value={selectedTraineeId}
                   onChange={(e) => setSelectedTraineeId(e.target.value)}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 hover:bg-slate-50 transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 >
-                  <option value="">-- Select Trainee --</option>
+                  <option value="">-- Choose Trainee --</option>
                   {trainees.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.displayName} ({t.traineeCode})
@@ -287,36 +262,36 @@ export function InstructorDashboardPage({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                   Scenario
                 </label>
                 <input
                   type="text"
                   value={selectedScenario}
                   onChange={(e) => setSelectedScenario(e.target.value)}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white"
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 focus:bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                   Session Notes
                 </label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white h-20"
-                  placeholder="Optional notes..."
+                  className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50 focus:bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500/20 h-20 resize-none"
+                  placeholder="Clinical notes or observations..."
                 />
               </div>
 
               {startError && (
-                <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-semibold text-red-700">
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 leading-normal">
                   {startError}
                 </div>
               )}
 
-              <div className="flex gap-2 justify-end pt-3 border-t border-gray-100">
+              <div className="flex gap-2.5 justify-end pt-4 border-t border-slate-100 mt-2">
                 <Button
                   type="button"
                   variant="secondary"

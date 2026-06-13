@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { fetchSessionLive, endSession } from "../../api/sessionsApi";
 import { subscribeToSessionLive } from "../../api/liveEventsClient";
 import type { SessionLiveView } from "../../types/live";
-import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import LoadingState from "../../components/ui/LoadingState";
-import PageHeader from "../../components/ui/PageHeader";
 import { MetricCard } from "../../components/cpr/MetricCard";
 import { CoachingCue } from "../../components/cpr/CoachingCue";
 import { SessionTimer } from "../../components/cpr/SessionTimer";
@@ -89,18 +87,27 @@ export function InstructorLiveSessionPage({
   }
 
   if (loading) {
-    return <LoadingState message="Connecting to live session..." />;
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-white">
+        <LoadingState message="Connecting to live telemetry cockpit..." />
+      </div>
+    );
   }
 
   if (error || !session) {
     return (
-      <Card className="text-center max-w-lg mx-auto py-12">
-        <h3 className="text-lg font-bold text-gray-900">Session Unavailable</h3>
-        <p className="text-sm text-gray-500 mt-1">{error || "Unable to load session."}</p>
-        <Button type="button" className="mt-6" onClick={() => onSessionEnded(sessionId)}>
-          Return to Dashboard
-        </Button>
-      </Card>
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-white">
+        <div className="w-full max-w-lg bg-slate-900 border border-slate-800 text-center py-16 px-8 rounded-3xl space-y-4">
+          <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-400 font-bold">
+            !
+          </div>
+          <h3 className="text-lg font-bold">Session Unavailable</h3>
+          <p className="text-sm text-slate-400 max-w-xs mx-auto leading-relaxed">{error || "Unable to load session."}</p>
+          <Button type="button" className="mt-6 font-bold" onClick={() => onSessionEnded(sessionId)}>
+            Return to Dashboard
+          </Button>
+        </div>
+      </div>
     );
   }
 
@@ -129,30 +136,41 @@ export function InstructorLiveSessionPage({
   const placementTone = session.pressureSkewed ? "danger" : session.pressureBalancePct !== null ? "good" : "neutral";
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Live Session Monitor"
-        subtitle={`Supervising training on manikin: ${session.deviceId}`}
-        actions={
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none p-6 sm:p-8">
+      {/* Live Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-900 pb-5 mb-8">
+        <div className="space-y-1">
+          <span className="text-[10px] font-extrabold bg-rose-500/10 text-rose-500 border border-rose-500/20 px-3 py-1 rounded-full uppercase tracking-wider inline-block">
+            ● Live Training
+          </span>
+          <h1 className="text-2xl font-black tracking-tight text-white leading-none mt-1">
+            Clinical Telemetry Console
+          </h1>
+          <p className="text-xs text-slate-500 font-semibold leading-relaxed">
+            Supervising device sensor stream: {session.deviceId}
+          </p>
+        </div>
+        <div>
           <Button
             type="button"
             variant="danger"
             loading={ending}
             onClick={handleEndSession}
+            className="shadow-md shadow-rose-500/10 font-bold px-6 py-3 text-sm rounded-xl"
           >
             End Training Session
           </Button>
-        }
-      />
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Side: Session details & coaching cues */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-8">
           {/* Clinical Guidance Cue */}
           <CoachingCue message={coachingCue} size="xl" />
 
           {/* Metrics Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <MetricCard
               label="Compression Depth"
               value={depthVal}
@@ -178,7 +196,7 @@ export function InstructorLiveSessionPage({
               label="Hand Position"
               value={session.pressureBalancePct !== null ? `${Math.round(session.pressureBalancePct)}%` : "—"}
               tone={placementTone}
-              target="Centered balance"
+              target="Centered Balance"
               large
             />
           </div>
@@ -186,33 +204,35 @@ export function InstructorLiveSessionPage({
 
         {/* Right Side: Trainee Info & Timeline */}
         <div className="space-y-6">
-          <Card>
-            <h3 className="text-base font-semibold text-gray-900 border-b border-gray-100 pb-3">
+          {/* Trainee Card */}
+          <div className="bg-slate-900/40 border border-slate-800/80 p-6 rounded-2xl">
+            <h3 className="text-[10px] font-bold text-slate-500 border-b border-slate-800 pb-3.5 uppercase tracking-widest">
               Trainee Profile
             </h3>
-            <div className="mt-3 space-y-3 text-sm">
-              <div>
-                <span className="text-gray-400 block text-xs uppercase font-medium">Identifier</span>
-                <span className="text-gray-800 font-semibold">{session.traineeId || "Anonymous"}</span>
+            <div className="mt-4 space-y-4 text-xs">
+              <div className="flex justify-between items-center bg-slate-950 p-3.5 rounded-xl border border-slate-800/40">
+                <span className="text-slate-400 font-semibold uppercase">Identifier</span>
+                <span className="text-slate-100 font-bold font-mono text-sm">{session.traineeId || "Anonymous"}</span>
               </div>
               {session.scenario && (
-                <div>
-                  <span className="text-gray-400 block text-xs uppercase font-medium">Scenario</span>
-                  <span className="text-gray-800 font-semibold">{session.scenario}</span>
+                <div className="flex justify-between items-center bg-slate-950 p-3.5 rounded-xl border border-slate-800/40">
+                  <span className="text-slate-400 font-semibold uppercase">Scenario</span>
+                  <span className="text-slate-100 font-bold">{session.scenario}</span>
                 </div>
               )}
               {session.notes && (
-                <div>
-                  <span className="text-gray-400 block text-xs uppercase font-medium">Notes</span>
-                  <span className="text-gray-700">{session.notes}</span>
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/40">
+                  <span className="text-slate-400 block font-semibold uppercase mb-1.5">Session Notes</span>
+                  <span className="text-slate-300 leading-relaxed font-sans font-medium">{session.notes}</span>
                 </div>
               )}
             </div>
-          </Card>
+          </div>
 
-          <Card className="text-center py-6">
+          {/* Clock Panel */}
+          <div className="bg-slate-900/40 border border-slate-800/80 py-8 rounded-2xl flex items-center justify-center text-white">
             <SessionTimer startedAt={session.startedAt} active={session.active} />
-          </Card>
+          </div>
         </div>
       </div>
     </div>

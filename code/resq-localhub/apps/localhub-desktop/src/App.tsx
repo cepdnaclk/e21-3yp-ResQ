@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ROUTE_ROLE_RULES } from "@resq/shared";
 import { useAuth } from "./auth/AuthContext";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "./lib/accessHost";
 
@@ -17,6 +16,9 @@ import V2SessionReviewPage from "./pages/v2/SessionReviewPage";
 import V2AdminUsersPage from "./pages/v2/AdminUsersPage";
 import V2TechnicianDiagnosticsPage from "./pages/v2/TechnicianDiagnosticsPage";
 import V2AccessDeniedPage from "./pages/v2/AccessDeniedPage";
+import V2CoursesPage from "./pages/v2/CoursesPage";
+import V2StartSessionWizardPage from "./pages/v2/StartSessionWizardPage";
+import V2ActiveSessionsPage from "./pages/v2/ActiveSessionsPage";
 
 // Import Legacy Pages
 import LegacyInstructorDashboard from "./pages/InstructorDashboard";
@@ -29,6 +31,9 @@ type RouteState =
   | { name: "home" }
   | { name: "login" }
   | { name: "setup" }
+  | { name: "courses" }
+  | { name: "start-session" }
+  | { name: "live-sessions" }
   | { name: "instructor" }
   | { name: "pair-manikin" }
   | { name: "readiness"; deviceId: string }
@@ -47,6 +52,9 @@ function parseRoute(path: string): RouteState {
 
   if (p === "/login") return { name: "login" };
   if (p === "/setup") return { name: "setup" };
+  if (p === "/courses") return { name: "courses" };
+  if (p === "/start-session") return { name: "start-session" };
+  if (p === "/live-sessions") return { name: "live-sessions" };
   if (p === "/instructor") return { name: "instructor" };
   if (p === "/instructor/pair") return { name: "pair-manikin" };
   if (p === "/sessions") return { name: "sessions" };
@@ -152,23 +160,56 @@ export default function App() {
     return <V2LoginPage />;
   }
 
-  // 3. Trainee role quick-routing (if trainee enters dashboard, route to legacy-trainee by default)
-  if (currentUser.role === "TRAINEE" && currentRoute.name !== "trainee-live" && currentRoute.name !== "legacy-trainee") {
-    return <LegacyTraineeDashboard embeddedInDesktop={true} />;
-  }
-
-  // 4. Role enforcement rules
+  // 3. Role enforcement rules (Correction 8 / TASK 2)
   const isInstructorOrAdmin = currentUser.role === "ADMIN" || currentUser.role === "INSTRUCTOR";
   const isAdmin = currentUser.role === "ADMIN";
+  const isTrainee = currentUser.role === "TRAINEE";
 
-  if (currentRoute.name === "instructor" && !isInstructorOrAdmin) {
-    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
-  }
+  // ADMIN only routes
   if (currentRoute.name === "admin-users" && !isAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
-  if (currentRoute.name === "diagnostics" && !isInstructorOrAdmin) {
+  if (currentRoute.name === "diagnostics" && !isAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+
+  // ADMIN or INSTRUCTOR only routes
+  if (currentRoute.name === "instructor" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "courses" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "start-session" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "live-sessions" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "instructor-live" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "readiness" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "pair-manikin" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "legacy-instructor" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+
+  // TRAINEE only routes (redirect ADMIN/INSTRUCTOR to /live-sessions)
+  if (currentRoute.name === "trainee-live" && !isTrainee) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/live-sessions")} />;
+  }
+  if (currentRoute.name === "legacy-trainee" && !isTrainee) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/live-sessions")} />;
+  }
+
+  // 4. Trainee role quick-routing (if trainee enters dashboard, route to legacy-trainee by default)
+  if (currentUser.role === "TRAINEE" && currentRoute.name !== "trainee-live" && currentRoute.name !== "legacy-trainee" && currentRoute.name !== "session-review") {
+    return <LegacyTraineeDashboard embeddedInDesktop={true} legacy={false} navigate={navigate} />;
   }
 
   // 5. Standalone full screen V2 routes (not wrapped in standard AppShell)
@@ -186,7 +227,7 @@ export default function App() {
     return <LegacyInstructorDashboard manualLanIpOverride={manualLanIpOverride} />;
   }
   if (currentRoute.name === "legacy-trainee") {
-    return <LegacyTraineeDashboard embeddedInDesktop={false} />;
+    return <LegacyTraineeDashboard embeddedInDesktop={false} legacy={true} navigate={navigate} />;
   }
   if (currentRoute.name === "access-denied") {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
@@ -194,7 +235,12 @@ export default function App() {
 
   // 7. Map current route to AppShell key highlighting
   let activeShellKey = "home";
-  if (currentRoute.name === "instructor" || currentRoute.name === "pair-manikin" || currentRoute.name === "readiness" || currentRoute.name === "instructor-live") {
+  if (
+    currentRoute.name === "instructor" ||
+    currentRoute.name === "pair-manikin" ||
+    currentRoute.name === "readiness" ||
+    currentRoute.name === "instructor-live"
+  ) {
     activeShellKey = "instructor";
   } else if (currentRoute.name === "sessions" || currentRoute.name === "session-review") {
     activeShellKey = "sessions";
@@ -202,14 +248,23 @@ export default function App() {
     activeShellKey = "users";
   } else if (currentRoute.name === "diagnostics") {
     activeShellKey = "diagnostics";
+  } else if (currentRoute.name === "courses") {
+    activeShellKey = "courses";
+  } else if (currentRoute.name === "start-session") {
+    activeShellKey = "start-session";
+  } else if (currentRoute.name === "live-sessions") {
+    activeShellKey = "live-sessions";
   }
 
-  const handlePageChange = (key: "home" | "instructor" | "sessions" | "users" | "diagnostics") => {
+  const handlePageChange = (key: string) => {
     if (key === "home") navigate("/");
     else if (key === "instructor") navigate("/instructor");
     else if (key === "sessions") navigate("/sessions");
     else if (key === "users") navigate("/admin/users");
     else if (key === "diagnostics") navigate("/diagnostics");
+    else if (key === "courses") navigate("/courses");
+    else if (key === "start-session") navigate("/start-session");
+    else if (key === "live-sessions") navigate("/live-sessions");
   };
 
   return (
@@ -261,6 +316,14 @@ export default function App() {
       )}
       {currentRoute.name === "admin-users" && <V2AdminUsersPage />}
       {currentRoute.name === "diagnostics" && <V2TechnicianDiagnosticsPage />}
+      {currentRoute.name === "courses" && <V2CoursesPage />}
+      {currentRoute.name === "start-session" && <V2StartSessionWizardPage />}
+      {currentRoute.name === "live-sessions" && (
+        <V2ActiveSessionsPage
+          onViewLive={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
+          onNavigateHome={() => navigate("/")}
+        />
+      )}
     </AppShell>
   );
 }

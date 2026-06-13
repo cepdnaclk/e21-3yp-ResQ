@@ -8,12 +8,18 @@
 
 export type FirmwareReadinessResponse = {
   deviceId: string;
-  ready: boolean;
-  calibrated: boolean | null;
-  lastCalibrationAt: string | null;
-  profileId: string | null;
-  profileName: string | null;
-  notes: string | null;
+  firmwareState: string | null;
+  calibrated: boolean;
+  readyForSession: boolean;
+  ready: boolean; // mapped from readyForSession
+  latestResult: string | null;
+  progressId: number | null;
+  reasonId: string | null;
+  actionId: number | null;
+  tsMs: number | null;
+  receivedAt: string | null;
+  sessionId?: string | null;
+  lastErrorId?: string | null;
 };
 
 export type FirmwareCalibrationCommandResponse = {
@@ -46,8 +52,15 @@ export type FirmwareEventRecord = {
 export type FirmwareDebugSnapshotRecord = {
   id: string;
   deviceId: string;
-  payload: unknown;
+  requestId: string | null;
+  pressure0Raw: number | null;
+  pressure1Raw: number | null;
+  pressure2Raw: number | null;
+  hallRaw: number | null;
+  tsMs: number | null;
   receivedAt: string;
+  payloadJson: string;
+  payload: unknown;
 };
 
 export type CalibrationResultRecord = {
@@ -86,4 +99,8 @@ export type CalibrationProfileResponse = {
 
 export type FirmwareCalibrationStartRequest = {
   profileId?: string | null;
+  hallDelta?: number | null;
+  refPressure?: number | null;
+  bladder1Pressure?: number | null;
+  bladder2Pressure?: number | null;
 };
