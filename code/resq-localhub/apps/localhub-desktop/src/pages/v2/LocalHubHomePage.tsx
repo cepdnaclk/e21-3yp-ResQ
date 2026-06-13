@@ -15,12 +15,10 @@ type HubHealth = {
 
 type LocalHubHomePageProps = {
   onOpenInstructorDashboard: () => void;
-  onOpenTraineeDashboard: () => void;
 };
 
 export function LocalHubHomePage({
   onOpenInstructorDashboard,
-  onOpenTraineeDashboard,
 }: LocalHubHomePageProps) {
   const { currentUser } = useAuth();
   const [health, setHealth] = useState<HubHealth | null>(null);
@@ -89,16 +87,6 @@ export function LocalHubHomePage({
           >
             Start Training
           </Button>
-          {currentUser?.role === "ADMIN" && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="bg-white/10 hover:bg-white/20 border-transparent text-white font-bold px-6 py-3 text-sm"
-              onClick={onOpenTraineeDashboard}
-            >
-              Trainee View
-            </Button>
-          )}
         </div>
       </div>
 

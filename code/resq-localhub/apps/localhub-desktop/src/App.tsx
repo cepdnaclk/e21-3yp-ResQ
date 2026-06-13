@@ -20,6 +20,8 @@ import V2CoursesPage from "./pages/v2/CoursesPage";
 import V2CourseDetailPage from "./pages/v2/CourseDetailPage";
 import V2StartSessionWizardPage from "./pages/v2/StartSessionWizardPage";
 import V2ActiveSessionsPage from "./pages/v2/ActiveSessionsPage";
+import V2AdminSyncDashboardPage from "./pages/v2/AdminSyncDashboardPage";
+import V2DemoChecklistPage from "./pages/v2/DemoChecklistPage";
 
 // Import Legacy Pages
 import LegacyInstructorDashboard from "./pages/InstructorDashboard";
@@ -44,6 +46,8 @@ type RouteState =
   | { name: "sessions" }
   | { name: "session-review"; sessionId: string }
   | { name: "admin-users" }
+  | { name: "admin-sync" }
+  | { name: "demo-checklist" }
   | { name: "diagnostics" }
   | { name: "access-denied" }
   | { name: "legacy-instructor" }
@@ -61,6 +65,8 @@ function parseRoute(path: string): RouteState {
   if (p === "/instructor/pair") return { name: "pair-manikin" };
   if (p === "/sessions") return { name: "sessions" };
   if (p === "/admin/users") return { name: "admin-users" };
+  if (p === "/admin/sync") return { name: "admin-sync" };
+  if (p === "/demo-checklist") return { name: "demo-checklist" };
   if (p === "/diagnostics") return { name: "diagnostics" };
   if (p === "/access-denied") return { name: "access-denied" };
   if (p === "/legacy/instructor") return { name: "legacy-instructor" };
@@ -175,7 +181,15 @@ export default function App() {
   if (currentRoute.name === "admin-users" && !isAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
+  if (currentRoute.name === "admin-sync" && !isAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
   if (currentRoute.name === "diagnostics" && !isAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+
+  // ADMIN or INSTRUCTOR only routes
+  if (currentRoute.name === "demo-checklist" && !isInstructorOrAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
 
@@ -255,6 +269,10 @@ export default function App() {
     activeShellKey = "sessions";
   } else if (currentRoute.name === "admin-users") {
     activeShellKey = "users";
+  } else if (currentRoute.name === "admin-sync") {
+    activeShellKey = "admin-sync";
+  } else if (currentRoute.name === "demo-checklist") {
+    activeShellKey = "demo-checklist";
   } else if (currentRoute.name === "diagnostics") {
     activeShellKey = "diagnostics";
   } else if (currentRoute.name === "courses" || currentRoute.name === "course-detail") {
@@ -270,6 +288,8 @@ export default function App() {
     else if (key === "instructor") navigate("/instructor");
     else if (key === "sessions") navigate("/sessions");
     else if (key === "users") navigate("/admin/users");
+    else if (key === "admin-sync") navigate("/admin/sync");
+    else if (key === "demo-checklist") navigate("/demo-checklist");
     else if (key === "diagnostics") navigate("/diagnostics");
     else if (key === "courses") navigate("/courses");
     else if (key === "start-session") navigate("/start-session");
@@ -288,7 +308,6 @@ export default function App() {
       {currentRoute.name === "home" && (
         <V2LocalHubHomePage
           onOpenInstructorDashboard={() => navigate("/instructor")}
-          onOpenTraineeDashboard={() => navigate("/legacy/trainee")}
         />
       )}
       {currentRoute.name === "instructor" && (
@@ -324,6 +343,8 @@ export default function App() {
         />
       )}
       {currentRoute.name === "admin-users" && <V2AdminUsersPage />}
+      {currentRoute.name === "admin-sync" && <V2AdminSyncDashboardPage navigate={navigate} />}
+      {currentRoute.name === "demo-checklist" && <V2DemoChecklistPage navigate={navigate} />}
       {currentRoute.name === "diagnostics" && <V2TechnicianDiagnosticsPage />}
       {currentRoute.name === "courses" && <V2CoursesPage />}
       {currentRoute.name === "course-detail" && (

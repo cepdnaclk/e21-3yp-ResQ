@@ -37,6 +37,8 @@ export function AppShell({
         { key: "users" as const, label: "Users" },
         { key: "courses" as const, label: "Courses" },
         { key: "sessions" as const, label: "Session History" },
+        { key: "admin-sync" as const, label: "Sync" },
+        { key: "demo-checklist" as const, label: "Demo Checklist" },
         { key: "diagnostics" as const, label: "Diagnostics" },
       ];
     } else if (currentUser?.role === "INSTRUCTOR") {
@@ -47,6 +49,7 @@ export function AppShell({
         { key: "live-sessions" as const, label: "Active Sessions" },
         { key: "instructor" as const, label: "Manikins" },
         { key: "sessions" as const, label: "Recent Sessions" },
+        { key: "demo-checklist" as const, label: "Demo Checklist" },
       ];
     } else {
       return [
