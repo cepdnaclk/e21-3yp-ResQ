@@ -35,6 +35,7 @@ vi.mock("../auth/AuthContext", () => ({
       disabledAt: null,
     },
     logout: vi.fn(),
+    token: "test-token",
   }),
 }));
 
@@ -89,31 +90,6 @@ vi.mock("../lib/browserFirmwareApi", () => ({
   cancelCalibration: vi.fn(),
 }));
 
-class MockEventSource {
-  onopen: ((event: Event) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-
-  constructor(_url: string) {}
-
-  addEventListener(_eventName: string, _handler: EventListener): void {}
-
-  close(): void {}
-}
-
-function setEventSource(value: typeof EventSource | undefined): void {
-  Object.defineProperty(window, "EventSource", {
-    configurable: true,
-    writable: true,
-    value,
-  });
-
-  Object.defineProperty(globalThis, "EventSource", {
-    configurable: true,
-    writable: true,
-    value,
-  });
-}
-
 const baseManikin = {
   deviceId: "MAN-01",
   online: true,
@@ -142,7 +118,19 @@ const baseManikin = {
 
 describe("InstructorDashboard", () => {
   beforeEach(() => {
-    setEventSource(MockEventSource as unknown as typeof EventSource);
+    // Mock global.fetch for SSE stream calls to avoid real network IO in tests
+    // Provide an empty ReadableStream that immediately closes.
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - Node test environment may not have ReadableStream typed
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+    });
 
     vi.mocked(fetchBrowserHealth).mockResolvedValue({
       ok: true,
@@ -240,14 +228,7 @@ describe("InstructorDashboard", () => {
     expect(await screen.findByText("Connecting")).toBeInTheDocument();
   });
 
-  it("shows stream unavailable when EventSource is not available", async () => {
-    setEventSource(undefined);
-
-    render(<InstructorDashboard embeddedInDesktop />);
-
-    expect(await screen.findByText("Stream unavailable")).toBeInTheDocument();
-    expect(getLiveManikinsStreamUrl).not.toHaveBeenCalled();
-  });
+  // EventSource no longer used; stream client is fetch-based and requires a token.
 
   it("starts a session for a manikin", async () => {
     vi.mocked(fetchLiveManikins).mockResolvedValue([{ ...baseManikin }]);

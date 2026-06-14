@@ -281,6 +281,20 @@ class LiveClientManager implements LiveClientSubscription {
         },
         onUpdate: (update) => this.applyUpdate(update, "sse"),
         onError: (error) => {
+          // If error indicates authentication failure, surface auth state and do NOT fall back to polling
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg && msg.startsWith("AUTH")) {
+            this.debug("sse auth error", msg);
+            this.stopSse();
+            this.patchState({
+              connectionState: "OFFLINE",
+              sourceMode: "BACKEND_SSE",
+              error: msg,
+              message: "Authentication required",
+            });
+            return;
+          }
+
           this.debug("sse failed; falling back to polling", error);
           this.stopSse();
           this.startPolling(error.message);
