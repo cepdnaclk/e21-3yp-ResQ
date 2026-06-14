@@ -43,7 +43,7 @@ public class CloudSecurityConfiguration {
                         .requestMatchers("/error").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/cloud/health").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/cloud/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/sync/session-summaries").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/sync/session-summaries").hasRole("HUB")
                         // Roster pull: authenticated only by hub API key (ROLE_HUB), NOT permitAll.
                         .requestMatchers(HttpMethod.GET, "/api/sync/roster").hasRole("HUB")
                         .requestMatchers("/api/cloud/auth/me", "/api/cloud/auth/logout").authenticated()

@@ -40,9 +40,17 @@ class CloudApiIntegrationTest {
     private String localSessionId;
     private String adminAuthorization;
 
+    private final String hubId = "hub-test-01";
+    private final String rawKey = "hub-secret-123";
+
     @BeforeEach
     void setUp() throws Exception {
         jdbcTemplate.update("DELETE FROM cloud_session_summaries");
+        jdbcTemplate.update("DELETE FROM cloud_hub_api_keys");
+        String keyHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(rawKey);
+        jdbcTemplate.update("INSERT INTO cloud_hub_api_keys (hub_id, hub_name, key_hash, active) VALUES (?, ?, ?, ?)",
+                hubId, "Test Hub", keyHash, true);
+
         adminBootstrap.ensureBootstrapAdmin();
         adminAuthorization = login("admin@resq.local", "admin123");
         localSessionId = "S-" + java.util.UUID.randomUUID();
@@ -101,9 +109,7 @@ class CloudApiIntegrationTest {
     @Test
     void duplicatePayloadDoesNotCreateDuplicate() throws Exception {
         JsonNode first = postValidPayload("HUB-2", localSessionId);
-        JsonNode second = objectMapper.readTree(mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(validPayload("HUB-2", localSessionId)))
+        JsonNode second = objectMapper.readTree(performSyncPost(validPayload("HUB-2", localSessionId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result").value("UPDATED"))
                 .andReturn().getResponse().getContentAsString());
@@ -135,9 +141,7 @@ class CloudApiIntegrationTest {
         );
 
         Thread.sleep(5);
-        JsonNode second = objectMapper.readTree(mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(validPayload("HUB-PRESERVE", localSessionId).replace("\"score\": 92", "\"score\": 95")))
+        JsonNode second = objectMapper.readTree(performSyncPost(validPayload("HUB-PRESERVE", localSessionId).replace("\"score\": 92", "\"score\": 95"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result").value("UPDATED"))
                 .andReturn().getResponse().getContentAsString());
@@ -157,23 +161,19 @@ class CloudApiIntegrationTest {
 
     @Test
     void invalidContractVersionReturnsBadRequest() throws Exception {
-        mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(validPayload("HUB-3", localSessionId)
-                                .replace("resq.cloud.session-summary.v1", "resq.cloud.session-summary.v0")))
+        performSyncPost(validPayload("HUB-3", localSessionId)
+                                .replace("resq.cloud.session-summary.v1", "resq.cloud.session-summary.v0"))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void missingLocalSessionIdReturnsBadRequest() throws Exception {
-        mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content("""
+        performSyncPost("""
                                 {
                                   "contractVersion": "resq.cloud.session-summary.v1",
                                   "entityType": "SESSION_SUMMARY"
                                 }
-                                """))
+                                """)
                 .andExpect(status().isBadRequest());
     }
 
@@ -220,10 +220,16 @@ class CloudApiIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    private org.springframework.test.web.servlet.ResultActions performSyncPost(String payload) throws Exception {
+        return mockMvc.perform(post("/api/sync/session-summaries")
+                .header("X-ResQ-Hub-Id", hubId)
+                .header("X-ResQ-Hub-Key", rawKey)
+                .contentType("application/json")
+                .content(payload));
+    }
+
     private JsonNode postValidPayload(String localHubId, String sessionId) throws Exception {
-        String body = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(validPayload(localHubId, sessionId)))
+        String body = performSyncPost(validPayload(localHubId, sessionId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accepted").value(true))
                 .andReturn().getResponse().getContentAsString();

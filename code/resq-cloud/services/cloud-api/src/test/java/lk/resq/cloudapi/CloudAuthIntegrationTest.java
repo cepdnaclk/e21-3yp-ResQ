@@ -168,7 +168,7 @@ class CloudAuthIntegrationTest {
     }
 
     @Test
-    void localHubSessionSyncPostRemainsPublic() throws Exception {
+    void localHubSessionSyncPostRequiresHubAuth() throws Exception {
         mockMvc.perform(post("/api/sync/session-summaries")
                         .contentType("application/json")
                         .content("""
@@ -179,17 +179,27 @@ class CloudAuthIntegrationTest {
                                   "localSessionId":"AUTH-TEST-SESSION"
                                 }
                                 """))
-                .andExpect(status().isCreated());
+                .andExpect(status().isUnauthorized());
+
+        String hubId = "hub-auth-test-01";
+        String rawKey = "hub-secret-abc";
+        String keyHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(rawKey);
+        jdbcTemplate.update("INSERT INTO cloud_hub_api_keys (hub_id, hub_name, key_hash, active) VALUES (?, ?, ?, ?)",
+                hubId, "Auth Test Hub", keyHash, true);
 
         mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", hubId)
+                        .header("X-ResQ-Hub-Key", rawKey)
                         .contentType("application/json")
                         .content("""
                                 {
                                   "contractVersion":"resq.cloud.session-summary.v1",
-                                  "entityType":"SESSION_SUMMARY"
+                                  "entityType":"SESSION_SUMMARY",
+                                  "localHubId":"AUTH-TEST-HUB",
+                                  "localSessionId":"AUTH-TEST-SESSION"
                                 }
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isCreated());
     }
 
     @Test

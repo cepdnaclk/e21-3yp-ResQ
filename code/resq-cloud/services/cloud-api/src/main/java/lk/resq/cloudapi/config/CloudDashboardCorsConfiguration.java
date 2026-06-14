@@ -32,6 +32,7 @@ public class CloudDashboardCorsConfiguration implements WebMvcConfigurer {
         addMapping(registry, "/api/cloud/sessions/**", origins, "GET");
         addMapping(registry, "/api/cloud/users/**", origins, "GET", "POST", "PATCH", "OPTIONS");
         addMapping(registry, "/api/cloud/courses/**", origins, "GET", "POST", "PATCH", "DELETE", "OPTIONS");
+        addMapping(registry, "/api/sync/**", origins, "GET", "POST", "OPTIONS");
     }
 
     /**

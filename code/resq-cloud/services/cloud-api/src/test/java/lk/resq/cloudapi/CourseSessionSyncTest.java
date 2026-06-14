@@ -17,6 +17,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
@@ -40,12 +41,20 @@ class CourseSessionSyncTest {
 
     private String adminAuthorization;
 
+    private final String hubId = "hub-test-01";
+    private final String rawKey = "hub-secret-123";
+
     @BeforeEach
     void setUp() throws Exception {
         jdbcTemplate.update("DELETE FROM cloud_session_summaries");
         jdbcTemplate.update("DELETE FROM cloud_enrollments");
         jdbcTemplate.update("DELETE FROM cloud_courses");
         jdbcTemplate.update("DELETE FROM cloud_users");
+        jdbcTemplate.update("DELETE FROM cloud_hub_api_keys");
+
+        String keyHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(rawKey);
+        jdbcTemplate.update("INSERT INTO cloud_hub_api_keys (hub_id, hub_name, key_hash, active) VALUES (?, ?, ?, ?)",
+                hubId, "Test Hub", keyHash, true);
 
         adminBootstrap.ensureBootstrapAdmin();
         adminAuthorization = login("admin@resq.local", "admin123");
@@ -56,9 +65,7 @@ class CourseSessionSyncTest {
         String sessionId = "S-LEGACY-" + UUID.randomUUID();
         String payload = sessionPayload("HUB-LEG", sessionId, null, null, null);
 
-        mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        performSyncPost(payload)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accepted").value(true))
                 .andExpect(jsonPath("$.result").value("CREATED"));
@@ -87,9 +94,7 @@ class CourseSessionSyncTest {
                 instructor.path("userId").asText()
         );
 
-        mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        performSyncPost(payload)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accepted").value(true));
 
@@ -115,9 +120,7 @@ class CourseSessionSyncTest {
                 null
         );
 
-        mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        performSyncPost(payload)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accepted").value(true));
     }
@@ -128,9 +131,7 @@ class CourseSessionSyncTest {
         String sessionId = "S-FAIL-" + UUID.randomUUID();
         String payload = sessionPayload("HUB-FAIL", sessionId, randomCourseId, null, null);
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -145,9 +146,7 @@ class CourseSessionSyncTest {
         String sessionId = "S-FAIL-" + UUID.randomUUID();
         String payload = sessionPayload("HUB-FAIL", sessionId, course.path("courseId").asText(), null, null);
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -170,9 +169,7 @@ class CourseSessionSyncTest {
                 null
         );
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -193,9 +190,7 @@ class CourseSessionSyncTest {
                 null
         );
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -216,9 +211,7 @@ class CourseSessionSyncTest {
                 null
         );
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -240,9 +233,7 @@ class CourseSessionSyncTest {
                 instructor.path("userId").asText()
         );
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -263,9 +254,7 @@ class CourseSessionSyncTest {
                 trainee.path("userId").asText()
         );
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -287,9 +276,7 @@ class CourseSessionSyncTest {
                 instructor2.path("userId").asText()
         );
 
-        var result = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        var result = performSyncPost(payload)
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertThat(result.getResolvedException()).isNotNull();
@@ -310,9 +297,7 @@ class CourseSessionSyncTest {
                 adminInstructor.path("userId").asText()
         );
 
-        mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        performSyncPost(payload)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accepted").value(true));
     }
@@ -323,9 +308,7 @@ class CourseSessionSyncTest {
         String sessionId = "S-QUERY-" + UUID.randomUUID();
         String payload = sessionPayload("HUB-QUERY", sessionId, course.path("courseId").asText(), null, null);
 
-        String syncResponseStr = mockMvc.perform(post("/api/sync/session-summaries")
-                        .contentType("application/json")
-                        .content(payload))
+        String syncResponseStr = performSyncPost(payload)
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         JsonNode syncResponse = objectMapper.readTree(syncResponseStr);
@@ -432,5 +415,104 @@ class CourseSessionSyncTest {
         }
         sb.append("\n}");
         return sb.toString();
+    }
+
+    private org.springframework.test.web.servlet.ResultActions performSyncPost(String payload) throws Exception {
+        return mockMvc.perform(post("/api/sync/session-summaries")
+                .header("X-ResQ-Hub-Id", hubId)
+                .header("X-ResQ-Hub-Key", rawKey)
+                .contentType("application/json")
+                .content(payload));
+    }
+
+    @Test
+    void unauthenticatedSyncIsRejected() throws Exception {
+        String payload = sessionPayload("HUB-TEST", "S-UNAUTH", null, null, null);
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void missingHubIdSyncIsRejected() throws Exception {
+        String payload = sessionPayload("HUB-TEST", "S-UNAUTH", null, null, null);
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Key", rawKey)
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void missingHubKeySyncIsRejected() throws Exception {
+        String payload = sessionPayload("HUB-TEST", "S-UNAUTH", null, null, null);
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", hubId)
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void invalidHubCredentialsSyncIsRejected() throws Exception {
+        String payload = sessionPayload("HUB-TEST", "S-UNAUTH", null, null, null);
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", hubId)
+                        .header("X-ResQ-Hub-Key", "wrong-key")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void idempotentSessionUploadUpdatesExisting() throws Exception {
+        String sessionId = "S-IDEMPOTENT-" + UUID.randomUUID();
+        String payload = sessionPayload("HUB-VALID", sessionId, null, null, null);
+
+        // First upload creates
+        performSyncPost(payload)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.result").value("CREATED"));
+
+        // Second upload updates/idempotent
+        performSyncPost(payload)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("UPDATED"));
+    }
+
+    @Test
+    void rosterSyncStillWorksWithValidHubHeaders() throws Exception {
+        mockMvc.perform(get("/api/sync/roster")
+                        .header("X-ResQ-Hub-Id", hubId)
+                        .header("X-ResQ-Hub-Key", rawKey))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void getSessionSummariesRemainsJwtProtected() throws Exception {
+        // Unauthenticated access
+        mockMvc.perform(get("/api/sync/session-summaries/HUB-TEST/S-123"))
+                .andExpect(status().isUnauthorized());
+
+        // Hub role access is not sufficient (as it requires ADMIN/INSTRUCTOR via JWT)
+        mockMvc.perform(get("/api/sync/session-summaries/HUB-TEST/S-123")
+                        .header("X-ResQ-Hub-Id", hubId)
+                        .header("X-ResQ-Hub-Key", rawKey))
+                .andExpect(status().isUnauthorized());
+
+        // Admin JWT access is accepted
+        mockMvc.perform(get("/api/sync/session-summaries/HUB-TEST/S-123")
+                        .header(AUTHORIZATION, adminAuthorization))
+                .andExpect(status().isNotFound()); // NotFound indicates request reached controller instead of failing at filter
+    }
+
+    @Test
+    void optionsPreflightSyncIsAllowed() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options("/api/sync/session-summaries")
+                        .header("Origin", "http://localhost:1430")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("POST")));
     }
 }

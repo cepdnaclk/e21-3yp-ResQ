@@ -47,6 +47,7 @@ class CloudManagementIntegrationTest {
         jdbcTemplate.update("DELETE FROM cloud_enrollments");
         jdbcTemplate.update("DELETE FROM cloud_courses");
         jdbcTemplate.update("DELETE FROM cloud_users");
+        jdbcTemplate.update("DELETE FROM cloud_hub_api_keys");
         adminBootstrap.ensureBootstrapAdmin();
         adminAuthorization = login("admin@resq.local", "admin123");
     }

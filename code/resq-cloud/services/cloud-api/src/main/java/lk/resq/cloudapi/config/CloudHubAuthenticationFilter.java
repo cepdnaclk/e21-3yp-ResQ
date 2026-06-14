@@ -59,8 +59,19 @@ public class CloudHubAuthenticationFilter extends OncePerRequestFilter {
             FilterChain         filterChain
     ) throws ServletException, IOException {
 
-        // Only activate for the roster sync path.
-        if (!request.getRequestURI().startsWith(ROSTER_PATH_PREFIX)) {
+        // Do not block OPTIONS preflight requests.
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        String path = request.getRequestURI();
+        String normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
+
+        boolean isRosterSync = normalizedPath.startsWith(ROSTER_PATH_PREFIX);
+        boolean isSessionUpload = normalizedPath.equals("/api/sync/session-summaries") && "POST".equalsIgnoreCase(request.getMethod());
+
+        if (!isRosterSync && !isSessionUpload) {
             filterChain.doFilter(request, response);
             return;
         }
