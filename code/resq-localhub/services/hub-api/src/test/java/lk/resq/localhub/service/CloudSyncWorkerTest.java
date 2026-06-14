@@ -103,7 +103,7 @@ class CloudSyncWorkerTest {
         fixture.properties.setEnabled(true);
         fixture.properties.setBaseUrl("http://127.0.0.1:1");
         fixture.properties.setRequestTimeoutMs(100);
-        CloudSyncClient realClient = new CloudSyncClient(fixture.properties, new ObjectMapper());
+        CloudSyncClient realClient = new CloudSyncClient(fixture.properties, new lk.resq.localhub.config.RosterSyncProperties(), new ObjectMapper());
         CloudSyncWorker worker = new CloudSyncWorker(fixture.properties, fixture.service, realClient);
 
         assertThatCode(worker::syncQueuedItems).doesNotThrowAnyException();

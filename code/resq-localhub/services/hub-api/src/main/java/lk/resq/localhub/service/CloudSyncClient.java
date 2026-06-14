@@ -3,6 +3,7 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.config.CloudSyncProperties;
+import lk.resq.localhub.config.RosterSyncProperties;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -16,11 +17,17 @@ import java.time.Duration;
 public class CloudSyncClient implements CloudSyncGateway {
 
     private final CloudSyncProperties properties;
+    private final RosterSyncProperties rosterProperties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    public CloudSyncClient(CloudSyncProperties properties, ObjectMapper objectMapper) {
+    public CloudSyncClient(
+            CloudSyncProperties properties,
+            RosterSyncProperties rosterProperties,
+            ObjectMapper objectMapper
+    ) {
         this.properties = properties;
+        this.rosterProperties = rosterProperties;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(properties.getRequestTimeoutMs()))
@@ -29,9 +36,18 @@ public class CloudSyncClient implements CloudSyncGateway {
 
     @Override
     public CloudSyncResult uploadSessionSummary(String payloadJson) throws CloudSyncException {
-        HttpRequest request = HttpRequest.newBuilder(sessionSummariesUri())
+        HttpRequest.Builder builder = HttpRequest.newBuilder(sessionSummariesUri())
                 .timeout(Duration.ofMillis(properties.getRequestTimeoutMs()))
-                .header("Content-Type", "application/json")
+                .header("Content-Type", "application/json");
+
+        if (rosterProperties.getHubId() != null && !rosterProperties.getHubId().isBlank()) {
+            builder.header("X-ResQ-Hub-Id", rosterProperties.getHubId());
+        }
+        if (rosterProperties.getHubKey() != null && !rosterProperties.getHubKey().isBlank()) {
+            builder.header("X-ResQ-Hub-Key", rosterProperties.getHubKey());
+        }
+
+        HttpRequest request = builder
                 .POST(HttpRequest.BodyPublishers.ofString(payloadJson))
                 .build();
 

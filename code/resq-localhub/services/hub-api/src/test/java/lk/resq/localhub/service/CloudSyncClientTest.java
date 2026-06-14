@@ -71,6 +71,9 @@ class CloudSyncClientTest {
         CloudSyncProperties properties = new CloudSyncProperties();
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
         properties.setRequestTimeoutMs(1_000);
-        return new CloudSyncClient(properties, new ObjectMapper());
+        lk.resq.localhub.config.RosterSyncProperties rosterProperties = new lk.resq.localhub.config.RosterSyncProperties();
+        rosterProperties.setHubId("mock-hub");
+        rosterProperties.setHubKey("mock-key");
+        return new CloudSyncClient(properties, rosterProperties, new ObjectMapper());
     }
 }
