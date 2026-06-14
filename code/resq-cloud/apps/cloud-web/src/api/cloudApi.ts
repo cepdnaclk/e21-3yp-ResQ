@@ -287,6 +287,10 @@ export function listSessionSummaries(filters: SessionSummaryFilters): Promise<Cl
   return requestJson(`/api/cloud/session-summaries${query ? `?${query}` : ""}`);
 }
 
+export function fetchMySessionSummaries(): Promise<CloudSessionSummaryRecord[]> {
+  return listSessionSummaries({});
+}
+
 
 export class CloudApiError extends Error {
   constructor(message: string, readonly status?: number) {
