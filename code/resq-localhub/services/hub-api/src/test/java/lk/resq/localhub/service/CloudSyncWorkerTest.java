@@ -122,6 +122,87 @@ class CloudSyncWorkerTest {
                 .containsExactly(fixture.itemId);
     }
 
+    @Test
+    void invalidUuidPayloadIsSkippedAndNotSentToCloud() throws Exception {
+        Fixture fixture = fixture();
+        fixture.properties.setEnabled(true);
+        String itemId = UUID.randomUUID().toString();
+        fixture.repository.save(new SyncQueueItem(
+                itemId,
+                SyncEntityType.SESSION_SUMMARY,
+                "S-INVALID-UUID",
+                """
+                {
+                  "contractVersion": "resq.cloud.session-summary.v1",
+                  "entityType": "SESSION_SUMMARY",
+                  "localSessionId": "S-INVALID-UUID",
+                  "courseId": "smoke-course-uuid-001"
+                }
+                """,
+                SyncStatus.PENDING,
+                0,
+                null,
+                Instant.now().minusSeconds(100),
+                null,
+                null
+        ));
+
+        fixture.worker.processSafely(fixture.repository.findById(itemId).get());
+
+        SyncQueueItem stored = fixture.repository.findById(itemId).get();
+        assertThat(stored.syncStatus()).isEqualTo(SyncStatus.SKIPPED);
+        assertThat(stored.lastError()).contains("local-only user IDs");
+        assertThat(fixture.client.callCount).isZero();
+    }
+
+    @Test
+    void invalidRosterRelationshipPayloadIsFailedAndNotSentToCloud() throws Exception {
+        StubRosterCacheRepository mockRoster = new StubRosterCacheRepository(false);
+
+        SyncQueueRepository repository = new SyncQueueRepository(
+                Path.of("target", "cloud-sync-worker-relation-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        repository.initialize();
+        String itemId = UUID.randomUUID().toString();
+        repository.save(new SyncQueueItem(
+                itemId,
+                SyncEntityType.SESSION_SUMMARY,
+                "S-RELATION",
+                """
+                {
+                  "contractVersion": "resq.cloud.session-summary.v1",
+                  "entityType": "SESSION_SUMMARY",
+                  "localSessionId": "S-RELATION",
+                  "courseId": "0d7b8ca8-ec6a-4a6e-8566-3daed313783f"
+                }
+                """,
+                SyncStatus.PENDING,
+                0,
+                null,
+                Instant.now().minusSeconds(300),
+                null,
+                null
+        ));
+
+        SyncQueueService service = new SyncQueueService(
+                repository,
+                new ObjectMapper().findAndRegisterModules(),
+                new CloudSessionSummaryPayloadMapper(),
+                mockRoster
+        );
+
+        CloudSyncProperties properties = enabledProperties();
+        FakeCloudSyncGateway client = new FakeCloudSyncGateway();
+        CloudSyncWorker worker = new CloudSyncWorker(properties, service, client);
+
+        worker.processSafely(repository.findById(itemId).get());
+
+        SyncQueueItem stored = repository.findById(itemId).get();
+        assertThat(stored.syncStatus()).isEqualTo(SyncStatus.FAILED);
+        assertThat(stored.lastError()).contains("current cloud roster");
+        assertThat(client.callCount).isZero();
+    }
+
     private static Fixture fixture() throws Exception {
         return fixtureWithRetryCount(0);
     }
@@ -156,6 +237,8 @@ class CloudSyncWorkerTest {
                 new CloudSessionSummaryPayloadMapper()
         );
         CloudSyncProperties properties = new CloudSyncProperties();
+        properties.setHubId("hub-test-01");
+        properties.setHubKey("key-test-01");
         FakeCloudSyncGateway client = new FakeCloudSyncGateway();
         CloudSyncWorker worker = new CloudSyncWorker(properties, service, client);
         return new Fixture(repository, service, properties, client, worker, itemId);
@@ -164,6 +247,8 @@ class CloudSyncWorkerTest {
     private static CloudSyncProperties enabledProperties() {
         CloudSyncProperties properties = new CloudSyncProperties();
         properties.setEnabled(true);
+        properties.setHubId("hub-test-01");
+        properties.setHubKey("key-test-01");
         return properties;
     }
 
@@ -198,6 +283,18 @@ class CloudSyncWorkerTest {
                 throw failure;
             }
             return result;
+        }
+    }
+
+    private static class StubRosterCacheRepository extends RosterCacheRepository {
+        private final boolean existsCourse;
+        public StubRosterCacheRepository(boolean existsCourse) {
+            super("target/stub-roster-cache-worker.sqlite");
+            this.existsCourse = existsCourse;
+        }
+        @Override public void initialize() {}
+        @Override public synchronized boolean existsActiveCourse(String courseId) {
+            return existsCourse;
         }
     }
 }

@@ -5,5 +5,6 @@ public enum SyncStatus {
     SYNCING,
     SYNCED,
     FAILED,
-    RETRY_LATER
+    RETRY_LATER,
+    SKIPPED
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getJson } from "../../api/localHubClient";
+import { getJson, postJson } from "../../api/localHubClient";
 import { getRosterSyncStatus, runRosterSync } from "../../lib/browserRosterSyncApi";
 import type { SyncStateRecord } from "../../lib/browserRosterSyncApi";
 import Card, { CardHeader } from "../../components/ui/Card";
@@ -21,7 +21,7 @@ type SyncQueueItem = {
   id: string;
   entityType: string;
   entityId: string;
-  syncStatus: "PENDING" | "SYNCED" | "FAILED";
+  syncStatus: "PENDING" | "SYNCED" | "FAILED" | "RETRY_LATER" | "SKIPPED";
   retryCount: number;
   lastError: string | null;
   createdAt: string;
@@ -35,7 +35,39 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncingRoster, setSyncingRoster] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleRetryItem(id: string) {
+    setActionLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      await postJson(`/api/sync/cloud/queue/${id}/retry`);
+      setSuccessMessage("Sync item requeued.");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleRetryAllFailed() {
+    setActionLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const res = await postJson<{ requeuedCount: number }>("/api/sync/cloud/queue/retry-failed");
+      setSuccessMessage(`Requeued ${res.requeuedCount} failed sync items.`);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionLoading(false);
+    }
+  }
 
   async function loadData() {
     try {
@@ -86,7 +118,9 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
   const totalQueue = syncQueue.length;
   const pendingCount = syncQueue.filter((item) => item.syncStatus === "PENDING").length;
   const syncedCount = syncQueue.filter((item) => item.syncStatus === "SYNCED").length;
-  const failedCount = syncQueue.filter((item) => item.syncStatus === "FAILED").length;
+  const failedCount = syncQueue.filter(
+    (item) => item.syncStatus === "FAILED" || (item.syncStatus as string) === "RETRY_LATER"
+  ).length;
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -98,6 +132,12 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
       {error && (
         <Card className="border-rose-100 bg-rose-50 text-rose-800 rounded-3xl p-6">
           <p className="text-sm font-semibold">{error}</p>
+        </Card>
+      )}
+
+      {successMessage && (
+        <Card className="border-emerald-100 bg-emerald-50 text-emerald-800 rounded-3xl p-6">
+          <p className="text-sm font-semibold">{successMessage}</p>
         </Card>
       )}
 
@@ -220,6 +260,20 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
         <CardHeader
           title="Recent Sync Queue Log"
           subtitle="Real-time status of session telemetry transfers to ResQ Cloud."
+          action={
+            failedCount > 0 && (
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                loading={actionLoading}
+                onClick={handleRetryAllFailed}
+                className="font-bold text-xs"
+              >
+                Retry all failed
+              </Button>
+            )
+          }
         />
         <div className="mt-6 overflow-x-auto">
           {syncQueue.length === 0 ? (
@@ -237,38 +291,61 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
                   <th className="py-3 px-4">Created At</th>
                   <th className="py-3 px-4">Last Attempt</th>
                   <th className="py-3 px-4">Last Error</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {syncQueue.map((item) => (
-                  <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                    <td className="py-3.5 px-4 font-mono text-slate-800">{item.entityId}</td>
-                    <td className="py-3.5 px-4 uppercase tracking-wider text-[10px] text-teal-600 font-extrabold">{item.entityType}</td>
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded-full border text-[9.5px] uppercase font-extrabold tracking-wider ${
-                          item.syncStatus === "SYNCED"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                            : item.syncStatus === "FAILED"
-                            ? "bg-rose-50 text-rose-700 border-rose-100"
-                            : "bg-amber-50 text-amber-700 border-amber-100"
-                        }`}
-                      >
-                        {item.syncStatus}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 font-mono">{item.retryCount}</td>
-                    <td className="py-3.5 px-4 font-mono">
-                      {item.createdAt ? new Date(item.createdAt).toLocaleString() : "—"}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono">
-                      {item.lastAttemptAt ? new Date(item.lastAttemptAt).toLocaleString() : "—"}
-                    </td>
-                    <td className="py-3.5 px-4 max-w-xs truncate text-rose-600" title={item.lastError || ""}>
-                      {item.lastError || "—"}
-                    </td>
-                  </tr>
-                ))}
+                {syncQueue.map((item) => {
+                  const isRetryable =
+                    item.syncStatus === "FAILED" || (item.syncStatus as string) === "RETRY_LATER";
+                  return (
+                    <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                      <td className="py-3.5 px-4 font-mono text-slate-800">{item.entityId}</td>
+                      <td className="py-3.5 px-4 uppercase tracking-wider text-[10px] text-teal-600 font-extrabold">{item.entityType}</td>
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`px-2 py-0.5 rounded-full border text-[9.5px] uppercase font-extrabold tracking-wider ${
+                            item.syncStatus === "SYNCED"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                              : item.syncStatus === "FAILED"
+                              ? "bg-rose-50 text-rose-700 border-rose-100"
+                              : item.syncStatus === "SKIPPED"
+                              ? "bg-slate-100 text-slate-600 border-slate-200"
+                              : "bg-amber-50 text-amber-700 border-amber-100"
+                          }`}
+                        >
+                          {item.syncStatus}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 font-mono">{item.retryCount}</td>
+                      <td className="py-3.5 px-4 font-mono">
+                        {item.createdAt ? new Date(item.createdAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono">
+                        {item.lastAttemptAt ? new Date(item.lastAttemptAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="py-3.5 px-4 max-w-xs truncate text-rose-600" title={item.lastError || ""}>
+                        {item.lastError || "—"}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        {isRetryable ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={actionLoading}
+                            onClick={() => handleRetryItem(item.id)}
+                            className="font-bold text-[10px] py-1 px-2.5 rounded-lg border hover:bg-slate-50 transition-colors shadow-sm"
+                          >
+                            Retry
+                          </Button>
+                        ) : (
+                          <span className="text-[10px] text-slate-300 font-semibold">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

@@ -69,7 +69,7 @@ export interface SyncQueueItem {
   entityType: 'SESSION_SUMMARY';
   entityId: string;
   payloadJson: string;
-  syncStatus: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER';
+  syncStatus: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER' | 'SKIPPED';
   retryCount: number;
   lastError: string | null;
   createdAt: string;

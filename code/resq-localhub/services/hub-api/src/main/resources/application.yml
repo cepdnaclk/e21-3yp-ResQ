@@ -25,14 +25,17 @@ resq:
     stale-check-interval-ms: ${RESQ_LIVE_STALE_CHECK_INTERVAL_MS:2000}
   cloud-sync:
     enabled: ${RESQ_CLOUD_SYNC_ENABLED:true}
-    base-url: ${RESQ_CLOUD_SYNC_BASE_URL:https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com}
+    base-url: ${RESQ_CLOUD_SYNC_BASE_URL:https://cj7hzrfn6l.execute-api.ap-southeast-1.amazonaws.com}
+    hub-id: ${RESQ_CLOUD_SYNC_HUB_ID:${RESQ_ROSTER_SYNC_HUB_ID:hub-dev-01}}
+    hub-key: ${RESQ_CLOUD_SYNC_HUB_KEY:${RESQ_ROSTER_SYNC_HUB_KEY:dev-localhub-key-2026}}
     batch-size: ${RESQ_CLOUD_SYNC_BATCH_SIZE:5}
     fixed-delay-ms: ${RESQ_CLOUD_SYNC_FIXED_DELAY_MS:60000}
     request-timeout-ms: ${RESQ_CLOUD_SYNC_REQUEST_TIMEOUT_MS:5000}
     max-retry-count: ${RESQ_CLOUD_SYNC_MAX_RETRY_COUNT:3}
+
   roster-sync:
     enabled: ${RESQ_ROSTER_SYNC_ENABLED:true}
-    base-url: ${RESQ_ROSTER_SYNC_BASE_URL:https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com}
+    base-url: ${RESQ_ROSTER_SYNC_BASE_URL:https://cj7hzrfn6l.execute-api.ap-southeast-1.amazonaws.com}
     hub-id: ${RESQ_ROSTER_SYNC_HUB_ID:hub-dev-01}
     hub-key: ${RESQ_ROSTER_SYNC_HUB_KEY:dev-localhub-key-2026}
     fixed-delay-ms: ${RESQ_ROSTER_SYNC_FIXED_DELAY_MS:60000}

@@ -138,6 +138,62 @@ class CourseSessionSyncTest {
     }
 
     @Test
+    void invalidCourseIdFormatSyncFails() throws Exception {
+        String invalidCourseId = "smoke-course-uuid-001";
+        String sessionId = "S-FAIL-" + UUID.randomUUID();
+        String payload = sessionPayload("HUB-FAIL", sessionId, invalidCourseId, null, null);
+
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_course_id"))
+                .andExpect(jsonPath("$.message").value("courseId must be a valid cloud UUID"));
+    }
+
+    @Test
+    void invalidTraineeIdFormatSyncFails() throws Exception {
+        JsonNode course = createCourse("CPR-TEST-INVALID-TRAINEE", "CPR Test Invalid Trainee", null);
+        String invalidTraineeId = "smoke-trainee-uuid-001";
+        String sessionId = "S-FAIL-" + UUID.randomUUID();
+        String payload = sessionPayload(
+                "HUB-FAIL",
+                sessionId,
+                course.path("courseId").asText(),
+                invalidTraineeId,
+                null
+        );
+
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_user_id"))
+                .andExpect(jsonPath("$.message").value("traineeId must be a valid cloud UUID"));
+    }
+
+    @Test
+    void invalidInstructorIdFormatSyncFails() throws Exception {
+        JsonNode course = createCourse("CPR-TEST-INVALID-INST", "CPR Test Invalid Instructor", null);
+        String invalidInstructorId = "smoke-instructor-uuid-001";
+        String sessionId = "S-FAIL-" + UUID.randomUUID();
+        String payload = sessionPayload(
+                "HUB-FAIL",
+                sessionId,
+                course.path("courseId").asText(),
+                null,
+                invalidInstructorId
+        );
+
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_user_id"))
+                .andExpect(jsonPath("$.message").value("instructorId must be a valid cloud UUID"));
+    }
+
+    @Test
     void inactiveCourseSyncFails() throws Exception {
         JsonNode course = createCourse("CPR-INACTIVE", "Inactive Course", null);
         deactivateCourse(course.path("courseId").asText());
