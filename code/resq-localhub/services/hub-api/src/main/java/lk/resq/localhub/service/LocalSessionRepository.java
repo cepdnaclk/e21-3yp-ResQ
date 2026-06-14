@@ -252,6 +252,71 @@ public class LocalSessionRepository {
         }
     }
 
+    public synchronized List<SessionEndResponse> findByTraineeIdOrUsernameOrEmail(String traineeId, String username, String email) {
+        try (Connection connection = openConnection()) {
+            StringBuilder sql = new StringBuilder("""
+                     SELECT
+                       s.session_id,
+                       s.device_id,
+                       s.trainee_id,
+                       s.started_at,
+                       s.ended_at,
+                       s.scenario,
+                       s.notes,
+                       s.course_id,
+                       s.instructor_id,
+                       m.sample_count,
+                       m.total_compressions,
+                       m.valid_compressions,
+                       m.duration_seconds,
+                       m.avg_depth_mm,
+                       m.avg_depth_progress,
+                       m.avg_rate_cpm,
+                       m.recoil_pct,
+                       m.recoil_ok_count,
+                       m.incomplete_recoil_count,
+                       m.pauses_count,
+                       m.score,
+                       m.latest_flags
+                     FROM sessions s
+                     JOIN session_metrics m ON m.session_id = s.session_id
+                     WHERE 1=0
+                     """);
+            
+            List<String> params = new ArrayList<>();
+            if (traineeId != null && !traineeId.isBlank()) {
+                sql.append(" OR LOWER(s.trainee_id) = ?");
+                params.add(traineeId.trim().toLowerCase());
+            }
+            if (username != null && !username.isBlank()) {
+                sql.append(" OR LOWER(s.trainee_id) = ?");
+                params.add(username.trim().toLowerCase());
+            }
+            if (email != null && !email.isBlank()) {
+                sql.append(" OR LOWER(s.trainee_id) = ?");
+                params.add(email.trim().toLowerCase());
+            }
+            
+            sql.append(" ORDER BY s.ended_at DESC");
+            
+            try (PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+                for (int i = 0; i < params.size(); i++) {
+                    statement.setString(i + 1, params.get(i));
+                }
+                
+                List<SessionEndResponse> sessions = new ArrayList<>();
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        sessions.add(mapRow(resultSet));
+                    }
+                }
+                return sessions;
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to load completed sessions for trainee", error);
+        }
+    }
+
     private SessionEndResponse mapRow(ResultSet resultSet) throws SQLException {
         SessionSummary summary = new SessionSummary(
                 resultSet.getString("session_id"),

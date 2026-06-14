@@ -8,6 +8,7 @@ use std::{
 
 use serde::Serialize;
 use tauri::{Manager, State};
+use crate::commands;
 
 #[derive(Default)]
 pub struct ApiServiceState {
@@ -29,7 +30,10 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
 const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
 const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
-const CLOUD_SYNC_ENV_KEYS: [&str; 6] = [
+const CLOUD_SYNC_ENV_KEYS: [&str; 9] = [
+    "RESQ_CLOUD_SYNC_ENABLED",
+    "RESQ_CLOUD_SYNC_BASE_URL",
+    "RESQ_CLOUD_SYNC_FIXED_DELAY_MS",
     "RESQ_ROSTER_SYNC_ENABLED",
     "RESQ_ROSTER_SYNC_BASE_URL",
     "RESQ_ROSTER_SYNC_HUB_ID",
@@ -110,10 +114,36 @@ impl ApiServiceState {
     fn apply_cloud_sync_environment(command: &mut Command) {
         let config = Self::load_cloud_sync_config();
 
+        let default_envs = [
+            ("RESQ_CLOUD_SYNC_ENABLED", "true"),
+            ("RESQ_ROSTER_SYNC_ENABLED", "true"),
+            ("RESQ_CLOUD_SYNC_BASE_URL", "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com"),
+            ("RESQ_ROSTER_SYNC_BASE_URL", "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com"),
+            ("RESQ_ROSTER_SYNC_HUB_ID", "hub-dev-01"),
+            ("RESQ_ROSTER_SYNC_HUB_KEY", "dev-localhub-key-2026"),
+            ("RESQ_CLOUD_SYNC_FIXED_DELAY_MS", "60000"),
+            ("RESQ_ROSTER_SYNC_FIXED_DELAY_MS", "60000"),
+        ];
+
+        // Apply default environment values if not already present in environment/config
+        for &(key, val) in &default_envs {
+            if env::var_os(key).is_none() {
+                if let Some(config_val) = config.get(key) {
+                    command.env(key, config_val);
+                } else {
+                    command.env(key, val);
+                }
+            }
+        }
+
+        // Apply any other keys from configuration that might not be in defaults
         for key in CLOUD_SYNC_ENV_KEYS {
             if env::var_os(key).is_none() {
                 if let Some(value) = config.get(key) {
-                    command.env(key, value);
+                    let is_default_key = default_envs.iter().any(|&(k, _)| k == key);
+                    if !is_default_key {
+                        command.env(key, value);
+                    }
                 }
             }
         }
@@ -239,6 +269,22 @@ impl ApiServiceState {
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
+
+            // Detect a useful LAN IP and pass it to the packaged backend so the
+            // firmware-facing host is advertised correctly (avoid 127.0.0.1).
+            let detected_ip = match commands::detect_primary_ipv4() {
+                Ok(ip) => ip,
+                Err(_) => None,
+            };
+
+            if let Some(host) = detected_ip {
+                eprintln!("Detected LAN IP for packaged backend: {}", host);
+                // Tell Spring Boot which host to advertise for backend and MQTT
+                command.arg(format!("--resq.localhub.backend.advertised-host={}", host));
+                command.arg(format!("--resq.mqtt.advertised-host={}", host));
+            } else {
+                eprintln!("No LAN IP detected for packaged backend; backend may advertise loopback if not configured");
+            }
             return Ok(command);
         }
 

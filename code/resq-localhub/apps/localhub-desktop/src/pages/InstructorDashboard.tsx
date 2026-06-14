@@ -9,6 +9,7 @@ import {
   getLiveManikinsStreamUrl,
   type ManikinLiveSummary,
 } from "../lib/browserManikinsApi";
+import { createSseClient, type SseClient } from "../lib/sseLiveClient";
 import {
   endSession,
   fetchCompletedSession,
@@ -287,7 +288,7 @@ function triggerRegistrationConfetti() {
 
 type SessionActionState = "idle" | "starting" | "ending";
 type CalibrationActionState = "idle" | "starting" | "cancelling";
-type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable";
+type LiveStreamState = "connecting" | "connected" | "reconnecting" | "unavailable" | "auth" | "polling";
 
 type InstructorDashboardProps = {
   embeddedInDesktop?: boolean;
@@ -348,6 +349,22 @@ function LiveStreamStatusBadge({ state }: { state: LiveStreamState }) {
     );
   }
 
+  if (state === "auth") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fee2e2", color: "#991b1b" }}>
+        Authentication required
+      </span>
+    );
+  }
+
+  if (state === "polling") {
+    return (
+      <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>
+        Polling fallback
+      </span>
+    );
+  }
+
   return (
     <span style={{ display: "inline-block", padding: "4px 10px", borderRadius: "999px", fontSize: "0.78rem", fontWeight: 600, background: "#fee2e2", color: "#991b1b" }}>
       Stream unavailable
@@ -360,7 +377,7 @@ export default function InstructorDashboard({
   onOpenTraineeDashboard,
   manualLanIpOverride = null,
 }: InstructorDashboardProps) {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout, token } = useAuth();
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
@@ -518,8 +535,7 @@ export default function InstructorDashboard({
     }
 
     let cancelled = false;
-    let eventSource: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let sseClient: SseClient | null = null;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
 
     function stopFallbackPolling() {
@@ -539,79 +555,61 @@ export default function InstructorDashboard({
       }, 2000);
     }
 
-    function safeParseManikins(raw: string): ManikinLiveSummary[] | null {
-      try {
-        const parsed: unknown = JSON.parse(raw);
-        if (!Array.isArray(parsed)) {
-          return null;
-        }
-        return parsed as ManikinLiveSummary[];
-      } catch {
-        return null;
-      }
-    }
-
     function connectManikinStream() {
-      if (cancelled) {
+      if (cancelled) return;
+      if (!token) {
+        setManikinsStreamState("auth");
+        setManikinsError("Authentication required for live stream.");
         return;
       }
 
-      if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
-        setManikinsStreamState("unavailable");
-        setManikinsError("Browser EventSource is not available.");
-        startFallbackPolling();
-        return;
-      }
+      if (sseClient) return;
 
       setManikinsStreamState("connecting");
-      const stream = new EventSource(getLiveManikinsStreamUrl(), { withCredentials: true });
-      eventSource = stream;
+      setManikinsError(null);
+      stopFallbackPolling();
 
-      stream.onopen = () => {
-        if (cancelled) {
-          return;
-        }
+      sseClient = createSseClient<ManikinLiveSummary[]>(
+        getLiveManikinsStreamUrl(),
+        {
+          onOpen: () => {
+            if (cancelled) return;
+            setManikinsStreamState("connected");
+            setManikinsError(null);
+            stopFallbackPolling();
+          },
+          onMessage: (payload) => {
+            if (cancelled) return;
+            applyManikinSnapshot(payload);
+            setManikinsLoading(false);
+          },
+          onError: (error) => {
+            if (cancelled) return;
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.startsWith("AUTH")) {
+              setManikinsStreamState("auth");
+              setManikinsError("Authentication required for live stream.");
+              return;
+            }
 
-        setManikinsStreamState("connected");
-        setManikinsError(null);
-        stopFallbackPolling();
-      };
-
-      stream.addEventListener("manikins-live", (event) => {
-        if (cancelled) {
-          return;
-        }
-
-        const payload = safeParseManikins((event as MessageEvent<string>).data);
-        if (!payload) {
-          return;
-        }
-
-        applyManikinSnapshot(payload);
-        setManikinsLoading(false);
-      });
-
-      stream.onerror = () => {
-        if (cancelled) {
-          return;
-        }
-
-        setManikinsStreamState("reconnecting");
-        setManikinsError("Live stream disconnected. Reconnecting...");
-        startFallbackPolling();
-
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
-        }
-
-        if (!reconnectTimer) {
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null;
-            connectManikinStream();
-          }, 2000);
-        }
-      };
+            setManikinsStreamState("reconnecting");
+            setManikinsError("Live stream disconnected. Reconnecting...");
+            startFallbackPolling();
+          },
+        },
+        (_eventName, payload) => {
+          try {
+            const parsed: unknown = JSON.parse(payload);
+            if (!Array.isArray(parsed)) {
+              return [];
+            }
+            return [parsed as ManikinLiveSummary[]];
+          } catch {
+            return [];
+          }
+        },
+      );
+      sseClient.start();
     }
 
     loadServiceInfo();
@@ -633,11 +631,11 @@ export default function InstructorDashboard({
     
     return () => {
       cancelled = true;
-      if (eventSource) {
-        eventSource.close();
-      }
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
+      if (sseClient) {
+        try {
+          sseClient.stop();
+        } catch {}
+        sseClient = null;
       }
       stopFallbackPolling();
       clearInterval(serviceInfoInterval);
@@ -645,7 +643,7 @@ export default function InstructorDashboard({
       clearInterval(registryInterval);
       window.removeEventListener("resq:device-registered", handleDeviceRegistered as EventListener);
     };
-  }, []);
+  }, [token]);
 
   const manikinByDeviceId = useMemo(() => {
     return new Map(manikins.map((manikin) => [manikin.deviceId, manikin]));

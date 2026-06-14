@@ -1,5 +1,6 @@
 package lk.resq.localhub.controller;
 
+import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.SessionLiveView;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.LiveStreamService;
@@ -61,8 +62,20 @@ public class LiveStreamController {
     @GetMapping(path = "/sessions/live/{sessionId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> streamSessionLive(HttpServletRequest request, @PathVariable String sessionId) {
         try {
-            // TODO: allow TRAINEE to subscribe to their own session when ownership is implemented.
-            authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
+            AuthUser user = authService.requireAuth(request);
+            if (user.role() == UserRole.TRAINEE) {
+                SessionLiveView initialPayload = activeSessionService.getSessionLiveView(sessionId)
+                        .or(() -> manikinRegistryService.getSessionLiveView(sessionId))
+                        .orElse(null);
+                if (initialPayload == null || initialPayload.traineeId() == null ||
+                    (!initialPayload.traineeId().equalsIgnoreCase(user.id()) &&
+                     !initialPayload.traineeId().equalsIgnoreCase(user.username()))) {
+                    throw new ForbiddenException("You do not have access to this resource.");
+                }
+            } else if (user.role() != UserRole.ADMIN && user.role() != UserRole.INSTRUCTOR) {
+                throw new ForbiddenException("You do not have access to this resource.");
+            }
+
             SessionLiveView initialPayload = activeSessionService.getSessionLiveView(sessionId)
                     .or(() -> manikinRegistryService.getSessionLiveView(sessionId))
                     .orElse(null);

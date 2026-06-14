@@ -1,28 +1,54 @@
 # Dashboard browser user: read-only live topics for display.
 user dashboard
+topic read resq/+/status
+topic read resq/+/heartbeat
+topic read resq/+/telemetry
+topic read resq/+/debug
+topic read resq/+/events
+topic read resq/+/events/calibration
+topic read resq/+/events/error
 topic read resq/manikins/+/status
 topic read resq/manikins/+/heartbeat
 topic read resq/manikins/+/telemetry
+topic read resq/manikins/+/debug
 topic read resq/manikins/+/events
+topic read resq/manikins/+/events/calibration
+topic read resq/manikins/+/events/error
 
 # Backend user: read device live topics and publish firmware command topics.
 user backend
+topic read resq/+/status
+topic read resq/+/heartbeat
+topic read resq/+/telemetry
+topic read resq/+/debug
+topic read resq/+/events
+topic read resq/+/events/calibration
+topic read resq/+/events/error
+topic write resq/+/cmd/#
 topic read resq/manikins/+/status
 topic read resq/manikins/+/heartbeat
 topic read resq/manikins/+/telemetry
+topic read resq/manikins/+/debug
 topic read resq/manikins/+/events
+topic read resq/manikins/+/events/calibration
+topic read resq/manikins/+/events/error
 topic write resq/manikins/+/cmd/#
 
-# Interim firmware/device role for final demos before per-device provisioning exists.
-# TODO: replace this shared device role with per-device usernames and pattern ACLs:
-#   pattern write resq/manikins/%u/status
-#   pattern write resq/manikins/%u/heartbeat
-#   pattern write resq/manikins/%u/telemetry
-#   pattern write resq/manikins/%u/events
-#   pattern read  resq/manikins/%u/cmd/#
+# Interim firmware/device role.
 user device_demo
+topic write resq/+/status
+topic write resq/+/heartbeat
+topic write resq/+/telemetry
+topic write resq/+/debug
+topic write resq/+/events
+topic write resq/+/events/calibration
+topic write resq/+/events/error
+topic read resq/+/cmd/#
 topic write resq/manikins/+/status
 topic write resq/manikins/+/heartbeat
 topic write resq/manikins/+/telemetry
+topic write resq/manikins/+/debug
 topic write resq/manikins/+/events
+topic write resq/manikins/+/events/calibration
+topic write resq/manikins/+/events/error
 topic read resq/manikins/+/cmd/#

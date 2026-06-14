@@ -9,6 +9,8 @@ public class CloudSyncProperties {
 
     private boolean enabled = false;
     private String baseUrl = "http://localhost:19080";
+    private String hubId = "";
+    private String hubKey = "";
     private int batchSize = 10;
     private long fixedDelayMs = 30_000;
     private long requestTimeoutMs = 5_000;
@@ -60,5 +62,33 @@ public class CloudSyncProperties {
 
     public void setMaxRetryCount(int maxRetryCount) {
         this.maxRetryCount = maxRetryCount;
+    }
+
+    public String getHubId() {
+        return hubId;
+    }
+
+    public void setHubId(String hubId) {
+        this.hubId = hubId;
+    }
+
+    public String getHubKey() {
+        return hubKey;
+    }
+
+    public void setHubKey(String hubKey) {
+        this.hubKey = hubKey;
+    }
+
+    public boolean hasCredentials() {
+        return hasText(hubId) && hasText(hubKey);
+    }
+
+    public boolean isReadyForUpload() {
+        return hasText(baseUrl) && hasText(hubId) && hasText(hubKey);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

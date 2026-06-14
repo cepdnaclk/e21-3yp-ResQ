@@ -29,9 +29,15 @@ public class CloudSyncClient implements CloudSyncGateway {
 
     @Override
     public CloudSyncResult uploadSessionSummary(String payloadJson) throws CloudSyncException {
+        if (!properties.hasCredentials()) {
+            throw new CloudSyncException("Cloud sync hub credentials are missing. Configure RESQ_CLOUD_SYNC_HUB_ID and RESQ_CLOUD_SYNC_HUB_KEY.");
+        }
+
         HttpRequest request = HttpRequest.newBuilder(sessionSummariesUri())
                 .timeout(Duration.ofMillis(properties.getRequestTimeoutMs()))
                 .header("Content-Type", "application/json")
+                .header("X-ResQ-Hub-Id", properties.getHubId())
+                .header("X-ResQ-Hub-Key", properties.getHubKey())
                 .POST(HttpRequest.BodyPublishers.ofString(payloadJson))
                 .build();
 

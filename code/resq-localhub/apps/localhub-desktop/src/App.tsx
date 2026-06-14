@@ -1,60 +1,126 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ROUTE_ROLE_RULES, type UserRole } from "@resq/shared";
 import { useAuth } from "./auth/AuthContext";
-import AccessDeniedPage from "./pages/AccessDeniedPage";
-import LoginPage from "./pages/LoginPage";
-import HomePage from "./pages/HomePage";
-import SetupPage from "./pages/SetupPage";
-import DiagnosticsPage from "./pages/DiagnosticsPage";
-import AdminUsersPage from "./pages/AdminUsersPage";
-import InstructorDashboard from "./pages/InstructorDashboard";
-import TraineeDashboard from "./pages/TraineeDashboard";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "./lib/accessHost";
-import ProtectedRoute from "./auth/ProtectedRoute";
-import RoleBasedRoute from "./auth/RoleBasedRoute";
 
-type Page = "home" | "setup" | "diagnostics" | "users" | "instructor" | "trainee";
-type RouteType = "desktop" | "login" | "access-denied" | "instructor" | "trainee";
+// Import V2 Pages
+import V2LoginPage from "./pages/v2/LoginPage";
+import V2SetupFirstAdminPage from "./pages/v2/SetupFirstAdminPage";
+import V2LocalHubHomePage from "./pages/v2/LocalHubHomePage";
+import V2InstructorDashboardPage from "./pages/v2/InstructorDashboardPage";
+import V2PairManikinPage from "./pages/v2/PairManikinPage";
+import V2ManikinReadinessPage from "./pages/v2/ManikinReadinessPage";
+import V2InstructorLiveSessionPage from "./pages/v2/InstructorLiveSessionPage";
+import V2TraineeLiveSessionPage from "./pages/v2/TraineeLiveSessionPage";
+import V2RecentSessionsPage from "./pages/v2/RecentSessionsPage";
+import V2SessionReviewPage from "./pages/v2/SessionReviewPage";
+import V2AdminUsersPage from "./pages/v2/AdminUsersPage";
+import V2TechnicianDiagnosticsPage from "./pages/v2/TechnicianDiagnosticsPage";
+import V2AccessDeniedPage from "./pages/v2/AccessDeniedPage";
+import V2CoursesPage from "./pages/v2/CoursesPage";
+import V2CourseDetailPage from "./pages/v2/CourseDetailPage";
+import V2StartSessionWizardPage from "./pages/v2/StartSessionWizardPage";
+import V2ActiveSessionsPage from "./pages/v2/ActiveSessionsPage";
+import V2AdminSyncDashboardPage from "./pages/v2/AdminSyncDashboardPage";
+import V2DemoChecklistPage from "./pages/v2/DemoChecklistPage";
 
-function getRouteFromPathname(): RouteType {
-  const pathname = window.location.pathname;
-  if (pathname === "/login" || pathname === "/login/") {
-    return "login";
-  }
-  if (pathname === "/access-denied" || pathname === "/access-denied/") {
-    return "access-denied";
-  }
-  if (pathname === "/instructor" || pathname === "/instructor/") {
-    return "instructor";
-  }
-  if (pathname === "/trainee" || pathname === "/trainee/") {
-    return "trainee";
-  }
-  return "desktop";
+// Import Legacy Pages
+import LegacyInstructorDashboard from "./pages/InstructorDashboard";
+import LegacyTraineeDashboard from "./pages/TraineeDashboard";
+
+// Import Layout
+import AppShell from "./layouts/AppShell";
+
+type RouteState =
+  | { name: "home" }
+  | { name: "login" }
+  | { name: "setup" }
+  | { name: "courses" }
+  | { name: "course-detail"; courseId: string }
+  | { name: "start-session" }
+  | { name: "live-sessions" }
+  | { name: "instructor" }
+  | { name: "pair-manikin" }
+  | { name: "readiness"; deviceId: string }
+  | { name: "instructor-live"; sessionId: string }
+  | { name: "trainee-live"; sessionId: string }
+  | { name: "sessions" }
+  | { name: "session-review"; sessionId: string }
+  | { name: "admin-users" }
+  | { name: "admin-sync" }
+  | { name: "demo-checklist" }
+  | { name: "diagnostics" }
+  | { name: "access-denied" }
+  | { name: "legacy-instructor" }
+  | { name: "legacy-trainee" };
+
+function parseRoute(path: string): RouteState {
+  const p = path.replace(/\/$/, "") || "/";
+
+  if (p === "/login") return { name: "login" };
+  if (p === "/setup") return { name: "setup" };
+  if (p === "/courses") return { name: "courses" };
+  if (p === "/start-session") return { name: "start-session" };
+  if (p === "/live-sessions") return { name: "live-sessions" };
+  if (p === "/instructor") return { name: "instructor" };
+  if (p === "/instructor/pair") return { name: "pair-manikin" };
+  if (p === "/sessions") return { name: "sessions" };
+  if (p === "/admin/users") return { name: "admin-users" };
+  if (p === "/admin/sync") return { name: "admin-sync" };
+  if (p === "/demo-checklist") return { name: "demo-checklist" };
+  if (p === "/diagnostics") return { name: "diagnostics" };
+  if (p === "/access-denied") return { name: "access-denied" };
+  if (p === "/legacy/instructor") return { name: "legacy-instructor" };
+  if (p === "/legacy/trainee") return { name: "legacy-trainee" };
+
+  // /instructor/manikins/:deviceId/readiness
+  const readinessMatch = p.match(/^\/instructor\/manikins\/([^/]+)\/readiness$/);
+  if (readinessMatch) return { name: "readiness", deviceId: decodeURIComponent(readinessMatch[1]) };
+
+  // /instructor/sessions/:sessionId/live
+  const instLiveMatch = p.match(/^\/instructor\/sessions\/([^/]+)\/live$/);
+  if (instLiveMatch) return { name: "instructor-live", sessionId: decodeURIComponent(instLiveMatch[1]) };
+
+  // /trainee/sessions/:sessionId/live
+  const traLiveMatch = p.match(/^\/trainee\/sessions\/([^/]+)\/live$/);
+  if (traLiveMatch) return { name: "trainee-live", sessionId: decodeURIComponent(traLiveMatch[1]) };
+
+  // /sessions/:sessionId
+  const sessionReviewMatch = p.match(/^\/sessions\/([^/]+)$/);
+  if (sessionReviewMatch) return { name: "session-review", sessionId: decodeURIComponent(sessionReviewMatch[1]) };
+
+  // /courses/:courseId
+  const courseDetailMatch = p.match(/^\/courses\/([^/]+)$/);
+  if (courseDetailMatch) return { name: "course-detail", courseId: decodeURIComponent(courseDetailMatch[1]) };
+
+  if (p === "/") return { name: "home" };
+  return { name: "home" };
 }
 
 export default function App() {
   const { currentUser, isLoading, bootstrap, logout } = useAuth();
-  const [route] = useState<RouteType>(() => getRouteFromPathname());
-  const [page, setPage] = useState<Page>("home");
+  const [currentRoute, setCurrentRoute] = useState<RouteState>(() => parseRoute(window.location.pathname));
   const [manualLanIpOverride, setManualLanIpOverride] = useState<string | null>(null);
-  const [traineeSessionId, setTraineeSessionId] = useState<string | null>(null);
-  const [liveTime, setLiveTime] = useState(new Date());
   const [connectionHealthy, setConnectionHealthy] = useState(true);
   const [lastApiSuccessAt, setLastApiSuccessAt] = useState<number | null>(() => Date.now());
-  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
-  const [pageTransitionKey, setPageTransitionKey] = useState(0);
   const fetchPatchedRef = useRef(false);
+
+  // Sync popstate (back/forward browser buttons)
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentRoute(parseRoute(window.location.pathname));
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function navigate(path: string) {
+    window.history.pushState({}, "", path);
+    setCurrentRoute(parseRoute(path));
+  }
 
   useEffect(() => {
     const saved = window.localStorage.getItem(MANUAL_LAN_IP_STORAGE_KEY);
     setManualLanIpOverride(sanitizeManualLanIp(saved ?? ""));
-  }, []);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setLiveTime(new Date()), 1000);
-    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -84,346 +150,216 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    setPageTransitionKey((current) => current + 1);
-    setQuickActionsOpen(false);
-  }, [page]);
-
-  const commandPages = useMemo(
-    () => [
-      { key: "home" as const, label: "Home" },
-      { key: "instructor" as const, label: "Instructor" },
-      { key: "trainee" as const, label: "Trainee" },
-      ...(currentUser?.role === "ADMIN" ? [{ key: "users" as const, label: "Users" }, { key: "diagnostics" as const, label: "Diagnostics" }] : []),
-    ],
-    [currentUser?.role],
-  );
-
-  function copyDiagnostics() {
-    const payload = {
-      user: currentUser?.displayName ?? "unknown",
-      role: currentUser?.role ?? "unknown",
-      page,
-      route,
-      time: liveTime.toISOString(),
-      connectionHealthy,
-      lastApiSuccessAt,
-      manualLanIpOverride,
-    };
-    void navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+  async function handleLogout() {
+    await logout();
+    navigate("/login");
   }
 
-  function refreshAll() {
-    window.location.reload();
-  }
-
-  function goHome() {
-    setPage("home");
-  }
-
+  // 1. Loading state
   if (isLoading) {
     return (
-      <div style={{ padding: "24px", fontFamily: "Segoe UI, -apple-system, BlinkMacSystemFont, sans-serif" }}>
+      <div className="p-6 font-sans text-gray-700">
         Loading authentication...
       </div>
     );
   }
 
-  if (!currentUser || route === "login") {
-    return <LoginPage firstRunRequired={bootstrap?.requiresFirstAdmin ?? false} />;
-  }
-
-  if (route === "access-denied") {
-    return <AccessDeniedPage />;
-  }
-
-  if (route === "instructor") {
-    return (
-      <RoleBasedRoute allowedRoles={ROUTE_ROLE_RULES.instructor}>
-        <InstructorDashboard manualLanIpOverride={manualLanIpOverride} />
-      </RoleBasedRoute>
-    );
-  }
-
-  if (route === "trainee") {
-    return (
-      <ProtectedRoute allowedRoles={ROUTE_ROLE_RULES.trainee}>
-        <TraineeDashboard />
-      </ProtectedRoute>
-    );
-  }
-
-  if (currentUser.role === "TRAINEE") {
-    return <TraineeDashboard embeddedInDesktop={true} initialSessionId={traineeSessionId} />;
-  }
-
-  function handleApplyManualLanIpOverride(value: string) {
-    const normalized = sanitizeManualLanIp(value);
-    setManualLanIpOverride(normalized);
-
-    if (normalized) {
-      window.localStorage.setItem(MANUAL_LAN_IP_STORAGE_KEY, normalized);
-      return;
+  // 2. Unauthenticated flows
+  if (!currentUser) {
+    if (bootstrap?.requiresFirstAdmin) {
+      return <V2SetupFirstAdminPage />;
     }
-
-    window.localStorage.removeItem(MANUAL_LAN_IP_STORAGE_KEY);
+    return <V2LoginPage />;
   }
 
-  function handleClearManualLanIpOverride() {
-    setManualLanIpOverride(null);
-    window.localStorage.removeItem(MANUAL_LAN_IP_STORAGE_KEY);
+  // 3. Role enforcement rules (Correction 8 / TASK 2)
+  const isInstructorOrAdmin = currentUser.role === "ADMIN" || currentUser.role === "INSTRUCTOR";
+  const isAdmin = currentUser.role === "ADMIN";
+  const isTrainee = currentUser.role === "TRAINEE";
+
+  // ADMIN only routes
+  if (currentRoute.name === "admin-users" && !isAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "admin-sync" && !isAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "diagnostics" && !isAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
 
-  async function handleLogout() {
-    await logout();
-    window.location.assign("/login");
+  // ADMIN or INSTRUCTOR only routes
+  if (currentRoute.name === "demo-checklist" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
+
+  // ADMIN or INSTRUCTOR only routes
+  if (currentRoute.name === "instructor" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "courses" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "course-detail" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "start-session" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "live-sessions" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "instructor-live" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "readiness" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "pair-manikin" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+  if (currentRoute.name === "legacy-instructor" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+
+  // TRAINEE only routes (redirect ADMIN/INSTRUCTOR to /live-sessions)
+  if (currentRoute.name === "trainee-live" && !isTrainee) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/live-sessions")} />;
+  }
+  if (currentRoute.name === "legacy-trainee" && !isTrainee) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/live-sessions")} />;
+  }
+
+  // 4. Trainee role quick-routing (if trainee enters dashboard, route to legacy-trainee by default)
+  if (currentUser.role === "TRAINEE" && currentRoute.name !== "trainee-live" && currentRoute.name !== "legacy-trainee" && currentRoute.name !== "session-review") {
+    return <LegacyTraineeDashboard embeddedInDesktop={true} legacy={false} navigate={navigate} />;
+  }
+
+  // 5. Standalone full screen V2 routes (not wrapped in standard AppShell)
+  if (currentRoute.name === "trainee-live") {
+    return (
+      <V2TraineeLiveSessionPage
+        sessionId={currentRoute.sessionId}
+        onSessionEnded={() => navigate("/")}
+      />
+    );
+  }
+
+  // 6. Standalone legacy routes
+  if (currentRoute.name === "legacy-instructor") {
+    return <LegacyInstructorDashboard manualLanIpOverride={manualLanIpOverride} />;
+  }
+  if (currentRoute.name === "legacy-trainee") {
+    return <LegacyTraineeDashboard embeddedInDesktop={false} legacy={true} navigate={navigate} />;
+  }
+  if (currentRoute.name === "access-denied") {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
+
+  // 7. Map current route to AppShell key highlighting
+  let activeShellKey = "home";
+  if (
+    currentRoute.name === "instructor" ||
+    currentRoute.name === "pair-manikin" ||
+    currentRoute.name === "readiness" ||
+    currentRoute.name === "instructor-live"
+  ) {
+    activeShellKey = "instructor";
+  } else if (currentRoute.name === "sessions" || currentRoute.name === "session-review") {
+    activeShellKey = "sessions";
+  } else if (currentRoute.name === "admin-users") {
+    activeShellKey = "users";
+  } else if (currentRoute.name === "admin-sync") {
+    activeShellKey = "admin-sync";
+  } else if (currentRoute.name === "demo-checklist") {
+    activeShellKey = "demo-checklist";
+  } else if (currentRoute.name === "diagnostics") {
+    activeShellKey = "diagnostics";
+  } else if (currentRoute.name === "courses" || currentRoute.name === "course-detail") {
+    activeShellKey = "courses";
+  } else if (currentRoute.name === "start-session") {
+    activeShellKey = "start-session";
+  } else if (currentRoute.name === "live-sessions") {
+    activeShellKey = "live-sessions";
+  }
+
+  const handlePageChange = (key: string) => {
+    if (key === "home") navigate("/");
+    else if (key === "instructor") navigate("/instructor");
+    else if (key === "sessions") navigate("/sessions");
+    else if (key === "users") navigate("/admin/users");
+    else if (key === "admin-sync") navigate("/admin/sync");
+    else if (key === "demo-checklist") navigate("/demo-checklist");
+    else if (key === "diagnostics") navigate("/diagnostics");
+    else if (key === "courses") navigate("/courses");
+    else if (key === "start-session") navigate("/start-session");
+    else if (key === "live-sessions") navigate("/live-sessions");
+  };
 
   return (
-    <div className={`command-shell ${page === "home" ? "command-shell--home" : ""}`}>
-      <div className="command-shell__parallax" aria-hidden="true" />
-      <header className="command-shell__topbar command-shell__topbar--sticky">
-        <div className="app-shell__brand">
-          <div className="app-shell__logo-wrap" aria-hidden="true">
-            <img
-              src="/resq-logo-dark-512.png"
-              alt=""
-              className="app-shell__logo"
-            />
-          </div>
-          <div>
-            <p className="app-shell__kicker">ResQ Local Hub</p>
-            <h1 className="app-shell__title">Command Center</h1>
-            <p className="app-shell__subtitle">
-              Train smarter with local-first control, live session workflows, and real-time device diagnostics.
-            </p>
-          </div>
-        </div>
-        <div className="command-shell__statusbar">
-          <div className="command-shell__status-chip">
-            <span className="command-shell__status-label">Time</span>
-            <span className="command-shell__status-value">
-              {liveTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-            </span>
-          </div>
-          <div className="status-indicator" tabIndex={0}>
-            <div className={`status-indicator__wrapper status-indicator__wrapper--${connectionHealthy ? "healthy" : "offline"}`}>
-              {connectionHealthy ? (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="2" y="3" width="20" height="8" rx="2" ry="2" />
-                    <rect x="2" y="13" width="20" height="8" rx="2" ry="2" />
-                    <line x1="6" y1="7" x2="6.01" y2="7" />
-                    <line x1="6" y1="17" x2="6.01" y2="17" />
-                  </svg>
-                  <span className="status-indicator__dot status-indicator__dot--healthy" />
-                </>
-              ) : (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-                    <line x1="12" y1="9" x2="12" y2="13" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
-                  </svg>
-                  <span className="status-indicator__dot status-indicator__dot--offline" />
-                </>
-              )}
-            </div>
-            <div className="status-indicator__tooltip" role="tooltip">
-              {connectionHealthy
-                ? `Healthy - Last update: ${lastApiSuccessAt ? new Date(lastApiSuccessAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`
-                : "Offline - Unable to reach backend"}
-            </div>
-          </div>
-          <button type="button" className="button button--ghost" onClick={handleLogout}>
-            Logout
-          </button>
-        </div>
-      </header>
-
-      <div className="command-shell__body">
-        <main className="command-shell__main">
-          <div key={`${page}-${pageTransitionKey}`} className="command-shell__page command-shell__page--enter">
-            {page === "home" && (
-              <HomePage
-                manualLanIpOverride={manualLanIpOverride}
-                onOpenInstructorDashboard={() => setPage("instructor")}
-                onOpenTraineeDashboard={() => setPage("trainee")}
-              />
-            )}
-            {page === "instructor" && (
-              <InstructorDashboard
-                embeddedInDesktop={true}
-                manualLanIpOverride={manualLanIpOverride}
-                onOpenTraineeDashboard={(sessionId) => {
-                  setTraineeSessionId(sessionId);
-                  setPage("trainee");
-                }}
-              />
-            )}
-            {page === "trainee" && (
-              <TraineeDashboard
-                embeddedInDesktop={true}
-                initialSessionId={traineeSessionId}
-              />
-            )}
-            {page === "setup" && (
-              <SetupPage
-                manualLanIpOverride={manualLanIpOverride}
-                onApplyManualLanIpOverride={handleApplyManualLanIpOverride}
-                onClearManualLanIpOverride={handleClearManualLanIpOverride}
-              />
-            )}
-            {page === "users" && currentUser.role === "ADMIN" && <AdminUsersPage />}
-            {page === "diagnostics" && currentUser.role === "ADMIN" && <DiagnosticsPage />}
-          </div>
-        </main>
-      </div>
-
-      {/* Invisible backdrop to dismiss menu on click outside */}
-      {quickActionsOpen && (
-        <div
-          className="assistive-touch-backdrop"
-          onClick={() => setQuickActionsOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1050,
-            background: "transparent",
-            cursor: "default",
-          }}
+    <AppShell
+      currentUser={currentUser}
+      connectionHealthy={connectionHealthy}
+      lastApiSuccessAt={lastApiSuccessAt}
+      onLogout={handleLogout}
+      page={activeShellKey}
+      setPage={handlePageChange}
+    >
+      {currentRoute.name === "home" && (
+        <V2LocalHubHomePage
+          onOpenInstructorDashboard={() => navigate("/instructor")}
         />
       )}
-
-      {/* AssistiveTouch Floating Menu Wrapper */}
-      <div className={`assistive-touch ${quickActionsOpen ? "assistive-touch--open" : ""}`}>
-        {/* Floating Circle Trigger Button */}
-        <button
-          type="button"
-          className="assistive-touch__fab"
-          onClick={() => setQuickActionsOpen(true)}
-          aria-label="Open quick actions"
-          title="Open quick actions"
-        >
-          <div className="assistive-touch__ring" />
-        </button>
-
-        {/* Expanded 2x2 Grid Menu */}
-        <div className="assistive-touch__menu">
-          <div className="assistive-touch__grid">
-            {/* 1. Go Home */}
-            <button
-              type="button"
-              className="assistive-touch__item"
-              onClick={() => {
-                goHome();
-                setQuickActionsOpen(false);
-              }}
-            >
-              <div className="assistive-touch__icon-wrap">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  <polyline points="9 22 9 12 15 12 15 22" />
-                </svg>
-              </div>
-              <span className="assistive-touch__label">Home</span>
-            </button>
-
-            {/* 2. Refresh All */}
-            <button
-              type="button"
-              className="assistive-touch__item"
-              onClick={() => {
-                refreshAll();
-                setQuickActionsOpen(false);
-              }}
-            >
-              <div className="assistive-touch__icon-wrap">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                  <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-                  <path d="M16 16h5v5" />
-                </svg>
-              </div>
-              <span className="assistive-touch__label">Refresh</span>
-            </button>
-
-            {/* 3. Copy Diagnostics */}
-            <button
-              type="button"
-              className="assistive-touch__item"
-              onClick={() => {
-                copyDiagnostics();
-                setQuickActionsOpen(false);
-              }}
-            >
-              <div className="assistive-touch__icon-wrap">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              </div>
-              <span className="assistive-touch__label">Diagnostics</span>
-            </button>
-
-            {/* 4. Collapse/Close */}
-            <button
-              type="button"
-              className="assistive-touch__item"
-              onClick={() => setQuickActionsOpen(false)}
-            >
-              <div className="assistive-touch__icon-wrap">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </div>
-              <span className="assistive-touch__label">Close</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Floating Navigation Menu Toggle Button */}
-      <button
-        type="button"
-        className="floating-nav-toggle"
-        onClick={() => setNavOpen(true)}
-        aria-label="Open navigation menu"
-        title="Open navigation menu"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="4" y1="12" x2="20" y2="12"></line>
-          <line x1="4" y1="6" x2="20" y2="6"></line>
-          <line x1="4" y1="18" x2="20" y2="18"></line>
-        </svg>
-      </button>
-
-      {/* Navigation Overlay and Modal */}
-      <div className={`floating-nav-overlay ${navOpen ? "floating-nav-overlay--open" : ""}`} onClick={() => setNavOpen(false)}>
-        <div className="floating-nav-popup" onClick={(e) => e.stopPropagation()}>
-          <h2 className="floating-nav-popup__title">Navigation</h2>
-          <div className="floating-nav-popup__list">
-            {commandPages.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className={`floating-nav-popup__item ${page === item.key ? "floating-nav-popup__item--active" : ""}`}
-                onClick={() => {
-                  setPage(item.key);
-                  setNavOpen(false);
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="floating-nav-popup__close" onClick={() => setNavOpen(false)}>
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+      {currentRoute.name === "instructor" && (
+        <V2InstructorDashboardPage
+          onStartSession={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
+          onRunReadinessCheck={(did) => navigate(`/instructor/manikins/${did}/readiness`)}
+          onPairNewManikin={() => navigate("/instructor/pair")}
+          onViewRecentSessions={() => navigate("/sessions")}
+        />
+      )}
+      {currentRoute.name === "pair-manikin" && (
+        <V2PairManikinPage onBack={() => navigate("/instructor")} />
+      )}
+      {currentRoute.name === "readiness" && (
+        <V2ManikinReadinessPage
+          deviceId={currentRoute.deviceId}
+          onBack={() => navigate("/instructor")}
+        />
+      )}
+      {currentRoute.name === "instructor-live" && (
+        <V2InstructorLiveSessionPage
+          sessionId={currentRoute.sessionId}
+          onSessionEnded={(sid) => navigate(`/sessions/${sid}`)}
+        />
+      )}
+      {currentRoute.name === "sessions" && (
+        <V2RecentSessionsPage onSelectSession={(sid) => navigate(`/sessions/${sid}`)} />
+      )}
+      {currentRoute.name === "session-review" && (
+        <V2SessionReviewPage
+          sessionId={currentRoute.sessionId}
+          onBack={() => navigate("/sessions")}
+        />
+      )}
+      {currentRoute.name === "admin-users" && <V2AdminUsersPage />}
+      {currentRoute.name === "admin-sync" && <V2AdminSyncDashboardPage navigate={navigate} />}
+      {currentRoute.name === "demo-checklist" && <V2DemoChecklistPage navigate={navigate} />}
+      {currentRoute.name === "diagnostics" && <V2TechnicianDiagnosticsPage />}
+      {currentRoute.name === "courses" && <V2CoursesPage />}
+      {currentRoute.name === "course-detail" && (
+        <V2CourseDetailPage
+          courseId={currentRoute.courseId}
+          onBack={() => navigate("/courses")}
+        />
+      )}
+      {currentRoute.name === "start-session" && <V2StartSessionWizardPage />}
+      {currentRoute.name === "live-sessions" && (
+        <V2ActiveSessionsPage
+          onViewLive={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
+          onNavigateHome={() => navigate("/")}
+        />
+      )}
+    </AppShell>
   );
 }

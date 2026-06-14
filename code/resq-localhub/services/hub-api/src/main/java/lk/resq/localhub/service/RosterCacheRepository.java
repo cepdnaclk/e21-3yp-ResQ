@@ -718,6 +718,92 @@ public class RosterCacheRepository {
         }
     }
 
+    public synchronized boolean existsActiveCloudUser(String cloudUserId, java.util.Set<String> allowedRoles) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT role
+                     FROM cloud_synced_users
+                     WHERE cloud_user_id = ?
+                       AND active = 1
+                     LIMIT 1
+                     """)) {
+            ps.setString(1, cloudUserId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String role = rs.getString("role");
+                    return allowedRoles == null || allowedRoles.isEmpty() || allowedRoles.contains(role);
+                }
+                return false;
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to check active cloud user " + cloudUserId, error);
+        }
+    }
+
+    public synchronized boolean existsActiveCourse(String cloudCourseId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT COUNT(*) AS count
+                     FROM local_courses
+                     WHERE cloud_course_id = ?
+                       AND active = 1
+                     """)) {
+            ps.setString(1, cloudCourseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt("count") > 0;
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to check active course " + cloudCourseId, error);
+        }
+    }
+
+    public synchronized boolean isInstructorAssignedToCourse(String cloudCourseId, String instructorCloudUserId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT COUNT(*) AS count
+                     FROM (
+                       SELECT cloud_course_id FROM local_courses WHERE cloud_course_id = ? AND instructor_cloud_user_id = ? AND active = 1
+                       UNION ALL
+                       SELECT cloud_course_id FROM local_course_instructors WHERE cloud_course_id = ? AND instructor_cloud_user_id = ? AND active = 1
+                     )
+                     """)) {
+            ps.setString(1, cloudCourseId);
+            ps.setString(2, instructorCloudUserId);
+            ps.setString(3, cloudCourseId);
+            ps.setString(4, instructorCloudUserId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && rs.getInt("count") > 0;
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to check instructor assignment for course " + cloudCourseId, error);
+        }
+    }
+
+    public synchronized boolean isTraineeEnrolledInCourse(String cloudCourseId, String traineeCloudUserId) {
+        return isTraineeEnrolled(cloudCourseId, traineeCloudUserId);
+    }
+
+    public synchronized Optional<String> findPrimaryInstructorForCourse(String cloudCourseId) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     SELECT instructor_cloud_user_id
+                     FROM local_courses
+                     WHERE cloud_course_id = ?
+                       AND active = 1
+                     LIMIT 1
+                     """)) {
+            ps.setString(1, cloudCourseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.ofNullable(rs.getString("instructor_cloud_user_id"));
+                }
+                return Optional.empty();
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to find primary instructor for course " + cloudCourseId, error);
+        }
+    }
+
     private CourseView mapCourse(ResultSet rs) throws SQLException {
         return new CourseView(
                 rs.getString("cloud_course_id"),

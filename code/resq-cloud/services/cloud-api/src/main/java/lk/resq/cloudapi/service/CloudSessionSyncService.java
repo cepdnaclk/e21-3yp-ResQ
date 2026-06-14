@@ -65,22 +65,22 @@ public class CloudSessionSyncService {
 
     private static void validate(CloudSessionSummarySyncPayload payload) {
         if (payload == null) {
-            throw badRequest("Request body is required");
+            throw badRequest("invalid_payload", "Request body is required");
         }
         if (!CloudSyncContractVersion.CURRENT.equals(payload.contractVersion())) {
-            throw badRequest("contractVersion must be " + CloudSyncContractVersion.CURRENT);
+            throw badRequest("invalid_contract_version", "contractVersion must be " + CloudSyncContractVersion.CURRENT);
         }
         if (payload.entityType() != CloudSyncEntityType.SESSION_SUMMARY) {
-            throw badRequest("entityType must be SESSION_SUMMARY");
+            throw badRequest("invalid_entity_type", "entityType must be SESSION_SUMMARY");
         }
         if (isBlank(payload.localSessionId())) {
-            throw badRequest("localSessionId is required");
+            throw badRequest("invalid_session_id", "localSessionId is required");
         }
     }
 
     private static String idempotencyKey(String localHubId, String localSessionId) {
         if (isBlank(localSessionId)) {
-            throw badRequest("localSessionId is required");
+            throw badRequest("invalid_session_id", "localSessionId is required");
         }
         String hubIdentity = isBlank(localHubId) ? UNASSIGNED_LOCAL_HUB : localHubId.trim();
         return hubIdentity + ":" + localSessionId.trim();
@@ -90,8 +90,20 @@ public class CloudSessionSyncService {
         return value == null || value.isBlank();
     }
 
-    private static ResponseStatusException badRequest(String reason) {
-        return new ResponseStatusException(HttpStatus.BAD_REQUEST, reason);
+    private static lk.resq.cloudapi.exception.BadRequestException badRequest(String error, String reason) {
+        return new lk.resq.cloudapi.exception.BadRequestException(error, reason);
+    }
+
+    private static boolean isValidUuid(String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            UUID.fromString(value);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     private void validateCourseAndUsers(CloudSessionSummarySyncPayload payload) {
@@ -100,29 +112,36 @@ public class CloudSessionSyncService {
             return;
         }
 
+        if (!isValidUuid(courseId)) {
+            throw badRequest("invalid_course_id", "courseId must be a valid cloud UUID");
+        }
+
         // 1. courseId must exist and be active when provided.
         CloudCourse course = managementRepository.findCourseById(courseId)
-                .orElseThrow(() -> badRequest("Course not found: " + courseId));
+                .orElseThrow(() -> badRequest("invalid_course", "Course not found: " + courseId));
         if (!course.active()) {
-            throw badRequest("Course is inactive: " + courseId);
+            throw badRequest("invalid_course", "Course is inactive: " + courseId);
         }
 
         // 2. traineeId, if provided with courseId, must exist, be active, have role TRAINEE, and be enrolled in courseId.
         String traineeId = payload.traineeId();
         if (!isBlank(traineeId)) {
+            if (!isValidUuid(traineeId)) {
+                throw badRequest("invalid_user_id", "traineeId must be a valid cloud UUID");
+            }
             CloudUser trainee = managementRepository.findUserById(traineeId)
-                    .orElseThrow(() -> badRequest("Trainee not found: " + traineeId));
+                    .orElseThrow(() -> badRequest("invalid_user_id", "Trainee not found: " + traineeId));
             if (!trainee.active()) {
-                throw badRequest("Trainee is inactive: " + traineeId);
+                throw badRequest("invalid_user_id", "Trainee is inactive: " + traineeId);
             }
             if (trainee.role() != CloudUserRole.TRAINEE) {
-                throw badRequest("User " + traineeId + " does not have TRAINEE role");
+                throw badRequest("invalid_user_role", "User " + traineeId + " does not have TRAINEE role");
             }
             // Check enrollment
             CloudEnrollment enrollment = managementRepository.findEnrollment(courseId, traineeId)
-                    .orElseThrow(() -> badRequest("Trainee " + traineeId + " is not enrolled in course " + courseId));
+                    .orElseThrow(() -> badRequest("invalid_course_relationship", "Trainee " + traineeId + " is not enrolled in course " + courseId));
             if (!enrollment.active()) {
-                throw badRequest("Enrollment is inactive for trainee " + traineeId + " in course " + courseId);
+                throw badRequest("invalid_course_relationship", "Enrollment is inactive for trainee " + traineeId + " in course " + courseId);
             }
         }
 
@@ -132,17 +151,20 @@ public class CloudSessionSyncService {
         //    If instructorId role is ADMIN, no course instructor assignment is required.
         String instructorId = payload.instructorId();
         if (!isBlank(instructorId)) {
+            if (!isValidUuid(instructorId)) {
+                throw badRequest("invalid_user_id", "instructorId must be a valid cloud UUID");
+            }
             CloudUser instructor = managementRepository.findUserById(instructorId)
-                    .orElseThrow(() -> badRequest("Instructor not found: " + instructorId));
+                    .orElseThrow(() -> badRequest("invalid_user_id", "Instructor not found: " + instructorId));
             if (!instructor.active()) {
-                throw badRequest("Instructor is inactive: " + instructorId);
+                throw badRequest("invalid_user_id", "Instructor is inactive: " + instructorId);
             }
             if (instructor.role() != CloudUserRole.INSTRUCTOR && instructor.role() != CloudUserRole.ADMIN) {
-                throw badRequest("User " + instructorId + " is neither an INSTRUCTOR nor an ADMIN");
+                throw badRequest("invalid_user_role", "User " + instructorId + " is neither an INSTRUCTOR nor an ADMIN");
             }
             if (instructor.role() == CloudUserRole.INSTRUCTOR) {
                 if (course.instructorId() == null || !course.instructorId().equals(instructorId)) {
-                    throw badRequest("Instructor " + instructorId + " is not assigned to course " + courseId);
+                    throw badRequest("invalid_course_relationship", "Instructor " + instructorId + " is not assigned to course " + courseId);
                 }
             }
         }

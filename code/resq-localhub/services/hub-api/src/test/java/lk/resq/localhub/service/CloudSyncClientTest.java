@@ -27,9 +27,13 @@ class CloudSyncClientTest {
     @Test
     void postsJsonPayloadAndReadsCloudSessionId() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();
+        AtomicReference<String> requestHubId = new AtomicReference<>();
+        AtomicReference<String> requestHubKey = new AtomicReference<>();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/sync/session-summaries", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            requestHubId.set(exchange.getRequestHeaders().getFirst("X-ResQ-Hub-Id"));
+            requestHubKey.set(exchange.getRequestHeaders().getFirst("X-ResQ-Hub-Key"));
             byte[] response = """
                     {"accepted":true,"cloudSessionId":"cloud-123"}
                     """.getBytes(StandardCharsets.UTF_8);
@@ -48,6 +52,8 @@ class CloudSyncClientTest {
         assertThat(result.statusCode()).isEqualTo(201);
         assertThat(result.cloudSessionId()).isEqualTo("cloud-123");
         assertThat(requestBody.get()).contains("resq.cloud.session-summary.v1");
+        assertThat(requestHubId.get()).isEqualTo("hub-test-01");
+        assertThat(requestHubKey.get()).isEqualTo("key-test-01");
     }
 
     @Test
@@ -70,6 +76,8 @@ class CloudSyncClientTest {
     private CloudSyncClient clientForServer() {
         CloudSyncProperties properties = new CloudSyncProperties();
         properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        properties.setHubId("hub-test-01");
+        properties.setHubKey("key-test-01");
         properties.setRequestTimeoutMs(1_000);
         return new CloudSyncClient(properties, new ObjectMapper());
     }

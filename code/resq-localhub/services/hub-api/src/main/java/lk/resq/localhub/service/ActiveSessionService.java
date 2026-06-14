@@ -44,6 +44,7 @@ public class ActiveSessionService {
     private final FirmwareCalibrationService firmwareCalibrationService;
     private final SyncQueueService syncQueueService;
     private final RosterCacheRepository rosterRepository;
+    private final RateEstimatorRegistry rateEstimatorRegistry;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
@@ -54,7 +55,8 @@ public class ActiveSessionService {
             TraineeRecordsRepository traineeRecordsRepository,
             FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
-            RosterCacheRepository rosterRepository
+            RosterCacheRepository rosterRepository,
+            RateEstimatorRegistry rateEstimatorRegistry
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
@@ -64,6 +66,7 @@ public class ActiveSessionService {
         this.firmwareCalibrationService = firmwareCalibrationService;
         this.syncQueueService = syncQueueService;
         this.rosterRepository = rosterRepository;
+        this.rateEstimatorRegistry = rateEstimatorRegistry;
     }
 
     // Overload for backward compatibility / tests
@@ -76,7 +79,24 @@ public class ActiveSessionService {
             FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService
     ) {
-        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null);
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null, new RateEstimatorRegistry());
+    }
+
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository
+    ) {
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository, new RateEstimatorRegistry());
+    }
+
+    public RateEstimatorRegistry getRateEstimatorRegistry() {
+        return this.rateEstimatorRegistry;
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -97,6 +117,7 @@ public class ActiveSessionService {
                     throw new IllegalStateException(reason);
                 });
 
+        rateEstimatorRegistry.clearForDevice(deviceId);
         String traineeId = resolveTraineeId(request);
 
         String sessionId = UUID.randomUUID().toString();
@@ -158,6 +179,8 @@ public class ActiveSessionService {
         if (actor == null) {
             throw new UnauthorizedException("Authentication is required.");
         }
+
+        rateEstimatorRegistry.clearForDevice(deviceId);
 
         if (actor.role() == UserRole.TRAINEE) {
             throw new ForbiddenException("Trainees are not allowed to start instructor-led sessions.");
@@ -286,6 +309,7 @@ public class ActiveSessionService {
             throw new NoSuchElementException("Session " + sessionId + " was not found or is already ended");
         }
 
+        rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
         state.active = false;
         state.endedAt = Instant.now();
         activeSessionIdByDeviceId.remove(state.deviceId, sessionId);
@@ -344,6 +368,9 @@ public class ActiveSessionService {
 
         String payloadSessionId = firstText(payload, null, "sessionId", "session_id");
         if (payloadSessionId == null) {
+            payloadSessionId = activeSessionIdByDeviceId.get(normalizedDeviceId);
+        }
+        if (payloadSessionId == null) {
             return TelemetryValidationResult.rejected("payload sessionId is missing");
         }
 
@@ -372,7 +399,7 @@ public class ActiveSessionService {
         }
 
         TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                TelemetryPayloadNormalizer.normalize(payload, normalizedDeviceId);
+                TelemetryPayloadNormalizer.normalize(payload, normalizedDeviceId, payloadSessionId, rateEstimatorRegistry);
         if (!normalization.ok()) {
             return TelemetryValidationResult.rejected(normalization.reason());
         }
@@ -396,7 +423,7 @@ public class ActiveSessionService {
         }
 
         TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                TelemetryPayloadNormalizer.normalize(payload, deviceId);
+                TelemetryPayloadNormalizer.normalize(payload, deviceId, validation.sessionId(), rateEstimatorRegistry);
         if (!normalization.ok()) {
             logger.info("Rejected telemetry for device {}: {}", deviceId, normalization.reason());
             return;
@@ -440,12 +467,53 @@ public class ActiveSessionService {
         );
     }
 
+    public Optional<SessionLiveView> findActiveSessionForTrainee(AuthUser actor) {
+        if (actor == null) {
+            return Optional.empty();
+        }
+        String actorId = actor.id();
+        String actorUsername = actor.username();
+        String actorEmail = null;
+        if (rosterRepository != null) {
+            actorEmail = rosterRepository.findSyncedUserById(actorId)
+                    .map(RosterCacheRepository.SyncedUserRecord::email)
+                    .orElse(null);
+        }
+
+        for (ActiveSessionState state : sessionsById.values()) {
+            if (state.active && state.traineeId != null) {
+                boolean match = state.traineeId.equalsIgnoreCase(actorId) ||
+                                state.traineeId.equalsIgnoreCase(actorUsername) ||
+                                (actorEmail != null && state.traineeId.equalsIgnoreCase(actorEmail));
+                if (match) {
+                    return getSessionLiveView(state.sessionId);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     public Optional<SessionEndResponse> findCompletedSession(String sessionId) {
         return localSessionRepository.findById(sessionId);
     }
 
     public List<SessionEndResponse> listCompletedSessions() {
         return localSessionRepository.findAll();
+    }
+
+    public List<SessionEndResponse> listCompletedSessionsForTrainee(AuthUser actor) {
+        if (actor == null) {
+            return List.of();
+        }
+        String actorId = actor.id();
+        String actorUsername = actor.username();
+        String actorEmail = null;
+        if (rosterRepository != null) {
+            actorEmail = rosterRepository.findSyncedUserById(actorId)
+                    .map(RosterCacheRepository.SyncedUserRecord::email)
+                    .orElse(null);
+        }
+        return localSessionRepository.findByTraineeIdOrUsernameOrEmail(actorId, actorUsername, actorEmail);
     }
 
     public Optional<ActiveSessionInfo> findActiveSessionForDevice(String deviceId) {

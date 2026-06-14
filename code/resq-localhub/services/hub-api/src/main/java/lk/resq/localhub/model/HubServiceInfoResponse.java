@@ -13,6 +13,10 @@ public record HubServiceInfoResponse(
         @JsonProperty("dashboard_url")
         String dashboardUrl,
         @JsonProperty("local_ip")
-        String localIp
+        String localIp,
+        @JsonProperty("cloud_sync_enabled")
+        boolean cloudSyncEnabled,
+        @JsonProperty("roster_sync_enabled")
+        boolean rosterSyncEnabled
 ) {
 }

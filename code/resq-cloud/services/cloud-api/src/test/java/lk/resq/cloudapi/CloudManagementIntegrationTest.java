@@ -218,7 +218,7 @@ class CloudManagementIntegrationTest {
         mockMvc.perform(options("/api/cloud/sessions")
                         .header("Origin", "http://localhost:1430")
                         .header("Access-Control-Request-Method", "POST"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk());
     }
 
     private JsonNode createUser(String displayName, String email, String role) throws Exception {

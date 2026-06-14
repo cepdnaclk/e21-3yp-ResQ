@@ -13,10 +13,14 @@ final class TelemetryPayloadNormalizer {
     }
 
     static TelemetryNormalizationResult normalize(JsonNode payload) {
-        return normalize(payload, null);
+        return normalize(payload, null, null, null);
     }
 
     static TelemetryNormalizationResult normalize(JsonNode payload, String topicDeviceId) {
+        return normalize(payload, topicDeviceId, null, null);
+    }
+
+    static TelemetryNormalizationResult normalize(JsonNode payload, String topicDeviceId, String fallbackSessionId, RateEstimatorRegistry rateEstimatorRegistry) {
         List<String> warnings = new ArrayList<>();
         if (payload == null || !payload.isObject()) {
             return TelemetryNormalizationResult.rejected("payload must be a JSON object", warnings);
@@ -30,6 +34,9 @@ final class TelemetryPayloadNormalizer {
 
         String deviceId = payloadDeviceId != null ? payloadDeviceId : normalizedTopicDeviceId;
         String sessionId = firstText(payload, "sessionId", "session_id");
+        if (sessionId == null) {
+            sessionId = fallbackSessionId;
+        }
         if (deviceId == null) {
             return TelemetryNormalizationResult.rejected("payload deviceId is missing", warnings);
         }
@@ -51,10 +58,11 @@ final class TelemetryPayloadNormalizer {
         }
 
         Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
+
         Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
         Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
         Double pauseS = firstDouble(payload, "pauseS", "pause_s");
-        Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions");
+        Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions", "totalCompressions");
         Integer validCompressionCount = firstInt(payload, "validCompressionCount", "valid_compression_count");
         Integer recoilOkCount = firstInt(payload, "recoilOkCount", "recoil_ok_count");
         Integer incompleteRecoilCount = firstInt(payload, "incompleteRecoilCount", "incomplete_recoil_count");
@@ -77,6 +85,12 @@ final class TelemetryPayloadNormalizer {
 
         if (depthMm == null && depthProgress == null && depthOk == null && rateCpm == null && recoilOk == null) {
             return TelemetryNormalizationResult.rejected("payload is missing required metric-first fields", warnings);
+        }
+
+        if (isInvalidRate(rateCpm) && rateEstimatorRegistry != null) {
+            rateCpm = rateEstimatorRegistry.getOrEstimateRate(deviceId, sessionId, depthProgress, depthMm, firstLong(payload, "tsMs", "ts_ms"), rateCpm);
+        } else if (rateEstimatorRegistry != null) {
+            rateEstimatorRegistry.getOrEstimateRate(deviceId, sessionId, depthProgress, depthMm, firstLong(payload, "tsMs", "ts_ms"), rateCpm);
         }
 
         Object debugRaw = jsonValue(payload.get("debugRaw"));
@@ -114,6 +128,10 @@ final class TelemetryPayloadNormalizer {
         }
 
         return TelemetryNormalizationResult.accepted(metric, warnings);
+    }
+
+    private static boolean isInvalidRate(Double rate) {
+        return rate == null || rate == 0.0 || rate.isNaN() || rate < 0.0 || rate > 240.0;
     }
 
     private static String validateRanges(LiveMetricPayload metric) {

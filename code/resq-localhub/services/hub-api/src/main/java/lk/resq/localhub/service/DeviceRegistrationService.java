@@ -2,6 +2,8 @@ package lk.resq.localhub.service;
 
 import lk.resq.localhub.model.DeviceRegistrationRequest;
 import lk.resq.localhub.model.DeviceRegistrationResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
@@ -13,6 +15,7 @@ public class DeviceRegistrationService {
 
     private final HubServiceInfoService hubServiceInfoService;
     private final ConcurrentMap<String, String> deviceIdsByRegistrationKey = new ConcurrentHashMap<>();
+    private static final Logger LOG = LoggerFactory.getLogger(DeviceRegistrationService.class);
 
     public DeviceRegistrationService(HubServiceInfoService hubServiceInfoService) {
         this.hubServiceInfoService = hubServiceInfoService;
@@ -21,6 +24,7 @@ public class DeviceRegistrationService {
     public DeviceRegistrationResponse register(DeviceRegistrationRequest request) {
         String deviceId = resolveDeviceId(request == null ? new DeviceRegistrationRequest(null, null, null, null) : request);
         var serviceInfo = hubServiceInfoService.serviceInfo();
+        LOG.info("Registering device {} -> advertising MQTT {}:{}", deviceId, serviceInfo.mqttHost(), serviceInfo.mqttPort());
         return new DeviceRegistrationResponse(
                 true,
                 deviceId,

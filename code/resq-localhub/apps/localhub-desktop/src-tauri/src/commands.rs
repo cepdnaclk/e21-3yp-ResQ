@@ -181,6 +181,10 @@ pub fn get_dashboard_urls(chosen_host: String, web_port: u16) -> DashboardUrls {
     }
 }
 
+pub fn detect_primary_ipv4() -> Result<Option<String>, String> {
+    Ok(get_network_info()?.primary_ipv4)
+}
+
 #[tauri::command]
 pub fn refresh_pairing_token() -> Result<String, String> {
     fetch_pairing_token()
@@ -203,13 +207,18 @@ fn fetch_pairing_token() -> Result<String, String> {
             }
         }
         Err(_e) => {
-            // Fallback: Generate a mock token for development when backend is unavailable
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            Ok(format!("dev-token-{}", timestamp))
+            // Fallback for development only: generate a mock token when backend is unavailable.
+            // In release builds we should return an error so problems are visible.
+            if cfg!(debug_assertions) {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                Ok(format!("dev-token-{}", timestamp))
+            } else {
+                Err("Failed to fetch pairing token from backend".to_string())
+            }
         }
     }
 }

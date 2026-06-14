@@ -113,4 +113,48 @@ class CloudSessionSummaryPayloadMapperTest {
         assertThat(payload.instructorId()).isEqualTo("instructor-456");
         assertThat(payload.generatedAt()).isEqualTo(generatedAt);
     }
+
+    private static class StubRosterCacheRepository extends RosterCacheRepository {
+        public StubRosterCacheRepository() {
+            super("target/stub-roster-cache.sqlite");
+        }
+        @Override public void initialize() {}
+        @Override public synchronized boolean existsActiveCloudUser(String id, java.util.Set<String> roles) {
+            return "primary-instructor-uuid".equals(id);
+        }
+        @Override public synchronized java.util.Optional<String> findPrimaryInstructorForCourse(String courseId) {
+            return java.util.Optional.of("primary-instructor-uuid");
+        }
+        @Override public synchronized boolean isInstructorAssignedToCourse(String courseId, String instructorId) {
+            return false;
+        }
+    }
+
+    @Test
+    void mapsSessionWithCourseIdAndDerivesInstructorFromRosterCache() {
+        StubRosterCacheRepository repo = new StubRosterCacheRepository();
+        CloudSessionSummaryPayloadMapper mapperWithRepo = new CloudSessionSummaryPayloadMapper(repo);
+
+        Instant startedAt = Instant.parse("2026-06-08T08:00:00Z");
+        Instant endedAt = Instant.parse("2026-06-08T08:01:30Z");
+        Instant generatedAt = Instant.parse("2026-06-08T08:01:31Z");
+        SessionEndResponse response = new SessionEndResponse(
+                "S-100",
+                "M01",
+                "trainee-1",
+                startedAt,
+                true,
+                endedAt,
+                "adult-cpr",
+                "Strong overall attempt",
+                null,
+                "course-123",
+                "instructor-from-session"
+        );
+
+        var payload = mapperWithRepo.map(response, generatedAt);
+
+        assertThat(payload.courseId()).isEqualTo("course-123");
+        assertThat(payload.instructorId()).isEqualTo("primary-instructor-uuid");
+    }
 }

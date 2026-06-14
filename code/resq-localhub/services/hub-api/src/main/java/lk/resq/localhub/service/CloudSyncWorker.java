@@ -36,6 +36,11 @@ public class CloudSyncWorker {
             return;
         }
 
+        if (!properties.isReadyForUpload()) {
+            logger.warn("Cloud sync is enabled, but credentials are not fully configured (missing base-url, hub-id, or hub-key).");
+            return;
+        }
+
         try {
             List<SyncQueueItem> items = syncQueueService.findRetryableItems(
                     Instant.now(),
@@ -55,6 +60,18 @@ public class CloudSyncWorker {
         }
 
         Instant attemptedAt = Instant.now();
+        String validationError = syncQueueService.getValidationError(item.payloadJson());
+        if (validationError != null) {
+            if (validationError.contains("local-only")) {
+                syncQueueService.markSkipped(item.id(), validationError, attemptedAt);
+                logger.info("Cloud sync skipped for SESSION_SUMMARY:{} because it contains local-only IDs.", item.entityId());
+            } else {
+                syncQueueService.markFailed(item.id(), item.retryCount() + 1, validationError, attemptedAt);
+                logger.warn("Cloud sync failed for SESSION_SUMMARY:{} due to roster mismatch: {}", item.entityId(), validationError);
+            }
+            return;
+        }
+
         try {
             if (!syncQueueService.markSyncing(item.id(), attemptedAt)) {
                 return;
