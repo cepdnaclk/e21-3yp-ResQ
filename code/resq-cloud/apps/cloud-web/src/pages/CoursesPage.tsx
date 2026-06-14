@@ -9,6 +9,7 @@ import {
 } from "../api/cloudApi";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { navigate } from "../router";
+import { EditCourseModal, type CourseUpdatePayload } from "../components/EditCourseModal";
 
 const EMPTY_FORM = { courseCode: "", title: "", description: "", instructorId: "" };
 
@@ -19,6 +20,34 @@ export function CoursesPage({ readOnly = false }: { readOnly?: boolean }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Editing course states
+  const [editingCourse, setEditingCourse] = useState<CloudCourse | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  async function submitEdit(updates: CourseUpdatePayload) {
+    if (!editingCourse) return;
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      await updateCloudCourse(editingCourse.courseId, {
+        courseCode: updates.courseCode,
+        title: updates.title,
+        description: updates.description,
+        instructorId: updates.instructorId,
+        active: updates.active,
+      } as Parameters<typeof updateCloudCourse>[1]);
+      setNotification({ type: "success", message: "Course updated successfully." });
+      setEditingCourse(null);
+      await load();
+    } catch (saveError) {
+      setEditError(message(saveError));
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
 
   async function load() {
     setIsLoading(true);
@@ -82,6 +111,13 @@ export function CoursesPage({ readOnly = false }: { readOnly?: boolean }) {
         </div>
       </div>
 
+      {notification ? (
+        <div className={`notification-banner notification-banner--${notification.type}`}>
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)}>&times;</button>
+        </div>
+      ) : null}
+
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
 
       <div className={readOnly ? "management-layout management-layout--single" : "management-layout"}>
@@ -139,15 +175,32 @@ export function CoursesPage({ readOnly = false }: { readOnly?: boolean }) {
                   View course
                 </a>
                 {!readOnly ? (
-                  <button className="text-button" onClick={() => void toggleActive(course)}>
-                    {course.active ? "Deactivate" : "Activate"}
-                  </button>
+                  <>
+                    <button className="text-button" onClick={() => setEditingCourse(course)}>
+                      Edit Course
+                    </button>
+                    <button className="text-button" onClick={() => void toggleActive(course)}>
+                      {course.active ? "Deactivate" : "Activate"}
+                    </button>
+                  </>
                 ) : null}
               </div>
             </article>
           ))}
         </div>
       </div>
+
+      {editingCourse ? (
+        <EditCourseModal
+          course={editingCourse}
+          instructors={users}
+          open={!!editingCourse}
+          loading={isSavingEdit}
+          error={editError}
+          onClose={() => setEditingCourse(null)}
+          onSubmit={submitEdit}
+        />
+      ) : null}
     </section>
   );
 }
