@@ -13,20 +13,58 @@ import {
   getScoreTone,
 } from "../../utils/userFriendlyLabels";
 
-function getSyncBadgeProps(status?: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER'): { tone: "success" | "info" | "warning" | "danger" | "muted"; label: string } {
+function getSyncBadgeProps(
+  status:
+    | "PENDING"
+    | "SYNCING"
+    | "SYNCED"
+    | "FAILED"
+    | "RETRY_LATER"
+    | "SKIPPED"
+    | undefined,
+) {
   switch (status) {
-    case "PENDING":
-      return { tone: "muted", label: "Waiting to sync" };
-    case "SYNCING":
-      return { tone: "info", label: "Syncing…" };
     case "SYNCED":
-      return { tone: "success", label: "Synced to cloud" };
-    case "FAILED":
-      return { tone: "danger", label: "Sync failed" };
+      return {
+        label: "Synced",
+        tone: "success" as const,
+      };
+
+    case "SYNCING":
+      return {
+        label: "Syncing",
+        tone: "info" as const,
+      };
+
+    case "PENDING":
+      return {
+        label: "Pending sync",
+        tone: "warning" as const,
+      };
+
     case "RETRY_LATER":
-      return { tone: "warning", label: "Will retry" };
+      return {
+        label: "Retry later",
+        tone: "warning" as const,
+      };
+
+    case "FAILED":
+      return {
+        label: "Sync failed",
+        tone: "danger" as const,
+      };
+
+    case "SKIPPED":
+      return {
+        label: "Skipped",
+        tone: "muted" as const,
+      };
+
     default:
-      return { tone: "muted", label: "Saved locally" };
+      return {
+        label: "Local only",
+        tone: "muted" as const,
+      };
   }
 }
 
