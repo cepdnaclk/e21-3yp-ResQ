@@ -62,6 +62,7 @@ export interface CloudUser {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  localLoginHash?: string | null;
 }
 
 export interface CloudCourse {
@@ -196,6 +197,13 @@ export function updateCloudUser(userId: string, patch: UpdateCloudUserInput): Pr
 export function updateCloudUserPassword(userId: string, password: string): Promise<void> {
   return requestJson(`/api/cloud/users/${encodeURIComponent(userId)}/password`, {
     method: "PATCH",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export function setLocalHubPassword(userId: string, password: string): Promise<CloudUser> {
+  return requestJson(`/api/cloud/users/${encodeURIComponent(userId)}/localhub-password`, {
+    method: "POST",
     body: JSON.stringify({ password }),
   });
 }
