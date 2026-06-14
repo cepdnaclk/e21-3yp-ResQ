@@ -8,6 +8,7 @@ use std::{
 
 use serde::Serialize;
 use tauri::{Manager, State};
+use crate::commands;
 
 #[derive(Default)]
 pub struct ApiServiceState {
@@ -239,6 +240,22 @@ impl ApiServiceState {
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
+
+            // Detect a useful LAN IP and pass it to the packaged backend so the
+            // firmware-facing host is advertised correctly (avoid 127.0.0.1).
+            let detected_ip = match commands::detect_primary_ipv4() {
+                Ok(ip) => ip,
+                Err(_) => None,
+            };
+
+            if let Some(host) = detected_ip {
+                eprintln!("Detected LAN IP for packaged backend: {}", host);
+                // Tell Spring Boot which host to advertise for backend and MQTT
+                command.arg(format!("--resq.localhub.backend.advertised-host={}", host));
+                command.arg(format!("--resq.mqtt.advertised-host={}", host));
+            } else {
+                eprintln!("No LAN IP detected for packaged backend; backend may advertise loopback if not configured");
+            }
             return Ok(command);
         }
 

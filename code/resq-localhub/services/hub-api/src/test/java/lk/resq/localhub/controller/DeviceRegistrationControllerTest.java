@@ -74,10 +74,13 @@ class DeviceRegistrationControllerTest {
         HubServiceInfoService serviceInfoService = new HubServiceInfoService(
                 18080,
                 "192.168.8.187",
+                "",
                 "tcp://localhost:1883",
                 "",
+                "",
                 1883,
-                "http://localhost:1420"
+                "http://localhost:1420",
+                ""
         );
         DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService);
         return new Fixture(

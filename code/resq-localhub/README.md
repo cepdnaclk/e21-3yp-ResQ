@@ -191,3 +191,12 @@ See:
 - `docs/local-firmware-simulator-smoke-test.md`
 - `docs/real-esp32-localhub-integration-smoke-test.md`
 - `docs/localhub-firmware-integration-handoff.md`
+
+## Release smoke-test (Local network + firmware)
+
+- **Test localhost health**: `GET http://localhost:18080/api/hub/health` responds.
+- **Test LAN health**: From another machine on the LAN, `GET http://<LAN_IP>:18080/api/hub/health` responds.
+- **Test MQTT port**: Verify `1883` is reachable from the instructor PC and the ESP32.
+- **Re-provision firmware**: Reset NVS on the manikin if it has old dev config before testing.
+- **Verify registration payload**: Firmware should receive a non-loopback MQTT host (not `127.0.0.1` or `localhost`).
+- **If packaged app**: Ensure the app detected a LAN IP on startup (Tauri logs will show the selected IP) and the backend logs the advertised MQTT/HTTP addresses.
