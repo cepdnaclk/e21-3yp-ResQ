@@ -5,6 +5,7 @@ import {
   fetchCloudUsers,
   fetchCourseEnrollments,
   removeCloudEnrollment,
+  updateCloudCourse,
   type CloudCourse,
   type CloudEnrollment,
   type CloudUser,
@@ -12,6 +13,7 @@ import {
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { formatDate } from "../lib/format";
 import { navigate } from "../router";
+import { EditCourseModal, type CourseUpdatePayload } from "../components/EditCourseModal";
 
 export function CourseDetailPage({
   courseId,
@@ -27,6 +29,34 @@ export function CourseDetailPage({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Editing course states
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  async function submitEdit(updates: CourseUpdatePayload) {
+    if (!course) return;
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      await updateCloudCourse(course.courseId, {
+        courseCode: updates.courseCode,
+        title: updates.title,
+        description: updates.description,
+        instructorId: updates.instructorId,
+        active: updates.active,
+      } as Parameters<typeof updateCloudCourse>[1]);
+      setNotification({ type: "success", message: "Course updated successfully." });
+      setIsEditing(false);
+      await load();
+    } catch (saveError) {
+      setEditError(message(saveError));
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
 
   async function load() {
     setIsLoading(true);
@@ -97,10 +127,24 @@ export function CourseDetailPage({
           <h2>{course.title}</h2>
           <p>{course.courseCode || "No course code"} | {course.instructorDisplayName || "No instructor assigned"}</p>
         </div>
-        <span className={course.active ? "active-badge large-badge" : "inactive-badge large-badge"}>
-          {course.active ? "Active course" : "Inactive course"}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {!readOnly ? (
+            <button className="button" style={{ marginTop: 0 }} onClick={() => setIsEditing(true)}>
+              Edit Course
+            </button>
+          ) : null}
+          <span className={course.active ? "active-badge large-badge" : "inactive-badge large-badge"}>
+            {course.active ? "Active course" : "Inactive course"}
+          </span>
+        </div>
       </div>
+
+      {notification ? (
+        <div className={`notification-banner notification-banner--${notification.type}`}>
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)}>&times;</button>
+        </div>
+      ) : null}
 
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
 
@@ -157,6 +201,18 @@ export function CourseDetailPage({
           </article>
         ))}
       </div>
+
+      {isEditing && course ? (
+        <EditCourseModal
+          course={course}
+          instructors={users}
+          open={isEditing}
+          loading={isSavingEdit}
+          error={editError}
+          onClose={() => setIsEditing(false)}
+          onSubmit={submitEdit}
+        />
+      ) : null}
     </section>
   );
 }
