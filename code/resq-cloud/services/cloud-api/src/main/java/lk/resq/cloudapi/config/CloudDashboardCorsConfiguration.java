@@ -27,11 +27,20 @@ public class CloudDashboardCorsConfiguration implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         String[] origins = resolveAllowedOriginPatterns();
-        addMapping(registry, "/api/cloud/health", origins, "GET");
-        addMapping(registry, "/api/cloud/auth/**", origins, "GET", "POST", "OPTIONS");
-        addMapping(registry, "/api/cloud/sessions/**", origins, "GET");
-        addMapping(registry, "/api/cloud/users/**", origins, "GET", "POST", "PATCH", "OPTIONS");
-        addMapping(registry, "/api/cloud/courses/**", origins, "GET", "POST", "PATCH", "DELETE", "OPTIONS");
+
+        addMapping(
+                registry,
+                "/api/cloud/**",
+                origins,
+                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
+        );
+
+        addMapping(
+                registry,
+                "/api/sync/**",
+                origins,
+                "GET", "POST", "OPTIONS"
+        );
     }
 
     /**
@@ -61,7 +70,14 @@ public class CloudDashboardCorsConfiguration implements WebMvcConfigurer {
         registry.addMapping(path)
                 .allowedOriginPatterns(origins)
                 .allowedMethods(methods)
-                .allowedHeaders("Accept", "Content-Type", "Authorization")
+                .allowedHeaders(
+                        "Accept",
+                        "Content-Type",
+                        "Authorization",
+                        "X-ResQ-Hub-Id",
+                        "X-ResQ-Hub-Key"
+                )
+                .exposedHeaders("Authorization")
                 .maxAge(3600);
     }
 }
