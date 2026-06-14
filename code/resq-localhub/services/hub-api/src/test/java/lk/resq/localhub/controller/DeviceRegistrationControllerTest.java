@@ -5,7 +5,9 @@ import lk.resq.localhub.model.DeviceRegistrationResponse;
 import lk.resq.localhub.model.HubServiceInfoResponse;
 import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
+import lk.resq.localhub.service.MqttSubscriberService;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +37,7 @@ class DeviceRegistrationControllerTest {
         DeviceRegistrationResponse first = fixture.deviceController.registerDevice(
                 new DeviceRegistrationRequest(null, "chip-001", "1.0.0", "M01")
         ).getBody();
+
         DeviceRegistrationResponse second = fixture.deviceController.registerDevice(
                 new DeviceRegistrationRequest(null, "chip-001", "1.0.1", "M01")
         ).getBody();
@@ -68,6 +71,8 @@ class DeviceRegistrationControllerTest {
         assertThat(response.mqttPort()).isEqualTo(1883);
         assertThat(response.dashboardUrl()).isEqualTo("http://localhost:1420");
         assertThat(response.localIp()).isNotBlank();
+        assertThat(response.cloudSyncEnabled()).isFalse();
+        assertThat(response.rosterSyncEnabled()).isFalse();
     }
 
     private static Fixture newFixture() {
@@ -80,15 +85,49 @@ class DeviceRegistrationControllerTest {
                 "",
                 1883,
                 "http://localhost:1420",
-                ""
+                "",
+                false,
+                false
         );
+
         DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService);
+
+        ObjectProvider<MqttSubscriberService> mqttProvider = new ObjectProvider<>() {
+            @Override
+            public MqttSubscriberService getObject(Object... args) {
+                return null;
+            }
+
+            @Override
+            public MqttSubscriberService getIfAvailable() {
+                return null;
+            }
+
+            @Override
+            public MqttSubscriberService getIfUnique() {
+                return null;
+            }
+
+            @Override
+            public MqttSubscriberService getObject() {
+                return null;
+            }
+
+            @Override
+            public java.util.Iterator<MqttSubscriberService> iterator() {
+                return java.util.Collections.emptyIterator();
+            }
+        };
+
         return new Fixture(
                 new DeviceRegistrationController(registrationService),
-                new HubHealthController(serviceInfoService)
+                new HubHealthController(serviceInfoService, mqttProvider)
         );
     }
 
-    private record Fixture(DeviceRegistrationController deviceController, HubHealthController hubController) {
+    private record Fixture(
+            DeviceRegistrationController deviceController,
+            HubHealthController hubController
+    ) {
     }
 }

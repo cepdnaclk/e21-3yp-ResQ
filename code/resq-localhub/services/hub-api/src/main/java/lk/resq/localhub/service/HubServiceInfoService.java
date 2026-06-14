@@ -28,6 +28,8 @@ public class HubServiceInfoService {
     private final int mqttPort;
     private final String dashboardUrl;
     private final String activeProfile;
+    private final boolean cloudSyncEnabled;
+    private final boolean rosterSyncEnabled;
 
     public HubServiceInfoService(
             @Value("${server.port:18080}") int backendPort,
@@ -38,20 +40,32 @@ public class HubServiceInfoService {
             @Value("${resq.mqtt.public-host:}") String mqttPublicHost,
             @Value("${resq.mqtt.port:1883}") int mqttPort,
             @Value("${resq.localhub.dashboard-url:http://localhost:1420}") String dashboardUrl,
-            @Value("${spring.profiles.active:}") String activeProfile
+            @Value("${spring.profiles.active:}") String activeProfile,
+            @Value("${resq.cloud-sync.enabled:false}") boolean cloudSyncEnabled,
+            @Value("${resq.roster-sync.enabled:false}") boolean rosterSyncEnabled
     ) {
         this.backendPort = backendPort;
+
         // Allow either resq.hub.public-host or resq.localhub.backend.advertised-host
-        String chosenBackendHost = normalize(hubPublicHost) != null ? hubPublicHost : backendAdvertisedHost;
+        String chosenBackendHost = normalize(hubPublicHost) != null
+                ? hubPublicHost
+                : backendAdvertisedHost;
         this.backendAdvertisedHost = normalize(chosenBackendHost);
+
         // Internal broker URL used by the backend to connect
         this.mqttBrokerUrl = mqttBrokerUrl;
+
         // Allow either resq.mqtt.public-host or resq.mqtt.advertised-host for firmware-facing host
-        String chosenMqttAdvertised = normalize(mqttPublicHost) != null ? mqttPublicHost : mqttAdvertisedHost;
+        String chosenMqttAdvertised = normalize(mqttPublicHost) != null
+                ? mqttPublicHost
+                : mqttAdvertisedHost;
         this.mqttAdvertisedHost = normalize(chosenMqttAdvertised);
+
         this.mqttPort = mqttPort;
         this.dashboardUrl = dashboardUrl;
         this.activeProfile = normalize(activeProfile);
+        this.cloudSyncEnabled = cloudSyncEnabled;
+        this.rosterSyncEnabled = rosterSyncEnabled;
     }
 
     public HubServiceInfoResponse serviceInfo() {
@@ -82,7 +96,9 @@ public class HubServiceInfoService {
                 mqttHost,
                 resolvedMqttPort,
                 dashboardUrl,
-                localIp.orElse(null)
+                localIp.orElse(null),
+                cloudSyncEnabled,
+                rosterSyncEnabled
         );
     }
 
@@ -123,33 +139,43 @@ public class HubServiceInfoService {
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.connect(InetAddress.getByName("8.8.8.8"), 80);
             InetAddress address = socket.getLocalAddress();
+
             if (address instanceof Inet4Address ipv4 && usableAddress(ipv4)) {
                 return Optional.of(ipv4.getHostAddress());
             }
         } catch (Exception ignored) {
         }
+
         return Optional.empty();
     }
 
     private static boolean usableInterface(NetworkInterface networkInterface) {
         try {
-            return networkInterface.isUp() && !networkInterface.isLoopback() && !networkInterface.isVirtual();
+            return networkInterface.isUp()
+                    && !networkInterface.isLoopback()
+                    && !networkInterface.isVirtual();
         } catch (Exception ignored) {
             return false;
         }
     }
 
     private static boolean usableAddress(Inet4Address address) {
-        return !address.isLoopbackAddress() && !address.isAnyLocalAddress() && !address.isLinkLocalAddress();
+        return !address.isLoopbackAddress()
+                && !address.isAnyLocalAddress()
+                && !address.isLinkLocalAddress();
     }
 
     private static int score(Inet4Address address) {
         byte[] octets = address.getAddress();
         int first = octets[0] & 0xff;
         int second = octets[1] & 0xff;
-        if (first == 10 || (first == 172 && second >= 16 && second <= 31) || (first == 192 && second == 168)) {
+
+        if (first == 10
+                || (first == 172 && second >= 16 && second <= 31)
+                || (first == 192 && second == 168)) {
             return 100;
         }
+
         return 0;
     }
 
@@ -157,6 +183,7 @@ public class HubServiceInfoService {
         if (value == null) {
             return null;
         }
+
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
     }

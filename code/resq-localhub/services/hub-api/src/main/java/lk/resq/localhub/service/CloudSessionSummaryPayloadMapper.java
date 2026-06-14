@@ -12,6 +12,18 @@ import java.time.Instant;
 @Component
 public class CloudSessionSummaryPayloadMapper {
 
+    private final RosterCacheRepository rosterCacheRepository;
+    private static final java.util.Set<String> ALLOWED_ROLES = java.util.Set.of("INSTRUCTOR", "ADMIN");
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public CloudSessionSummaryPayloadMapper(RosterCacheRepository rosterCacheRepository) {
+        this.rosterCacheRepository = rosterCacheRepository;
+    }
+
+    public CloudSessionSummaryPayloadMapper() {
+        this.rosterCacheRepository = null;
+    }
+
     public CloudSessionSummarySyncPayload map(SessionEndResponse session, Instant generatedAt) {
         SessionSummary summary = session.summary();
         Instant startedAt = session.startedAt() != null
@@ -20,6 +32,31 @@ public class CloudSessionSummaryPayloadMapper {
         Instant endedAt = session.endedAt() != null
                 ? session.endedAt()
                 : summary == null ? null : summary.endedAt();
+
+        String courseId = session.courseId();
+        String instructorId = session.instructorId();
+        if (courseId != null && !courseId.isBlank()) {
+            if (rosterCacheRepository != null) {
+                boolean currentValid = false;
+                if (instructorId != null && !instructorId.isBlank()) {
+                    if (rosterCacheRepository.existsActiveCloudUser(instructorId, ALLOWED_ROLES)
+                            && rosterCacheRepository.isInstructorAssignedToCourse(courseId, instructorId)) {
+                        currentValid = true;
+                    }
+                }
+                if (!currentValid) {
+                    java.util.Optional<String> primaryOpt = rosterCacheRepository.findPrimaryInstructorForCourse(courseId);
+                    if (primaryOpt.isPresent() && rosterCacheRepository.existsActiveCloudUser(primaryOpt.get(), ALLOWED_ROLES)) {
+                        instructorId = primaryOpt.get();
+                    } else {
+                        java.util.List<lk.resq.localhub.model.roster.CourseInstructorView> list = rosterCacheRepository.listInstructorsForCourse(courseId);
+                        if (!list.isEmpty()) {
+                            instructorId = list.get(0).cloudUserId();
+                        }
+                    }
+                }
+            }
+        }
 
         return new CloudSessionSummarySyncPayload(
                 CloudSyncContractVersion.CURRENT,
@@ -30,8 +67,8 @@ public class CloudSessionSummaryPayloadMapper {
                 session.deviceId(),
                 null,
                 session.traineeId(),
-                session.instructorId(),
-                session.courseId(),
+                instructorId,
+                courseId,
                 startedAt,
                 endedAt,
                 durationMs(summary),

@@ -15,12 +15,15 @@ import lk.resq.cloudapi.service.CloudAdminBootstrap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+    "resq.cloud-cors.allowed-origins=https://test-no-hardware-localhub-firmware-contract.d3kmweq8ijz6vs.amplifyapp.com"
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class CloudApiIntegrationTest {
@@ -39,13 +42,25 @@ class CloudApiIntegrationTest {
 
     private String localSessionId;
     private String adminAuthorization;
+    private final String testHubKey = "hub-secret-123";
 
     @BeforeEach
     void setUp() throws Exception {
         jdbcTemplate.update("DELETE FROM cloud_session_summaries");
+        jdbcTemplate.update("DELETE FROM cloud_hub_api_keys");
         adminBootstrap.ensureBootstrapAdmin();
         adminAuthorization = login("admin@resq.local", "admin123");
         localSessionId = "S-" + java.util.UUID.randomUUID();
+
+        String keyHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(testHubKey);
+        String[] hubs = {
+            "HUB-1", "HUB-2", "HUB-3", "HUB-STORE", "HUB-PRESERVE",
+            "HUB-LIST", "HUB-CLOUD-LOOKUP", "HUB-LOCAL-LOOKUP", "UNASSIGNED_LOCAL_HUB"
+        };
+        for (String hubId : hubs) {
+            jdbcTemplate.update("INSERT INTO cloud_hub_api_keys (hub_id, hub_name, key_hash, active) VALUES (?, ?, ?, ?)",
+                    hubId, "Test Hub " + hubId, keyHash, true);
+        }
     }
 
     @Test
@@ -69,6 +84,46 @@ class CloudApiIntegrationTest {
                         .header("Origin", "http://localhost:1430"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:1430"));
+    }
+
+    @Test
+    void corsPreflightRequestsSucceed() throws Exception {
+        String origin = "https://test-no-hardware-localhub-firmware-contract.d3kmweq8ijz6vs.amplifyapp.com";
+        String[] paths = {
+            "/api/cloud/auth/login",
+            "/api/cloud/session-summaries",
+            "/api/cloud/reports",
+            "/api/cloud/analytics",
+            "/api/sync/session-summaries"
+        };
+
+        for (String path : paths) {
+            mockMvc.perform(options(path)
+                            .header("Origin", origin)
+                            .header("Access-Control-Request-Method", "GET")
+                            .header("Access-Control-Request-Headers", "authorization,content-type,x-resq-hub-id,x-resq-hub-key"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Access-Control-Allow-Origin", origin));
+        }
+    }
+
+    @Test
+    void authenticatedRoutesRemainProtected() throws Exception {
+        mockMvc.perform(get("/api/cloud/session-summaries"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/cloud/reports"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/cloud/analytics"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void syncRoutesRemainProtectedWithoutHeaders() throws Exception {
+        mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", "")
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -102,6 +157,8 @@ class CloudApiIntegrationTest {
     void duplicatePayloadDoesNotCreateDuplicate() throws Exception {
         JsonNode first = postValidPayload("HUB-2", localSessionId);
         JsonNode second = objectMapper.readTree(mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", "HUB-2")
+                        .header("X-ResQ-Hub-Key", testHubKey)
                         .contentType("application/json")
                         .content(validPayload("HUB-2", localSessionId)))
                 .andExpect(status().isOk())
@@ -136,6 +193,8 @@ class CloudApiIntegrationTest {
 
         Thread.sleep(5);
         JsonNode second = objectMapper.readTree(mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", "HUB-PRESERVE")
+                        .header("X-ResQ-Hub-Key", testHubKey)
                         .contentType("application/json")
                         .content(validPayload("HUB-PRESERVE", localSessionId).replace("\"score\": 92", "\"score\": 95")))
                 .andExpect(status().isOk())
@@ -158,6 +217,8 @@ class CloudApiIntegrationTest {
     @Test
     void invalidContractVersionReturnsBadRequest() throws Exception {
         mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", "HUB-3")
+                        .header("X-ResQ-Hub-Key", testHubKey)
                         .contentType("application/json")
                         .content(validPayload("HUB-3", localSessionId)
                                 .replace("resq.cloud.session-summary.v1", "resq.cloud.session-summary.v0")))
@@ -167,6 +228,8 @@ class CloudApiIntegrationTest {
     @Test
     void missingLocalSessionIdReturnsBadRequest() throws Exception {
         mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", "UNASSIGNED_LOCAL_HUB")
+                        .header("X-ResQ-Hub-Key", testHubKey)
                         .contentType("application/json")
                         .content("""
                                 {
@@ -221,7 +284,10 @@ class CloudApiIntegrationTest {
     }
 
     private JsonNode postValidPayload(String localHubId, String sessionId) throws Exception {
+        String hubId = localHubId != null ? localHubId : "UNASSIGNED_LOCAL_HUB";
         String body = mockMvc.perform(post("/api/sync/session-summaries")
+                        .header("X-ResQ-Hub-Id", hubId)
+                        .header("X-ResQ-Hub-Key", testHubKey)
                         .contentType("application/json")
                         .content(validPayload(localHubId, sessionId)))
                 .andExpect(status().isCreated())

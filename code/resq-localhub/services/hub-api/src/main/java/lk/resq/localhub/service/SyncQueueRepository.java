@@ -153,6 +153,28 @@ public class SyncQueueRepository {
         }
     }
 
+    public synchronized List<SyncQueueItem> findFailedAndDeferred() {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                SELECT id, entity_type, entity_id, payload_json, sync_status, retry_count, last_error, created_at, last_attempt_at, synced_at
+                FROM sync_queue
+                WHERE sync_status IN (?, ?, ?)
+                ORDER BY created_at DESC, id DESC
+                """)) {
+            statement.setString(1, SyncStatus.FAILED.name());
+            statement.setString(2, SyncStatus.RETRY_LATER.name());
+            statement.setString(3, SyncStatus.SKIPPED.name());
+            List<SyncQueueItem> items = new ArrayList<>();
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    items.add(mapRow(resultSet));
+                }
+            }
+            return items;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to load failed and deferred sync queue items", error);
+        }
+    }
+
     public synchronized boolean markSyncing(String id, Instant attemptedAt) {
         return updateStatus(id, SyncStatus.SYNCING, null, attemptedAt, null);
     }
@@ -167,6 +189,10 @@ public class SyncQueueRepository {
 
     public synchronized void markFailed(String id, int retryCount, String lastError, Instant attemptedAt) {
         updateFailure(id, SyncStatus.FAILED, retryCount, lastError, attemptedAt);
+    }
+
+    public synchronized void markSkipped(String id, String reason, Instant attemptedAt) {
+        updateFailure(id, SyncStatus.SKIPPED, 0, reason, attemptedAt);
     }
 
     private boolean updateStatus(
@@ -268,6 +294,57 @@ public class SyncQueueRepository {
         }
         long retryDelayMs = Math.min(15 * 60_000L, 30_000L * Math.max(1, item.retryCount()));
         return !item.lastAttemptAt().plusMillis(retryDelayMs).isAfter(now);
+    }
+
+    public synchronized Optional<SyncQueueItem> findById(String id) {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                SELECT id, entity_type, entity_id, payload_json, sync_status, retry_count, last_error, created_at, last_attempt_at, synced_at
+                FROM sync_queue
+                WHERE id = ?
+                LIMIT 1
+                """)) {
+            statement.setString(1, id);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(mapRow(resultSet));
+            }
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to load sync queue item " + id, error);
+        }
+    }
+
+    public synchronized boolean requeue(String id) {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                UPDATE sync_queue
+                SET sync_status = ?, retry_count = 0, last_error = NULL, synced_at = NULL
+                WHERE id = ? AND sync_status IN (?, ?, ?)
+                """)) {
+            statement.setString(1, SyncStatus.PENDING.name());
+            statement.setString(2, id);
+            statement.setString(3, SyncStatus.FAILED.name());
+            statement.setString(4, SyncStatus.RETRY_LATER.name());
+            statement.setString(5, SyncStatus.SKIPPED.name());
+            return statement.executeUpdate() == 1;
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to requeue sync queue item " + id, error);
+        }
+    }
+
+    public synchronized int requeueFailed() {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                UPDATE sync_queue
+                SET sync_status = ?, retry_count = 0, last_error = NULL, synced_at = NULL
+                WHERE sync_status IN (?, ?)
+                """)) {
+            statement.setString(1, SyncStatus.PENDING.name());
+            statement.setString(2, SyncStatus.FAILED.name());
+            statement.setString(3, SyncStatus.RETRY_LATER.name());
+            return statement.executeUpdate();
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to requeue failed sync queue items", error);
+        }
     }
 
     private static String abbreviate(String value) {
