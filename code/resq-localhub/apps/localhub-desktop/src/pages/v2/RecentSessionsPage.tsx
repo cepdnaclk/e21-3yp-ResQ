@@ -13,7 +13,7 @@ import {
   getScoreTone,
 } from "../../utils/userFriendlyLabels";
 
-function getSyncBadgeProps(status?: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER'): { tone: "success" | "info" | "warning" | "danger" | "muted"; label: string } {
+function getSyncBadgeProps(status?: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER' | 'SKIPPED'): { tone: "success" | "info" | "warning" | "danger" | "muted"; label: string } {
   switch (status) {
     case "PENDING":
       return { tone: "muted", label: "Waiting to sync" };
@@ -25,6 +25,8 @@ function getSyncBadgeProps(status?: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' 
       return { tone: "danger", label: "Sync failed" };
     case "RETRY_LATER":
       return { tone: "warning", label: "Will retry" };
+    case "SKIPPED":
+      return { tone: "muted", label: "Skipped" };
     default:
       return { tone: "muted", label: "Saved locally" };
   }
