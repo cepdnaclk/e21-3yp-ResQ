@@ -75,6 +75,15 @@ class CourseSessionStartTest {
         authService = new TestAuthService(authRepository, rosterRepository, mapper);
         controller = new SessionController(sessionService, authService, registry);
 
+        registry.updateFromStatus("M01", mapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "READY_FOR_SESSION",
+                  "session_active": false,
+                  "calibrated": true
+                }
+                """));
+
         // Seed Roster Data
         rosterRepository.upsertUser(new CloudRosterUser("u-inst-1", "Instructor 1", "inst1@example.com", "INSTRUCTOR", true, Instant.now(), null), Instant.now());
         rosterRepository.upsertUser(new CloudRosterUser("u-inst-2", "Instructor 2", "inst2@example.com", "INSTRUCTOR", true, Instant.now(), null), Instant.now());

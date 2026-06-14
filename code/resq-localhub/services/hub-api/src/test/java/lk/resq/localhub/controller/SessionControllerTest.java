@@ -177,6 +177,14 @@ class SessionControllerTest {
         sessionRepository.initialize();
         MqttCommandPublisherService publisher = new NoopMqttCommandPublisherService();
         ManikinRegistryService registry = new ManikinRegistryService(12);
+        registry.updateFromStatus("M01", objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "READY_FOR_SESSION",
+                  "session_active": false,
+                  "calibrated": true
+                }
+                """));
         FirmwarePersistenceRepository firmwareRepository = new FirmwarePersistenceRepository(
                 Path.of("target", "session-controller-firmware-" + UUID.randomUUID() + ".sqlite").toString()
         );

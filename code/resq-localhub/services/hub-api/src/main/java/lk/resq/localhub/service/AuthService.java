@@ -187,7 +187,27 @@ public class AuthService {
 
     public List<AuthUser> listUsers(HttpServletRequest request) {
         requireRole(request, UserRole.ADMIN);
-        return authRepository.listUsers().stream().map(this::toAuthUser).toList();
+        List<LocalAuthRepository.UserRecord> localUsers = authRepository.listUsers();
+        java.util.List<AuthUser> merged = new java.util.ArrayList<>();
+        java.util.Map<String, LocalAuthRepository.UserRecord> localUserMap = new java.util.HashMap<>();
+        
+        for (LocalAuthRepository.UserRecord u : localUsers) {
+            localUserMap.put(u.id(), u);
+            merged.add(toAuthUser(u));
+        }
+        
+        if (rosterCacheRepository != null) {
+            List<RosterCacheRepository.SyncedUserRecord> syncedUsers = rosterCacheRepository.listSyncedUsers();
+            if (syncedUsers != null) {
+                for (RosterCacheRepository.SyncedUserRecord su : syncedUsers) {
+                    if (!localUserMap.containsKey(su.cloudUserId())) {
+                        merged.add(toAuthUser(su));
+                    }
+                }
+            }
+        }
+        
+        return merged;
     }
 
     public AuthUser createUser(HttpServletRequest request, CreateUserRequest createUserRequest) {
@@ -220,18 +240,74 @@ public class AuthService {
 
     public AuthUser disableUser(HttpServletRequest request, String userId) {
         AuthUser actor = requireRole(request, UserRole.ADMIN);
-        LocalAuthRepository.UserRecord disabled = authRepository.disableUser(userId, Instant.now())
-                .orElseThrow(() -> new IllegalArgumentException("User " + userId + " was not found."));
-        audit(actor.id(), "DISABLE_USER", "user", disabled.id(), Map.of("role", disabled.role().name()));
-        return toAuthUser(disabled);
+        
+        if (actor.id().equals(userId)) {
+            throw new IllegalArgumentException("You cannot disable your own active admin account.");
+        }
+
+        boolean found = false;
+        
+        // 1. Check local users
+        Optional<LocalAuthRepository.UserRecord> localOpt = authRepository.findUserById(userId);
+        if (localOpt.isPresent()) {
+            authRepository.disableUser(userId, Instant.now());
+            found = true;
+        }
+        
+        // 2. Check synced cloud users
+        if (rosterCacheRepository != null) {
+            Optional<RosterCacheRepository.SyncedUserRecord> syncedOpt = rosterCacheRepository.findSyncedUserById(userId);
+            if (syncedOpt.isPresent()) {
+                rosterCacheRepository.updateSyncedUserActive(userId, false);
+                found = true;
+            }
+        }
+        
+        if (!found) {
+            throw new IllegalArgumentException("User " + userId + " was not found. Searched local users and synced users.");
+        }
+        
+        audit(actor.id(), "DISABLE_USER", "user", userId, Map.of());
+        
+        if (localOpt.isPresent()) {
+            return toAuthUser(authRepository.findUserById(userId).get());
+        } else {
+            return toAuthUser(rosterCacheRepository.findSyncedUserById(userId).get());
+        }
     }
 
     public AuthUser enableUser(HttpServletRequest request, String userId) {
         AuthUser actor = requireRole(request, UserRole.ADMIN);
-        LocalAuthRepository.UserRecord enabled = authRepository.enableUser(userId, Instant.now())
-                .orElseThrow(() -> new IllegalArgumentException("User " + userId + " was not found."));
-        audit(actor.id(), "ENABLE_USER", "user", enabled.id(), Map.of("role", enabled.role().name()));
-        return toAuthUser(enabled);
+        
+        boolean found = false;
+        
+        // 1. Check local users
+        Optional<LocalAuthRepository.UserRecord> localOpt = authRepository.findUserById(userId);
+        if (localOpt.isPresent()) {
+            authRepository.enableUser(userId, Instant.now());
+            found = true;
+        }
+        
+        // 2. Check synced cloud users
+        if (rosterCacheRepository != null) {
+            Optional<RosterCacheRepository.SyncedUserRecord> syncedOpt = rosterCacheRepository.findSyncedUserById(userId);
+            if (syncedOpt.isPresent()) {
+                rosterCacheRepository.updateSyncedUserActive(userId, true);
+                found = true;
+            }
+        }
+        
+        if (!found) {
+            throw new IllegalArgumentException("User " + userId + " was not found. Searched local users and synced users.");
+        }
+        
+        audit(actor.id(), "ENABLE_USER", "user", userId, Map.of());
+        
+        if (localOpt.isPresent()) {
+            return toAuthUser(authRepository.findUserById(userId).get());
+        } else {
+            return toAuthUser(rosterCacheRepository.findSyncedUserById(userId).get());
+        }
     }
 
     public AuthUser requireAuth(HttpServletRequest request) {

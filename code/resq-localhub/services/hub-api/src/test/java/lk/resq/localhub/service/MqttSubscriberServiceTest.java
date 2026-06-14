@@ -304,6 +304,14 @@ class MqttSubscriberServiceTest {
 
     private ServiceFixture newFixture(FirmwarePersistenceRepository repository) throws Exception {
         ManikinRegistryService registry = new ManikinRegistryService(12);
+        registry.updateFromStatus("M01", objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "READY_FOR_SESSION",
+                  "session_active": false,
+                  "calibrated": true
+                }
+                """));
         MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService(repository);
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         CapturingLiveStreamService liveStreamService = new CapturingLiveStreamService();

@@ -20,6 +20,7 @@ export type FirmwareReadinessResponse = {
   receivedAt: string | null;
   sessionId?: string | null;
   lastErrorId?: string | null;
+  source?: "FIRMWARE_READY_STATE" | "BACKEND_CALIBRATION_PASS" | "NOT_READY" | string;
 };
 
 export type FirmwareCalibrationCommandResponse = {

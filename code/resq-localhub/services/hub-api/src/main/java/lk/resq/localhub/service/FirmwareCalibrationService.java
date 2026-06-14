@@ -89,6 +89,14 @@ public class FirmwareCalibrationService {
         );
     }
 
+    public boolean isStartAllowedFromFirmwareState(String state) {
+        return "READY_FOR_SESSION".equalsIgnoreCase(normalize(state));
+    }
+
+    public boolean canStartSession(String deviceId) {
+        return sessionStartBlockReason(deviceId).isEmpty();
+    }
+
     public FirmwareReadinessResponse getLatestReadiness(String deviceId) {
         String normalizedDeviceId = requireDeviceId(deviceId);
         Optional<FirmwareCalibrationResultRecord> latest = firmwarePersistenceRepository.findLatestCalibrationResult(normalizedDeviceId);
@@ -99,7 +107,18 @@ public class FirmwareCalibrationService {
         String firmwareState = firstNonBlank(registryState, result == null ? null : result.firmwareState());
         String latestResult = normalize(result == null ? null : result.result());
         boolean calibrated = Boolean.TRUE.equals(result == null ? null : result.calibrated()) || "PASS".equalsIgnoreCase(nullToBlank(latestResult));
-        boolean readyForSession = determineReadyForSession(firmwareState, latestResult);
+
+        String source = "NOT_READY";
+        if (summary.isPresent() && !summary.get().offline() && !summary.get().stale() && isStartAllowedFromFirmwareState(summary.get().state())) {
+            source = "FIRMWARE_READY_STATE";
+        } else if (latest.isPresent()) {
+            String latestResultNorm = normalize(latest.get().result());
+            if ("PASS".equalsIgnoreCase(latestResultNorm) || "READY".equalsIgnoreCase(latestResultNorm)) {
+                source = "BACKEND_CALIBRATION_PASS";
+            }
+        }
+
+        boolean readyForSession = !"NOT_READY".equals(source);
 
         return new FirmwareReadinessResponse(
                 normalizedDeviceId,
@@ -113,7 +132,8 @@ public class FirmwareCalibrationService {
                 result == null ? null : result.tsMs(),
                 result == null ? null : toIso(result.receivedAt()),
                 summary.map(ManikinLiveSummary::sessionId).orElse(null),
-                latestErrorId(summary.orElse(null), result)
+                latestErrorId(summary.orElse(null), result),
+                source
         );
     }
 
@@ -123,26 +143,43 @@ public class FirmwareCalibrationService {
             return Optional.of("deviceId is required");
         }
 
-        Optional<FirmwareCalibrationResultRecord> latest = firmwarePersistenceRepository.findLatestCalibrationResult(normalizedDeviceId);
-        Optional<ManikinLiveSummary> summary = manikinRegistryService.getLiveSummary(normalizedDeviceId);
-        String firmwareState = firstNonBlank(
-                summary.map(ManikinLiveSummary::state).orElse(null),
-                latest.map(FirmwareCalibrationResultRecord::firmwareState).orElse(null)
-        );
-        String latestResult = latest.map(FirmwareCalibrationResultRecord::result).map(FirmwareCalibrationService::normalize).orElse(null);
+        Optional<ManikinLiveSummary> summaryOpt = manikinRegistryService.getLiveSummary(normalizedDeviceId);
+        if (summaryOpt.isEmpty() || summaryOpt.get().offline() || summaryOpt.get().stale()) {
+            return Optional.of("Manikin is offline or stale.");
+        }
 
-        if (!hasFirmwareReadinessEvidence(firmwareState, latestResult)) {
+        ManikinLiveSummary summary = summaryOpt.get();
+        String liveState = summary.state();
+
+        if (isStartAllowedFromFirmwareState(liveState)) {
             return Optional.empty();
         }
 
-        if (!determineReadyForSession(firmwareState, latestResult)) {
-            if (firmwareState != null) {
-                return Optional.of("Device " + normalizedDeviceId + " is not ready for a session (firmwareState=" + firmwareState + ")");
-            }
-            return Optional.of("Device " + normalizedDeviceId + " is not ready for a session (latest calibration result=" + latestResult + ")");
+        String normLiveState = normalize(liveState);
+        if ("CALIBRATING".equalsIgnoreCase(normLiveState)) {
+            return Optional.of("Readiness check is still running.");
+        }
+        if ("CALIBRATION_FAIL".equalsIgnoreCase(normLiveState)) {
+            return Optional.of("Readiness check failed. Run setup again.");
+        }
+        if ("ERROR".equalsIgnoreCase(normLiveState)) {
+            return Optional.of("Manikin needs support before training.");
+        }
+        if ("SESSION_ACTIVE".equalsIgnoreCase(normLiveState)) {
+            return Optional.of("This manikin is already in a session.");
         }
 
-        return Optional.empty();
+        // H. Otherwise check backend calibration/readiness database
+        Optional<FirmwareCalibrationResultRecord> latest = firmwarePersistenceRepository.findLatestCalibrationResult(normalizedDeviceId);
+        if (latest.isPresent()) {
+            String latestResult = normalize(latest.get().result());
+            if ("PASS".equalsIgnoreCase(latestResult) || "READY".equalsIgnoreCase(latestResult)) {
+                return Optional.empty();
+            }
+        }
+
+        // J. Otherwise
+        return Optional.of("Run readiness check or wait until firmware reports READY_FOR_SESSION.");
     }
 
     private static boolean determineReadyForSession(String firmwareState, String latestResult) {

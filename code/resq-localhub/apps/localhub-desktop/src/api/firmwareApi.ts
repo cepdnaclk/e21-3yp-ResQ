@@ -21,6 +21,7 @@ export async function fetchDeviceReadiness(deviceId: string): Promise<FirmwareRe
   return {
     ...res,
     ready: res.readyForSession,
+    source: res.source || null,
   };
 }
 
@@ -30,6 +31,7 @@ export async function fetchLatestCalibration(deviceId: string): Promise<Firmware
   return {
     ...res,
     ready: res.readyForSession,
+    source: res.source || null,
   };
 }
 

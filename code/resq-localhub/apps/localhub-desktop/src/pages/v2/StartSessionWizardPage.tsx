@@ -116,19 +116,57 @@ export function StartSessionWizardPage() {
 
   // Check if a specific manikin is ready (Correction 4)
   function isManikinReady(m: ManikinLiveSummary) {
-    if (m.online && !m.offline && !m.stale) {
-      if (m.state === "READY_FOR_SESSION") return true;
-      if ((m as any).readyForSession === true) return true;
-      if ((m as any).latestResult === "PASS") return true;
+    const offline = !m.online || m.offline;
+    const stale = m.stale;
+
+    if (offline || stale) {
+      return false;
+    }
+
+    // Do not allow start if CALIBRATING, CALIBRATION_FAIL, ERROR, SESSION_ACTIVE
+    const blockedStates = ["CALIBRATING", "CALIBRATION_ACTIVE", "CALIBRATION_FAIL", "CALIBRATION_FAILED", "FAIL", "ERROR", "SESSION_ACTIVE", "ACTIVE"];
+    if (m.state && blockedStates.includes(m.state.toUpperCase())) {
+      return false;
     }
 
     const readiness = deviceReadiness[m.deviceId];
-    if (readiness) {
-      if (readiness.firmwareState === "READY_FOR_SESSION" || readiness.ready || readiness.readyForSession || readiness.latestResult === "PASS") {
-        return true;
-      }
+    if (readiness && readiness.firmwareState && blockedStates.includes(readiness.firmwareState.toUpperCase())) {
+      return false;
     }
-    return false;
+
+    const readyFromFirmware =
+      m.state === "READY_FOR_SESSION" ||
+      readiness?.source === "FIRMWARE_READY_STATE" ||
+      readiness?.firmwareState === "READY_FOR_SESSION";
+
+    const backendReadinessPassed =
+      (m as any).readyForSession === true ||
+      (m as any).latestResult === "PASS" ||
+      readiness?.ready === true ||
+      readiness?.readyForSession === true ||
+      readiness?.latestResult === "PASS" ||
+      readiness?.source === "BACKEND_CALIBRATION_PASS";
+
+    return !!(readyFromFirmware || backendReadinessPassed);
+  }
+
+  function isReadyFromFirmware(m: ManikinLiveSummary) {
+    const readiness = deviceReadiness[m.deviceId];
+    return (
+      m.state === "READY_FOR_SESSION" ||
+      readiness?.source === "FIRMWARE_READY_STATE" ||
+      readiness?.firmwareState === "READY_FOR_SESSION"
+    );
+  }
+
+  function isCalibrationFailed(m: ManikinLiveSummary) {
+    const readiness = deviceReadiness[m.deviceId];
+    const failedStates = ["CALIBRATION_FAIL", "CALIBRATION_FAILED", "FAIL"];
+    return (
+      (m.state && failedStates.includes(m.state.toUpperCase())) ||
+      (readiness?.firmwareState && failedStates.includes(readiness.firmwareState.toUpperCase())) ||
+      readiness?.latestResult === "FAIL"
+    );
   }
 
   // Fetch device readiness on-demand when clicked/selected (Correction 4)
@@ -386,13 +424,20 @@ export function StartSessionWizardPage() {
                         <p className="text-[10px] text-slate-400 mt-2 font-medium">
                           {m.online ? "Online" : "Offline"}
                         </p>
+                        {ready && isReadyFromFirmware(m) && (
+                          <p className="text-[10px] text-teal-600 font-bold mt-1">
+                            Ready from firmware state
+                          </p>
+                        )}
                       </div>
 
                       {/* Clean medical-friendly disabled messages (Correction 4 / TASK 6) */}
                       {!ready && !checkingReadiness && (
                         <div className="mt-2 space-y-1.5">
-                          <p className="text-[10px] text-amber-600 font-bold">
-                            ⚠ Run readiness check before starting training.
+                          <p className="text-[10px] text-rose-600 font-bold">
+                            {isCalibrationFailed(m)
+                              ? "⚠ Readiness check failed. Run setup again."
+                              : "⚠ Run readiness check before starting training."}
                           </p>
                           <button
                             type="button"

@@ -437,6 +437,21 @@ public class RosterCacheRepository {
         }
     }
 
+    public synchronized void updateSyncedUserActive(String cloudUserId, boolean active) {
+        try (Connection connection = openConnection();
+             PreparedStatement ps = connection.prepareStatement("""
+                     UPDATE cloud_synced_users
+                     SET active = ?
+                     WHERE cloud_user_id = ?
+                     """)) {
+            ps.setInt(1, active ? 1 : 0);
+            ps.setString(2, cloudUserId);
+            ps.executeUpdate();
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to update active status for cloud user " + cloudUserId, error);
+        }
+    }
+
     public synchronized List<SyncedUserRecord> listSyncedUsers() {
         try (Connection connection = openConnection();
              PreparedStatement ps = connection.prepareStatement("""

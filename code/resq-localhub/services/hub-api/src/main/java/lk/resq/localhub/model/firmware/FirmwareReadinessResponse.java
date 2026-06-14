@@ -12,6 +12,7 @@ public record FirmwareReadinessResponse(
         Long tsMs,
         String receivedAt,
         String sessionId,
-        String lastErrorId
+        String lastErrorId,
+        String source
 ) {
 }

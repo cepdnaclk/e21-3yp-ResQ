@@ -294,7 +294,7 @@ class ActiveSessionServiceTest {
                 "Blocked readiness",
                 null
         ))).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("not ready");
+                .hasMessageContaining("Readiness check is still running.");
     }
 
     @Test
@@ -341,6 +341,143 @@ class ActiveSessionServiceTest {
         assertThat(session.active()).isTrue();
     }
 
+    @Test
+    void testSessionStartReadinessGating() throws Exception {
+        // 1. Device live state READY_FOR_SESSION, no backend calibration record: start succeeds.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                    {
+                      "deviceId": "M01",
+                      "state": "READY_FOR_SESSION",
+                      "session_active": false,
+                      "calibrated": false
+                    }
+                    """));
+            SessionStartResponse session = fixture.service.startSession(new SessionStartRequest(
+                    "M01", null, null, null, "Guest", "Ready", null
+            ));
+            assertThat(session.deviceId()).isEqualTo("M01");
+            assertThat(session.active()).isTrue();
+        }
+
+        // 2. Device live state PAIRED_IDLE, no backend calibration record: start fails with friendly not-ready reason.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                    {
+                      "deviceId": "M01",
+                      "state": "PAIRED_IDLE",
+                      "session_active": false,
+                      "calibrated": false
+                    }
+                    """));
+            assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                    "M01", null, null, null, "Guest", "Ready", null
+            ))).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Run readiness check or wait until firmware reports READY_FOR_SESSION.");
+        }
+
+        // 3. Device live state CALIBRATION_FAIL: start fails.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                    {
+                      "deviceId": "M01",
+                      "state": "CALIBRATION_FAIL",
+                      "session_active": false,
+                      "calibrated": false
+                    }
+                    """));
+            assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                    "M01", null, null, null, "Guest", "Ready", null
+            ))).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Readiness check failed. Run setup again.");
+        }
+
+        // 4. Device live state CALIBRATING: start fails.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                    {
+                      "deviceId": "M01",
+                      "state": "CALIBRATING",
+                      "session_active": false,
+                      "calibrated": false
+                    }
+                    """));
+            assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                    "M01", null, null, null, "Guest", "Ready", null
+            ))).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Readiness check is still running.");
+        }
+
+        // 5. Device live state ERROR: start fails.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                    {
+                      "deviceId": "M01",
+                      "state": "ERROR",
+                      "session_active": false,
+                      "calibrated": false
+                    }
+                    """));
+            assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                    "M01", null, null, null, "Guest", "Ready", null
+            ))).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Manikin needs support before training.");
+        }
+
+        // 6. Device live state SESSION_ACTIVE: start fails.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                    {
+                      "deviceId": "M01",
+                      "state": "SESSION_ACTIVE",
+                      "session_active": false,
+                      "calibrated": false
+                    }
+                    """));
+            assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                    "M01", null, null, null, "Guest", "Ready", null
+            ))).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("This manikin is already in a session.");
+        }
+
+        // 7. Device live state stale/offline: start fails.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            // No registry update at all: summary is empty (offline)
+            assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                    "M-OFFLINE", null, null, null, "Guest", "Ready", null
+            ))).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Manikin is offline or stale.");
+        }
+
+        // 8. Backend readiness PASS, firmware state not available but device online: start succeeds.
+        {
+            ServiceFixture fixture = newServiceFixture();
+            fixture.repository.saveCalibrationResult(new FirmwareCalibrationResultRecord(
+                    0, "M01", "default", "req-1", "reply-1", 1, "PASS", "ACK", 1, "00000", 1, null, true, 100L, Instant.now(), "{}"
+            ));
+            fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+                    {
+                      "deviceId": "M01",
+                      "state": null,
+                      "session_active": false,
+                      "calibrated": true
+                    }
+                    """));
+            SessionStartResponse session = fixture.service.startSession(new SessionStartRequest(
+                    "M01", null, null, null, "Guest", "Ready", null
+            ));
+            assertThat(session.deviceId()).isEqualTo("M01");
+            assertThat(session.active()).isTrue();
+        }
+    }
+
     private ActiveSessionService newService() throws Exception {
         return newServiceFixture().service;
     }
@@ -351,6 +488,14 @@ class ActiveSessionServiceTest {
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
         ManikinRegistryService registry = new ManikinRegistryService(12);
+        registry.updateFromStatus("M01", objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "READY_FOR_SESSION",
+                  "session_active": false,
+                  "calibrated": true
+                }
+                """));
         FirmwarePersistenceRepository firmwareRepository = new FirmwarePersistenceRepository(
                 Path.of("target", "active-session-firmware-test-" + UUID.randomUUID() + ".sqlite").toString()
         );

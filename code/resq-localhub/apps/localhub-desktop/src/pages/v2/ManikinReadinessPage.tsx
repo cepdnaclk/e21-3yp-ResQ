@@ -203,9 +203,13 @@ export function ManikinReadinessPage({ deviceId, onBack }: ManikinReadinessPageP
   const online = liveSummary?.online ?? false;
 
   // Start Session validation check
+  const readyFromFirmware =
+    liveSummary?.state === "READY_FOR_SESSION" ||
+    readiness?.source === "FIRMWARE_READY_STATE" ||
+    readiness?.firmwareState === "READY_FOR_SESSION";
+
   const isStartSessionEnabled =
-    pressureSetupSaved &&
-    (readiness?.ready || liveSummary?.state === "READY_FOR_SESSION") &&
+    (readyFromFirmware || (pressureSetupSaved && readiness?.ready)) &&
     online &&
     !checking;
 
@@ -680,7 +684,7 @@ export function ManikinReadinessPage({ deviceId, onBack }: ManikinReadinessPageP
               <div className="my-8 flex justify-center">
                 <div
                   className={`w-48 h-48 rounded-full border-[10px] flex flex-col items-center justify-center bg-slate-50 transition-all duration-300 relative ${
-                    liveSummary?.state === "READY_FOR_SESSION"
+                    readyFromFirmware
                       ? "border-emerald-500 shadow-lg shadow-emerald-500/5 text-emerald-800"
                       : checking
                       ? "border-teal-500 animate-pulse text-teal-800"
@@ -693,7 +697,7 @@ export function ManikinReadinessPage({ deviceId, onBack }: ManikinReadinessPageP
                     {getFriendlyStateLabel(liveSummary?.state, online)}
                   </span>
                   <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mt-1">
-                    {liveSummary?.state === "READY_FOR_SESSION"
+                    {readyFromFirmware
                       ? "Ready for training"
                       : checking
                       ? "Keep sensor level"

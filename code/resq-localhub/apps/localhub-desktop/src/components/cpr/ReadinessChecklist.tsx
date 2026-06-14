@@ -29,8 +29,13 @@ export function ReadinessChecklist({ readiness, liveSummary, loading }: Readines
   }
 
   const online = liveSummary?.online ?? false;
-  const calibrated = readiness?.calibrated ?? false;
-  const ready = readiness?.ready ?? false;
+  const readyFromFirmware =
+    liveSummary?.state === "READY_FOR_SESSION" ||
+    readiness?.source === "FIRMWARE_READY_STATE" ||
+    readiness?.firmwareState === "READY_FOR_SESSION";
+
+  const calibrated = readyFromFirmware || (readiness?.calibrated ?? false);
+  const ready = readyFromFirmware || (readiness?.ready ?? false);
 
   const items: CheckItem[] = [
     {
@@ -46,7 +51,11 @@ export function ReadinessChecklist({ readiness, liveSummary, loading }: Readines
     {
       label: "Readiness check complete",
       pass: calibrated,
-      detail: calibrated ? "Device calibrated." : "Run a readiness check before starting a session to establish sensor baseline.",
+      detail: readyFromFirmware
+        ? "Ready from firmware state."
+        : calibrated
+        ? "Device calibrated."
+        : "Run a readiness check before starting a session to establish sensor baseline.",
     },
     {
       label: "Signal quality",
@@ -56,7 +65,9 @@ export function ReadinessChecklist({ readiness, liveSummary, loading }: Readines
     {
       label: "System ready",
       pass: ready && online,
-      detail: ready && online ? "Ready for clinical training." : "The device has pending errors and is not ready.",
+      detail: ready && online
+        ? (readyFromFirmware ? "Ready from firmware state." : "Ready for clinical training.")
+        : "The device has pending errors and is not ready.",
     },
   ];
 
