@@ -47,6 +47,12 @@ final class TelemetryPayloadNormalizer {
         Double depthMm = firstDouble(payload, "depthMm", "depth_mm");
         Double depthProgress = firstDouble(payload, "depthProgress", "depth_progress");
         String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "mode"));
+
+        Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
+
+        Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
+        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
+        Double pauseS = firstDouble(payload, "pauseS", "pause_s");
         if (depthMm == null) {
             depthMm = firstDouble(payload, "current_delta", "currentDelta");
             if (depthMm != null) {
@@ -54,14 +60,12 @@ final class TelemetryPayloadNormalizer {
                 if (sourceMode == null || "real".equals(sourceMode)) {
                     sourceMode = "simulator";
                 }
+            } else if (depthProgress != null) {
+                depthMm = depthProgress * 50.0;
+                warnings.add("derived depthMm = depthProgress * 50.0 because depthMm is missing");
             }
         }
 
-        Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
-
-        Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
-        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
-        Double pauseS = firstDouble(payload, "pauseS", "pause_s");
         Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions", "totalCompressions");
         Integer validCompressionCount = firstInt(payload, "validCompressionCount", "valid_compression_count");
         Integer recoilOkCount = firstInt(payload, "recoilOkCount", "recoil_ok_count");

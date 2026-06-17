@@ -70,7 +70,8 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.ok()).isTrue();
         assertThat(result.value().deviceId()).isEqualTo("M01");
         assertThat(result.value().sessionId()).isEqualTo("S-FW-2");
-        assertThat(result.value().depthMm()).isNull();
+        assertThat(result.value().depthMm()).isEqualTo(39.0);
+
         assertThat(result.value().depthProgress()).isEqualTo(0.78);
         assertThat(result.value().depthOk()).isTrue();
         assertThat(result.value().rateCpm()).isEqualTo(111.0);

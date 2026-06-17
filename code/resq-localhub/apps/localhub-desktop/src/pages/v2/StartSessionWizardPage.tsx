@@ -11,6 +11,8 @@ import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
 import LoadingState from "../../components/ui/LoadingState";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { subscribeToManikinsLive } from "../../api/liveEventsClient";
+import { DeviceReadinessPanel } from "../../components/cpr/DeviceReadinessPanel";
 
 export function StartSessionWizardPage() {
   const [step, setStep] = useState(1);
@@ -91,6 +93,19 @@ export function StartSessionWizardPage() {
     init();
   }, []);
 
+  // Subscribe to SSE updates for manikins
+  useEffect(() => {
+    const subscription = subscribeToManikinsLive((updatedManikins) => {
+      setManikins(updatedManikins);
+    }, (err) => {
+      console.warn("Manikins live stream interrupted, retrying...", err);
+    });
+
+    return () => {
+      subscription.stop();
+    };
+  }, []);
+
   // Handle course selection
   async function handleSelectCourse(course: Course) {
     setSelectedCourse(course);
@@ -117,51 +132,46 @@ export function StartSessionWizardPage() {
   // Check if a specific manikin is ready (Correction 4)
   function isManikinReady(m: ManikinLiveSummary) {
     if (m.online && !m.offline && !m.stale) {
-      if (m.state === "READY_FOR_SESSION") return true;
-      if ((m as any).readyForSession === true) return true;
-      if ((m as any).latestResult === "PASS") return true;
-    }
-
-    const readiness = deviceReadiness[m.deviceId];
-    if (readiness) {
-      if (readiness.firmwareState === "READY_FOR_SESSION" || readiness.ready || readiness.readyForSession || readiness.latestResult === "PASS") {
-        return true;
-      }
+      if (m.state === "READY_FOR_SESSION" || (m as any).readyForSession === true) return true;
     }
     return false;
   }
 
-  // Fetch device readiness on-demand when clicked/selected (Correction 4)
-  async function checkManikinReadiness(m: ManikinLiveSummary) {
-    if (loadingReadiness[m.deviceId] || deviceReadiness[m.deviceId]) {
-      return;
-    }
-
-    setLoadingReadiness((prev) => ({ ...prev, [m.deviceId]: true }));
-    try {
-      const res = await fetchDeviceReadiness(m.deviceId);
-      setDeviceReadiness((prev) => ({ ...prev, [m.deviceId]: res }));
-    } catch (err) {
-      console.warn("Failed to check readiness for device: " + m.deviceId, err);
-    } finally {
-      setLoadingReadiness((prev) => ({ ...prev, [m.deviceId]: false }));
-    }
-  }
-
   // Handle device selection
   async function handleSelectManikin(m: ManikinLiveSummary) {
-    if (!deviceReadiness[m.deviceId] && m.state !== "READY_FOR_SESSION") {
-      await checkManikinReadiness(m);
-    }
     setSelectedManikin(m);
+    setStep(4);
   }
 
   // Handle Start Session launch (Correction 5 & 6)
   async function handleLaunchSession() {
     if (!selectedManikin || !selectedCourse || !selectedTrainee) return;
 
+    // Find the latest live state of the manikin from the live list
+    const liveM = manikins.find((m) => m.deviceId === selectedManikin.deviceId);
+    const online = liveM?.online && !liveM?.offline && !liveM?.stale;
+
+    if (!online) {
+      setError("Cannot start training: manikin must be online.");
+      return;
+    }
+
     setStarting(true);
     setError(null);
+
+    try {
+      const readiness = await fetchDeviceReadiness(selectedManikin.deviceId);
+      const isReady = readiness.firmwareState === "READY_FOR_SESSION" && readiness.readyForSession === true;
+      if (!isReady) {
+        setError("Cannot start training: manikin must be in READY_FOR_SESSION state and successfully calibrated.");
+        setStarting(false);
+        return;
+      }
+    } catch (err) {
+      setError("Failed to verify manikin readiness. Please try again.");
+      setStarting(false);
+      return;
+    }
 
     const resolvedCourseId = selectedCourse.cloudCourseId || selectedCourse.courseId || (selectedCourse as any).id;
     const resolvedTraineeId =
@@ -189,6 +199,7 @@ export function StartSessionWizardPage() {
     }
   }
 
+
   const navigateTo = (path: string) => {
     window.history.pushState({}, "", path);
     window.dispatchEvent(new PopStateEvent("popstate"));
@@ -212,8 +223,8 @@ export function StartSessionWizardPage() {
 
       {/* Step Indicators */}
       <div className="flex items-center justify-between max-w-lg mx-auto bg-white border border-slate-100 p-4.5 rounded-2xl shadow-sm">
-        {[1, 2, 3, 4].map((s) => {
-          const labels = ["Course", "Trainee", "Manikin", "Launch"];
+        {[1, 2, 3, 4, 5].map((s) => {
+          const labels = ["Course", "Trainee", "Manikin", "Pre-Check", "Launch"];
           const isActive = step === s;
           const isDone = step > s;
 
@@ -284,8 +295,8 @@ export function StartSessionWizardPage() {
             Step 2 — Select Trainee for {selectedCourse.courseCode || "Course"}
           </h3>
           {students.length === 0 ? (
-            <Card className="text-center py-12 max-w-md mx-auto">
-              <p className="text-slate-500 text-sm font-bold text-rose-700">No trainees are enrolled in this course yet.</p>
+            <Card className="text-center py-12 max-w-md mx-auto space-y-4">
+              <p className="text-slate-550 text-sm font-bold text-rose-700">No trainees are enrolled in this course yet.</p>
               <Button type="button" variant="secondary" className="mt-4" onClick={() => setStep(1)}>
                 Back to Courses
               </Button>
@@ -323,53 +334,48 @@ export function StartSessionWizardPage() {
         </div>
       )}
 
-      {/* STEP 3: Select Ready Manikin */}
+      {/* STEP 3: Select Manikin */}
       {step === 3 && selectedCourse && selectedTrainee && (
         <div className="space-y-4 animate-fadeIn">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider text-center">
-            Step 3 — Select a Ready Manikin Device
+            Step 3 — Select a Manikin Device
           </h3>
-          {manikins.length === 0 || manikins.filter(isManikinReady).length === 0 ? (
+          {manikins.length === 0 ? (
             <Card className="text-center py-12 max-w-md mx-auto space-y-4">
-              <p className="text-slate-600 text-sm font-bold">No ready manikins available. Prepare a manikin before starting.</p>
+              <p className="text-slate-650 text-sm font-bold">No manikins available. Please pair a manikin first.</p>
               <div className="flex gap-2.5 justify-center">
                 <Button type="button" variant="secondary" onClick={() => setStep(2)}>
                   Back to Trainee
                 </Button>
-                {manikins.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    className="text-white font-bold"
-                    onClick={() => navigateTo("/instructor")}
-                  >
-                    Manage Manikins
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="text-white font-bold"
+                  onClick={() => navigateTo("/instructor/pair")}
+                >
+                  Pair Manikin
+                </Button>
               </div>
             </Card>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {manikins.map((m) => {
                 const isSelected = selectedManikin?.deviceId === m.deviceId;
-                const checkingReadiness = loadingReadiness[m.deviceId];
-
-                // Check readiness status (Correction 4)
                 const ready = isManikinReady(m);
+                const online = m.online && !m.offline && !m.stale;
 
                 return (
-                  <div
+                  <button
                     key={m.deviceId}
-                    onClick={() => ready && handleSelectManikin(m)}
-                    className={`text-left w-full transition-transform ${ready ? "hover:scale-[1.01] cursor-pointer" : "cursor-default"}`}
+                    type="button"
+                    onClick={() => handleSelectManikin(m)}
+                    className="text-left w-full transition-transform hover:scale-[1.01] cursor-pointer"
                   >
                     <Card
-                      className={`border cursor-pointer transition-all p-5 flex flex-col justify-between h-36 ${
+                      className={`border cursor-pointer transition-all p-5 flex flex-col justify-between h-32 ${
                         isSelected
                           ? "border-teal-600 bg-teal-50/10 shadow-sm"
-                          : ready
-                          ? "border-slate-100 hover:border-slate-300"
-                          : "border-slate-100 opacity-60 hover:opacity-80"
+                          : "border-slate-100 hover:border-slate-300"
                       }`}
                     >
                       <div>
@@ -377,37 +383,23 @@ export function StartSessionWizardPage() {
                           <span className="font-bold text-xs text-slate-800">{m.deviceId}</span>
                           {ready ? (
                             <StatusBadge tone="success" label="Ready" dot={true} />
-                          ) : checkingReadiness ? (
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider animate-pulse">Checking...</span>
+                          ) : online ? (
+                            <StatusBadge tone="warning" label="Needs Pre-Check" dot={true} />
                           ) : (
-                            <StatusBadge tone="muted" label="Not Ready" dot={false} />
+                            <StatusBadge tone="muted" label="Offline" dot={false} />
                           )}
                         </div>
                         <p className="text-[10px] text-slate-400 mt-2 font-medium">
-                          {m.online ? "Online" : "Offline"}
+                          {online ? "Online & connected" : "Offline / Unreachable"}
                         </p>
                       </div>
-
-                      {/* Clean medical-friendly disabled messages (Correction 4 / TASK 6) */}
-                      {!ready && !checkingReadiness && (
-                        <div className="mt-2 space-y-1.5">
-                          <p className="text-[10px] text-amber-600 font-bold">
-                            ⚠ Run readiness check before starting training.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigateTo(`/instructor/manikins/${encodeURIComponent(m.deviceId)}/readiness`);
-                            }}
-                            className="block w-full text-center text-[10px] font-bold bg-teal-50 hover:bg-teal-100/80 text-teal-700 border border-teal-100 rounded-lg py-1.5 px-2.5 transition-colors"
-                          >
-                            Prepare Manikin
-                          </button>
-                        </div>
+                      {!ready && online && (
+                        <p className="text-[9px] text-amber-600 font-bold mt-1">
+                          Pre-check pre-requisite. Setup and calibrate in the next step.
+                        </p>
                       )}
                     </Card>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -420,7 +412,7 @@ export function StartSessionWizardPage() {
             <Button
               type="button"
               variant="primary"
-              disabled={!selectedManikin || !isManikinReady(selectedManikin)}
+              disabled={!selectedManikin}
               onClick={() => setStep(4)}
             >
               Continue
@@ -429,10 +421,27 @@ export function StartSessionWizardPage() {
         </div>
       )}
 
-      {/* STEP 4: Confirm and Launch */}
+      {/* STEP 4: Calibration Pre-Check */}
       {step === 4 && selectedCourse && selectedTrainee && selectedManikin && (
+        <div className="space-y-4 animate-fadeIn">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider text-center font-bold">
+            Step 4 — Manikin Calibration Pre-Check
+          </h3>
+          <DeviceReadinessPanel
+            deviceId={selectedManikin.deviceId}
+            liveSummary={manikins.find((m) => m.deviceId === selectedManikin.deviceId) || selectedManikin}
+            onContinue={() => setStep(5)}
+            continueLabel="Continue to Launch"
+            showBack={true}
+            onBack={() => setStep(3)}
+          />
+        </div>
+      )}
+
+      {/* STEP 5: Confirm and Launch */}
+      {step === 5 && selectedCourse && selectedTrainee && selectedManikin && (
         <div className="max-w-md mx-auto space-y-6 animate-fadeIn">
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Step 4 — Confirm Session Settings</h3>
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider text-center font-bold">Step 5 — Confirm Session Settings</h3>
           <Card className="p-6 space-y-4">
             <div className="space-y-3">
               <div>
@@ -477,19 +486,27 @@ export function StartSessionWizardPage() {
           </Card>
 
           <div className="flex justify-between">
-            <Button type="button" variant="secondary" onClick={() => setStep(3)}>
-              Back to Manikin
+            <Button type="button" variant="secondary" onClick={() => setStep(4)}>
+              Back to Pre-Check
             </Button>
-            <Button
-              type="button"
-              variant="primary"
-              loading={starting}
-              onClick={handleLaunchSession}
-              className="text-white"
-            >
-              Start Live Session
-            </Button>
+            {(() => {
+              const liveM = manikins.find((m) => m.deviceId === selectedManikin.deviceId);
+              const isLaunchEnabled = liveM ? isManikinReady(liveM) : false;
+              return (
+                <Button
+                  type="button"
+                  variant="primary"
+                  loading={starting}
+                  disabled={!isLaunchEnabled}
+                  onClick={handleLaunchSession}
+                  className="text-white"
+                >
+                  Start Live Session
+                </Button>
+              );
+            })()}
           </div>
+
         </div>
       )}
     </div>

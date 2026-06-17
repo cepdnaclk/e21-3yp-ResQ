@@ -143,7 +143,7 @@ class ActiveSessionServiceTest {
         service.recordTelemetry("M01", firmwareTelemetry);
 
         var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
-        assertThat(liveView.latestDepthMm()).isNull();
+        assertThat(liveView.latestDepthMm()).isEqualTo(39.0);
         assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
         assertThat(liveView.latestMetric()).isNotNull();
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.78);
@@ -154,7 +154,7 @@ class ActiveSessionServiceTest {
         assertThat(completed.summary().sampleCount()).isEqualTo(1);
         assertThat(completed.summary().totalCompressions()).isEqualTo(1);
         assertThat(completed.summary().validCompressions()).isEqualTo(1);
-        assertThat(completed.summary().avgDepthMm()).isEqualTo(0.0);
+        assertThat(completed.summary().avgDepthMm()).isEqualTo(39.0);
         assertThat(completed.summary().avgDepthProgress()).isEqualTo(0.78);
         assertThat(completed.summary().avgRateCpm()).isEqualTo(111.0);
         assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
