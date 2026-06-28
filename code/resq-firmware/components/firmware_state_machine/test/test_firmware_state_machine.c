@@ -460,6 +460,7 @@ TEST_CASE("BOOT handles config load failures", "[fsm]")
 
     reset_fixture();
     f.load_calibration_result = ESP_FAIL;
+    f.calibration_valid = false;
     TEST_ASSERT_EQUAL(RESQ_STATE_CONFIG_CHECK, run_state(RESQ_STATE_BOOT));
     TEST_ASSERT_FALSE(fsm.calibration_config.calibrated);
 }
@@ -603,8 +604,9 @@ TEST_CASE("Idle states delegate commands and publish when connected", "[fsm]")
 
     reset_fixture();
     f.mqtt_connected = false;
+    int publish_status_before = f.publish_status_calls;
     run_state(RESQ_STATE_PAIRED_IDLE);
-    TEST_ASSERT_EQUAL(0, f.publish_status_calls);
+    TEST_ASSERT_EQUAL(publish_status_before, f.publish_status_calls);
 }
 
 TEST_CASE("Manager-owned states return delegated transitions", "[fsm]")
@@ -645,6 +647,7 @@ TEST_CASE("SESSION_INTERRUPTED reconnects retries and returns readiness", "[fsm]
     TEST_ASSERT_EQUAL_UINT32(500, f.last_delay_ms);
 
     reset_fixture();
+    fsm.calibration_config.calibrated = true;
     TEST_ASSERT_EQUAL(RESQ_STATE_READY_FOR_SESSION,
                       run_state(RESQ_STATE_SESSION_INTERRUPTED));
 

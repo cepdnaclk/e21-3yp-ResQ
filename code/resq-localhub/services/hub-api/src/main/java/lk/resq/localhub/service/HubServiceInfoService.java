@@ -93,6 +93,7 @@ public class HubServiceInfoService {
         return new HubServiceInfoResponse(
                 true,
                 "http://" + backendHost + ":" + backendPort,
+                mqttBrokerUrl,
                 mqttHost,
                 resolvedMqttPort,
                 dashboardUrl,

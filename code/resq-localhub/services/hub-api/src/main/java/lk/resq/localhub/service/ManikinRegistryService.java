@@ -193,6 +193,18 @@ public class ManikinRegistryService {
         });
     }
 
+    public void registerDevice(String deviceId) {
+        upsert(deviceId, state -> {
+            if (state.lastSeen == null) {
+                state.online = false;
+            }
+            if (!state.online) {
+                state.state = "PAIRED_IDLE";
+            }
+            state.sessionActive = false;
+        });
+    }
+
     public List<ManikinLiveSummary> getLiveSummaries() {
         markStaleOffline();
 

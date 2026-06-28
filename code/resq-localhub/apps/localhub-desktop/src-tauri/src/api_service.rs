@@ -160,6 +160,37 @@ impl ApiServiceState {
         );
     }
 
+    fn detect_advertised_host() -> String {
+        match commands::detect_primary_ipv4() {
+            Ok(Some(ip)) => ip,
+            Ok(None) => {
+                eprintln!(
+                    "No LAN IP detected for backend startup; falling back to 127.0.0.1. Firmware and devices may not reach the broker from a LAN interface."
+                );
+                "127.0.0.1".to_string()
+            }
+            Err(error) => {
+                eprintln!(
+                    "Failed to detect LAN IP for backend startup: {error}. Falling back to 127.0.0.1."
+                );
+                "127.0.0.1".to_string()
+            }
+        }
+    }
+
+    fn apply_backend_environment(command: &mut Command, advertised_host: &str) {
+        let broker_url = format!("tcp://{}:1883", advertised_host);
+        command.env("RESQ_MQTT_BROKER_URL", &broker_url);
+        command.env("RESQ_MQTT_ADVERTISED_HOST", advertised_host);
+        command.env("RESQ_MQTT_PORT", "1883");
+        command.env("RESQ_BACKEND_ADVERTISED_HOST", advertised_host);
+
+        eprintln!("MQTT broker URL used by backend: {}", broker_url);
+        eprintln!("MQTT host advertised to firmware: {}", advertised_host);
+        eprintln!("MQTT port advertised to firmware: 1883");
+        eprintln!("Backend advertised host: {}", advertised_host);
+    }
+
     fn snapshot_status(child_slot: &mut Option<Child>) -> ApiServiceStatus {
         if let Some(child) = child_slot.as_mut() {
             if matches!(child.try_wait(), Ok(Some(_))) {
@@ -333,6 +364,8 @@ impl ApiServiceState {
             eprintln!("Mode selected: Packaged (Release)");
         }
 
+        let selected_host = Self::detect_advertised_host();
+        Self::apply_backend_environment(&mut command, &selected_host);
         Self::apply_cloud_sync_environment(&mut command);
         Self::hide_window(&mut command);
 

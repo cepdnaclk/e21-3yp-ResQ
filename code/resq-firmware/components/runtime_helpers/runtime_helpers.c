@@ -22,6 +22,16 @@ static int64_t runtime_helpers_now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
+static esp_err_t copy_request_id_if_fits(const char *value, char *out, size_t out_len)
+{
+    if (strlen(value) >= out_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    strcpy(out, value);
+    return ESP_OK;
+}
+
 const char *runtime_helpers_get_device_id(const network_config_t *config)
 {
     (void)config;
@@ -110,21 +120,23 @@ esp_err_t resq_command_extract_request_id(const char *payload, char *out, size_t
 
     /* Prefer request_id (new contract) */
     cJSON *req = cJSON_GetObjectItemCaseSensitive(root, "request_id");
-    if (cJSON_IsString(req) && req->valuestring != NULL && req->valuestring[0] != '\0') {
-        strncpy(out, req->valuestring, out_len - 1);
-        out[out_len - 1] = '\0';
-        result = ESP_OK;
-        cJSON_Delete(root);
-        return result;
+    if (req != NULL) {
+        if (!cJSON_IsString(req) || req->valuestring == NULL) {
+            cJSON_Delete(root);
+            return ESP_ERR_NOT_FOUND;
+        }
+        if (req->valuestring[0] != '\0') {
+            result = copy_request_id_if_fits(req->valuestring, out, out_len);
+            cJSON_Delete(root);
+            return result;
+        }
     }
 
     /* Backward compatibility: accept command_id if request_id missing
      * TODO: remove command_id compatibility after LocalHub uses request_id */
     cJSON *cmd = cJSON_GetObjectItemCaseSensitive(root, "command_id");
     if (cJSON_IsString(cmd) && cmd->valuestring != NULL && cmd->valuestring[0] != '\0') {
-        strncpy(out, cmd->valuestring, out_len - 1);
-        out[out_len - 1] = '\0';
-        result = ESP_OK;
+        result = copy_request_id_if_fits(cmd->valuestring, out, out_len);
         cJSON_Delete(root);
         return result;
     }
