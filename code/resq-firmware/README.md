@@ -17,6 +17,7 @@ testing the firmware.
 - [First-boot provisioning](#first-boot-provisioning)
 - [Runtime state machine](#runtime-state-machine)
 - [MQTT interface](#mqtt-interface)
+- [Pressure saturation handling](#pressure-saturation-handling)
 - [Testing](#testing)
 - [Project structure](#project-structure)
 - [Important operational notes](#important-operational-notes)
@@ -294,6 +295,52 @@ commands for healthy idle states.
 The heartbeat task publishes every five seconds while MQTT is connected.
 Session telemetry is more frequent and is emitted only while a valid session
 is active.
+
+## Pressure saturation handling
+
+CPR depth is always calculated from the Hall sensor. The pressure bladders are
+used for contact, left/right hand balance, and pressure-based confidence while
+their raw HX710 readings remain valid. Once either balance bladder saturates,
+the firmware stops trusting the pressure magnitude for current hand-balance
+calculation, keeps the last reliable hand-placement decision, and continues
+depth, recoil, and rate evaluation from Hall readings.
+
+Runtime pressure saturation uses the same raw HX710 guard used by calibration:
+values above `8300000` or below `-8300000` are treated as saturated. A failed
+HX710 transaction is marked separately from saturation, and a failed Hall read
+does not advance the compression state machine; the previous Hall-derived
+depth/state is held until the next valid Hall sample.
+
+Session telemetry now includes these additional quality fields:
+
+| Field | Meaning |
+|---|---|
+| `pressure_balance_reliable` | `true` when current P1/P2 balance is calculated from non-saturated pressure readings |
+| `pressure_saturation_mask` | Bit mask of saturated pressure channels: bit 0 = P0, bit 1 = P1, bit 2 = P2 |
+| `sensor_quality_flags` | Numeric firmware quality bit mask for pressure missed, Hall missed, pressure saturated, and held balance |
+| `missed_pressure_samples` | Session count of failed pressure read transactions |
+| `missed_hall_samples` | Session count of failed Hall ADC reads |
+
+The `flags` string may also include `PRESSURE_MISSED`, `HALL_MISSED`,
+`PRESSURE_SATURATED`, and `PRESSURE_BALANCE_HELD`. When
+`PRESSURE_BALANCE_HELD` is present, `hand_placement` and
+`pressure_balance_pct` are the last reliable pre-saturation values, not a fresh
+pressure calculation. If both balance bladders saturate shortly after a
+centered pre-saturation pressure sample, a full Hall-depth compression may still
+count as valid, but telemetry keeps the pressure confidence warning visible.
+One-sided saturation, stale balance data, or missed pressure does not get this
+fallback.
+
+LocalHub and frontend changes to consider later:
+
+- Extend shared firmware telemetry types to include the new optional fields.
+- Normalize snake-case firmware fields into camel-case live metrics, for
+  example `pressureBalanceReliable`, `pressureSaturationMask`,
+  `sensorQualityFlags`, `missedPressureSamples`, and `missedHallSamples`.
+- Display `PRESSURE_SATURATED` and `PRESSURE_BALANCE_HELD` as a pressure
+  confidence warning, while keeping Hall depth visible.
+- Treat `pressure_balance_reliable=false` as "hand balance estimated from last
+  reliable pressure sample" instead of hiding depth or stopping the session.
 
 ## Testing
 

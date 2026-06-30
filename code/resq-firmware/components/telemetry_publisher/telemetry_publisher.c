@@ -43,7 +43,7 @@ static void telemetry_task(void *arg)
             continue;
         }
 
-        char payload[1024];
+        char payload[1280];
         const char *device_id = runtime_helpers_get_device_id(NULL);
         const char *session_id = session_manager_get_session_id();
 
@@ -63,6 +63,11 @@ static void telemetry_task(void *arg)
             "\"pause_s\":%.3f," 
             "\"hand_placement\":\"%s\"," 
             "\"pressure_balance_pct\":%.2f," 
+            "\"pressure_balance_reliable\":%s,"
+            "\"pressure_saturation_mask\":%u,"
+            "\"sensor_quality_flags\":%u,"
+            "\"missed_pressure_samples\":%d,"
+            "\"missed_hall_samples\":%d,"
             "\"flags\":\"%s\"," 
             "\"ts_ms\":%lld"
             "}",
@@ -78,6 +83,11 @@ static void telemetry_task(void *arg)
             snap.pause_s,
             snap.hand_placement,
             snap.pressure_balance_pct,
+            snap.pressure_balance_reliable ? "true" : "false",
+            (unsigned int)snap.pressure_saturation_mask,
+            (unsigned int)snap.sensor_quality_flags,
+            snap.missed_pressure_samples,
+            snap.missed_hall_samples,
             snap.flags,
             (long long)snap.ts_ms
         );

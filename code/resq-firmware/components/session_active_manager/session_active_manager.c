@@ -107,26 +107,24 @@ static void session_sensor_task(void *arg)
                 &p2);
 
             if (pressure_err != ESP_OK) {
-                ESP_LOGW(TAG, "Skipping CPR metrics sample: failed to read shared HX710 pressure sensors: %s",
-                         esp_err_to_name(pressure_err));
-                ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
-                continue;
+                sample.pressure_0_raw = HX710_ERROR_TIMEOUT;
+                sample.pressure_1_raw = HX710_ERROR_TIMEOUT;
+                sample.pressure_2_raw = HX710_ERROR_TIMEOUT;
+                sample.quality_flags |= CPR_SAMPLE_PRESSURE_READ_FAILED;
+                ESP_LOGW(TAG, "Failed to read shared HX710 pressure sensors: %s", esp_err_to_name(pressure_err));
+            } else {
+                sample.pressure_0_raw = p0;
+                sample.pressure_1_raw = p1;
+                sample.pressure_2_raw = p2;
             }
-
-            sample.pressure_0_raw = p0;
-            sample.pressure_1_raw = p1;
-            sample.pressure_2_raw = p2;
         }
 
         int hall_raw = 0;
-        esp_err_t hall_err = hall_sensor_read_raw(&local_hall, &hall_raw);
-        if (hall_err != ESP_OK) {
-            ESP_LOGW(TAG, "Skipping CPR metrics sample: failed to read Hall sensor: %s",
-                     esp_err_to_name(hall_err));
-            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
-            continue;
+        if (hall_sensor_read_raw(&local_hall, &hall_raw) == ESP_OK) {
+            sample.hall_raw = hall_raw;
+        } else {
+            sample.quality_flags |= CPR_SAMPLE_HALL_READ_FAILED;
         }
-        sample.hall_raw = hall_raw;
 
         cpr_metrics_update(&sample);
 
