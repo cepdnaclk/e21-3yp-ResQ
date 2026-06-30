@@ -110,6 +110,7 @@ static void session_sensor_task(void *arg)
                 sample.pressure_0_raw = HX710_ERROR_TIMEOUT;
                 sample.pressure_1_raw = HX710_ERROR_TIMEOUT;
                 sample.pressure_2_raw = HX710_ERROR_TIMEOUT;
+                sample.quality_flags |= CPR_SAMPLE_PRESSURE_READ_FAILED;
                 ESP_LOGW(TAG, "Failed to read shared HX710 pressure sensors: %s", esp_err_to_name(pressure_err));
             } else {
                 sample.pressure_0_raw = p0;
@@ -121,6 +122,8 @@ static void session_sensor_task(void *arg)
         int hall_raw = 0;
         if (hall_sensor_read_raw(&local_hall, &hall_raw) == ESP_OK) {
             sample.hall_raw = hall_raw;
+        } else {
+            sample.quality_flags |= CPR_SAMPLE_HALL_READ_FAILED;
         }
 
         cpr_metrics_update(&sample);
