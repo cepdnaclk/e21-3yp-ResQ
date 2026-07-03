@@ -102,3 +102,40 @@ export type DeviceReadinessState = {
   readyForSession: boolean;
   lastUpdatedAt?: string | null;
 };
+
+export type CalibrationStartRequest = {
+  hall_delta: number;
+  ref_pressure: number;
+  bladder_1_pressure: number;
+  bladder_2_pressure: number;
+  profile_id?: string;
+  sample_interval_ms?: number;
+  calibration_window_ms?: number;
+};
+
+export type CalibrationCommandResponse = {
+  deviceId: string;
+  requestId: string;
+  command: string;
+  status: string;
+  message?: string;
+  issuedAt?: string;
+};
+
+export type CalibrationStreamEvent = {
+  type: string;
+  deviceId: string;
+  eventId: number | null;
+  replyId: string | null;
+  status: string | null;
+  progressId: number | null;
+  result: string | null;
+  reasonId: string | null;
+  actionId: number | null;
+  firmwareState: string | null;
+  calibrationState: CalibrationState;
+  readyForSession: boolean;
+  tsMs: number | null;
+  receivedAt: string | null;
+  readiness: DeviceReadinessState | null;
+};

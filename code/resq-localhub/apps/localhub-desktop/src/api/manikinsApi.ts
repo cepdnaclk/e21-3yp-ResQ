@@ -5,7 +5,13 @@
  */
 
 import { getJson, postJson } from "./localHubClient";
-import type { ManikinLiveSummary, ManikinPairTokenResponse, DeviceReadinessState } from "../types/manikin";
+import type {
+  ManikinLiveSummary,
+  ManikinPairTokenResponse,
+  DeviceReadinessState,
+  CalibrationStartRequest,
+  CalibrationCommandResponse,
+} from "../types/manikin";
 
 /** GET /api/manikins — full registry of all known devices */
 export async function fetchManikins(): Promise<ManikinLiveSummary[]> {
@@ -33,4 +39,24 @@ export async function requestPairingToken(deviceId: string): Promise<ManikinPair
 /** GET /api/devices/{deviceId}/readiness */
 export async function getDeviceReadiness(deviceId: string): Promise<DeviceReadinessState> {
   return getJson<DeviceReadinessState>(`/api/devices/${encodeURIComponent(deviceId)}/readiness`);
+}
+
+/** POST /api/devices/{deviceId}/calibration/start */
+export async function startCalibration(
+  deviceId: string,
+  request: CalibrationStartRequest,
+): Promise<CalibrationCommandResponse> {
+  return postJson<CalibrationCommandResponse>(
+    `/api/devices/${encodeURIComponent(deviceId)}/calibration/start`,
+    request,
+  );
+}
+
+/** POST /api/devices/{deviceId}/calibration/cancel */
+export async function cancelCalibration(
+  deviceId: string,
+): Promise<CalibrationCommandResponse> {
+  return postJson<CalibrationCommandResponse>(
+    `/api/devices/${encodeURIComponent(deviceId)}/calibration/cancel`,
+  );
 }

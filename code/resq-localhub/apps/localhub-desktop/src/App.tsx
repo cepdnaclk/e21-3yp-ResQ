@@ -11,6 +11,7 @@ import V2LocalHubHomePage from "./pages/v2/LocalHubHomePage";
 import V2InstructorDashboardPage from "./pages/v2/InstructorDashboardPage";
 import V2PairManikinPage from "./pages/v2/PairManikinPage";
 import V2ManikinReadinessPage from "./pages/v2/ManikinReadinessPage";
+import V2CalibrationWizardPage from "./pages/v2/CalibrationWizardPage";
 import V2InstructorLiveSessionPage from "./pages/v2/InstructorLiveSessionPage";
 import V2TraineeLiveSessionPage from "./pages/v2/TraineeLiveSessionPage";
 import V2RecentSessionsPage from "./pages/v2/RecentSessionsPage";
@@ -340,22 +341,10 @@ export default function App() {
         />
       )}
       {currentRoute.name === "calibration" && (
-        <div className="max-w-md mx-auto py-12 text-center space-y-4">
-          <Card className="p-8">
-            <h3 className="text-lg font-bold text-slate-800">Calibration Wizard</h3>
-            <p className="text-sm text-slate-500 mt-2">
-              Calibration wizard for device <strong>{currentRoute.deviceId}</strong> will be implemented in Phase 5.
-            </p>
-            <Button
-              type="button"
-              variant="secondary"
-              className="mt-6 font-bold"
-              onClick={() => navigate("/instructor")}
-            >
-              Back to Dashboard
-            </Button>
-          </Card>
-        </div>
+        <V2CalibrationWizardPage
+          deviceId={currentRoute.deviceId}
+          onBack={() => navigate("/instructor")}
+        />
       )}
       {currentRoute.name === "instructor-live" && (
         <V2InstructorLiveSessionPage
