@@ -5,7 +5,7 @@
  */
 
 import { getJson, postJson } from "./localHubClient";
-import type { ManikinLiveSummary, ManikinPairTokenResponse } from "../types/manikin";
+import type { ManikinLiveSummary, ManikinPairTokenResponse, DeviceReadinessState } from "../types/manikin";
 
 /** GET /api/manikins — full registry of all known devices */
 export async function fetchManikins(): Promise<ManikinLiveSummary[]> {
@@ -28,4 +28,9 @@ export async function fetchLiveManikin(deviceId: string): Promise<ManikinLiveSum
  */
 export async function requestPairingToken(deviceId: string): Promise<ManikinPairTokenResponse> {
   return postJson<ManikinPairTokenResponse>("/api/manikins/pair-request", { deviceId });
+}
+
+/** GET /api/devices/{deviceId}/readiness */
+export async function getDeviceReadiness(deviceId: string): Promise<DeviceReadinessState> {
+  return getJson<DeviceReadinessState>(`/api/devices/${encodeURIComponent(deviceId)}/readiness`);
 }

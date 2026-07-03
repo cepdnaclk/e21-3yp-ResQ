@@ -79,3 +79,26 @@ export type ManikinPairTokenResponse = {
   token: string;
   expiresAt: string;
 };
+
+export type CalibrationState =
+  | "UNKNOWN"
+  | "NOT_READY"
+  | "STARTING"
+  | "CALIBRATING"
+  | "READY"
+  | "FAILED"
+  | "INTERRUPTED"
+  | "CANCELLED";
+
+export type DeviceReadinessState = {
+  deviceId: string;
+  calibrationState: CalibrationState;
+  firmwareState?: string | null;
+  currentProgressId?: number | null;
+  lastReasonId?: string | null;
+  lastActionId?: number | null;
+  lastResult?: string | null;
+  lastReplyId?: string | null;
+  readyForSession: boolean;
+  lastUpdatedAt?: string | null;
+};
