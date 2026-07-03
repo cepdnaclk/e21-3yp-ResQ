@@ -28,6 +28,7 @@ class CalibrationCommandServiceTest {
     private DeviceReadinessService readinessService;
     private ManikinRegistryService registryService;
     private FirmwareRequestIdGenerator idGenerator;
+    private CapturingCalibrationStreamService streamService;
     private CalibrationCommandService service;
 
     @BeforeEach
@@ -42,12 +43,12 @@ class CalibrationCommandServiceTest {
         readinessService = new DeviceReadinessService();
         registryService = new ManikinRegistryService(12);
         idGenerator = new FirmwareRequestIdGenerator();
-        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator);
+        streamService = new CapturingCalibrationStreamService(readinessService);
+        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService);
     }
 
     @Test
     void startCalibrationThrowsIfDeviceNotRegistered() {
-        // Device M01 is not registered in registryService
         CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, null, null, null);
 
         assertThatThrownBy(() -> service.startCalibration("M01", request))
@@ -59,16 +60,13 @@ class CalibrationCommandServiceTest {
 
     @Test
     void startCalibrationThrowsIfRequiredFieldMissing() {
-        // Register device
         registerDevice("M01");
 
-        // Missing hall_delta
         CalibrationStartRequest request1 = new CalibrationStartRequest(null, 20100, 15000, 15000, null, null, null);
         assertThatThrownBy(() -> service.startCalibration("M01", request1))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("hall_delta is required");
 
-        // Negative ref_pressure
         CalibrationStartRequest request2 = new CalibrationStartRequest(13500, -5, 15000, 15000, null, null, null);
         assertThatThrownBy(() -> service.startCalibration("M01", request2))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -95,17 +93,20 @@ class CalibrationCommandServiceTest {
         assertThat(response.status()).isEqualTo("PUBLISHED");
         assertThat(response.requestId()).isEqualTo("req-200-0001");
 
-        // Verify publisher captured it
         assertThat(publisher.lastDeviceId).isEqualTo("M01");
         assertThat(publisher.lastRequestId).isEqualTo("req-200-0001");
         assertThat(publisher.lastStartRequest).isEqualTo(request);
 
-        // Verify readiness state immediately updated to STARTING, progressId=1, readyForSession=false
         DeviceReadinessState state = readinessService.getReadiness("M01");
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.STARTING);
         assertThat(state.currentProgressId()).isEqualTo(1);
         assertThat(state.readyForSession()).isFalse();
         assertThat(state.lastReplyId()).isEqualTo("req-200-0001");
+
+        // Verify that SSE snapshot broadcast was called
+        assertThat(streamService.lastPublishedDeviceId).isEqualTo("M01");
+        assertThat(streamService.lastReadiness).isNotNull();
+        assertThat(streamService.lastReadiness.calibrationState()).isEqualTo(CalibrationState.STARTING);
     }
 
     @Test
@@ -118,9 +119,9 @@ class CalibrationCommandServiceTest {
         assertThatThrownBy(() -> service.startCalibration("M01", request))
                 .isInstanceOf(MqttCommandPublishException.class);
 
-        // State remains UNKNOWN
         DeviceReadinessState state = readinessService.getReadiness("M01");
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.UNKNOWN);
+        assertThat(streamService.lastPublishedDeviceId).isNull();
     }
 
     @Test
@@ -137,10 +138,24 @@ class CalibrationCommandServiceTest {
     }
 
     private void registerDevice(String deviceId) {
-        // Send a status payload to register device in manikinRegistryService
         com.fasterxml.jackson.databind.node.ObjectNode payload = new ObjectMapper().createObjectNode();
         payload.put("state", "paired_idle");
         registryService.updateFromStatus(deviceId, payload);
+    }
+
+    private static final class CapturingCalibrationStreamService extends CalibrationStreamService {
+        private String lastPublishedDeviceId;
+        private DeviceReadinessState lastReadiness;
+
+        private CapturingCalibrationStreamService(DeviceReadinessService readinessService) {
+            super(readinessService);
+        }
+
+        @Override
+        public void publishReadinessSnapshot(String deviceId, DeviceReadinessState readiness) {
+            this.lastPublishedDeviceId = deviceId;
+            this.lastReadiness = readiness;
+        }
     }
 
     private static final class CapturingPublisher extends MqttCommandPublisherService {

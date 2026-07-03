@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import lk.resq.localhub.model.firmware.CalibrationCommandResponse;
 import lk.resq.localhub.model.firmware.CalibrationStartRequest;
+import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -13,17 +14,20 @@ public class CalibrationCommandService {
     private final DeviceReadinessService deviceReadinessService;
     private final ManikinRegistryService manikinRegistryService;
     private final FirmwareRequestIdGenerator requestIdGenerator;
+    private final CalibrationStreamService calibrationStreamService;
 
     public CalibrationCommandService(
             MqttCommandPublisherService mqttCommandPublisherService,
             DeviceReadinessService deviceReadinessService,
             ManikinRegistryService manikinRegistryService,
-            FirmwareRequestIdGenerator requestIdGenerator
+            FirmwareRequestIdGenerator requestIdGenerator,
+            CalibrationStreamService calibrationStreamService
     ) {
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.deviceReadinessService = deviceReadinessService;
         this.manikinRegistryService = manikinRegistryService;
         this.requestIdGenerator = requestIdGenerator;
+        this.calibrationStreamService = calibrationStreamService;
     }
 
     public CalibrationCommandResponse startCalibration(String deviceId, CalibrationStartRequest request) {
@@ -83,7 +87,8 @@ public class CalibrationCommandService {
         mqttCommandPublisherService.publishCalibrationStart(normalizedDeviceId, requestId, request);
 
         // Update readiness only after publish succeeds
-        deviceReadinessService.markCalibrationStartRequested(normalizedDeviceId, requestId);
+        DeviceReadinessState readiness = deviceReadinessService.markCalibrationStartRequested(normalizedDeviceId, requestId);
+        calibrationStreamService.publishReadinessSnapshot(normalizedDeviceId, readiness);
 
         return new CalibrationCommandResponse(
                 normalizedDeviceId,

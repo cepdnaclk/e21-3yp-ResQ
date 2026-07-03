@@ -3,6 +3,7 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
+import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
 import lk.resq.localhub.model.firmware.FirmwareEventRecord;
@@ -65,6 +66,7 @@ public class MqttSubscriberService {
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
     private final RateEstimatorRegistry rateEstimatorRegistry;
     private final DeviceReadinessService deviceReadinessService;
+    private final CalibrationStreamService calibrationStreamService;
 
     private final String brokerUrl;
     private final String clientId;
@@ -87,6 +89,7 @@ public class MqttSubscriberService {
             FirmwarePersistenceRepository firmwarePersistenceRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
             DeviceReadinessService deviceReadinessService,
+            CalibrationStreamService calibrationStreamService,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
@@ -99,6 +102,7 @@ public class MqttSubscriberService {
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
         this.rateEstimatorRegistry = rateEstimatorRegistry;
         this.deviceReadinessService = deviceReadinessService;
+        this.calibrationStreamService = calibrationStreamService;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
@@ -112,6 +116,7 @@ public class MqttSubscriberService {
             LiveStreamService liveStreamService,
             FirmwarePersistenceRepository firmwarePersistenceRepository,
             DeviceReadinessService deviceReadinessService,
+            CalibrationStreamService calibrationStreamService,
             String brokerUrl,
             String clientId,
             String username,
@@ -125,6 +130,7 @@ public class MqttSubscriberService {
                 firmwarePersistenceRepository,
                 new RateEstimatorRegistry(),
                 deviceReadinessService,
+                calibrationStreamService,
                 brokerUrl,
                 clientId,
                 username,
@@ -138,6 +144,7 @@ public class MqttSubscriberService {
             ActiveSessionService activeSessionService,
             LiveStreamService liveStreamService,
             DeviceReadinessService deviceReadinessService,
+            CalibrationStreamService calibrationStreamService,
             String brokerUrl,
             String clientId,
             String username,
@@ -151,6 +158,7 @@ public class MqttSubscriberService {
                 defaultFirmwarePersistenceRepository(),
                 new RateEstimatorRegistry(),
                 deviceReadinessService,
+                calibrationStreamService,
                 brokerUrl,
                 clientId,
                 username,
@@ -389,7 +397,10 @@ public class MqttSubscriberService {
                 case "events/calibration" -> {
                     manikinRegistryService.updateFromCalibrationEvent(parsedTopic.deviceId, payload);
                     CalibrationMqttEvent calEvent = parseCalibrationMqttEvent(parsedTopic.deviceId, payload);
-                    deviceReadinessService.handleCalibrationEvent(parsedTopic.deviceId, calEvent);
+                    if (calEvent != null) {
+                        DeviceReadinessState readiness = deviceReadinessService.handleCalibrationEvent(parsedTopic.deviceId, calEvent);
+                        calibrationStreamService.publishCalibrationUpdate(parsedTopic.deviceId, calEvent, readiness);
+                    }
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT calibration event for {}", parsedTopic.deviceId);

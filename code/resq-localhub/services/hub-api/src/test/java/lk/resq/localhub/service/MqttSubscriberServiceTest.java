@@ -3,6 +3,8 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.firmware.CalibrationState;
+import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
+import lk.resq.localhub.model.firmware.CalibrationStreamEvent;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
@@ -286,6 +288,49 @@ class MqttSubscriberServiceTest {
     }
 
     @Test
+    void verifiesCalibrationSseBroadcasts() throws Exception {
+        ServiceFixture fixture = newFixture(newRepository());
+        MqttSubscriberService subscriber = fixture.subscriber();
+        CapturingCalibrationStreamService streamService = fixture.calibrationStreamService();
+
+        // 1. Send Event 4001 progress 2
+        subscriber.handleMessage("resq/M01/events/calibration", message("""
+            {
+              "event_id": 4001,
+              "progress_id": 2,
+              "reason_id": "00000",
+              "state": "CALIBRATING",
+              "action_id": 0,
+              "ts_ms": 123456
+            }
+            """));
+        assertThat(streamService.events).hasSize(1);
+        CalibrationStreamEvent updateEvent = streamService.events.get(0);
+        assertThat(updateEvent.type()).isEqualTo("calibration_update");
+        assertThat(updateEvent.eventId()).isEqualTo(4001);
+        assertThat(updateEvent.progressId()).isEqualTo(2);
+
+        // 2. Send Event 4002 result PASS
+        subscriber.handleMessage("resq/M01/events/calibration", message("""
+            {
+              "event_id": 4002,
+              "reply_id": "req-200-0001",
+              "status": "ACK",
+              "result": "PASS",
+              "reason_id": "00000",
+              "state": "READY_FOR_SESSION",
+              "action_id": 0,
+              "ts_ms": 123456
+            }
+            """));
+        assertThat(streamService.events).hasSize(2);
+        CalibrationStreamEvent finalEvent = streamService.events.get(1);
+        assertThat(finalEvent.type()).isEqualTo("calibration_final");
+        assertThat(finalEvent.eventId()).isEqualTo(4002);
+        assertThat(finalEvent.readyForSession()).isTrue();
+    }
+
+    @Test
     void verifiesTelemetryWithDerivedRatePressureBalanceDepthProgressAndSsePublishing() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
         var session = fixture.activeSessionService().startSession(new SessionStartRequest(
@@ -396,6 +441,7 @@ class MqttSubscriberServiceTest {
         );
 
         DeviceReadinessService readinessService = new DeviceReadinessService();
+        CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         MqttSubscriberService subscriber = new MqttSubscriberService(
                 objectMapper,
                 registry,
@@ -403,15 +449,35 @@ class MqttSubscriberServiceTest {
                 liveStreamService,
                 repository,
                 readinessService,
+                calibrationStreamService,
                 "tcp://127.0.0.1:1",
                 "test-subscriber",
                 null,
                 null
         );
-        return new ServiceFixture(subscriber, activeSessionService, liveStreamService, readinessService);
+        return new ServiceFixture(subscriber, activeSessionService, liveStreamService, readinessService, calibrationStreamService);
     }
 
-    private record ServiceFixture(MqttSubscriberService subscriber, ActiveSessionService activeSessionService, CapturingLiveStreamService liveStreamService, DeviceReadinessService readinessService) {
+    private record ServiceFixture(
+            MqttSubscriberService subscriber,
+            ActiveSessionService activeSessionService,
+            CapturingLiveStreamService liveStreamService,
+            DeviceReadinessService readinessService,
+            CapturingCalibrationStreamService calibrationStreamService
+    ) {
+    }
+
+    private static class CapturingCalibrationStreamService extends CalibrationStreamService {
+        private final List<CalibrationStreamEvent> events = new java.util.ArrayList<>();
+
+        private CapturingCalibrationStreamService(DeviceReadinessService readinessService) {
+            super(readinessService);
+        }
+
+        @Override
+        public void publishCalibrationUpdate(String deviceId, CalibrationMqttEvent event, DeviceReadinessState readiness) {
+            events.add(CalibrationStreamEvent.update(deviceId, event, readiness));
+        }
     }
 
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {

@@ -12,6 +12,7 @@ import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CalibrationCommandService;
 import lk.resq.localhub.service.DeviceReadinessService;
+import lk.resq.localhub.service.CalibrationStreamService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.LocalAuthRepository;
@@ -51,8 +52,9 @@ class CalibrationControllerTest {
         readinessService = new DeviceReadinessService();
         ManikinRegistryService registryService = new ManikinRegistryService(12);
         FirmwareRequestIdGenerator idGenerator = new FirmwareRequestIdGenerator();
+        CalibrationStreamService streamService = new CalibrationStreamService(readinessService);
 
-        commandService = new DummyCalibrationCommandService(publisher, readinessService, registryService, idGenerator);
+        commandService = new DummyCalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService);
         authService = new AllowingAuthService(objectMapper);
         controller = new CalibrationController(commandService, readinessService, authService);
     }
@@ -143,9 +145,10 @@ class CalibrationControllerTest {
                 MqttCommandPublisherService publisher,
                 DeviceReadinessService readinessService,
                 ManikinRegistryService registryService,
-                FirmwareRequestIdGenerator idGenerator
+                FirmwareRequestIdGenerator idGenerator,
+                CalibrationStreamService streamService
         ) {
-            super(publisher, readinessService, registryService, idGenerator);
+            super(publisher, readinessService, registryService, idGenerator, streamService);
         }
 
         public void setMockStartResponse(CalibrationCommandResponse response) {
