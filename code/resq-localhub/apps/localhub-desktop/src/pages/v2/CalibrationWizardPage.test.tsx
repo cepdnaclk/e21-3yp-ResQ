@@ -2,18 +2,44 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import CalibrationWizardPage from "./CalibrationWizardPage";
-import { getDeviceReadiness, startCalibration, cancelCalibration } from "../../api/manikinsApi";
+import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
 
 vi.mock("../../api/manikinsApi", () => ({
   getDeviceReadiness: vi.fn(),
   startCalibration: vi.fn(),
   cancelCalibration: vi.fn(),
+  getLatestCalibrationEvidence: vi.fn(),
 }));
 
 vi.mock("../../api/liveEventsClient", () => ({
   connectCalibrationStream: vi.fn(),
 }));
+
+const MOCK_EVIDENCE = {
+  id: 42,
+  deviceId: "MAN-01",
+  requestId: "req-abc-001",
+  startedAt: "2026-06-01T10:00:00Z",
+  completedAt: "2026-06-01T10:05:00Z",
+  finalResult: "PASS",
+  calibrationState: "READY_FOR_SESSION",
+  readyForSessionAtCompletion: true,
+  lastProgressId: 11,
+  lastReasonId: "00000",
+  lastActionId: 0,
+  firmwareState: "READY_FOR_SESSION",
+  profileId: "adult-basic",
+  hallDelta: 13500,
+  refPressure: 20100,
+  bladder1Pressure: 15000,
+  bladder2Pressure: 15000,
+  sampleIntervalMs: 20,
+  calibrationWindowMs: 3000,
+  createdByUsername: "instructor1",
+  createdAt: "2026-06-01T10:00:00Z",
+  updatedAt: "2026-06-01T10:05:00Z",
+};
 
 describe("CalibrationWizardPage", () => {
   let sseHandlers: any = null;
@@ -29,6 +55,8 @@ describe("CalibrationWizardPage", () => {
       calibrationState: "NOT_READY",
       readyForSession: false,
     });
+
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(null);
 
     vi.mocked(connectCalibrationStream).mockImplementation((deviceId, handlers) => {
       sseHandlers = handlers;
@@ -214,5 +242,95 @@ describe("CalibrationWizardPage", () => {
 
     unmount();
     expect(mockClose).toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Historical Calibration Evidence panel (Phase 8)
+  // ---------------------------------------------------------------------------
+
+  it("renders the Historical Calibration Evidence card label on mount", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    expect(await screen.findByText("Historical Calibration Evidence")).toBeInTheDocument();
+  });
+
+  it("renders evidence data when getLatestCalibrationEvidence returns a record", async () => {
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(MOCK_EVIDENCE);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Historical Calibration Evidence");
+
+    // Should show the attempt ID and request ID
+    expect(await screen.findByText("#42")).toBeInTheDocument();
+    expect(screen.getByText("req-abc-001")).toBeInTheDocument();
+
+    // Should show operator
+    expect(screen.getByText("instructor1")).toBeInTheDocument();
+
+    // Should show readyAtCompletion as YES
+    expect(screen.getByText("YES")).toBeInTheDocument();
+
+    // Panel description must be visible and clearly label this as historical (not live)
+    expect(
+      screen.getByText(/audit log of the last recorded calibration attempt/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not guarantee live readiness/i)
+    ).toBeInTheDocument();
+  });
+
+  it("shows empty state text when no evidence exists", async () => {
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(null);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Historical Calibration Evidence");
+
+    expect(
+      await screen.findByText(/no historical calibration evidence found/i)
+    ).toBeInTheDocument();
+  });
+
+  it("refetches evidence after a final SSE event", async () => {
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(null);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Historical Calibration Evidence");
+
+    // Initial call on mount
+    expect(getLatestCalibrationEvidence).toHaveBeenCalledTimes(1);
+
+    // Now simulate a final SSE event
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    // Update mock before triggering the event so the refetch returns data
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(MOCK_EVIDENCE);
+    act(() => {
+      sseHandlers.onFinal({
+        type: "calibration_final",
+        deviceId: "MAN-01",
+        eventId: 4002,
+        result: "PASS",
+        readyForSession: true,
+        calibrationState: "READY",
+      });
+    });
+
+    // Evidence should be refetched after final event
+    await waitFor(() => {
+      expect(getLatestCalibrationEvidence).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("evidence panel does not show readyForSession as live readiness label", async () => {
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(MOCK_EVIDENCE);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Historical Calibration Evidence");
+
+    // The historical panel heading must never read "Device Readiness State" or "Live Readiness"
+    const headings = screen.queryAllByText(/live readiness/i);
+    expect(headings).toHaveLength(0);
+
+    // The evidence header title must be "Historical Calibration Evidence", not a live-readiness label
+    expect(screen.getByText("Historical Calibration Evidence")).toBeInTheDocument();
   });
 });

@@ -31,6 +31,8 @@ class CalibrationCommandServiceTest {
     private CapturingCalibrationStreamService streamService;
     private CalibrationCommandService service;
 
+    private CalibrationPersistenceRepository calRepo;
+
     @BeforeEach
     void setUp() {
         ObjectMapper objectMapper = new ObjectMapper();
@@ -39,12 +41,17 @@ class CalibrationCommandServiceTest {
         );
         repository.initialize();
 
+        calRepo = new CalibrationPersistenceRepository(
+                Path.of("target", "calibration-service-test-cal-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        calRepo.initialize();
+
         publisher = new CapturingPublisher(objectMapper, repository);
         readinessService = new DeviceReadinessService();
         registryService = new ManikinRegistryService(12);
         idGenerator = new FirmwareRequestIdGenerator();
         streamService = new CapturingCalibrationStreamService(readinessService);
-        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService);
+        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService, calRepo);
     }
 
     @Test

@@ -14,6 +14,7 @@ import lk.resq.localhub.service.CalibrationCommandService;
 import lk.resq.localhub.service.DeviceReadinessService;
 import lk.resq.localhub.service.CalibrationStreamService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
+import lk.resq.localhub.service.CalibrationPersistenceRepository;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.LocalAuthRepository;
 import lk.resq.localhub.service.ManikinRegistryService;
@@ -54,9 +55,14 @@ class CalibrationControllerTest {
         FirmwareRequestIdGenerator idGenerator = new FirmwareRequestIdGenerator();
         CalibrationStreamService streamService = new CalibrationStreamService(readinessService);
 
+        CalibrationPersistenceRepository calRepo = new CalibrationPersistenceRepository(
+                Path.of("target", "calibration-controller-test-cal-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        calRepo.initialize();
+
         commandService = new DummyCalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService);
         authService = new AllowingAuthService(objectMapper);
-        controller = new CalibrationController(commandService, readinessService, authService);
+        controller = new CalibrationController(commandService, readinessService, authService, calRepo);
     }
 
     @Test
@@ -176,6 +182,11 @@ class CalibrationControllerTest {
                 throw new MqttCommandPublishException("Publish failed", new RuntimeException());
             }
             return mockStartResponse;
+        }
+
+        @Override
+        public CalibrationCommandResponse startCalibration(String deviceId, CalibrationStartRequest request, String createdByUsername) {
+            return startCalibration(deviceId, request);
         }
 
         @Override

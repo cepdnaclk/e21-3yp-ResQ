@@ -139,3 +139,49 @@ export type CalibrationStreamEvent = {
   receivedAt: string | null;
   readiness: DeviceReadinessState | null;
 };
+
+export type CalibrationEvidence = {
+  id: number;
+  deviceId: string;
+  requestId: string;
+  startedAt: string;
+  completedAt: string | null;
+  finalResult: "RUNNING" | "PASS" | "FAIL" | "CANCELLED" | "INTERRUPTED" | "UNKNOWN" | string | null;
+  calibrationState: string | null;
+  readyForSessionAtCompletion: boolean | null;
+  lastProgressId: number | null;
+  lastReasonId: string | null;
+  lastActionId: number | null;
+  firmwareState: string | null;
+  profileId: string | null;
+  hallDelta: number | null;
+  refPressure: number | null;
+  bladder1Pressure: number | null;
+  bladder2Pressure: number | null;
+  sampleIntervalMs: number | null;
+  calibrationWindowMs: number | null;
+  createdByUsername: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CalibrationEventLog = {
+  id: number;
+  deviceId: string;
+  requestId: string | null;
+  eventId: number | null;
+  progressId: number | null;
+  result: string | null;
+  status: string | null;
+  reasonId: string | null;
+  actionId: number | null;
+  firmwareState: string | null;
+  tsMs: number | null;
+  receivedAt: string;
+  rawPayloadJson: string | null;
+};
+
+export type CalibrationEvidenceDetail = {
+  evidence: CalibrationEvidence;
+  logs: CalibrationEventLog[];
+};

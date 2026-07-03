@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
-import { getDeviceReadiness, startCalibration, cancelCalibration } from "../../api/manikinsApi";
+import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
-import type { DeviceReadinessState, CalibrationState, CalibrationStreamEvent } from "../../types/manikin";
+import type { DeviceReadinessState, CalibrationState, CalibrationStreamEvent, CalibrationEvidence } from "../../types/manikin";
 import Card, { CardHeader } from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import StatusBadge from "../../components/ui/StatusBadge";
@@ -56,10 +56,26 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
 
+  // Historical evidence states
+  const [latestEvidence, setLatestEvidence] = useState<CalibrationEvidence | null>(null);
+  const [loadingEvidence, setLoadingEvidence] = useState(true);
+
   // Latest SSE Event details for the event details panel
   const [latestEvent, setLatestEvent] = useState<CalibrationStreamEvent | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
+
+  const fetchEvidence = async () => {
+    try {
+      setLoadingEvidence(true);
+      const res = await getLatestCalibrationEvidence(deviceId);
+      setLatestEvidence(res);
+    } catch (err) {
+      console.warn("Failed to fetch latest calibration evidence:", err);
+    } finally {
+      setLoadingEvidence(false);
+    }
+  };
 
   // Fetch initial readiness and connect SSE stream
   useEffect(() => {
@@ -85,6 +101,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
     }
 
     init();
+    fetchEvidence();
 
     // Setup SSE connection
     try {
@@ -138,6 +155,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
           setStreamError(null);
           setIsSubmitting(false);
           setIsCancelling(false);
+          fetchEvidence();
           if (event.readiness) {
             setReadiness(event.readiness);
           } else {
@@ -818,9 +836,98 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
             ) : (
               <p className="text-xs text-slate-400">Waiting for live SSE events...</p>
             )}
-          </Card>
+                  </Card>
         </div>
       </div>
+
+      {/* Historical Calibration Evidence Card */}
+      <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6 mt-6">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-bold text-slate-800 tracking-tight">
+              Historical Calibration Evidence
+            </h3>
+            <p className="text-[11px] text-slate-400">
+              Audit log of the last recorded calibration attempt. This is for reference and does not guarantee live readiness.
+            </p>
+          </div>
+          {latestEvidence && (
+            <StatusBadge
+              tone={latestEvidence.finalResult === "PASS" ? "success" : latestEvidence.finalResult === "RUNNING" ? "info" : "danger"}
+              label={latestEvidence.finalResult || "UNKNOWN"}
+            />
+          )}
+        </div>
+        {loadingEvidence ? (
+          <p className="text-xs text-slate-400">Loading historical evidence...</p>
+        ) : latestEvidence ? (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-xs text-slate-500 font-medium">
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Attempt ID:</span>
+                <strong className="text-slate-800 font-mono">#{latestEvidence.id}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Request ID:</span>
+                <strong className="text-slate-800 font-mono">{latestEvidence.requestId}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Operator:</span>
+                <strong className="text-slate-800">{latestEvidence.createdByUsername || "system"}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Started At:</span>
+                <strong className="text-slate-800">{latestEvidence.startedAt ? new Date(latestEvidence.startedAt).toLocaleString() : "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Completed At:</span>
+                <strong className="text-slate-800">{latestEvidence.completedAt ? new Date(latestEvidence.completedAt).toLocaleString() : "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Last Updated:</span>
+                <strong className="text-slate-800">{latestEvidence.updatedAt ? new Date(latestEvidence.updatedAt).toLocaleTimeString() : "N/A"}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Profile ID:</span>
+                <strong className="text-slate-800">{latestEvidence.profileId || "default"}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Hall Delta:</span>
+                <strong className="text-slate-800">{latestEvidence.hallDelta ?? "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Ref Pressure:</span>
+                <strong className="text-slate-800">{latestEvidence.refPressure ?? "N/A"}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Bladder 1 Pressure:</span>
+                <strong className="text-slate-800">{latestEvidence.bladder1Pressure ?? "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Bladder 2 Pressure:</span>
+                <strong className="text-slate-800">{latestEvidence.bladder2Pressure ?? "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Ready At Completion:</span>
+                <strong className={latestEvidence.readyForSessionAtCompletion ? "text-emerald-600 font-bold" : "text-slate-400"}>
+                  {latestEvidence.readyForSessionAtCompletion ? "YES" : "NO"}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 italic">No historical calibration evidence found for this device.</p>
+        )}
+      </Card>
     </div>
   );
 }

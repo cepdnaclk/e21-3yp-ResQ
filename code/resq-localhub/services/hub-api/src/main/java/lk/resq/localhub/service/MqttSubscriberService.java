@@ -8,6 +8,8 @@ import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
 import lk.resq.localhub.model.firmware.FirmwareEventRecord;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
+import lk.resq.localhub.model.firmware.CalibrationEventLog;
+import lk.resq.localhub.model.firmware.CalibrationEvidence;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttClient;
@@ -29,6 +31,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +70,7 @@ public class MqttSubscriberService {
     private final RateEstimatorRegistry rateEstimatorRegistry;
     private final DeviceReadinessService deviceReadinessService;
     private final CalibrationStreamService calibrationStreamService;
+    private final CalibrationPersistenceRepository calibrationPersistenceRepository;
 
     private final String brokerUrl;
     private final String clientId;
@@ -90,6 +94,7 @@ public class MqttSubscriberService {
             RateEstimatorRegistry rateEstimatorRegistry,
             DeviceReadinessService deviceReadinessService,
             CalibrationStreamService calibrationStreamService,
+            CalibrationPersistenceRepository calibrationPersistenceRepository,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
@@ -103,6 +108,7 @@ public class MqttSubscriberService {
         this.rateEstimatorRegistry = rateEstimatorRegistry;
         this.deviceReadinessService = deviceReadinessService;
         this.calibrationStreamService = calibrationStreamService;
+        this.calibrationPersistenceRepository = calibrationPersistenceRepository;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
@@ -131,6 +137,7 @@ public class MqttSubscriberService {
                 new RateEstimatorRegistry(),
                 deviceReadinessService,
                 calibrationStreamService,
+                null,
                 brokerUrl,
                 clientId,
                 username,
@@ -159,6 +166,7 @@ public class MqttSubscriberService {
                 new RateEstimatorRegistry(),
                 deviceReadinessService,
                 calibrationStreamService,
+                null,
                 brokerUrl,
                 clientId,
                 username,
@@ -400,6 +408,13 @@ public class MqttSubscriberService {
                     if (calEvent != null) {
                         DeviceReadinessState readiness = deviceReadinessService.handleCalibrationEvent(parsedTopic.deviceId, calEvent);
                         calibrationStreamService.publishCalibrationUpdate(parsedTopic.deviceId, calEvent, readiness);
+                        try {
+                            if (calibrationPersistenceRepository != null) {
+                                persistCalibrationEvent(parsedTopic.deviceId, calEvent, payloadText);
+                            }
+                        } catch (Exception error) {
+                            logger.error("Failed to persist calibration event/evidence for device {}", parsedTopic.deviceId, error);
+                        }
                     }
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
@@ -765,6 +780,79 @@ public class MqttSubscriberService {
         }
 
         return null;
+    }
+
+    private void persistCalibrationEvent(String deviceId, CalibrationMqttEvent calEvent, String payloadText) {
+        CalibrationEventLog eventLog = new CalibrationEventLog(
+                null,
+                deviceId,
+                calEvent.replyId() != null && !calEvent.replyId().trim().isEmpty() ? calEvent.replyId() : calEvent.deviceId(),
+                calEvent.eventId(),
+                calEvent.progressId(),
+                calEvent.result(),
+                calEvent.status(),
+                calEvent.reasonId(),
+                calEvent.actionId(),
+                calEvent.firmwareState(),
+                calEvent.tsMs(),
+                calEvent.receivedAt() != null ? calEvent.receivedAt() : Instant.now(),
+                payloadText
+        );
+        calibrationPersistenceRepository.saveEventLog(eventLog);
+
+        if (calEvent.eventId() != null) {
+            Optional<CalibrationEvidence> matchingEvidenceOpt = Optional.empty();
+            String matchRequestId = calEvent.replyId();
+            if (matchRequestId != null && !matchRequestId.trim().isEmpty()) {
+                matchingEvidenceOpt = calibrationPersistenceRepository.findEvidenceByRequestId(deviceId, matchRequestId);
+            }
+            if (matchingEvidenceOpt.isEmpty()) {
+                matchingEvidenceOpt = calibrationPersistenceRepository.findLatestRunningEvidence(deviceId);
+            }
+
+            if (matchingEvidenceOpt.isPresent()) {
+                CalibrationEvidence oldEvidence = matchingEvidenceOpt.get();
+                String finalResult = oldEvidence.finalResult();
+                Instant completedAt = oldEvidence.completedAt();
+                Boolean readyAtCompletion = oldEvidence.readyForSessionAtCompletion();
+
+                if (calEvent.eventId() == 4002) {
+                    finalResult = calEvent.result() != null ? calEvent.result().toUpperCase(Locale.ROOT) : "FAIL";
+                    completedAt = Instant.now();
+                    readyAtCompletion = "PASS".equals(finalResult);
+                } else if (calEvent.progressId() != null && calEvent.progressId() == 13) {
+                    finalResult = "INTERRUPTED";
+                    completedAt = Instant.now();
+                    readyAtCompletion = false;
+                }
+
+                CalibrationEvidence updatedEvidence = new CalibrationEvidence(
+                        oldEvidence.id(),
+                        oldEvidence.deviceId(),
+                        oldEvidence.requestId(),
+                        oldEvidence.startedAt(),
+                        completedAt,
+                        finalResult,
+                        calEvent.firmwareState() != null ? calEvent.firmwareState() : oldEvidence.calibrationState(),
+                        readyAtCompletion,
+                        calEvent.progressId() != null ? calEvent.progressId() : oldEvidence.lastProgressId(),
+                        calEvent.reasonId() != null ? calEvent.reasonId() : oldEvidence.lastReasonId(),
+                        calEvent.actionId() != null ? calEvent.actionId() : oldEvidence.lastActionId(),
+                        calEvent.firmwareState() != null ? calEvent.firmwareState() : oldEvidence.firmwareState(),
+                        oldEvidence.profileId(),
+                        oldEvidence.hallDelta(),
+                        oldEvidence.refPressure(),
+                        oldEvidence.bladder1Pressure(),
+                        oldEvidence.bladder2Pressure(),
+                        oldEvidence.sampleIntervalMs(),
+                        oldEvidence.calibrationWindowMs(),
+                        oldEvidence.createdByUsername(),
+                        oldEvidence.createdAt(),
+                        Instant.now()
+                );
+                calibrationPersistenceRepository.updateEvidence(updatedEvidence);
+            }
+        }
     }
 
     record ParsedTopic(String deviceId, String messageType, boolean canonicalFirmwareTopic) {

@@ -11,6 +11,8 @@ import type {
   DeviceReadinessState,
   CalibrationStartRequest,
   CalibrationCommandResponse,
+  CalibrationEvidence,
+  CalibrationEvidenceDetail,
 } from "../types/manikin";
 
 /** GET /api/manikins — full registry of all known devices */
@@ -59,4 +61,20 @@ export async function cancelCalibration(
   return postJson<CalibrationCommandResponse>(
     `/api/devices/${encodeURIComponent(deviceId)}/calibration/cancel`,
   );
+}
+
+/** GET /api/devices/{deviceId}/calibration/latest */
+export async function getLatestCalibrationEvidence(deviceId: string): Promise<CalibrationEvidence | null> {
+  return getJson<CalibrationEvidence | null>(`/api/devices/${encodeURIComponent(deviceId)}/calibration/latest`);
+}
+
+/** GET /api/devices/{deviceId}/calibration/history */
+export async function getCalibrationHistory(deviceId: string, limit?: number): Promise<CalibrationEvidence[]> {
+  const query = limit !== undefined ? `?limit=${limit}` : "";
+  return getJson<CalibrationEvidence[]>(`/api/devices/${encodeURIComponent(deviceId)}/calibration/history${query}`);
+}
+
+/** GET /api/devices/{deviceId}/calibration/history/{evidenceId} */
+export async function getCalibrationEvidence(deviceId: string, evidenceId: number): Promise<CalibrationEvidenceDetail> {
+  return getJson<CalibrationEvidenceDetail>(`/api/devices/${encodeURIComponent(deviceId)}/calibration/history/${evidenceId}`);
 }
