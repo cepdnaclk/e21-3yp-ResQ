@@ -274,7 +274,7 @@ describe("CalibrationWizardPage", () => {
       screen.getByText(/audit log of the last recorded calibration attempt/i)
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/does not guarantee live readiness/i)
+      screen.getByText(/fresh calibration must succeed before a session can start/i)
     ).toBeInTheDocument();
   });
 

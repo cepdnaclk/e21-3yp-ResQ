@@ -848,7 +848,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
               Historical Calibration Evidence
             </h3>
             <p className="text-[11px] text-slate-400">
-              Audit log of the last recorded calibration attempt. This is for reference and does not guarantee live readiness.
+              Audit log of the last recorded calibration attempt. This is historical evidence only — a fresh calibration must succeed before a session can start.
             </p>
           </div>
           {latestEvidence && (
