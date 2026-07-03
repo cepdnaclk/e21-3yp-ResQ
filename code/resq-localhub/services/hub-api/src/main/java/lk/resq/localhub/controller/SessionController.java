@@ -50,6 +50,13 @@ public class SessionController {
             SessionStartResponse response = activeSessionService.startSession(requestBody, actor);
             authService.audit(actor.id(), "SESSION_STARTED", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
             return ResponseEntity.ok(response);
+        } catch (lk.resq.localhub.service.CalibrationNotReadyException error) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of(
+                            "error", "CALIBRATION_NOT_READY",
+                            "message", error.getMessage(),
+                            "deviceId", error.getDeviceId()
+                    ));
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (NoSuchElementException error) {

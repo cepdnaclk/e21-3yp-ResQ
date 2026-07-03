@@ -45,6 +45,7 @@ public class ActiveSessionService {
     private final SyncQueueService syncQueueService;
     private final RosterCacheRepository rosterRepository;
     private final RateEstimatorRegistry rateEstimatorRegistry;
+    private final DeviceReadinessService deviceReadinessService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
@@ -56,7 +57,8 @@ public class ActiveSessionService {
             FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
-            RateEstimatorRegistry rateEstimatorRegistry
+            RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
@@ -67,6 +69,7 @@ public class ActiveSessionService {
         this.syncQueueService = syncQueueService;
         this.rosterRepository = rosterRepository;
         this.rateEstimatorRegistry = rateEstimatorRegistry;
+        this.deviceReadinessService = deviceReadinessService;
     }
 
     // Overload for backward compatibility / tests
@@ -79,7 +82,7 @@ public class ActiveSessionService {
             FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService
     ) {
-        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null, new RateEstimatorRegistry());
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null, new RateEstimatorRegistry(), new DeviceReadinessService());
     }
 
     public ActiveSessionService(
@@ -92,7 +95,7 @@ public class ActiveSessionService {
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository
     ) {
-        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository, new RateEstimatorRegistry());
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService, traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository, new RateEstimatorRegistry(), new DeviceReadinessService());
     }
 
     public RateEstimatorRegistry getRateEstimatorRegistry() {
@@ -112,6 +115,10 @@ public class ActiveSessionService {
                 throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
             }
         }
+        if (!deviceReadinessService.isReadyForSession(deviceId)) {
+            throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
+        }
+
         firmwareCalibrationService.sessionStartBlockReason(deviceId)
                 .ifPresent(reason -> {
                     throw new IllegalStateException(reason);
@@ -171,6 +178,10 @@ public class ActiveSessionService {
                 throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
             }
         }
+        if (!deviceReadinessService.isReadyForSession(deviceId)) {
+            throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
+        }
+
         firmwareCalibrationService.sessionStartBlockReason(deviceId)
                 .ifPresent(reason -> {
                     throw new IllegalStateException(reason);

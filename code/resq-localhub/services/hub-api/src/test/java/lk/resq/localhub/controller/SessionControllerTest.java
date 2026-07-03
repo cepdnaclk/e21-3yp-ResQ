@@ -7,6 +7,9 @@ import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
+import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
+import lk.resq.localhub.service.DeviceReadinessService;
+import java.time.Instant;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
@@ -139,6 +142,31 @@ class SessionControllerTest {
         assertThat(payload.path("traineeId").asText()).isEqualTo("trainee-bob-123");
     }
 
+    @Test
+    void startSessionFailsWhenDeviceNotReady() throws Exception {
+        Fixture fixture = newFixture();
+        // M03 is not ready (defaults to UNKNOWN)
+        ResponseEntity<?> response = fixture.controller.startSession(
+                new MockHttpServletRequest(),
+                new SessionStartRequest(
+                        "M03",
+                        "trainee-1",
+                        "course-1",
+                        null,
+                        null,
+                        null,
+                        "Start blocked test",
+                        null
+                )
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        java.util.Map<String, Object> body = (java.util.Map<String, Object>) response.getBody();
+        assertThat(body.get("error")).isEqualTo("CALIBRATION_NOT_READY");
+        assertThat(body.get("message")).isEqualTo("Run calibration before starting a CPR session.");
+        assertThat(body.get("deviceId")).isEqualTo("M03");
+    }
+
     private static SessionEndResponse seedCompletedSession(ActiveSessionService service, String deviceId) throws Exception {
         SessionStartResponse started = service.startSession(new SessionStartRequest(
                 deviceId,
@@ -194,14 +222,31 @@ class SessionControllerTest {
                 objectMapper,
                 new lk.resq.localhub.service.CloudSessionSummaryPayloadMapper()
         );
+        DeviceReadinessService readinessService = new DeviceReadinessService();
+        readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
+                "M01",
+                4002,
+                "reply-m01",
+                "ACK",
+                11,
+                "PASS",
+                "00000",
+                0,
+                "READY_FOR_SESSION",
+                100L,
+                Instant.now()
+        ));
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 publisher,
                 sessionRepository,
                 new NoopLiveStreamService(),
                 new TraineeRecordsRepository(),
-            calibrationService,
-            syncQueueService
+                calibrationService,
+                syncQueueService,
+                null,
+                new lk.resq.localhub.service.RateEstimatorRegistry(),
+                readinessService
         );
         AuthService authService = new AllowingAuthService(objectMapper);
         SessionController controller = new SessionController(service, authService, registry);

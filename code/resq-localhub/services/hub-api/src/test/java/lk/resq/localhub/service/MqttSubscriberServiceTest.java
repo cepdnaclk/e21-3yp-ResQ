@@ -430,17 +430,32 @@ class MqttSubscriberServiceTest {
                 objectMapper,
                 new CloudSessionSummaryPayloadMapper()
         );
+        DeviceReadinessService readinessService = new DeviceReadinessService();
+        readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
+                "M01",
+                4002,
+                "reply-m01",
+                "ACK",
+                11,
+                "PASS",
+                "00000",
+                0,
+                "READY_FOR_SESSION",
+                100L,
+                Instant.now()
+        ));
         ActiveSessionService activeSessionService = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-            firmwareCalibrationService,
-            syncQueueService
+                firmwareCalibrationService,
+                syncQueueService,
+                null,
+                new RateEstimatorRegistry(),
+                readinessService
         );
-
-        DeviceReadinessService readinessService = new DeviceReadinessService();
         CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         MqttSubscriberService subscriber = new MqttSubscriberService(
                 objectMapper,
