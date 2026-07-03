@@ -2,6 +2,8 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartRequest;
+import lk.resq.localhub.model.firmware.CalibrationState;
+import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
@@ -229,6 +231,61 @@ class MqttSubscriberServiceTest {
     }
 
     @Test
+    void tracksDeviceReadinessFromMqttEvents() throws Exception {
+        ServiceFixture fixture = newFixture(newRepository());
+        MqttSubscriberService subscriber = fixture.subscriber();
+        DeviceReadinessService readinessService = fixture.readinessService();
+
+        // 1. Send Event 4000 ACK
+        subscriber.handleMessage("resq/M01/events/calibration", message("""
+            {
+              "event_id": 4000,
+              "reply_id": "req-200-0001",
+              "status": "ACK",
+              "state": "CALIBRATING",
+              "ts_ms": 123456
+            }
+            """));
+        DeviceReadinessState state = readinessService.getReadiness("M01");
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.CALIBRATING);
+        assertThat(state.currentProgressId()).isEqualTo(1);
+        assertThat(state.readyForSession()).isFalse();
+
+        // 2. Send Event 4001 progress 2
+        subscriber.handleMessage("resq/manikins/M01/events/calibration", message("""
+            {
+              "event_id": 4001,
+              "progress_id": 2,
+              "reason_id": "00000",
+              "state": "CALIBRATING",
+              "action_id": 0,
+              "ts_ms": 123456
+            }
+            """));
+        state = readinessService.getReadiness("M01");
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.CALIBRATING);
+        assertThat(state.currentProgressId()).isEqualTo(2);
+        assertThat(state.readyForSession()).isFalse();
+
+        // 3. Send Event 4002 result PASS
+        subscriber.handleMessage("resq/M01/events/calibration", message("""
+            {
+              "event_id": 4002,
+              "reply_id": "req-200-0001",
+              "status": "ACK",
+              "result": "PASS",
+              "reason_id": "00000",
+              "state": "READY_FOR_SESSION",
+              "action_id": 0,
+              "ts_ms": 123456
+            }
+            """));
+        state = readinessService.getReadiness("M01");
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.READY);
+        assertThat(state.readyForSession()).isTrue();
+    }
+
+    @Test
     void verifiesTelemetryWithDerivedRatePressureBalanceDepthProgressAndSsePublishing() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
         var session = fixture.activeSessionService().startSession(new SessionStartRequest(
@@ -338,21 +395,23 @@ class MqttSubscriberServiceTest {
             syncQueueService
         );
 
+        DeviceReadinessService readinessService = new DeviceReadinessService();
         MqttSubscriberService subscriber = new MqttSubscriberService(
                 objectMapper,
                 registry,
                 activeSessionService,
                 liveStreamService,
                 repository,
+                readinessService,
                 "tcp://127.0.0.1:1",
                 "test-subscriber",
                 null,
                 null
         );
-        return new ServiceFixture(subscriber, activeSessionService, liveStreamService);
+        return new ServiceFixture(subscriber, activeSessionService, liveStreamService, readinessService);
     }
 
-    private record ServiceFixture(MqttSubscriberService subscriber, ActiveSessionService activeSessionService, CapturingLiveStreamService liveStreamService) {
+    private record ServiceFixture(MqttSubscriberService subscriber, ActiveSessionService activeSessionService, CapturingLiveStreamService liveStreamService, DeviceReadinessService readinessService) {
     }
 
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {

@@ -1,0 +1,101 @@
+package lk.resq.localhub.controller;
+
+import jakarta.servlet.http.HttpServletRequest;
+import lk.resq.localhub.model.ApiErrorResponse;
+import lk.resq.localhub.model.AuthUser;
+import lk.resq.localhub.model.UserRole;
+import lk.resq.localhub.model.firmware.CalibrationStartRequest;
+import lk.resq.localhub.model.firmware.DeviceReadinessState;
+import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CalibrationCommandService;
+import lk.resq.localhub.service.DeviceReadinessService;
+import lk.resq.localhub.service.ForbiddenException;
+import lk.resq.localhub.service.MqttCommandPublishException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/devices/{deviceId}")
+public class CalibrationController {
+
+    private final CalibrationCommandService calibrationCommandService;
+    private final DeviceReadinessService deviceReadinessService;
+    private final AuthService authService;
+
+    public CalibrationController(
+            CalibrationCommandService calibrationCommandService,
+            DeviceReadinessService deviceReadinessService,
+            AuthService authService
+    ) {
+        this.calibrationCommandService = calibrationCommandService;
+        this.deviceReadinessService = deviceReadinessService;
+        this.authService = authService;
+    }
+
+    @PostMapping("/calibration/start")
+    public ResponseEntity<?> startCalibration(
+            HttpServletRequest request,
+            @PathVariable String deviceId,
+            @RequestBody(required = false) CalibrationStartRequest requestBody
+    ) {
+        try {
+            // Allow INSTRUCTOR and ADMIN roles
+            // TODO: Add TECHNICIAN role when supported
+            AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR, UserRole.ADMIN);
+            var response = calibrationCommandService.startCalibration(deviceId, requestBody);
+            authService.audit(actor.id(), "CALIBRATION_START", "device", deviceId, Map.of("requestId", response.requestId()));
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException error) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
+        } catch (MqttCommandPublishException error) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
+    @PostMapping("/calibration/cancel")
+    public ResponseEntity<?> cancelCalibration(
+            HttpServletRequest request,
+            @PathVariable String deviceId
+    ) {
+        try {
+            // Allow INSTRUCTOR and ADMIN roles
+            // TODO: Add TECHNICIAN role when supported
+            AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR, UserRole.ADMIN);
+            var response = calibrationCommandService.cancelCalibration(deviceId);
+            authService.audit(actor.id(), "CALIBRATION_CANCEL", "device", deviceId, Map.of("requestId", response.requestId()));
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException error) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
+        } catch (MqttCommandPublishException error) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
+    @GetMapping("/readiness")
+    public ResponseEntity<?> readiness(
+            HttpServletRequest request,
+            @PathVariable String deviceId
+    ) {
+        try {
+            authService.requireRole(request, UserRole.INSTRUCTOR, UserRole.ADMIN);
+            DeviceReadinessState state = deviceReadinessService.getReadiness(deviceId);
+            return ResponseEntity.ok(state);
+        } catch (IllegalArgumentException error) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+}

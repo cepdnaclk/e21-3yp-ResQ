@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
 import lk.resq.localhub.model.firmware.FirmwareEventRecord;
@@ -63,6 +64,7 @@ public class MqttSubscriberService {
     private final LiveStreamService liveStreamService;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
     private final RateEstimatorRegistry rateEstimatorRegistry;
+    private final DeviceReadinessService deviceReadinessService;
 
     private final String brokerUrl;
     private final String clientId;
@@ -84,6 +86,7 @@ public class MqttSubscriberService {
             LiveStreamService liveStreamService,
             FirmwarePersistenceRepository firmwarePersistenceRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
@@ -95,6 +98,7 @@ public class MqttSubscriberService {
         this.liveStreamService = liveStreamService;
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
         this.rateEstimatorRegistry = rateEstimatorRegistry;
+        this.deviceReadinessService = deviceReadinessService;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
@@ -107,6 +111,7 @@ public class MqttSubscriberService {
             ActiveSessionService activeSessionService,
             LiveStreamService liveStreamService,
             FirmwarePersistenceRepository firmwarePersistenceRepository,
+            DeviceReadinessService deviceReadinessService,
             String brokerUrl,
             String clientId,
             String username,
@@ -119,6 +124,7 @@ public class MqttSubscriberService {
                 liveStreamService,
                 firmwarePersistenceRepository,
                 new RateEstimatorRegistry(),
+                deviceReadinessService,
                 brokerUrl,
                 clientId,
                 username,
@@ -131,6 +137,7 @@ public class MqttSubscriberService {
             ManikinRegistryService manikinRegistryService,
             ActiveSessionService activeSessionService,
             LiveStreamService liveStreamService,
+            DeviceReadinessService deviceReadinessService,
             String brokerUrl,
             String clientId,
             String username,
@@ -143,6 +150,7 @@ public class MqttSubscriberService {
                 liveStreamService,
                 defaultFirmwarePersistenceRepository(),
                 new RateEstimatorRegistry(),
+                deviceReadinessService,
                 brokerUrl,
                 clientId,
                 username,
@@ -380,6 +388,8 @@ public class MqttSubscriberService {
                 }
                 case "events/calibration" -> {
                     manikinRegistryService.updateFromCalibrationEvent(parsedTopic.deviceId, payload);
+                    CalibrationMqttEvent calEvent = parseCalibrationMqttEvent(parsedTopic.deviceId, payload);
+                    deviceReadinessService.handleCalibrationEvent(parsedTopic.deviceId, calEvent);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT calibration event for {}", parsedTopic.deviceId);
@@ -491,6 +501,33 @@ public class MqttSubscriberService {
                 logger.info("Observed firmware reply {} on {} but no matching command request was found", replyId, topic);
             }
         }
+    }
+
+    private CalibrationMqttEvent parseCalibrationMqttEvent(String deviceId, JsonNode payload) {
+        Integer eventId = integer(payload, "event_id", "eventId");
+        String replyId = firstText(payload, "reply_id", "replyId");
+        String status = firstText(payload, "status");
+        Integer progressId = integer(payload, "progress_id", "progressId");
+        String result = firstText(payload, "result");
+        String reasonId = firstText(payload, "reason_id", "reasonId");
+        Integer actionId = integer(payload, "action_id", "actionId");
+        String firmwareState = firstText(payload, "state");
+        Long tsMs = longValue(payload, "ts_ms", "tsMs");
+        Instant receivedAt = Instant.now();
+
+        return new CalibrationMqttEvent(
+                deviceId,
+                eventId,
+                replyId,
+                status,
+                progressId,
+                result,
+                reasonId,
+                actionId,
+                firmwareState,
+                tsMs,
+                receivedAt
+        );
     }
 
     private JsonNode parsePayload(String payloadText, String topic) throws Exception {
