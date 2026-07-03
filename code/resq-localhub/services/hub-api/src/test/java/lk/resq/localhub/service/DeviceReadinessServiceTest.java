@@ -296,4 +296,25 @@ class DeviceReadinessServiceTest {
         DeviceReadinessState stateAfterMissing = service.handleCalibrationEvent("device-01", missingEventId);
         assertThat(stateAfterMissing.calibrationState()).isEqualTo(baseState.calibrationState());
     }
+
+    @Test
+    void event4001WithMissingProgressIdDoesNotBreakReadiness() {
+        CalibrationMqttEvent progressEvent = new CalibrationMqttEvent(
+                "device-01",
+                4001,
+                null,
+                null,
+                null, // progressId is missing
+                null,
+                "00000",
+                0,
+                "CALIBRATING",
+                1002L,
+                Instant.now()
+        );
+        DeviceReadinessState state = service.handleCalibrationEvent("device-01", progressEvent);
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.CALIBRATING);
+        assertThat(state.currentProgressId()).isNull(); // should keep null or previous null
+        assertThat(state.readyForSession()).isFalse();
+    }
 }

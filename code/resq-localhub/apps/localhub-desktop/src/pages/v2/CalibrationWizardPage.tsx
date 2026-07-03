@@ -338,6 +338,13 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       };
     }
 
+    if (isRunning && (pid === 0 || pid === null || pid === undefined)) {
+      return {
+        title: readiness?.firmwareState ? `State: ${readiness.firmwareState}` : "Calibration Running",
+        text: "Waiting for firmware progress details...",
+      };
+    }
+
     switch (pid) {
       case 1:
         return {
