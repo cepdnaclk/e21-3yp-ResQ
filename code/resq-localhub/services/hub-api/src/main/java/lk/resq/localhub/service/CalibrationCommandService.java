@@ -6,6 +6,7 @@ import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.CalibrationEvidence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -23,6 +24,7 @@ public class CalibrationCommandService {
     private final CalibrationStreamService calibrationStreamService;
     private final CalibrationPersistenceRepository calibrationPersistenceRepository;
 
+    @Autowired
     public CalibrationCommandService(
             MqttCommandPublisherService mqttCommandPublisherService,
             DeviceReadinessService deviceReadinessService,
