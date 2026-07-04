@@ -10,15 +10,17 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(@NonNull CorsRegistry registry) {
-        // Development-only CORS so the Tauri webview can call the local API during desktop dev.
+        // Allow both the Vite dev server and Tauri's packaged webview origin.
         registry.addMapping("/api/**")
                 .allowedOriginPatterns(
                         "http://localhost:1420",
                         "http://127.0.0.1:1420",
                         "http://*:1420",
-                        "tauri://localhost"
+                        "tauri://localhost",
+                        "http://tauri.localhost",
+                        "https://tauri.localhost"
                 )
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)
                 .maxAge(3600);

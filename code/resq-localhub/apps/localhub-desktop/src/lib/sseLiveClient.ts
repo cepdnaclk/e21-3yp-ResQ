@@ -57,6 +57,13 @@ export function createSseLiveClient(options: SseLiveClientOptions, callbacks: Ss
     const updates = parseSsePayload(event.data);
     for (const update of updates) {
       if (isLiveUpdateForSelection(update, options.deviceId, options.sessionId)) {
+        if (options.sessionId && update.latestMetric) {
+          console.debug("[LocalHub] session-live event", {
+            sessionId: update.sessionId,
+            compressionCount: update.latestMetric.compressionCount,
+            pressureBalancePct: update.latestMetric.pressureBalancePct,
+          });
+        }
         callbacks.onUpdate(update);
       }
     }

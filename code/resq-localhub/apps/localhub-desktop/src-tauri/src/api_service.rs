@@ -1,10 +1,13 @@
-use serde::Serialize;
 use std::{
+    collections::HashMap,
+    env, fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
 };
-use tauri::State;
+
+use serde::Serialize;
+use tauri::{Manager, State};
 
 #[derive(Default)]
 pub struct ApiServiceState {
@@ -17,7 +20,26 @@ pub struct ApiServiceStatus {
     pub pid: Option<u32>,
 }
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
+const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
+const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
+const CLOUD_SYNC_ENV_KEYS: [&str; 9] = [
+    "RESQ_CLOUD_SYNC_ENABLED",
+    "RESQ_CLOUD_SYNC_BASE_URL",
+    "RESQ_CLOUD_SYNC_FIXED_DELAY_MS",
+    "RESQ_ROSTER_SYNC_ENABLED",
+    "RESQ_ROSTER_SYNC_BASE_URL",
+    "RESQ_ROSTER_SYNC_HUB_ID",
+    "RESQ_ROSTER_SYNC_HUB_KEY",
+    "RESQ_ROSTER_SYNC_FIXED_DELAY_MS",
+    "RESQ_ROSTER_SYNC_TIMEOUT_MS",
+];
 
 impl ApiServiceState {
     fn backend_dir() -> Result<PathBuf, String> {
@@ -28,6 +50,113 @@ impl ApiServiceState {
         }
 
         Ok(backend_dir)
+    }
+
+    fn user_home_dir() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .or_else(|| env::var_os("HOME").map(PathBuf::from))
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            env::var_os("HOME").map(PathBuf::from)
+        }
+    }
+
+    fn load_cloud_sync_config() -> HashMap<String, String> {
+        let Some(home_dir) = Self::user_home_dir() else {
+            eprintln!("LocalHub cloud sync config was not loaded: user home directory not found");
+            return HashMap::new();
+        };
+
+        let config_path = home_dir
+            .join(CLOUD_SYNC_CONFIG_DIR)
+            .join(CLOUD_SYNC_CONFIG_FILE);
+        let contents = match fs::read_to_string(&config_path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return HashMap::new(),
+            Err(error) => {
+                eprintln!(
+                    "LocalHub cloud sync config could not be read from {}: {error}",
+                    config_path.display()
+                );
+                return HashMap::new();
+            }
+        };
+
+        let mut config = HashMap::new();
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            if CLOUD_SYNC_ENV_KEYS.contains(&key) {
+                config.insert(key.to_string(), value.trim().to_string());
+            }
+        }
+
+        eprintln!(
+            "Loaded LocalHub cloud sync config from {}",
+            config_path.display()
+        );
+        config
+    }
+
+    fn apply_cloud_sync_environment(command: &mut Command) {
+        let config = Self::load_cloud_sync_config();
+
+        let default_envs = [
+            ("RESQ_CLOUD_SYNC_ENABLED", "true"),
+            ("RESQ_ROSTER_SYNC_ENABLED", "true"),
+            ("RESQ_CLOUD_SYNC_BASE_URL", "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com"),
+            ("RESQ_ROSTER_SYNC_BASE_URL", "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com"),
+            ("RESQ_ROSTER_SYNC_HUB_ID", "hub-dev-01"),
+            ("RESQ_ROSTER_SYNC_HUB_KEY", "dev-localhub-key-2026"),
+            ("RESQ_CLOUD_SYNC_FIXED_DELAY_MS", "60000"),
+            ("RESQ_ROSTER_SYNC_FIXED_DELAY_MS", "60000"),
+        ];
+
+        // Apply default environment values if not already present in environment/config
+        for &(key, val) in &default_envs {
+            if env::var_os(key).is_none() {
+                if let Some(config_val) = config.get(key) {
+                    command.env(key, config_val);
+                } else {
+                    command.env(key, val);
+                }
+            }
+        }
+
+        // Apply any other keys from configuration that might not be in defaults
+        for key in CLOUD_SYNC_ENV_KEYS {
+            if env::var_os(key).is_none() {
+                if let Some(value) = config.get(key) {
+                    let is_default_key = default_envs.iter().any(|&(k, _)| k == key);
+                    if !is_default_key {
+                        command.env(key, value);
+                    }
+                }
+            }
+        }
+
+        let value_is_configured = |key: &str| match env::var_os(key) {
+            Some(value) => !value.is_empty(),
+            None => config.get(key).is_some_and(|value| !value.is_empty()),
+        };
+        let base_url_configured = value_is_configured("RESQ_ROSTER_SYNC_BASE_URL");
+        let hub_id_configured = value_is_configured("RESQ_ROSTER_SYNC_HUB_ID");
+
+        eprintln!(
+            "LocalHub cloud sync configuration: base-url configured={base_url_configured}, hub-id configured={hub_id_configured}"
+        );
     }
 
     fn snapshot_status(child_slot: &mut Option<Child>) -> ApiServiceStatus {
@@ -49,7 +178,7 @@ impl ApiServiceState {
         }
     }
 
-    fn build_command(backend_dir: &Path) -> Command {
+    fn build_dev_command(backend_dir: &Path) -> Command {
         #[cfg(target_os = "windows")]
         {
             let wrapper = backend_dir.join("mvnw.cmd");
@@ -89,7 +218,75 @@ impl ApiServiceState {
         }
     }
 
-    pub fn start(&self) -> Result<ApiServiceStatus, String> {
+    fn clean_windows_path(path: &Path) -> PathBuf {
+        let path_str = path.to_string_lossy();
+        if path_str.starts_with(r"\\?\") {
+            PathBuf::from(&path_str[4..])
+        } else {
+            path.to_path_buf()
+        }
+    }
+
+    fn packaged_java_path(resource_dir: &Path) -> PathBuf {
+        #[cfg(target_os = "windows")]
+        {
+            resource_dir.join("jre").join("bin").join("java.exe")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            resource_dir.join("jre").join("bin").join("java")
+        }
+    }
+
+    fn build_packaged_command(app: &tauri::AppHandle) -> Result<Command, String> {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Failed to resolve packaged resource directory: {error}"))?;
+
+        let jar_path = resource_dir.join("hub-api").join("resq-hub-api.jar");
+        let config_path = resource_dir
+            .join("config")
+            .join("application-release.properties");
+        let java_path = Self::packaged_java_path(&resource_dir);
+
+        if jar_path.is_file() && config_path.is_file() && java_path.is_file() {
+            let clean_jar = Self::clean_windows_path(&jar_path);
+            let clean_config = Self::clean_windows_path(&config_path);
+            let clean_java = Self::clean_windows_path(&java_path);
+
+            let mut command = Command::new(clean_java);
+            command
+                .arg("-jar")
+                .arg(&clean_jar)
+                .arg(format!(
+                    "--spring.config.location={}",
+                    clean_config.display()
+                ))
+                .current_dir(&resource_dir)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            return Ok(command);
+        }
+
+        Err(format!(
+            "Incomplete packaged backend resources. Expected JAR at {}, config at {}, and Java runtime at {}",
+            jar_path.display(),
+            config_path.display(),
+            java_path.display()
+        ))
+    }
+
+    fn hide_window(command: &mut Command) {
+        #[cfg(target_os = "windows")]
+        {
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+    }
+
+    pub fn start_with_app(&self, app: &tauri::AppHandle) -> Result<ApiServiceStatus, String> {
         let mut child_slot = self
             .child
             .lock()
@@ -100,13 +297,47 @@ impl ApiServiceState {
             return Ok(current_status);
         }
 
-        let backend_dir = Self::backend_dir()?;
-        let mut command = Self::build_command(&backend_dir);
+        let is_debug = cfg!(debug_assertions);
+        let mut command = if is_debug {
+            // Unconditionally use dev command in debug/dev builds
+            let backend_dir = Self::backend_dir()?;
+            eprintln!("Backend dev project directory: {}", backend_dir.display());
+            let mut cmd = Self::build_dev_command(&backend_dir);
+            cmd.stdout(Stdio::inherit());
+            cmd.stderr(Stdio::inherit());
+            cmd
+        } else {
+            Self::build_packaged_command(app)?
+        };
+
+        if is_debug {
+            eprintln!("Mode selected: Development (Dev)");
+        } else {
+            eprintln!("Mode selected: Packaged (Release)");
+        }
+
+        Self::apply_cloud_sync_environment(&mut command);
+        Self::hide_window(&mut command);
+
+        eprintln!(
+            "Backend working directory: {}",
+            command
+                .get_current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "default".to_string())
+        );
+        eprintln!(
+            "Backend command path: {}",
+            command.get_program().to_string_lossy()
+        );
+        eprintln!("Backend command configuration: {:?}", command);
+
         let child = command
             .spawn()
             .map_err(|error| format!("Failed to start backend: {error}"))?;
 
         let pid = child.id();
+        eprintln!("Backend process spawned successfully with PID: {}", pid);
         *child_slot = Some(child);
 
         Ok(ApiServiceStatus {
@@ -134,39 +365,55 @@ impl ApiServiceState {
     }
 
     fn terminate_child(child: &mut Child) -> Result<(), String> {
-        #[cfg(target_os = "windows")]
+        if child
+            .try_wait()
+            .map_err(|error| format!("Failed to query backend status: {error}"))?
+            .is_none()
         {
-            let pid = child.id().to_string();
-            let taskkill_status = Command::new("taskkill")
-                .args(["/PID", &pid, "/T", "/F"])
-                .status();
+            Self::kill_child(child)?;
+        }
 
-            if let Ok(status) = taskkill_status {
-                if !status.success() {
-                    let _ = child.kill();
-                }
-            } else {
-                let _ = child.kill();
-            }
+        child
+            .wait()
+            .map_err(|error| format!("Failed to wait for backend shutdown: {error}"))?;
+        Ok(())
+    }
 
-            let _ = child.wait();
+    #[cfg(target_os = "windows")]
+    fn kill_child(child: &mut Child) -> Result<(), String> {
+        let pid = child.id().to_string();
+        let mut taskkill = Command::new("taskkill");
+        taskkill
+            .args(["/PID", &pid, "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        Self::hide_window(&mut taskkill);
+        let taskkill_result = taskkill.status();
+
+        if matches!(taskkill_result, Ok(status) if status.success()) {
             return Ok(());
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            child
-                .kill()
-                .map_err(|error| format!("Failed to stop backend: {error}"))?;
-            let _ = child.wait();
-            Ok(())
-        }
+        child
+            .kill()
+            .map_err(|error| format!("Failed to stop backend: {error}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn kill_child(child: &mut Child) -> Result<(), String> {
+        child
+            .kill()
+            .map_err(|error| format!("Failed to stop backend: {error}"))
     }
 }
 
 #[tauri::command]
-pub fn start_api_service(state: State<'_, ApiServiceState>) -> Result<ApiServiceStatus, String> {
-    state.start()
+pub fn start_api_service(
+    app: tauri::AppHandle,
+    state: State<'_, ApiServiceState>,
+) -> Result<ApiServiceStatus, String> {
+    state.start_with_app(&app)
 }
 
 #[tauri::command]

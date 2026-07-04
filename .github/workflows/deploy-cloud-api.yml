@@ -1,0 +1,111 @@
+name: Deploy ResQ Cloud API to Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "code/resq-cloud/services/cloud-api/**"
+      - ".github/workflows/deploy-cloud-api.yml"
+
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-southeast-1
+  EB_APPLICATION_NAME: resq-cloud-api
+  EB_ENVIRONMENT_NAME: resq-cloud-api-env
+  CLOUD_API_DIR: code/resq-cloud/services/cloud-api
+  DEPLOY_ZIP: resq-cloud-api-deploy.zip
+  EB_DEPLOY_BUCKET: resq-eb-deploy-578710291005-ap-southeast-1-20260609
+
+jobs:
+  deploy:
+    name: Build and deploy cloud-api
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build cloud-api
+        working-directory: ${{ env.CLOUD_API_DIR }}
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests
+
+      - name: Prepare Elastic Beanstalk deployment bundle
+        working-directory: ${{ env.CLOUD_API_DIR }}
+        run: |
+          mkdir -p deploy
+          cp target/cloud-api-0.1.0-SNAPSHOT.jar deploy/
+          cp Procfile deploy/
+          cd deploy
+          zip -r ../${{ env.DEPLOY_ZIP }} cloud-api-0.1.0-SNAPSHOT.jar Procfile
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Confirm AWS identity
+        run: |
+          aws sts get-caller-identity
+
+      - name: Prepare deployment version label
+        run: |
+          echo "VERSION_LABEL=cloud-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" >> $GITHUB_ENV
+          echo "S3_KEY=cloud-api-${GITHUB_SHA}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}.zip" >> $GITHUB_ENV
+
+      - name: Upload deployment bundle to S3
+        run: |
+          aws s3 cp "${{ env.CLOUD_API_DIR }}/${{ env.DEPLOY_ZIP }}" \
+            "s3://${{ env.EB_DEPLOY_BUCKET }}/${{ env.S3_KEY }}"
+
+      - name: Create Elastic Beanstalk application version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name "${{ env.EB_APPLICATION_NAME }}" \
+            --version-label "${{ env.VERSION_LABEL }}" \
+            --source-bundle S3Bucket="${{ env.EB_DEPLOY_BUCKET }}",S3Key="${{ env.S3_KEY }}"
+
+      - name: Deploy application version to environment
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name "${{ env.EB_ENVIRONMENT_NAME }}" \
+            --version-label "${{ env.VERSION_LABEL }}"
+
+      - name: Wait for Elastic Beanstalk deployment
+        run: |
+          for i in {1..60}; do
+            STATUS=$(aws elasticbeanstalk describe-environments \
+              --application-name "${{ env.EB_APPLICATION_NAME }}" \
+              --environment-names "${{ env.EB_ENVIRONMENT_NAME }}" \
+              --query "Environments[0].Status" \
+              --output text)
+
+            HEALTH=$(aws elasticbeanstalk describe-environments \
+              --application-name "${{ env.EB_APPLICATION_NAME }}" \
+              --environment-names "${{ env.EB_ENVIRONMENT_NAME }}" \
+              --query "Environments[0].Health" \
+              --output text)
+
+            echo "Elastic Beanstalk status: $STATUS, health: $HEALTH"
+
+            if [ "$STATUS" = "Ready" ]; then
+              exit 0
+            fi
+
+            sleep 20
+          done
+
+          echo "Elastic Beanstalk did not become Ready in time."
+          exit 1

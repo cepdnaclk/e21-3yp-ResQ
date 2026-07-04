@@ -137,6 +137,37 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/cloud-users/{cloudUserId}/local-password")
+    public ResponseEntity<?> setCloudUserPassword(
+            HttpServletRequest request,
+            @PathVariable String cloudUserId,
+            @RequestBody Map<String, String> body
+    ) {
+        try {
+            String newPassword = body != null ? body.get("password") : null;
+            AuthUser updated = authService.setCloudUserPassword(request, cloudUserId, newPassword);
+            return ResponseEntity.ok(updated);
+        } catch (IllegalArgumentException error) {
+            return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
+        } catch (UnauthorizedException error) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
+    @GetMapping("/cloud-users")
+    public ResponseEntity<?> listCloudUsers(HttpServletRequest request) {
+        try {
+            List<AuthUser> cloudUsers = authService.listCloudUsers(request);
+            return ResponseEntity.ok(cloudUsers);
+        } catch (UnauthorizedException error) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiErrorResponse(error.getMessage()));
+        } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
     private ResponseEntity<?> issueSession(SessionIssuer issuer) {
         try {
             AuthTokenIssue issue = issuer.issue();
@@ -148,7 +179,7 @@ public class AuthController {
                     .path("/")
                     .maxAge(maxAgeSeconds)
                     .build();
-            LoginResponse response = new LoginResponse(issue.user(), issue.expiresAt());
+            LoginResponse response = new LoginResponse(issue.user(), token, issue.expiresAt());
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, cookie.toString())
                     .body(response);

@@ -6,6 +6,8 @@
  * different hosts/IPs on the LAN.
  */
 
+import { getHubApiBaseUrl } from "./hubApiUrl";
+
 export interface BrowserHealthResponse {
   ok: boolean;
   service?: string;
@@ -21,10 +23,7 @@ export interface BrowserHealthResponse {
  * @returns The full health check URL
  */
 function getHealthUrl(): string {
-  const hostname = window.location.hostname;
-  const port = 18080; // Spring Boot backend port
-  const path = "/api/hub/health";
-  return `http://${hostname}:${port}${path}`;
+  return `${getHubApiBaseUrl()}/api/hub/health`;
 }
 
 /**

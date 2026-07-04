@@ -9,6 +9,19 @@ public record SessionStartResponse(
         Instant startedAt,
         boolean active,
         String scenario,
-        String notes
+        String notes,
+        String courseId,
+        String instructorId
 ) {
+    public SessionStartResponse(
+            String sessionId,
+            String deviceId,
+            String traineeId,
+            Instant startedAt,
+            boolean active,
+            String scenario,
+            String notes
+    ) {
+        this(sessionId, deviceId, traineeId, startedAt, active, scenario, notes, null, null);
+    }
 }

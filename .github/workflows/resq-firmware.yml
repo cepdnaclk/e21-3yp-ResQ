@@ -30,7 +30,7 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Test deployment qualification host package
-        run: pytest -q
+        run: python -m pytest -q
 
   build:
     runs-on: ubuntu-latest

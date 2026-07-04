@@ -65,7 +65,7 @@ python -m pip install -r requirements.txt
 Run the host-side tests before using hardware:
 
 ```powershell
-pytest -q
+python -m pytest -q
 ```
 
 ## Configuration

@@ -1,11 +1,13 @@
 {
   "name": "localhub-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --port 1420",
     "build": "tsc && vite build",
+    "prepare:release": "node tools/prepare-release.mjs",
+    "build:release": "npm run prepare:release && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
@@ -15,11 +17,14 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
+    "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "mqtt": "^5.15.1",
+    "recharts": "^2.12.7",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-json-view": "^1.21.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.4",

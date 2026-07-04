@@ -3,6 +3,7 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.model.firmware.CalibrationStartRequest;
 import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import lk.resq.localhub.model.firmware.FirmwareRequestIds;
@@ -162,6 +163,49 @@ public class MqttCommandPublisherService {
         return publishFirmwareCommand(
                 FirmwareTopics.calibrationCancelCommandTopic(deviceId),
                 requestPayload(FirmwareCommandTypeId.CALIBRATION_CANCEL, null),
+                "calibration cancel",
+                FirmwareCommandTypeId.CALIBRATION_CANCEL
+        );
+    }
+
+    public FirmwareCommandPublishResult publishCalibrationStart(
+            String deviceId,
+            String requestId,
+            CalibrationStartRequest request
+    ) {
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("request_id", requestId);
+        payload.put("issued_at_ms", Instant.now().toEpochMilli());
+        payload.put("hall_delta", request.hallDelta());
+        payload.put("ref_pressure", request.refPressure());
+        payload.put("bladder_1_pressure", request.bladder1Pressure());
+        payload.put("bladder_2_pressure", request.bladder2Pressure());
+        if (request.profileId() != null && !request.profileId().isBlank()) {
+            payload.put("profile_id", request.profileId().trim());
+        }
+        if (request.sampleIntervalMs() != null) {
+            payload.put("sample_interval_ms", request.sampleIntervalMs());
+        }
+        if (request.calibrationWindowMs() != null) {
+            payload.put("calibration_window_ms", request.calibrationWindowMs());
+        }
+
+        return publishFirmwareCommand(
+                FirmwareTopics.calibrationStartCommandTopic(deviceId),
+                payload,
+                "calibration start",
+                FirmwareCommandTypeId.CALIBRATION_START
+        );
+    }
+
+    public FirmwareCommandPublishResult publishCalibrationCancel(String deviceId, String requestId) {
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("request_id", requestId);
+        payload.put("issued_at_ms", Instant.now().toEpochMilli());
+
+        return publishFirmwareCommand(
+                FirmwareTopics.calibrationCancelCommandTopic(deviceId),
+                payload,
                 "calibration cancel",
                 FirmwareCommandTypeId.CALIBRATION_CANCEL
         );

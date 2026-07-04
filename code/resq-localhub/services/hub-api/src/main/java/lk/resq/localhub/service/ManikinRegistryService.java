@@ -34,7 +34,7 @@ public class ManikinRegistryService {
             state.lastSeen = Instant.now();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = firstText(payload, "state", "status", state.state);
+            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
@@ -48,7 +48,7 @@ public class ManikinRegistryService {
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = firstText(payload, "state", "status", state.state);
+            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.rssi = firstInt(payload, "rssi", state.rssi);
@@ -64,7 +64,7 @@ public class ManikinRegistryService {
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = firstText(payload, "state", "debugState", state.state);
+            state.state = canonicalFirmwareState(firstText(payload, "state", "debugState", state.state));
             state.ip = firstText(payload, "ip", "ipAddress", state.ip);
             state.fw = firstText(payload, "fw", "firmware", state.fw);
             state.rssi = firstInt(payload, "rssi", state.rssi);
@@ -107,6 +107,11 @@ public class ManikinRegistryService {
                 state.pressureBalancePct = sum > 0 ? 100.0 - ((absDiff * 100.0) / sum) : null;
                 state.pressureSkewed = state.pressureBalancePct != null && state.pressureBalancePct < 88.0;
             }
+            Double payloadPressureBalancePct = firstDouble(payload, null, "pressureBalancePct", "pressure_balance_pct");
+            if (payloadPressureBalancePct != null) {
+                state.pressureBalancePct = payloadPressureBalancePct;
+                state.pressureSkewed = payloadPressureBalancePct < 88.0;
+            }
 
             state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
             state.latestMetric = new LiveMetricPayload(
@@ -118,12 +123,23 @@ public class ManikinRegistryService {
                     jsonValue(payload.get("timestamp")),
                     state.latestDepthMm,
                     payloadDepthProgress,
+                    firstBoolean(payload, null, "depthOk", "depth_ok"),
                     state.latestRateCpm,
                     state.latestRecoilOk,
                     state.latestPauseS,
                     compressionCount,
+                    firstInt(payload, "validCompressionCount", null) != null
+                            ? firstInt(payload, "validCompressionCount", null)
+                            : firstInt(payload, "valid_compression_count", null),
+                    firstInt(payload, "recoilOkCount", null) != null
+                            ? firstInt(payload, "recoilOkCount", null)
+                            : firstInt(payload, "recoil_ok_count", null),
+                    firstInt(payload, "incompleteRecoilCount", null) != null
+                            ? firstInt(payload, "incompleteRecoilCount", null)
+                            : firstInt(payload, "incomplete_recoil_count", null),
                     firstText(payload, "handPlacement", "hand_placement", null),
                     jsonValue(payload.get("flags")),
+                    state.pressureBalancePct,
                     firstText(payload, "sourceMode", "source_mode", null),
                     jsonValue(payload.get("debugRaw"))
             );
@@ -537,6 +553,24 @@ public class ManikinRegistryService {
             return node.asDouble();
         }
         return node;
+    }
+
+    private static String canonicalFirmwareState(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        return switch (trimmed.toLowerCase(Locale.ROOT)) {
+            case "pass", "passed", "ready", "ok" -> "READY_FOR_SESSION";
+            case "fail", "failed" -> "CALIBRATION_FAIL";
+            case "cancel", "cancelled", "canceled" -> "CALIBRATION_CANCELLED";
+            default -> trimmed;
+        };
     }
 
     private static class MutableManikinState {

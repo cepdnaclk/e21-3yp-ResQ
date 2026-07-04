@@ -9,9 +9,59 @@ import {
   fetchCompletedSessions,
   startSession,
 } from "../lib/browserSessionsApi";
+import { fetchCourses, fetchCourseStudents } from "../lib/browserCoursesApi";
+import { getReadiness } from "../lib/browserFirmwareApi";
+import { listCourses, listCourseStudents } from "../lib/browserRosterSyncApi";
+import { useLiveSession } from "../hooks/useLiveSession";
 
 vi.mock("../lib/browserHealthApi", () => ({
   fetchBrowserHealth: vi.fn(),
+}));
+
+vi.mock("../lib/browserRosterSyncApi", () => ({
+  listCourses: vi.fn(),
+  listCourseStudents: vi.fn(),
+  listCourseInstructors: vi.fn(() => Promise.resolve([])),
+  getRosterSyncStatus: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({
+    currentUser: {
+      id: "instructor-1",
+      username: "instructor",
+      displayName: "Instructor",
+      role: "INSTRUCTOR",
+      disabledAt: null,
+    },
+    logout: vi.fn(),
+  }),
+}));
+
+vi.mock("../hooks/useLiveSession", () => ({
+  useLiveSession: vi.fn(() => ({
+    deviceId: "MAN-01",
+    sessionId: null,
+    latestMetric: null,
+    lastSeenAt: null,
+    connectionState: "OFFLINE",
+    sourceMode: "NONE",
+    stale: false,
+    offline: true,
+    message: null,
+    lastHeartbeatAt: null,
+    lastStatusAt: null,
+    lastEventType: null,
+    firmwareState: null,
+    calibrated: null,
+    sessionActive: null,
+    lastErrorId: null,
+    eventId: null,
+    reasonId: null,
+    actionId: null,
+    progressId: null,
+    error: null,
+  })),
 }));
 
 vi.mock("../lib/browserManikinsApi", () => ({
@@ -26,6 +76,17 @@ vi.mock("../lib/browserSessionsApi", () => ({
   fetchCompletedSession: vi.fn(),
   getSessionCsvExportUrl: vi.fn((sessionId: string) => `http://localhost:18080/api/export/sessions/${sessionId}.csv`),
   getSessionJsonExportUrl: vi.fn((sessionId: string) => `http://localhost:18080/api/export/sessions/${sessionId}.json`),
+}));
+
+vi.mock("../lib/browserCoursesApi", () => ({
+  fetchCourses: vi.fn(),
+  fetchCourseStudents: vi.fn(),
+}));
+
+vi.mock("../lib/browserFirmwareApi", () => ({
+  getReadiness: vi.fn(),
+  startCalibration: vi.fn(),
+  cancelCalibration: vi.fn(),
 }));
 
 class MockEventSource {
@@ -90,8 +151,54 @@ describe("InstructorDashboard", () => {
     });
 
     vi.mocked(fetchLiveManikins).mockResolvedValue([]);
+    vi.mocked(fetchCourses).mockResolvedValue([
+      {
+        courseId: "course-101",
+        courseCode: "CPR-101",
+        title: "CPR Fundamentals",
+      },
+    ]);
+    vi.mocked(fetchCourseStudents).mockResolvedValue([
+      {
+        traineeId: "trainee-man-01",
+        displayName: "Ami Trainee",
+        email: "ami.trainee@example.com",
+      },
+    ]);
     vi.mocked(fetchCompletedSessions).mockResolvedValue([]);
     vi.mocked(fetchCompletedSession).mockResolvedValue(null as never);
+    vi.mocked(listCourses).mockResolvedValue([
+      {
+        cloudCourseId: "course-123",
+        courseCode: "RSQ-101",
+        title: "Introduction to ResQ",
+        description: "Intro course",
+        instructorCloudUserId: "instructor-1",
+        active: true,
+      },
+    ]);
+    vi.mocked(listCourseStudents).mockResolvedValue([
+      {
+        cloudUserId: "trainee-123",
+        displayName: "Trainee One",
+        email: "trainee1@example.com",
+        enrolledAt: new Date().toISOString(),
+      },
+    ]);
+    vi.mocked(getReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      firmwareState: null,
+      calibrated: false,
+      readyForSession: false,
+      latestResult: null,
+      progressId: null,
+      reasonId: null,
+      actionId: null,
+      tsMs: null,
+      receivedAt: null,
+      sessionId: null,
+      latestErrorId: null,
+    });
     vi.mocked(startSession).mockResolvedValue({
       sessionId: "sess-001",
       deviceId: "MAN-01",
@@ -130,7 +237,7 @@ describe("InstructorDashboard", () => {
   it("shows healthy status when health endpoint returns ok", async () => {
     render(<InstructorDashboard embeddedInDesktop />);
 
-    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect(await screen.findByText("Connecting")).toBeInTheDocument();
   });
 
   it("shows stream unavailable when EventSource is not available", async () => {
@@ -147,12 +254,17 @@ describe("InstructorDashboard", () => {
 
     render(<InstructorDashboard embeddedInDesktop />);
 
-    expect(await screen.findByText("MAN-01")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "MAN-01" })).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Course"), "course-101");
+    await waitFor(() => expect(fetchCourseStudents).toHaveBeenCalledWith("course-101"));
+    await screen.findByRole("option", { name: "Ami Trainee (ami.trainee@example.com)" });
+    await userEvent.selectOptions(screen.getByLabelText("Enrolled Trainee"), "trainee-man-01");
     await userEvent.click(screen.getByRole("button", { name: "Start Session" }));
 
     await waitFor(() => {
       expect(startSession).toHaveBeenCalledWith({
         deviceId: "MAN-01",
+        courseId: "course-101",
         traineeId: "trainee-man-01",
         scenario: null,
         notes: null,
@@ -160,6 +272,69 @@ describe("InstructorDashboard", () => {
     });
 
     expect(await screen.findByText(/Started session sess-001/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(useLiveSession).toHaveBeenCalledWith(expect.objectContaining({
+        deviceId: "MAN-01",
+        sessionId: "sess-001",
+        enabled: true,
+      }));
+    });
+  });
+
+  it("enables session start when firmware is ready despite stale calibration status", async () => {
+    vi.mocked(fetchLiveManikins).mockResolvedValue([{ ...baseManikin, state: "READY_FOR_SESSION" }]);
+    vi.mocked(getReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      firmwareState: "READY_FOR_SESSION",
+      calibrated: false,
+      readyForSession: false,
+      latestResult: "FAIL",
+      progressId: 12,
+      reasonId: "12345",
+      actionId: 8,
+      tsMs: 100,
+      receivedAt: new Date().toISOString(),
+      sessionId: null,
+      latestErrorId: null,
+    });
+
+    render(<InstructorDashboard embeddedInDesktop />);
+
+    await waitFor(() => expect(getReadiness).toHaveBeenCalledWith("MAN-01"));
+    await userEvent.selectOptions(screen.getByLabelText("Course"), "course-101");
+    await screen.findByRole("option", { name: "Ami Trainee (ami.trainee@example.com)" });
+    await userEvent.selectOptions(screen.getByLabelText("Enrolled Trainee"), "trainee-man-01");
+
+    expect(screen.getByRole("button", { name: "Start Session" })).toBeEnabled();
+  });
+
+  it("resets the enrolled trainee when the course changes", async () => {
+    vi.mocked(fetchLiveManikins).mockResolvedValue([{ ...baseManikin }]);
+    vi.mocked(fetchCourses).mockResolvedValue([
+      { courseId: "course-101", courseCode: "CPR-101", title: "CPR Fundamentals" },
+      { courseId: "course-202", courseCode: "CPR-202", title: "Advanced CPR" },
+    ]);
+    vi.mocked(fetchCourseStudents)
+      .mockResolvedValueOnce([
+        { traineeId: "trainee-101", displayName: "First Trainee", email: null },
+      ])
+      .mockResolvedValueOnce([
+        { traineeId: "trainee-202", displayName: "Second Trainee", email: null },
+      ]);
+
+    render(<InstructorDashboard embeddedInDesktop />);
+
+    const courseSelect = await screen.findByLabelText("Course");
+    const traineeSelect = screen.getByLabelText("Enrolled Trainee");
+    await userEvent.selectOptions(courseSelect, "course-101");
+    await screen.findByRole("option", { name: "First Trainee" });
+    await userEvent.selectOptions(traineeSelect, "trainee-101");
+    expect(traineeSelect).toHaveValue("trainee-101");
+
+    await userEvent.selectOptions(courseSelect, "course-202");
+    expect(traineeSelect).toHaveValue("");
+    await screen.findByRole("option", { name: "Second Trainee" });
+    expect(screen.getByRole("button", { name: "Start Session" })).toBeDisabled();
   });
 
   it("ends an active session", async () => {

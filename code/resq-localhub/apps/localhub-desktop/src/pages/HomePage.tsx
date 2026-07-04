@@ -18,6 +18,8 @@ import {
 
 type HomePageProps = {
   manualLanIpOverride: string | null;
+  onOpenInstructorDashboard?: () => void;
+  onOpenTraineeDashboard?: () => void;
 };
 
 type ApiContract = {
@@ -160,7 +162,7 @@ function buttonStyle(disabled: boolean = false): React.CSSProperties {
   };
 }
 
-export default function HomePage({ manualLanIpOverride }: HomePageProps) {
+export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboard, onOpenTraineeDashboard }: HomePageProps) {
   const { currentUser } = useAuth();
   const [apiService, setApiService] = useState<ApiServiceStatus>({
     running: false,
@@ -187,6 +189,50 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
   const [copyLanIpState, setCopyLanIpState] = useState<"idle" | "copied">("idle");
+
+  useEffect(() => {
+    function isTextInput(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      const tagName = target.tagName.toLowerCase();
+      return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isTextInput(event.target)) {
+        return;
+      }
+
+      const shortcutKey = event.key.toLowerCase();
+      const modifierPressed = event.ctrlKey || event.metaKey;
+
+      if (!modifierPressed) {
+        return;
+      }
+
+      if (shortcutKey === "r") {
+        event.preventDefault();
+        void refreshAllState();
+        return;
+      }
+
+      if (shortcutKey === "i") {
+        event.preventDefault();
+        handleOpenInstructorDashboard();
+        return;
+      }
+
+      if (shortcutKey === "t") {
+        event.preventDefault();
+        handleOpenTraineeDashboard();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   function updateBrokerUi(service: BrokerServiceStatus) {
     setBrokerState(service);
@@ -394,10 +440,20 @@ export default function HomePage({ manualLanIpOverride }: HomePageProps) {
   }
 
   function handleOpenInstructorDashboard() {
+    if (onOpenInstructorDashboard) {
+      onOpenInstructorDashboard();
+      return;
+    }
+
     window.location.assign("/instructor");
   }
 
   function handleOpenTraineeDashboard() {
+    if (onOpenTraineeDashboard) {
+      onOpenTraineeDashboard();
+      return;
+    }
+
     window.location.assign("/trainee");
   }
 

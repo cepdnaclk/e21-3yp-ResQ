@@ -10,6 +10,7 @@ import lk.resq.localhub.model.CreateUserRequest;
 import lk.resq.localhub.model.LoginRequest;
 
 import lk.resq.localhub.model.UserRole;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,20 +42,36 @@ public class AuthService {
     private static final String COOKIE_NAME = "RESQ_LOCALHUB_AUTH";
 
     private final LocalAuthRepository authRepository;
+    private final RosterCacheRepository rosterCacheRepository;
     private final ObjectMapper objectMapper;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final ChronoUnit sessionTtlUnit = ChronoUnit.HOURS;
     private final long sessionTtlHours;
 
+    @Autowired
     public AuthService(
             LocalAuthRepository authRepository,
+            RosterCacheRepository rosterCacheRepository,
             ObjectMapper objectMapper,
             @Value("${resq.auth.session-ttl-hours:8}") long sessionTtlHours
     ) {
         this.authRepository = authRepository;
+        this.rosterCacheRepository = rosterCacheRepository;
         this.objectMapper = objectMapper;
         this.sessionTtlHours = Math.max(1L, sessionTtlHours);
     }
+
+    public AuthService(
+            LocalAuthRepository authRepository,
+            ObjectMapper objectMapper,
+            long sessionTtlHours
+    ) {
+        this.authRepository = authRepository;
+        this.rosterCacheRepository = null;
+        this.objectMapper = objectMapper;
+        this.sessionTtlHours = Math.max(1L, sessionTtlHours);
+    }
+
 
     public AuthBootstrapResponse bootstrap() {
         return new AuthBootstrapResponse(!authRepository.hasUsers());
@@ -74,25 +91,72 @@ public class AuthService {
             throw new IllegalArgumentException("Username and password are required.");
         }
 
-        LocalAuthRepository.UserRecord user = authRepository.findUserByUsername(username)
-                .orElseThrow(() -> {
-                    audit(null, "LOGIN_FAILURE", "user", username, Map.of("reason", "unknown_user"));
-                    return new UnauthorizedException("Invalid username or password.");
-                });
+        // 1. Try local lookup first
+        Optional<LocalAuthRepository.UserRecord> localUserOpt = authRepository.findUserByUsername(username);
+        if (localUserOpt.isPresent()) {
+            LocalAuthRepository.UserRecord user = localUserOpt.get();
+            if (user.disabledAt() != null) {
+                audit(null, "LOGIN_FAILURE", "user", user.id(), Map.of("reason", "disabled_account"));
+                throw new UnauthorizedException("Your account has been disabled.");
+            }
 
-        if (user.disabledAt() != null) {
-            audit(null, "LOGIN_FAILURE", "user", user.id(), Map.of("reason", "disabled_account"));
-            throw new UnauthorizedException("Your account has been disabled.");
+            if (!passwordEncoder.matches(password, user.passwordHash())) {
+                audit(null, "LOGIN_FAILURE", "user", user.id(), Map.of("reason", "bad_password"));
+                throw new UnauthorizedException("Invalid username or password.");
+            }
+
+            AuthTokenIssue issue = issueSession(user);
+            audit(user.id(), "LOGIN_SUCCESS", "user", user.id(), Map.of("role", user.role().name()));
+            return issue;
         }
 
-        if (!passwordEncoder.matches(password, user.passwordHash())) {
-            audit(null, "LOGIN_FAILURE", "user", user.id(), Map.of("reason", "bad_password"));
-            throw new UnauthorizedException("Invalid username or password.");
+        // 2. Try cloud-synced user lookup when the roster cache is available.
+        Optional<RosterCacheRepository.SyncedUserRecord> cloudUserOpt = rosterCacheRepository == null
+                ? Optional.empty()
+                : rosterCacheRepository.findSyncedUserByEmail(username);
+        if (cloudUserOpt.isPresent()) {
+            RosterCacheRepository.SyncedUserRecord cloudUser = cloudUserOpt.get();
+            if (!cloudUser.active()) {
+                audit(null, "LOGIN_FAILURE", "user", cloudUser.cloudUserId(), Map.of("reason", "disabled_account"));
+                throw new UnauthorizedException("Your account has been disabled.");
+            }
+
+            if (cloudUser.localLoginHash() == null || cloudUser.localLoginHash().isBlank()) {
+                audit(null, "LOGIN_FAILURE", "user", cloudUser.cloudUserId(), Map.of("reason", "no_local_login_hash"));
+                throw new UnauthorizedException("Invalid username or password.");
+            }
+
+            if (!passwordEncoder.matches(password, cloudUser.localLoginHash())) {
+                audit(null, "LOGIN_FAILURE", "user", cloudUser.cloudUserId(), Map.of("reason", "bad_password"));
+                throw new UnauthorizedException("Invalid username or password.");
+            }
+
+            // Successfully authenticated cloud-synced user!
+            // Upsert a local shadow user to satisfy foreign key constraints.
+            Instant now = Instant.now();
+            UserRole role;
+            try {
+                role = UserRole.valueOf(cloudUser.role());
+            } catch (Exception e) {
+                role = UserRole.TRAINEE;
+            }
+
+            LocalAuthRepository.UserRecord shadowUser = authRepository.upsertShadowUser(
+                    cloudUser.cloudUserId(),
+                    cloudUser.email() != null ? cloudUser.email() : cloudUser.displayName(),
+                    cloudUser.displayName(),
+                    cloudUser.localLoginHash(),
+                    role,
+                    now
+            );
+
+            AuthTokenIssue issue = issueSession(shadowUser);
+            audit(shadowUser.id(), "LOGIN_SUCCESS", "user", shadowUser.id(), Map.of("role", shadowUser.role().name(), "auth_source", "CLOUD"));
+            return issue;
         }
 
-        AuthTokenIssue issue = issueSession(user);
-        audit(user.id(), "LOGIN_SUCCESS", "user", user.id(), Map.of("role", user.role().name()));
-        return issue;
+        audit(null, "LOGIN_FAILURE", "user", username, Map.of("reason", "unknown_user"));
+        throw new UnauthorizedException("Invalid username or password.");
     }
 
     public AuthTokenIssue setupFirstAdmin(CreateFirstAdminRequest request) {
@@ -123,7 +187,27 @@ public class AuthService {
 
     public List<AuthUser> listUsers(HttpServletRequest request) {
         requireRole(request, UserRole.ADMIN);
-        return authRepository.listUsers().stream().map(this::toAuthUser).toList();
+        List<LocalAuthRepository.UserRecord> localUsers = authRepository.listUsers();
+        java.util.List<AuthUser> merged = new java.util.ArrayList<>();
+        java.util.Map<String, LocalAuthRepository.UserRecord> localUserMap = new java.util.HashMap<>();
+        
+        for (LocalAuthRepository.UserRecord u : localUsers) {
+            localUserMap.put(u.id(), u);
+            merged.add(toAuthUser(u));
+        }
+        
+        if (rosterCacheRepository != null) {
+            List<RosterCacheRepository.SyncedUserRecord> syncedUsers = rosterCacheRepository.listSyncedUsers();
+            if (syncedUsers != null) {
+                for (RosterCacheRepository.SyncedUserRecord su : syncedUsers) {
+                    if (!localUserMap.containsKey(su.cloudUserId())) {
+                        merged.add(toAuthUser(su));
+                    }
+                }
+            }
+        }                                                                                                                                                      
+                                                                                                                                         
+        return merged;
     }
 
     public AuthUser createUser(HttpServletRequest request, CreateUserRequest createUserRequest) {
@@ -156,18 +240,74 @@ public class AuthService {
 
     public AuthUser disableUser(HttpServletRequest request, String userId) {
         AuthUser actor = requireRole(request, UserRole.ADMIN);
-        LocalAuthRepository.UserRecord disabled = authRepository.disableUser(userId, Instant.now())
-                .orElseThrow(() -> new IllegalArgumentException("User " + userId + " was not found."));
-        audit(actor.id(), "DISABLE_USER", "user", disabled.id(), Map.of("role", disabled.role().name()));
-        return toAuthUser(disabled);
+        
+        if (actor.id().equals(userId)) {
+            throw new IllegalArgumentException("You cannot disable your own active admin account.");
+        }
+
+        boolean found = false;
+        
+        // 1. Check local users
+        Optional<LocalAuthRepository.UserRecord> localOpt = authRepository.findUserById(userId);
+        if (localOpt.isPresent()) {
+            authRepository.disableUser(userId, Instant.now());
+            found = true;
+        }
+        
+        // 2. Check synced cloud users
+        if (rosterCacheRepository != null) {
+            Optional<RosterCacheRepository.SyncedUserRecord> syncedOpt = rosterCacheRepository.findSyncedUserById(userId);
+            if (syncedOpt.isPresent()) {
+                rosterCacheRepository.updateSyncedUserActive(userId, false);
+                found = true;
+            }
+        }
+        
+        if (!found) {
+            throw new IllegalArgumentException("User " + userId + " was not found. Searched local users and synced users.");
+        }
+        
+        audit(actor.id(), "DISABLE_USER", "user", userId, Map.of());
+        
+        if (localOpt.isPresent()) {
+            return toAuthUser(authRepository.findUserById(userId).get());
+        } else {
+            return toAuthUser(rosterCacheRepository.findSyncedUserById(userId).get());
+        }
     }
 
     public AuthUser enableUser(HttpServletRequest request, String userId) {
         AuthUser actor = requireRole(request, UserRole.ADMIN);
-        LocalAuthRepository.UserRecord enabled = authRepository.enableUser(userId, Instant.now())
-                .orElseThrow(() -> new IllegalArgumentException("User " + userId + " was not found."));
-        audit(actor.id(), "ENABLE_USER", "user", enabled.id(), Map.of("role", enabled.role().name()));
-        return toAuthUser(enabled);
+        
+        boolean found = false;
+        
+        // 1. Check local users
+        Optional<LocalAuthRepository.UserRecord> localOpt = authRepository.findUserById(userId);
+        if (localOpt.isPresent()) {
+            authRepository.enableUser(userId, Instant.now());
+            found = true;
+        }
+        
+        // 2. Check synced cloud users
+        if (rosterCacheRepository != null) {
+            Optional<RosterCacheRepository.SyncedUserRecord> syncedOpt = rosterCacheRepository.findSyncedUserById(userId);
+            if (syncedOpt.isPresent()) {
+                rosterCacheRepository.updateSyncedUserActive(userId, true);
+                found = true;
+            }
+        }
+        
+        if (!found) {
+            throw new IllegalArgumentException("User " + userId + " was not found. Searched local users and synced users.");
+        }
+        
+        audit(actor.id(), "ENABLE_USER", "user", userId, Map.of());
+        
+        if (localOpt.isPresent()) {
+            return toAuthUser(authRepository.findUserById(userId).get());
+        } else {
+            return toAuthUser(rosterCacheRepository.findSyncedUserById(userId).get());
+        }
     }
 
     public AuthUser requireAuth(HttpServletRequest request) {
@@ -269,6 +409,56 @@ public class AuthService {
                 record.role(),
                 record.disabledAt() == null ? null : record.disabledAt().toString()
         );
+    }
+
+    private AuthUser toAuthUser(RosterCacheRepository.SyncedUserRecord record) {
+        return new AuthUser(
+                record.cloudUserId(),
+                record.email() != null ? record.email() : record.displayName(),
+                record.displayName(),
+                UserRole.valueOf(record.role()),
+                record.active() ? null : Instant.now().toString()
+        );
+    }
+
+    public AuthUser setCloudUserPassword(HttpServletRequest request, String cloudUserId, String newPassword) {
+        AuthUser actor = requireRole(request, UserRole.ADMIN);
+        if (!StringUtils.hasText(newPassword) || newPassword.length() < 8) {
+            throw new IllegalArgumentException("Password must be at least 8 characters long.");
+        }
+
+        RosterCacheRepository.SyncedUserRecord cloudUser = rosterCacheRepository.findSyncedUserById(cloudUserId)
+                .orElseThrow(() -> new IllegalArgumentException("Synced cloud user " + cloudUserId + " was not found."));
+
+        String hashed = passwordEncoder.encode(newPassword);
+        rosterCacheRepository.updateLocalLoginHash(cloudUserId, hashed);
+
+        if (authRepository.findUserById(cloudUserId).isPresent()) {
+            UserRole role;
+            try {
+                role = UserRole.valueOf(cloudUser.role());
+            } catch (Exception e) {
+                role = UserRole.TRAINEE;
+            }
+            authRepository.upsertShadowUser(
+                    cloudUser.cloudUserId(),
+                    cloudUser.email() != null ? cloudUser.email() : cloudUser.displayName(),
+                    cloudUser.displayName(),
+                    hashed,
+                    role,
+                    Instant.now()
+            );
+        }
+
+        audit(actor.id(), "RESET_CLOUD_USER_PASSWORD", "user", cloudUserId, Map.of());
+        return toAuthUser(cloudUser);
+    }
+
+    public List<AuthUser> listCloudUsers(HttpServletRequest request) {
+        requireRole(request, UserRole.ADMIN);
+        return rosterCacheRepository.listSyncedUsers().stream()
+                .map(this::toAuthUser)
+                .toList();
     }
 
     private String normalizeUsername(String value) {

@@ -1,0 +1,30 @@
+server:
+  # SERVER_PORT is the Elastic Beanstalk convention (set to 5000 on EB Java platform).
+  # CLOUD_API_PORT is the legacy local-dev override. Local default is 19080.
+  port: ${SERVER_PORT:${CLOUD_API_PORT:19080}}
+
+spring:
+  application:
+    name: resq-cloud-api
+  datasource:
+    url: ${CLOUD_DB_URL:jdbc:postgresql://localhost:5432/resq_cloud}
+    username: ${CLOUD_DB_USERNAME:resq_cloud}
+    password: ${CLOUD_DB_PASSWORD:resq_cloud_dev}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+
+resq:
+  cloud-auth:
+    jwt-secret: ${RESQ_CLOUD_AUTH_JWT_SECRET:local-dev-change-me}
+    jwt-issuer: ${RESQ_CLOUD_AUTH_JWT_ISSUER:resq-cloud-api}
+    token-ttl-minutes: ${RESQ_CLOUD_AUTH_TOKEN_TTL_MINUTES:120}
+    bootstrap-admin-email: ${RESQ_CLOUD_BOOTSTRAP_ADMIN_EMAIL:admin@resq.local}
+    bootstrap-admin-password: ${RESQ_CLOUD_BOOTSTRAP_ADMIN_PASSWORD:admin123}
+    bootstrap-admin-name: ${RESQ_CLOUD_BOOTSTRAP_ADMIN_NAME:ResQ Admin}
+  cloud-cors:
+    # Comma-separated list of extra allowed origins (e.g. Amplify URL in production).
+    # Local dev origins (http://localhost:* and http://127.0.0.1:*) are always included.
+    allowed-origins: ${RESQ_CLOUD_CORS_ALLOWED_ORIGINS:}
+  api:
+    version: ${RESQ_CLOUD_API_VERSION:local-dev}

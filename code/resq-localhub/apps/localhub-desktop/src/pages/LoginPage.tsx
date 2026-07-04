@@ -88,21 +88,41 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
 
   const firstRunMessage = bootstrap?.requiresFirstAdmin
     ? "No users exist yet. Create the first ADMIN account to continue."
-    : bootstrap?.hasUsers === true
-    ? "First admin already exists. Please sign in."
     : null;
 
   return (
-    <section style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: "2rem", background: "#001a33" }}>
+    <section
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        padding: "2rem",
+        background: "linear-gradient(180deg, #02182d 0%, #00172b 100%)",
+      }}
+    >
       {/* Logo - Enlarged */}
       <div style={{ position: "absolute", top: "1.5rem", left: "50%", transform: "translateX(-50%)" }}>
         <img src="/resq-logo-dark-512.png" alt="ResQ" style={{ height: "240px", objectFit: "contain" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
       </div>
 
-      <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: "420px", border: "1px solid rgba(17, 38, 63, 0.08)", borderRadius: "1.5rem", padding: "1.25rem", background: "rgba(255, 255, 255, 0.92)", boxShadow: "0 24px 70px rgba(25, 62, 104, 0.08)", display: "grid", gap: "0.75rem", marginTop: "14rem" }}>
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          width: "100%",
+          maxWidth: "420px",
+          border: "1px solid rgba(17, 38, 63, 0.08)",
+          borderRadius: "1.5rem",
+          padding: "1.25rem",
+          background: "rgba(255, 255, 255, 0.94)",
+          boxShadow: "0 24px 70px rgba(0, 0, 0, 0.18)",
+          display: "grid",
+          gap: "0.75rem",
+          marginTop: "14rem",
+        }}
+      >
         <div>
           <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.02em" }}>ResQ Local Hub</h1>
-          <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: "0.9rem" }}>{helperText}</p>
+          <p style={{ margin: "6px 0 0", color: "var(--muted)", fontSize: "0.9rem" }}>{helperText}</p>
         </div>
 
         {firstRunMessage ? (
@@ -119,7 +139,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
                 setForceFirstRun((v) => !v);
                 setError(null);
               }}
-              style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid #cbd5e1", background: forceFirstRun ? "#f8fafc" : "#ffffff", cursor: "pointer", fontSize: "0.75rem" }}
+              style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid var(--line)", background: forceFirstRun ? "var(--surface-soft)" : "var(--surface-strong)", cursor: "pointer", fontSize: "0.75rem" }}
             >
               {forceFirstRun ? "Fresh" : "Dev"}
             </button>
@@ -183,7 +203,7 @@ export default function LoginPage({ firstRunRequired = false }: LoginPageProps) 
           {busy ? "Working..." : mode === "first-run" ? "Create ADMIN Account" : "Sign In"}
         </button>
 
-        <p style={{ margin: 0, color: "#64748b", fontSize: "0.78rem", lineHeight: 1.4 }}>
+        <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.78rem", lineHeight: 1.4 }}>
           Local-only authentication. No cloud identity provider, no external sync.
         </p>
       </form>
@@ -196,7 +216,7 @@ function fieldStyle(): React.CSSProperties {
     display: "grid",
     gap: "0.35rem",
     fontSize: "0.9rem",
-    color: "#21364d",
+    color: "var(--text)",
     fontWeight: 600,
   };
 }
@@ -204,11 +224,11 @@ function fieldStyle(): React.CSSProperties {
 const inputStyle: React.CSSProperties = {
   padding: "0.7rem 0.9rem",
   borderRadius: "0.8rem",
-  border: "1px solid #c9d9ea",
+  border: "1px solid var(--line)",
   fontFamily: "inherit",
   fontSize: "0.95rem",
-  background: "#fff",
-  color: "#102033",
+  background: "var(--surface-strong)",
+  color: "var(--text)",
 };
 
 function tabButtonStyle(active: boolean): React.CSSProperties {
@@ -217,8 +237,8 @@ function tabButtonStyle(active: boolean): React.CSSProperties {
     padding: "0.7rem 0.9rem",
     borderRadius: "0.8rem",
     border: "none",
-    background: active ? "#1452d6" : "#e9f2ff",
-    color: active ? "#ffffff" : "#12427c",
+    background: active ? "var(--brand)" : "var(--surface-soft)",
+    color: active ? "var(--surface-strong)" : "var(--brand-strong)",
     fontWeight: 600,
     fontSize: "0.9rem",
     cursor: active ? "default" : "pointer",
@@ -231,8 +251,8 @@ function primaryButtonStyle(disabled: boolean): React.CSSProperties {
     padding: "0.8rem 1rem",
     borderRadius: "0.8rem",
     border: "none",
-    background: disabled ? "#c9d9ea" : "#1452d6",
-    color: disabled ? "#50657f" : "#ffffff",
+    background: disabled ? "var(--line)" : "var(--brand)",
+    color: disabled ? "var(--muted)" : "var(--surface-strong)",
     fontWeight: 700,
     cursor: disabled ? "not-allowed" : "pointer",
     fontSize: "0.95rem",

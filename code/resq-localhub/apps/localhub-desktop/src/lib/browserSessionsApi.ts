@@ -1,6 +1,9 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
+
 export type SessionStartRequest = {
   deviceId: string;
-  traineeId?: string | null;
+  courseId: string;
+  traineeId: string;
   scenario?: string | null;
   notes?: string | null;
 };
@@ -9,6 +12,8 @@ export type SessionStartResponse = {
   sessionId: string;
   deviceId: string;
   traineeId: string | null;
+  courseId?: string | null;
+  instructorId?: string | null;
   startedAt: string;
   active: boolean;
   scenario: string | null;
@@ -56,6 +61,8 @@ export type SessionEndResponse = {
   sessionId: string;
   deviceId: string;
   traineeId: string | null;
+  courseId?: string | null;
+  instructorId?: string | null;
   startedAt: string;
   ended: boolean;
   endedAt: string;
@@ -102,15 +109,15 @@ export type ApiErrorResponse = {
 };
 
 function getSessionsBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/sessions`;
+  return `${getHubApiBaseUrl()}/api/sessions`;
 }
 
 function getSessionsExportBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/export/sessions`;
+  return `${getHubApiBaseUrl()}/api/export/sessions`;
 }
 
 function getSessionReviewExportBaseUrl(): string {
-  return `http://${window.location.hostname}:18080/api/sessions`;
+  return `${getHubApiBaseUrl()}/api/sessions`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -137,8 +144,17 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
   });
 
   if (!response.ok) {
-    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
-    throw new Error(errorResponse?.error ?? `Failed to start session (${response.status})`);
+    if (response.status === 400) {
+      throw new Error("Select a course and enrolled trainee before starting the session.");
+    }
+    if (response.status === 403) {
+      throw new Error("You are not allowed to start a session for this course or trainee.");
+    }
+    if (response.status === 409) {
+      throw new Error("This device or session is already active.");
+    }
+
+    throw new Error("Failed to start session.");
   }
 
   return readJsonResponse<SessionStartResponse>(response);
@@ -180,7 +196,7 @@ export async function fetchSessionLive(sessionId: string): Promise<SessionLiveVi
 }
 
 export function getSessionLiveStreamUrl(sessionId: string): string {
-  return `http://${window.location.hostname}:18080/api/stream/sessions/live/${encodeURIComponent(sessionId)}`;
+  return `${getHubApiBaseUrl()}/api/stream/sessions/live/${encodeURIComponent(sessionId)}`;
 }
 
 export async function fetchCompletedSession(sessionId: string): Promise<CompletedSession> {
@@ -226,4 +242,75 @@ export function getSessionReviewExportUrl(sessionId: string, format: "json" | "c
   return `${getSessionReviewExportBaseUrl()}/${encodeURIComponent(sessionId)}/export?format=${format}`;
 }
 
+export type SyncQueueItem = {
+  id: string;
+  entityType: 'SESSION_SUMMARY';
+  entityId: string;
+  payloadJson: string;
+  syncStatus: 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED' | 'RETRY_LATER';
+  retryCount: number;
+  lastError: string | null;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  syncedAt: string | null;
+};
+
+function getSyncQueueBaseUrl(): string {
+  return `${getHubApiBaseUrl()}/api/sync-queue`;
+}
+
+export async function fetchMyActiveSession(): Promise<SessionLiveView | null> {
+  const response = await fetch(`${getSessionsBaseUrl()}/my-active`, {
+    credentials: "include",
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
+    throw new Error(errorResponse?.error ?? `Failed to load active session (${response.status})`);
+  }
+
+  return readJsonResponse<SessionLiveView>(response);
+}
+
+export async function fetchMySessionHistory(): Promise<CompletedSession[]> {
+  const response = await fetch(`${getSessionsBaseUrl()}/my-history`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
+    throw new Error(errorResponse?.error ?? `Failed to load session history (${response.status})`);
+  }
+
+  const data: unknown = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid session history response");
+  }
+
+  return data as CompletedSession[];
+}
+
+export async function fetchSyncQueue(): Promise<SyncQueueItem[]> {
+  const response = await fetch(getSyncQueueBaseUrl(), {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const errorResponse = await readJsonResponse<ApiErrorResponse>(response).catch(() => null);
+    throw new Error(errorResponse?.error ?? `Failed to load sync queue (${response.status})`);
+  }
+
+  const data: unknown = await response.json();
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid sync queue response");
+  }
+
+  return data as SyncQueueItem[];
+}
+
 export { getErrorMessage };
+

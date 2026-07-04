@@ -53,6 +53,8 @@ public class LocalAuthRepository {
                           disabled_at TEXT NULL
                         )
                         """);
+                ensureColumn(connection, "users", "auth_source", "TEXT DEFAULT 'LOCAL'");
+                ensureColumn(connection, "users", "cloud_user_id", "TEXT NULL");
                 statement.executeUpdate("""
                         CREATE TABLE IF NOT EXISTS auth_sessions (
                           id TEXT PRIMARY KEY,
@@ -106,7 +108,7 @@ public class LocalAuthRepository {
         try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
                 SELECT id, username, display_name, password_hash, role, created_at, updated_at, disabled_at
                 FROM users
-                WHERE lower(username) = lower(?)
+                WHERE lower(username) = lower(?) AND (auth_source IS NULL OR auth_source = 'LOCAL')
                 LIMIT 1
                 """)) {
             statement.setString(1, username);
@@ -185,6 +187,41 @@ public class LocalAuthRepository {
             return new UserRecord(id, username, displayName, passwordHash, role, now, now, null);
         } catch (SQLException error) {
             throw new IllegalStateException("Failed to create user " + username, error);
+        }
+    }
+
+    public synchronized UserRecord upsertShadowUser(
+            String id,
+            String username,
+            String displayName,
+            String passwordHash,
+            UserRole role,
+            Instant now
+    ) {
+        try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at, disabled_at, auth_source, cloud_user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'CLOUD', ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  username = excluded.username,
+                  display_name = excluded.display_name,
+                  password_hash = excluded.password_hash,
+                  role = excluded.role,
+                  updated_at = excluded.updated_at,
+                  auth_source = 'CLOUD',
+                  cloud_user_id = excluded.cloud_user_id
+                """)) {
+            statement.setString(1, id);
+            statement.setString(2, username);
+            statement.setString(3, displayName);
+            statement.setString(4, passwordHash);
+            statement.setString(5, role.name());
+            statement.setString(6, now.toString());
+            statement.setString(7, now.toString());
+            statement.setString(8, id);
+            statement.executeUpdate();
+            return new UserRecord(id, username, displayName, passwordHash, role, now, now, null);
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to upsert shadow user " + username, error);
         }
     }
 
@@ -315,6 +352,22 @@ public class LocalAuthRepository {
             statement.executeUpdate("PRAGMA foreign_keys = ON");
         }
         return connection;
+    }
+
+    private static void ensureColumn(Connection connection, String tableName, String columnName, String definition) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("PRAGMA table_info(" + tableName + ")")) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    if (columnName.equalsIgnoreCase(resultSet.getString("name"))) {
+                        return;
+                    }
+                }
+            }
+        }
+
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + definition);
+        }
     }
 
     private UserRecord mapUser(ResultSet resultSet) throws SQLException {

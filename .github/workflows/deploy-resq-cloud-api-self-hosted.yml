@@ -1,0 +1,34 @@
+name: Deploy ResQ Cloud API on EC2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "code/resq-cloud/services/cloud-api/**"
+      - ".github/workflows/deploy-resq-cloud-api-self-hosted.yml"
+
+jobs:
+  deploy:
+    name: Build and deploy on EC2 self-hosted runner
+    runs-on: [self-hosted, resq-cloud, ec2, backend]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build cloud-api
+        working-directory: code/resq-cloud/services/cloud-api
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests
+
+      - name: Install JAR and restart service
+        working-directory: code/resq-cloud/services/cloud-api
+        run: |
+          set -e
+          cp target/*.jar /opt/resq-cloud/resq-cloud-api.jar
+          sudo systemctl restart resq-cloud-api
+          sleep 8
+          sudo systemctl status resq-cloud-api --no-pager
+          curl -f http://localhost:8080/api/cloud/health

@@ -108,16 +108,18 @@ class FirmwareCalibrationServiceTest {
         assertThat(passReadiness.readyForSession()).isTrue();
         assertThat(passReadiness.calibrated()).isTrue();
 
+        fixture.repository.saveCalibrationResult(calibration("M02", "FAIL", "CALIBRATION_FAIL"));
         fixture.registry.updateFromStatus("M02", objectMapper.readTree("""
                 {
                   "deviceId": "M02",
-                  "state": "READY_FOR_SESSION",
-                  "calibrated": true
+                  "state": "ready",
+                  "calibrated": false
                 }
                 """));
 
         FirmwareReadinessResponse readyState = fixture.service.getLatestReadiness("M02");
         assertThat(readyState.readyForSession()).isTrue();
+        assertThat(readyState.calibrated()).isFalse();
         assertThat(readyState.firmwareState()).isEqualTo("READY_FOR_SESSION");
     }
 

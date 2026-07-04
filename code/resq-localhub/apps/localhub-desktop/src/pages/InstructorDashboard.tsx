@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import confetti from "canvas-confetti";
 import { useAuth } from "../auth/AuthContext";
 import { LiveMetricsPanel } from "../components/LiveMetricsPanel";
-import { fetchBrowserHealth, type BrowserHealthResponse } from "../lib/browserHealthApi";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "../lib/accessHost";
 import { generateAccessUrls } from "../lib/accessUrls";
 import {
@@ -10,11 +10,6 @@ import {
   type ManikinLiveSummary,
 } from "../lib/browserManikinsApi";
 import {
-  fetchTrainees,
-  createTrainee,
-  type TraineeRecord,
-} from "../lib/browserTraineesApi";
-import {
   endSession,
   fetchCompletedSession,
   fetchCompletedSessions,
@@ -22,6 +17,12 @@ import {
   type CompletedSession,
   type SessionStartResponse,
 } from "../lib/browserSessionsApi";
+import {
+  fetchCourses,
+  fetchCourseStudents,
+  type CourseOption,
+  type CourseStudentOption,
+} from "../lib/browserCoursesApi";
 import { useLiveSession } from "../hooks/useLiveSession";
 import {
   buildEspProvisioningUrl,
@@ -44,7 +45,12 @@ import {
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
+import { CoursesPanel } from "../components/CoursesPanel";
 import { QRCodeSVG as QR } from "qrcode.react";
+import ProvisioningIcon from "../components/icons/ProvisioningIcon";
+import DeviceRegistryIcon from "../components/icons/DeviceRegistryIcon";
+import LiveManikinsIcon from "../components/icons/LiveManikinsIcon";
+import CalibrationIcon from "../components/icons/CalibrationIcon";
 
 /**
  * Browser-safe Instructor Dashboard.
@@ -53,53 +59,7 @@ import { QRCodeSVG as QR } from "qrcode.react";
  * in any browser on the LAN without depending on Tauri APIs.
  */
 
-function HealthStatusBadge({ health }: { health: BrowserHealthResponse | null }) {
-  if (!health) {
-    return (
-      <span style={{
-        display: "inline-block",
-        padding: "4px 10px",
-        borderRadius: "999px",
-        fontSize: "0.8rem",
-        fontWeight: 600,
-        background: "#e2e8f0",
-        color: "#334155",
-      }}>
-        Checking...
-      </span>
-    );
-  }
 
-  if (health.ok) {
-    return (
-      <span style={{
-        display: "inline-block",
-        padding: "4px 10px",
-        borderRadius: "999px",
-        fontSize: "0.8rem",
-        fontWeight: 600,
-        background: "#dcfce7",
-        color: "#166534",
-      }}>
-        Healthy
-      </span>
-    );
-  }
-
-  return (
-    <span style={{
-      display: "inline-block",
-      padding: "4px 10px",
-      borderRadius: "999px",
-      fontSize: "0.8rem",
-      fontWeight: 600,
-      background: "#fee2e2",
-      color: "#991b1b",
-    }}>
-      Unreachable
-    </span>
-  );
-}
 
 function SessionStateBadge({ active }: { active: boolean }) {
   return (
@@ -147,6 +107,182 @@ function IndicatorBadge({
       {label}
     </span>
   );
+}
+
+function WifiSignalIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M2.25 6.5C4.28 4.4 6.93 3.25 9 3.25c2.07 0 4.72 1.15 6.75 3.25" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M4.9 9.1c1.4-1.45 2.96-2.16 4.1-2.16 1.14 0 2.7.71 4.1 2.16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M7.45 11.6c.73-.76 1.14-.97 1.55-.97.41 0 .82.21 1.55.97" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="9" cy="13.8" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Using shared `HubHeartbeat` component for consistent animation and styling.
+function WarningIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <path d="M9 2.5 1.8 15h14.4L9 2.5Z" fill="currentColor" opacity="0.18" />
+      <path d="M9 6v4.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="9" cy="12.9" r="0.9" fill="currentColor" />
+      <path d="M9 2.5 1.8 15h14.4L9 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DeviceMetricIcon({ kind }: { kind: "id" | "seen" | "calibrated" }) {
+  if (kind === "id") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <rect x="2" y="2" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M4 4h4M4 6h4M4 8h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "seen") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.4" stroke="currentColor" strokeWidth="1.2" />
+        <path d="M6 3.4v2.9l2 1.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M2.2 6.2 4.6 8.6 9.8 3.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Sparkline({ seed }: { seed: string }) {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash << 5) - hash + seed.charCodeAt(index);
+    hash |= 0;
+  }
+
+  const series = Array.from({ length: 10 }, (_, index) => {
+    const base = Math.abs((hash + index * 37) % 14);
+    return 6 + base;
+  });
+
+  const width = 72;
+  const height = 18;
+  const step = width / (series.length - 1);
+  const path = series.map((value, index) => `${index === 0 ? "M" : "L"} ${index * step} ${height - value}`).join(" ");
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path d={path} fill="none" stroke="#60a5fa" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function StatusDot({
+  label,
+  status,
+}: {
+  label: string;
+  status: "ready" | "online" | "offline" | "neutral";
+}) {
+  return (
+    <span className={`device-status ${status === "ready" ? "device-status--ready" : ""}`}>
+      <span className={`device-status__dot device-status__dot--${status}`} aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function Chip({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <span className="device-chip">
+      <span className="device-chip__icon">{icon}</span>
+      <span>{children}</span>
+    </span>
+  );
+}
+
+function ProgressRing({ value }: { value: number }) {
+  const size = 36;
+  const stroke = 4;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference - (Math.max(0, Math.min(100, value)) / 100) * circumference;
+
+  return (
+    <svg className="device-progress" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-label={`Calibration progress ${Math.round(value)}%`} role="img">
+      <circle cx={size / 2} cy={size / 2} r={radius} stroke="#dbeafe" strokeWidth={stroke} fill="none" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        stroke="#16a34a"
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={dashOffset}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        fill="none"
+      />
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" className="device-progress__label">
+        {Math.round(value)}%
+      </text>
+    </svg>
+  );
+}
+
+function progressFromId(progressId: unknown): number {
+  if (typeof progressId === "number" && Number.isFinite(progressId)) {
+    return Math.max(0, Math.min(100, progressId));
+  }
+
+  if (typeof progressId === "string") {
+    const numeric = Number(progressId);
+    if (!Number.isNaN(numeric)) {
+      return Math.max(0, Math.min(100, numeric));
+    }
+
+    let hash = 0;
+    for (let index = 0; index < progressId.length; index += 1) {
+      hash = (hash << 5) - hash + progressId.charCodeAt(index);
+      hash |= 0;
+    }
+    return Math.abs(hash) % 101;
+  }
+
+  return 0;
+}
+
+function triggerRegistrationConfetti() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const duration = 1250;
+  const end = Date.now() + duration;
+  const base = {
+    startVelocity: 32,
+    spread: 70,
+    ticks: 70,
+    gravity: 1.05,
+    scalar: 0.95,
+    origin: { y: 0.72 },
+  };
+
+  const frame = () => {
+    confetti({ ...base, particleCount: 16, origin: { x: 0.2, y: 0.72 } });
+    confetti({ ...base, particleCount: 16, origin: { x: 0.8, y: 0.72 } });
+
+    if (Date.now() < end) {
+      window.requestAnimationFrame(frame);
+    }
+  };
+
+  frame();
 }
 
 type SessionActionState = "idle" | "starting" | "ending";
@@ -225,27 +361,22 @@ export default function InstructorDashboard({
   manualLanIpOverride = null,
 }: InstructorDashboardProps) {
   const { currentUser, logout } = useAuth();
-  const [health, setHealth] = useState<BrowserHealthResponse | null>(null);
-  const [healthLoading, setHealthLoading] = useState(true);
   const [manikinsLoading, setManikinsLoading] = useState(true);
   const [manikinsError, setManikinsError] = useState<string | null>(null);
   const [manikinsStreamState, setManikinsStreamState] = useState<LiveStreamState>("connecting");
   const [manikins, setManikins] = useState<ManikinLiveSummary[]>([]);
 
-  // Trainee selection state (per device)
   type SessionDraft = {
-    traineeRecordId?: string;
-    traineeMode: "select" | "quick" | "guest";
-    quickTraineeName?: string;
-    quickTraineeCode?: string;
-    quickTraineeGroup?: string;
+    courseId: string;
+    traineeId: string;
   };
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, SessionDraft>>({});
-
-  // Trainee records management
-  const [trainees, setTrainees] = useState<TraineeRecord[]>([]);
-  const [traineesLoading, setTraineesLoading] = useState(true);
-  const [traineesError, setTraineesError] = useState<string | null>(null);
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+  const [coursesError, setCoursesError] = useState<string | null>(null);
+  const [studentsByCourseId, setStudentsByCourseId] = useState<Record<string, CourseStudentOption[]>>({});
+  const [studentsLoadingByCourseId, setStudentsLoadingByCourseId] = useState<Record<string, boolean>>({});
+  const [studentsErrorByCourseId, setStudentsErrorByCourseId] = useState<Record<string, string | null>>({});
 
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
   const [sessionActionByDevice, setSessionActionByDevice] = useState<Record<string, SessionActionState>>({});
@@ -278,6 +409,9 @@ export default function InstructorDashboard({
   const [registry, setRegistry] = useState<ManikinRegistryEntry[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
   const [registryError, setRegistryError] = useState<string | null>(null);
+  const [expandedDeviceDetails, setExpandedDeviceDetails] = useState<Record<string, boolean>>({});
+  const registryDeviceIdsRef = useRef<Set<string>>(new Set());
+  const registryHasLoadedRef = useRef(false);
 
   useEffect(() => {
     if (manikins.length === 0) {
@@ -300,7 +434,8 @@ export default function InstructorDashboard({
       for (const manikin of live) {
         if (!next[manikin.deviceId]) {
           next[manikin.deviceId] = {
-            traineeMode: "select",
+            courseId: "",
+            traineeId: "",
           };
         }
       }
@@ -321,12 +456,7 @@ export default function InstructorDashboard({
   }
 
   useEffect(() => {
-    async function loadHealth() {
-      setHealthLoading(true);
-      const result = await fetchBrowserHealth();
-      setHealth(result);
-      setHealthLoading(false);
-    }
+
 
     async function loadServiceInfo() {
       try {
@@ -352,21 +482,30 @@ export default function InstructorDashboard({
       }
     }
 
-    async function loadTrainees() {
+    async function loadCourses() {
       try {
-        const records = await fetchTrainees();
-        setTrainees(records);
-        setTraineesError(null);
+        const records = await fetchCourses();
+        setCourses(records);
+        setCoursesError(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to load trainee records.";
-        setTraineesError(message);
+        setCoursesError(error instanceof Error ? error.message : "Failed to load synced courses.");
       } finally {
-        setTraineesLoading(false);
+        setCoursesLoading(false);
       }
     }
     async function loadRegistry() {
       try {
         const entries = await fetchManikinRegistry();
+        const nextIds = new Set(entries.map((entry) => entry.deviceId));
+        const hasNewDevice = registryHasLoadedRef.current && entries.some((entry) => !registryDeviceIdsRef.current.has(entry.deviceId));
+
+        registryDeviceIdsRef.current = nextIds;
+        registryHasLoadedRef.current = true;
+
+        if (hasNewDevice) {
+          triggerRegistrationConfetti();
+        }
+
         setRegistry(entries);
         setRegistryError(null);
       } catch (error) {
@@ -475,15 +614,19 @@ export default function InstructorDashboard({
       };
     }
 
-    loadHealth();
     loadServiceInfo();
     loadManikins();
     loadRecentSessions();
-    loadTrainees();
+    loadCourses();
     loadRegistry();
     connectManikinStream();
 
-    const healthInterval = setInterval(loadHealth, 5000);
+    function handleDeviceRegistered() {
+      triggerRegistrationConfetti();
+    }
+
+    window.addEventListener("resq:device-registered", handleDeviceRegistered as EventListener);
+
     const serviceInfoInterval = setInterval(loadServiceInfo, 10000);
     const recentSessionsInterval = setInterval(loadRecentSessions, 10000);
     const registryInterval = setInterval(loadRegistry, 15000);
@@ -497,10 +640,10 @@ export default function InstructorDashboard({
         clearTimeout(reconnectTimer);
       }
       stopFallbackPolling();
-      clearInterval(healthInterval);
       clearInterval(serviceInfoInterval);
       clearInterval(recentSessionsInterval);
       clearInterval(registryInterval);
+      window.removeEventListener("resq:device-registered", handleDeviceRegistered as EventListener);
     };
   }, []);
 
@@ -591,6 +734,10 @@ export default function InstructorDashboard({
     }
 
     const state = readiness?.firmwareState ?? "";
+    if (state === "READY_FOR_SESSION") {
+      return false;
+    }
+
     return (
       !readiness?.readyForSession ||
       state === "CALIBRATING" ||
@@ -693,15 +840,74 @@ export default function InstructorDashboard({
     return fromBackend ?? sessionCache[deviceId] ?? null;
   }
 
-  async function handleStartSession(deviceId: string) {
+  async function handleCourseChange(deviceId: string, courseId: string) {
+    setSessionDrafts((current) => ({
+      ...current,
+      [deviceId]: {
+        courseId,
+        traineeId: "",
+      },
+    }));
+    setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
+
+    if (!courseId || studentsByCourseId[courseId] || studentsLoadingByCourseId[courseId]) {
+      return;
+    }
+
+    setStudentsLoadingByCourseId((current) => ({ ...current, [courseId]: true }));
+    setStudentsErrorByCourseId((current) => ({ ...current, [courseId]: null }));
+
+    try {
+      const students = await fetchCourseStudents(courseId);
+      setStudentsByCourseId((current) => ({ ...current, [courseId]: students }));
+    } catch (error) {
+      setStudentsErrorByCourseId((current) => ({
+        ...current,
+        [courseId]: error instanceof Error ? error.message : "Failed to load enrolled trainees.",
+      }));
+    } finally {
+      setStudentsLoadingByCourseId((current) => ({ ...current, [courseId]: false }));
+    }
+  }
+
+  async function handleStartSessionWithParams(deviceId: string, courseId: string, traineeId: string) {
+    setSessionDrafts((current) => ({
+      ...current,
+      [deviceId]: {
+        courseId,
+        traineeId,
+      },
+    }));
+
+    return handleStartSession(deviceId, { courseId, traineeId });
+  }
+
+  async function handleStartSession(deviceId: string, overrideDraft?: SessionDraft) {
     const manikin = manikinByDeviceId.get(deviceId);
     if (!manikin) {
       return;
     }
 
-    const draft = sessionDrafts[deviceId];
-    if (!draft) {
-      setSessionMessageByDevice((current) => ({ ...current, [deviceId]: "Please select a trainee mode." }));
+    const draft = overrideDraft ?? sessionDrafts[deviceId];
+    if (!draft?.courseId || !draft.traineeId) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: "Select a course and enrolled trainee before starting the session.",
+      }));
+      return;
+    }
+
+    const readiness = readinessByDevice[deviceId];
+    if (startBlockedByReadiness(readiness)) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: "Device is not ready for a session.",
+      }));
+      return;
+    }
+
+    const actionState = sessionActionByDevice[deviceId] ?? "idle";
+    if (actionState !== "idle") {
       return;
     }
 
@@ -709,32 +915,14 @@ export default function InstructorDashboard({
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
     try {
-      const request: any = {
+      const response = await startSession({
         deviceId,
+        courseId: draft.courseId,
+        traineeId: draft.traineeId,
         scenario: manikin.activeSessionScenario ?? null,
         notes: null,
-      };
+      });
 
-      // Build trainee info based on selected mode
-      if (draft.traineeMode === "select") {
-        if (!draft.traineeRecordId) {
-          throw new Error("Please select a trainee from the list.");
-        }
-        request.traineeRecordId = draft.traineeRecordId;
-      } else if (draft.traineeMode === "quick") {
-        if (!draft.quickTraineeName || !draft.quickTraineeCode) {
-          throw new Error("Please enter trainee name and code for quick add.");
-        }
-        request.quickTrainee = {
-          traineeCode: draft.quickTraineeCode,
-          displayName: draft.quickTraineeName,
-          groupName: draft.quickTraineeGroup || null,
-        };
-      } else if (draft.traineeMode === "guest") {
-        request.guestLabel = "Guest Trainee";
-      }
-
-      const response = await startSession(request);
       setSessionCache((current) => ({ ...current, [deviceId]: response }));
       setSessionMessageByDevice((current) => ({
         ...current,
@@ -745,6 +933,10 @@ export default function InstructorDashboard({
         ...current,
         [deviceId]: error instanceof Error ? error.message : "Failed to start session.",
       }));
+
+      if (overrideDraft) {
+        throw error;
+      }
     } finally {
       setSessionActionByDevice((current) => ({ ...current, [deviceId]: "idle" }));
     }
@@ -895,6 +1087,8 @@ export default function InstructorDashboard({
     ? JSON.stringify(provisioningPayload, null, 2)
     : "";
   const provisioningUrlText = provisioningUrl ?? "";
+  const provisioningBackendUrl = (provisioningBackendBaseUrl.trim() || serviceInfo?.backend_base_url || "").trim();
+  const backendUrlHasLocalhost = provisioningBackendUrl.toLowerCase().includes("localhost");
 
   return (
     <div style={styles.container}>
@@ -953,33 +1147,37 @@ export default function InstructorDashboard({
       </header>
 
       <div style={styles.content}>
-        <section style={styles.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Hub Status</h2>
-            <HealthStatusBadge health={healthLoading ? null : health} />
-          </div>
-          <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
-            {healthLoading
-              ? "Checking hub connectivity..."
-              : health?.ok
-                ? "Backend is running and responding to health checks."
-                : "Unable to reach the hub backend. Check that the API service is running."}
-          </p>
-          {health?.timestamp && (
-            <p style={{ margin: "8px 0 0 0", color: "#9ca3af", fontSize: "0.8rem" }}>
-              Last update: {new Date(health.timestamp).toLocaleTimeString()}
-            </p>
-          )}
-        </section>
-        <section style={styles.card}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontWeight: 600 }}>
-            Firmware Provisioning
-          </h2>
-          <p style={{ margin: "0 0 14px 0", color: "#64748b", fontSize: "0.9rem" }}>
-            Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
-          </p>
 
-          <ol style={{ margin: "0 0 14px 18px", padding: 0, color: "#475569", fontSize: "0.86rem", lineHeight: 1.5 }}>
+        <section style={{ ...styles.card, ...styles.provisioningCard }} className="provisioning-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <ProvisioningIcon size={18} />
+                <h2 style={{ margin: "0 0 6px 0", fontSize: "1.1rem", fontWeight: 600 }}>
+                  Firmware Provisioning
+                </h2>
+              </div>
+              <p style={{ margin: 0, color: "#64748b", fontSize: "0.9rem" }}>
+                Generate an ESP setup portal QR URL for firmware in provisioning mode. QR sends only Wi-Fi details and LocalHub backend URL.
+              </p>
+            </div>
+
+            <div className="provisioning-help" tabIndex={0}>
+              <button
+                type="button"
+                className="provisioning-help__trigger"
+                aria-describedby="provisioning-help-tooltip"
+              >
+                Need help?
+              </button>
+              <div id="provisioning-help-tooltip" className="provisioning-help__tooltip" role="tooltip">
+                <span>Follow the checklist below to generate the QR and provision the device.</span>
+                <span className="provisioning-help__arrow" aria-hidden="true">↓</span>
+              </div>
+            </div>
+          </div>
+
+          <ol className="provisioning-steps" style={{ margin: "0 0 14px 18px", padding: 0, color: "#475569", fontSize: "0.86rem", lineHeight: 1.5 }}>
             <li>Power on ESP in provisioning mode.</li>
             <li>Connect phone to the ESP Wi-Fi, for example "ResQ Setup".</li>
             <li>Scan this QR.</li>
@@ -989,96 +1187,117 @@ export default function InstructorDashboard({
           </ol>
 
           <div style={{ display: "grid", gap: "8px", marginBottom: "12px" }}>
-            <input
-              type="text"
-              placeholder="ESP setup base URL"
-              value={espSetupBaseUrl}
-              onChange={(e) => {
-                setEspSetupBaseUrl(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="text"
-              placeholder="ESP provision path"
-              value={espProvisionPath}
-              onChange={(e) => {
-                setEspProvisionPath(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Wi-Fi SSID"
-              value={provisioningWifiSsid}
-              onChange={(e) => {
-                setProvisioningWifiSsid(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="password"
-              placeholder="Wi-Fi password"
-              value={provisioningWifiPassword}
-              onChange={(e) => {
-                setProvisioningWifiPassword(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
-            <input
-              type="text"
-              placeholder="Backend base URL"
-              value={provisioningBackendBaseUrl}
-              onChange={(e) => {
-                setProvisioningBackendBaseUrl(e.target.value);
-                setProvisioningUrl(null);
-                setProvisioningPayload(null);
-                setPairingError(null);
-              }}
-              style={{
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid #cbd5e1",
-                fontFamily: "inherit",
-                fontSize: "0.9rem",
-              }}
-            />
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>ESP setup base URL</span>
+              <input
+                type="text"
+                placeholder="ESP setup base URL"
+                value={espSetupBaseUrl}
+                onChange={(e) => {
+                  setEspSetupBaseUrl(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>ESP provision path</span>
+              <input
+                type="text"
+                placeholder="ESP provision path"
+                value={espProvisionPath}
+                onChange={(e) => {
+                  setEspProvisionPath(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>
+                <span style={{ color: "#2563eb", display: "inline-flex" }} aria-hidden="true"><WifiSignalIcon /></span>
+                Wi-Fi SSID
+              </span>
+              <input
+                type="text"
+                placeholder="Wi-Fi SSID"
+                value={provisioningWifiSsid}
+                onChange={(e) => {
+                  setProvisioningWifiSsid(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>Wi-Fi password</span>
+              <input
+                type="password"
+                placeholder="Wi-Fi password"
+                value={provisioningWifiPassword}
+                onChange={(e) => {
+                  setProvisioningWifiPassword(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
+            <label style={{ display: "grid", gap: "6px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontWeight: 600, fontSize: "0.88rem", color: "#334155" }}>
+                Backend base URL
+                {backendUrlHasLocalhost ? <span className="provisioning-warning-icon" aria-hidden="true"><WarningIcon /></span> : null}
+              </span>
+              <input
+                type="text"
+                placeholder="Backend base URL"
+                value={provisioningBackendBaseUrl}
+                onChange={(e) => {
+                  setProvisioningBackendBaseUrl(e.target.value);
+                  setProvisioningUrl(null);
+                  setProvisioningPayload(null);
+                  setPairingError(null);
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #cbd5e1",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </label>
             <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "#334155", fontSize: "0.88rem" }}>
               <input
                 type="checkbox"
@@ -1145,7 +1364,7 @@ export default function InstructorDashboard({
           ) : null}
 
           {provisioningPayload && provisioningUrl ? (
-            <div style={{
+            <div className="provisioning-qr-panel" style={{
               padding: "14px",
               borderRadius: "10px",
               border: "1px solid #e2e8f0",
@@ -1244,9 +1463,12 @@ export default function InstructorDashboard({
             alignItems: "center",
             marginBottom: "12px",
           }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>
-              Device Registry
-            </h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <DeviceRegistryIcon size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>
+                Device Registry
+              </h2>
+            </div>
             {/* Show a live count badge — only after loading is complete */}
             {!registryLoading && !registryError ? (
               <span style={{
@@ -1382,9 +1604,19 @@ export default function InstructorDashboard({
           onRunCalibration={handleRunCalibration}
         />
 
+        <CoursesPanel
+          role={currentUser?.role ?? "INSTRUCTOR"}
+          manikins={manikins}
+          readinessByDevice={readinessByDevice}
+          onStartSession={handleStartSessionWithParams}
+        />
+
         <section style={styles.card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "10px", flexWrap: "wrap" }}>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <LiveManikinsIcon size={18} />
+              <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600 }}>Live Manikins</h2>
+            </div>
             <LiveStreamStatusBadge state={manikinsStreamState} />
           </div>
           {manikinsLoading ? (
@@ -1412,6 +1644,25 @@ export default function InstructorDashboard({
             </div>
           ) : null}
 
+          {!manikinsLoading
+            && !manikinsError
+            && manikins.length > 0
+            && manikins.every((manikin) => startBlockedByReadiness(readinessByDevice[manikin.deviceId])) ? (
+              <div
+                style={{
+                  marginBottom: "10px",
+                  padding: "12px",
+                  borderRadius: "8px",
+                  border: "1px solid #f59e0b",
+                  background: "#fffbeb",
+                  color: "#92400e",
+                  fontSize: "0.88rem",
+                }}
+              >
+                No manikin is ready for a session. Complete calibration or resolve the device readiness issue before starting.
+              </div>
+            ) : null}
+
           {!manikinsLoading && !manikinsError && manikins.length > 0 ? (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "10px" }}>
               {manikins.map((manikin) => {
@@ -1423,41 +1674,57 @@ export default function InstructorDashboard({
                 const readiness = readinessByDevice[manikin.deviceId];
                 const readinessIsKnown = readinessKnown(readiness);
                 const startReadinessBlocked = startBlockedByReadiness(readiness);
-                const startDisabled = actionState !== "idle" || startReadinessBlocked;
+                const sessionDraft = sessionDrafts[manikin.deviceId] ?? { courseId: "", traineeId: "" };
+                const selectedCourseStudents = sessionDraft.courseId
+                  ? studentsByCourseId[sessionDraft.courseId] ?? []
+                  : [];
+                const studentsLoading = sessionDraft.courseId
+                  ? studentsLoadingByCourseId[sessionDraft.courseId] ?? false
+                  : false;
+                const studentsError = sessionDraft.courseId
+                  ? studentsErrorByCourseId[sessionDraft.courseId] ?? null
+                  : null;
+                const startDisabled =
+                  actionState !== "idle"
+                  || startReadinessBlocked
+                  || !sessionDraft.courseId
+                  || !sessionDraft.traineeId;
                 const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
+                const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
+                const calibrationProgress = progressFromId(readiness?.progressId);
+                const isCalibrating = effectiveFirmwareState === "CALIBRATING";
 
                 return (
                   <article
                     key={manikin.deviceId}
-                    style={{
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "10px",
-                      padding: "12px",
-                      background: "#ffffff",
-                      display: "grid",
-                      gap: "8px",
-                    }}
+                    className="device-card"
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <h3 style={{ margin: 0, fontSize: "1rem" }}>{manikin.deviceId}</h3>
-                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                        <span
-                          style={{
-                            fontSize: "0.76rem",
-                            fontWeight: 700,
-                            borderRadius: "999px",
-                            padding: "3px 8px",
-                            background: manikin.online ? "#dcfce7" : "#fee2e2",
-                            color: manikin.online ? "#166534" : "#991b1b",
-                          }}
-                        >
-                          {manikin.online ? "Online" : "Offline"}
-                        </span>
+                    <div className="device-card__top">
+                      <div className="device-card__identity">
+                        <div className="device-card__title-row">
+                          <h3 style={{ margin: 0, fontSize: "1rem" }}>{manikin.deviceId}</h3>
+                          <Sparkline seed={manikin.deviceId} />
+                        </div>
+                        <div className="device-card__chips">
+                          <Chip icon={<DeviceMetricIcon kind="id" />}>{manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}</Chip>
+                          <Chip icon={<DeviceMetricIcon kind="seen" />}>{manikin.lastSeen ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}` : "Never seen"}</Chip>
+                          <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.calibrated ? "Calibrated" : "Not calibrated"}</Chip>
+                        </div>
+                      </div>
+                      <div className="device-card__status-row">
+                        <StatusDot label={manikin.online ? "Online" : "Offline"} status={manikin.online ? "online" : "offline"} />
                         <SessionStateBadge active={active} />
                       </div>
                     </div>
 
                     <p style={{ margin: 0, color: "#475569", fontSize: "0.88rem" }}>State: {effectiveFirmwareState}</p>
+
+                    {isCalibrating ? (
+                      <div className="device-card__calibration">
+                        <ProgressRing value={calibrationProgress} />
+                        <span style={{ fontSize: "0.82rem", color: "#475569", fontWeight: 600 }}>Calibration in progress</span>
+                      </div>
+                    ) : null}
                     <InstructorLiveMetrics
                       deviceId={manikin.deviceId}
                       sessionId={activeSession?.sessionId ?? null}
@@ -1498,8 +1765,9 @@ export default function InstructorDashboard({
                         >
                           {calibrationAction === "cancelling" ? "Cancelling..." : "Cancel Calibration"}
                         </button>
-                        <span style={{ fontSize: "0.78rem", color: "#64748b", alignSelf: "center" }}>
-                          Use Calibration Settings to start a run.
+                        <span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "0.78rem", color: "#64748b", alignSelf: "center" }}>
+                          <CalibrationIcon size={14} />
+                          <span>Use Calibration Settings to start a run.</span>
                         </span>
                       </div>
                     </div>
@@ -1510,114 +1778,16 @@ export default function InstructorDashboard({
                       liveSummary={manikin}
                     />
 
-                    {/* Trainee Selection UI */}
-                    <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
-                      <div style={{ fontWeight: 600 }}>Select Trainee</div>
-
-                      {/* Mode Selection */}
-                      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "select",
-                              },
-                            }))
-                          }
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "4px",
-                            border: "1px solid #cbd5e1",
-                            background:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
-                                ? "#0f172a"
-                                : "#ffffff",
-                            color:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "select"
-                                ? "#ffffff"
-                                : "#334155",
-                            cursor: "pointer",
-                            fontSize: "0.8rem",
-                          }}
-                        >
-                          Select
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "quick",
-                              },
-                            }))
-                          }
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "4px",
-                            border: "1px solid #cbd5e1",
-                            background:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
-                                ? "#0f172a"
-                                : "#ffffff",
-                            color:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "quick"
-                                ? "#ffffff"
-                                : "#334155",
-                            cursor: "pointer",
-                            fontSize: "0.8rem",
-                          }}
-                        >
-                          Quick Add
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeMode: "guest",
-                              },
-                            }))
-                          }
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "4px",
-                            border: "1px solid #cbd5e1",
-                            background:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
-                                ? "#0f172a"
-                                : "#ffffff",
-                            color:
-                              sessionDrafts[manikin.deviceId]?.traineeMode === "guest"
-                                ? "#ffffff"
-                                : "#334155",
-                            cursor: "pointer",
-                            fontSize: "0.8rem",
-                          }}
-                        >
-                          Guest
-                        </button>
-                      </div>
-
-                      {/* Select Mode UI */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "select" && (
+                    {!active && currentUser && currentUser.role !== "TRAINEE" ? (
+                      <div style={{ display: "grid", gap: "8px", fontSize: "0.85rem", color: "#334155" }}>
+                        <label htmlFor={`course-${manikin.deviceId}`} style={{ fontWeight: 600 }}>
+                          Course
+                        </label>
                         <select
-                          value={sessionDrafts[manikin.deviceId]?.traineeRecordId || ""}
-                          onChange={(event) =>
-                            setSessionDrafts((current) => ({
-                              ...current,
-                              [manikin.deviceId]: {
-                                ...current[manikin.deviceId],
-                                traineeRecordId: event.target.value,
-                              },
-                            }))
-                          }
+                          id={`course-${manikin.deviceId}`}
+                          value={sessionDraft.courseId}
+                          onChange={(event) => void handleCourseChange(manikin.deviceId, event.target.value)}
+                          disabled={coursesLoading || actionState !== "idle"}
                           style={{
                             padding: "6px 8px",
                             borderRadius: "4px",
@@ -1626,167 +1796,170 @@ export default function InstructorDashboard({
                             fontSize: "0.85rem",
                           }}
                         >
-                          <option value="">-- Select a trainee --</option>
-                          {traineesLoading && <option>Loading...</option>}
-                          {!traineesLoading &&
-                            trainees.map((trainee) => (
-                              <option key={trainee.id} value={trainee.id}>
-                                {trainee.displayName} ({trainee.traineeCode})
-                              </option>
-                            ))}
+                          <option value="">{coursesLoading ? "Loading courses..." : "-- Select a course --"}</option>
+                          {courses.map((course) => (
+                            <option key={course.courseId} value={course.courseId}>
+                              {course.courseCode ? `${course.courseCode} - ` : ""}{course.title}
+                            </option>
+                          ))}
                         </select>
-                      )}
+                        {coursesError ? (
+                          <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.8rem" }}>{coursesError}</p>
+                        ) : null}
 
-                      {/* Quick Add Mode UI */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "quick" && (
-                        <div style={{ display: "grid", gap: "6px" }}>
-                          <input
-                            type="text"
-                            placeholder="Trainee Code"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeCode || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeCode: event.target.value,
-                                },
-                              }))
-                            }
-                            style={{
-                              padding: "6px 8px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              fontFamily: "inherit",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                          <input
-                            type="text"
-                            placeholder="Display Name"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeName || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeName: event.target.value,
-                                },
-                              }))
-                            }
-                            style={{
-                              padding: "6px 8px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              fontFamily: "inherit",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                          <input
-                            type="text"
-                            placeholder="Group (optional)"
-                            value={sessionDrafts[manikin.deviceId]?.quickTraineeGroup || ""}
-                            onChange={(event) =>
-                              setSessionDrafts((current) => ({
-                                ...current,
-                                [manikin.deviceId]: {
-                                  ...current[manikin.deviceId],
-                                  quickTraineeGroup: event.target.value,
-                                },
-                              }))
-                            }
-                            style={{
-                              padding: "6px 8px",
-                              borderRadius: "4px",
-                              border: "1px solid #cbd5e1",
-                              fontFamily: "inherit",
-                              fontSize: "0.85rem",
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      {/* Guest Mode - no input needed */}
-                      {sessionDrafts[manikin.deviceId]?.traineeMode === "guest" && (
-                        <p style={{ margin: "4px 0", color: "#64748b", fontSize: "0.8rem" }}>
-                          Session will start without a specific trainee assignment.
-                        </p>
-                      )}
-                    </div>
+                        <label htmlFor={`trainee-${manikin.deviceId}`} style={{ fontWeight: 600 }}>
+                          Enrolled Trainee
+                        </label>
+                        <select
+                          id={`trainee-${manikin.deviceId}`}
+                          value={sessionDraft.traineeId}
+                          onChange={(event) =>
+                            setSessionDrafts((current) => ({
+                              ...current,
+                              [manikin.deviceId]: {
+                                ...(current[manikin.deviceId] ?? sessionDraft),
+                                traineeId: event.target.value,
+                              },
+                            }))
+                          }
+                          disabled={!sessionDraft.courseId || studentsLoading || actionState !== "idle"}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: "4px",
+                            border: "1px solid #cbd5e1",
+                            fontFamily: "inherit",
+                            fontSize: "0.85rem",
+                          }}
+                        >
+                          <option value="">
+                            {!sessionDraft.courseId
+                              ? "Select a course first"
+                              : studentsLoading
+                                ? "Loading enrolled trainees..."
+                                : "-- Select an enrolled trainee --"}
+                          </option>
+                          {selectedCourseStudents.map((student) => (
+                            <option key={student.traineeId} value={student.traineeId}>
+                              {student.displayName}{student.email && student.email !== student.displayName ? ` (${student.email})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        {studentsError ? (
+                          <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.8rem" }}>{studentsError}</p>
+                        ) : null}
+                        {!studentsLoading
+                          && sessionDraft.courseId
+                          && !studentsError
+                          && selectedCourseStudents.length === 0 ? (
+                            <p style={{ margin: 0, color: "#64748b", fontSize: "0.8rem" }}>
+                              No enrolled trainees are available for this course.
+                            </p>
+                          ) : null}
+                        {startReadinessBlocked ? (
+                          <p style={{ margin: 0, color: "#92400e", fontSize: "0.8rem" }}>
+                            This manikin is not ready for a session.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                       {currentUser && currentUser.role !== "TRAINEE" ? (
                         !active ? (
-                        <button
-                          type="button"
-                          onClick={() => handleStartSession(manikin.deviceId)}
-                          disabled={startDisabled}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: "6px",
-                            border: "1px solid #0f172a",
-                            background: startDisabled ? "#e2e8f0" : "#0f172a",
-                            color: startDisabled ? "#64748b" : "#ffffff",
-                            cursor: startDisabled ? "not-allowed" : "pointer",
-                            fontWeight: 600,
-                          }}
-                          title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
-                        >
-                          Start Session
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStartSession(manikin.deviceId)}
+                            disabled={startDisabled}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #0f172a",
+                              background: startDisabled ? "#e2e8f0" : "#0f172a",
+                              color: startDisabled ? "#64748b" : "#ffffff",
+                              cursor: startDisabled ? "not-allowed" : "pointer",
+                              fontWeight: 600,
+                            }}
+                            title={startReadinessBlocked ? "Device is not ready for a firmware session" : undefined}
+                          >
+                            Start Session
+                          </button>
                         ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
-                          disabled={actionState !== "idle"}
-                          style={{
-                            padding: "8px 12px",
-                            borderRadius: "6px",
-                            border: "1px solid #991b1b",
-                            background: actionState !== "idle" ? "#e2e8f0" : "#991b1b",
-                            color: actionState !== "idle" ? "#64748b" : "#ffffff",
-                            cursor: actionState !== "idle" ? "not-allowed" : "pointer",
-                            fontWeight: 600,
-                          }}
-                        >
-                          End Session
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
+                            disabled={actionState !== "idle"}
+                            style={{
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #991b1b",
+                              background: actionState !== "idle" ? "#e2e8f0" : "#991b1b",
+                              color: actionState !== "idle" ? "#64748b" : "#ffffff",
+                              cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                              fontWeight: 600,
+                            }}
+                          >
+                            End Session
+                          </button>
                         )
                       ) : (
                         <></>
                       )}
                     </div>
 
+                    <button
+                      type="button"
+                      className="device-card__details-toggle"
+                      onClick={() =>
+                        setExpandedDeviceDetails((current) => ({
+                          ...current,
+                          [manikin.deviceId]: !current[manikin.deviceId],
+                        }))
+                      }
+                    >
+                      {isExpanded ? "Hide technical details" : "Show technical details"}
+                    </button>
+
+                    <div className={`device-card__details ${isExpanded ? "device-card__details--open" : ""}`}>
+                      <div className="device-card__details-inner">
+                        <div style={{ display: "grid", gap: 4, fontSize: "0.84rem", color: "#334155" }}>
+                          <div>Device ID: {manikin.deviceId}</div>
+                          <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
+                          <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
+                          <div>Progress ID: {readiness?.progressId ?? "-"}</div>
+                          <div>Firmware state: {readiness?.firmwareState ?? "-"}</div>
+                          <div>Reason: {readiness?.reasonId ?? "-"}</div>
+                          <div>Action: {readiness?.actionId ?? "-"}</div>
+                        </div>
+                      </div>
+                    </div>
+
                     {active ? (
-                      <div style={{ display: "grid", gap: "4px", background: "#f8fafc", borderRadius: "8px", padding: "10px" }}>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
-                          Session: {activeSession!.sessionId}
-                        </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155" }}>
-                          Trainee: {activeSession!.traineeId ?? "-"}
-                        </p>
-                        <p style={{ margin: 0, fontSize: "0.85rem", color: "#334155", wordBreak: "break-all" }}>
-                          Trainee Link: {traineeLink ?? buildTraineeLandingUrl()}
-                        </p>
-                        {/* QR removed: Trainee dashboard QR omitted */}
-                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <div style={{ display: "grid", gap: "8px", background: "linear-gradient(180deg,#ffffff,#f7fbff)", borderRadius: "12px", padding: "12px", border: "1px solid #e6f0fb", boxShadow: "0 8px 20px rgba(13,42,86,0.06)" }}>
+                        <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Session</div>
+                          <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a", wordBreak: "break-all" }}>{activeSession!.sessionId}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Trainee</div>
+                          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>{activeSession!.traineeId ?? "-"}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Trainee Link</div>
+                          <div style={{ background: "#0f172a", color: "#ffffff", padding: "8px 12px", borderRadius: 10, fontWeight: 800 }}>
+                            {traineeLink ?? buildTraineeLandingUrl()}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
                           <button
                             type="button"
                             onClick={() => navigateToTraineeDashboard(activeSession!.sessionId)}
-                            style={{
-                              padding: "8px 12px",
-                              borderRadius: "6px",
-                              border: "1px solid #0f172a",
-                              background: "#0f172a",
-                              color: "#ffffff",
-                              fontWeight: 600,
-                              cursor: "pointer",
-                            }}
+                            className="cta-royal"
+                            aria-label="Open trainee dashboard in app"
                           >
                             Open Trainee Dashboard (In-App)
                           </button>
                           {traineeLink ? (
-                            <a href={traineeLink} style={linkButtonStyle}>
+                            <a href={traineeLink} style={{ padding: "8px 12px", borderRadius: 8, background: "#f1f5f9", color: "#0f172a", fontWeight: 700, textDecoration: "none" }}>
                               Open Trainee Link
                             </a>
                           ) : null}
@@ -1795,9 +1968,23 @@ export default function InstructorDashboard({
                     ) : null}
 
                     {sessionMessageByDevice[manikin.deviceId] ? (
-                      <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>
-                        {sessionMessageByDevice[manikin.deviceId]}
-                      </p>
+                      <div style={{ marginTop: 6 }}>
+                        {(() => {
+                          const deviceMessage = sessionMessageByDevice[manikin.deviceId];
+
+                          if (!deviceMessage) {
+                            return null;
+                          }
+
+                          return deviceMessage.includes("Calibration requested") ? (
+                            <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 999, background: "#fff1f2", color: "#b91c1c", fontWeight: 800, fontSize: "0.86rem" }}>
+                              {deviceMessage}
+                            </span>
+                          ) : (
+                            <p style={{ margin: 0, color: "#475569", fontSize: "0.84rem" }}>{deviceMessage}</p>
+                          );
+                        })()}
+                      </div>
                     ) : null}
                   </article>
                 );
@@ -1845,6 +2032,11 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #e5e7eb",
     padding: "18px",
     boxShadow: "0 1px 3px rgba(15, 23, 42, 0.08), 0 8px 24px rgba(15, 23, 42, 0.04)",
+  },
+  provisioningCard: {
+    background: "linear-gradient(145deg, var(--provisioning-card-start) 0%, var(--provisioning-card-end) 100%)",
+    border: "1px solid var(--provisioning-card-border)",
+    boxShadow: "var(--provisioning-card-shadow)",
   },
 };
 

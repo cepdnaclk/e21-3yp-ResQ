@@ -106,7 +106,8 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id);
 
 static void publish_calibration_progress(calibration_reason_id_t reason_id,
                                          resq_state_t state,
-                                         calibration_action_id_t action_id)
+                                         calibration_action_id_t action_id,
+                                         int progress_id)
 {
     char payload[256];
 
@@ -115,12 +116,14 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                            sizeof(payload),
                            "{"
                            "\"event_id\":%d," 
+                           "\"progress_id\":%d,"
                            "\"reason_id\":%d," 
                            "\"state\":\"%s\"," 
                            "\"action_id\":%d," 
                            "\"ts_ms\":%lld"
                            "}",
                            4001,
+                           progress_id,
                            (int)reason_id,
                            resq_state_to_string(state),
                            (int)action_id,
@@ -1116,7 +1119,8 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id)
 
     publish_calibration_progress(s_last_failure_reason,
                                  RESQ_STATE_CALIBRATION_FAIL,
-                                 s_last_failure_action);
+                                 s_last_failure_action,
+                                 12); // 12 = Calibration failed
 }
 
 /**
@@ -1170,7 +1174,8 @@ static void calibration_manager_task(void *arg)
 
     publish_calibration_progress(CAL_REASON_NONE,
                                  RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
+                                 CAL_ACTION_NONE,
+                                 1); // 1 = Calibration started
 
     int32_t matched_ref_pressure = 0;
     int32_t matched_bladder_1_pressure = 0;
@@ -1188,7 +1193,8 @@ static void calibration_manager_task(void *arg)
     ESP_LOGI(TAG, "Calibration health check: release chest and keep manikin still");
     publish_calibration_progress(CAL_REASON_NONE,
                                  RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_WAIT_OR_CANCEL);
+                                 CAL_ACTION_WAIT_OR_CANCEL,
+                                 1); // 1 = Calibration started
 
     vTaskDelay(pdMS_TO_TICKS(2000));
 
@@ -1257,6 +1263,10 @@ static void calibration_manager_task(void *arg)
         s_calibration_config.bladder_2_pressure, initial_p2_stats.noise_pp);
 
     ESP_LOGI(TAG, "Set reference pressure P0 to the requested target");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_WAIT_OR_CANCEL,
+                                 2); // 2 = Waiting reference pressure
     err = calibration_wait_for_pressure_target("reference pressure P0",
                                                BOARD_HX710_SHARED_SCK,
                                                BOARD_HX710_0_DOUT,
@@ -1271,7 +1281,16 @@ static void calibration_manager_task(void *arg)
         goto task_exit;
     }
 
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE,
+                                 3); // 3 = Reference pressure matched
+
     ESP_LOGI(TAG, "Set bladder pressure P1 to the requested target");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_WAIT_OR_CANCEL,
+                                 4); // 4 = Waiting bladder 1 pressure
     err = calibration_wait_for_pressure_target("bladder pressure P1",
                                                BOARD_HX710_SHARED_SCK,
                                                BOARD_HX710_1_DOUT,
@@ -1286,7 +1305,16 @@ static void calibration_manager_task(void *arg)
         goto task_exit;
     }
 
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE,
+                                 5); // 5 = Bladder 1 pressure matched
+
     ESP_LOGI(TAG, "Set bladder pressure P2 to the requested target");
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_WAIT_OR_CANCEL,
+                                 6); // 6 = Waiting bladder 2 pressure
     err = calibration_wait_for_pressure_target("bladder pressure P2",
                                                BOARD_HX710_SHARED_SCK,
                                                BOARD_HX710_2_DOUT,
@@ -1300,6 +1328,11 @@ static void calibration_manager_task(void *arg)
                                      : CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
         goto task_exit;
     }
+
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE,
+                                 7); // 7 = Bladder 2 pressure matched
 
     ESP_LOGI(TAG,
              "Pressure targets reached: P0=%ld P1=%ld P2=%ld; keep all pressures steady",
@@ -1385,6 +1418,11 @@ static void calibration_manager_task(void *arg)
              (long)s_calibration_config.pressure_1_baseline,
              (long)s_calibration_config.pressure_2_baseline);
 
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE,
+                                 8); // 8 = Hall baseline captured
+
     if ((int64_t)s_calibration_config.hall_noise_raw * 5 >=
         (int64_t)expected_hall_delta) {
         calibration_manager_fail(CAL_REASON_HALL_NOISE_TOO_HIGH);
@@ -1403,7 +1441,8 @@ static void calibration_manager_task(void *arg)
     /* Publish progress and prompt operator before waiting for full press */
     publish_calibration_progress(CAL_REASON_NONE,
                                  RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_WAIT_OR_CANCEL);
+                                 CAL_ACTION_WAIT_OR_CANCEL,
+                                 9); // 9 = Waiting full press
     ESP_LOGI(TAG, "Waiting for Hall full press: ask operator to press and hold full compression now");
 
     err = calibration_collect_full_press_stats(s_calibration_config.hall_delta,
@@ -1425,6 +1464,11 @@ static void calibration_manager_task(void *arg)
         }
         goto task_exit;
     }
+
+    publish_calibration_progress(CAL_REASON_NONE,
+                                 RESQ_STATE_CALIBRATING,
+                                 CAL_ACTION_NONE,
+                                 10); // 10 = Full press captured
 
     ESP_LOGI(TAG, "Captured full-press: hall=%ld b1=%ld b2=%ld",
              (long)matched_hall_full, (long)matched_b1_full, (long)matched_b2_full);
@@ -1450,7 +1494,8 @@ static void calibration_manager_task(void *arg)
 
     publish_calibration_progress(CAL_REASON_NONE,
                                  RESQ_STATE_CALIBRATING,
-                                 CAL_ACTION_NONE);
+                                 CAL_ACTION_NONE,
+                                 11); // 11 = Calibration saved
 
 task_exit:
     ESP_LOGI(TAG, "Calibration task ended");
@@ -1745,9 +1790,10 @@ esp_err_t calibration_manager_retry_last(network_config_t *network_config)
 
 esp_err_t calibration_manager_publish_progress_event(calibration_reason_id_t reason_id,
                                                      resq_state_t state,
-                                                     calibration_action_id_t action_id)
+                                                     calibration_action_id_t action_id,
+                                                     int progress_id)
 {
-    publish_calibration_progress(reason_id, state, action_id);
+    publish_calibration_progress(reason_id, state, action_id, progress_id);
     return ESP_OK;
 }
 

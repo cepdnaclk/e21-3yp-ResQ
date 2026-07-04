@@ -33,9 +33,11 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.warnings()).isEmpty();
         assertThat(result.value().depthMm()).isEqualTo(54.25);
         assertThat(result.value().depthProgress()).isNull();
+        assertThat(result.value().depthOk()).isTrue();
         assertThat(result.value().rateCpm()).isEqualTo(112.0);
-        assertThat(result.value().recoilOk()).isTrue();
-        assertThat(result.value().compressionCount()).isEqualTo(16);
+        assertThat(result.value().recoilOk()).isNull();
+        assertThat(result.value().compressionCount()).isNull();
+        assertThat(result.value().validCompressionCount()).isEqualTo(16);
         assertThat(result.value().handPlacement()).isEqualTo("CENTER");
         assertThat(result.value().sourceMode()).isEqualTo("calibration");
         assertThat(result.value().debugRaw()).isNotNull();
@@ -68,12 +70,18 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.ok()).isTrue();
         assertThat(result.value().deviceId()).isEqualTo("M01");
         assertThat(result.value().sessionId()).isEqualTo("S-FW-2");
-        assertThat(result.value().depthMm()).isNull();
+        assertThat(result.value().depthMm()).isEqualTo(39.0);
+
         assertThat(result.value().depthProgress()).isEqualTo(0.78);
+        assertThat(result.value().depthOk()).isTrue();
         assertThat(result.value().rateCpm()).isEqualTo(111.0);
-        assertThat(result.value().recoilOk()).isTrue();
+        assertThat(result.value().recoilOk()).isNull();
         assertThat(result.value().compressionCount()).isEqualTo(1);
+        assertThat(result.value().validCompressionCount()).isZero();
+        assertThat(result.value().recoilOkCount()).isZero();
+        assertThat(result.value().incompleteRecoilCount()).isZero();
         assertThat(result.value().handPlacement()).isEqualTo("CENTER");
+        assertThat(result.value().pressureBalancePct()).isEqualTo(92.9);
         assertThat(result.value().flags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
         assertThat(result.value().tsMs()).isEqualTo(100432L);
         assertThat(result.value().debugRaw()).isNotNull();

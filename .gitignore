@@ -33,6 +33,7 @@ coverage/
 __pycache__/
 *.pyc
 **/.pytest_cache/
+**/.pytest_tmp/
 
 # Embedded firmware/build outputs
 code/resq-firmware/build/
@@ -59,6 +60,6 @@ build/
 *.log
 node_modules copy/
 
+# Graphify output and Copilot files
 .copilot/
-.github/
-graphify-out/
+graphify-out

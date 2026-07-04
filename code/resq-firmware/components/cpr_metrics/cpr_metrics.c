@@ -20,7 +20,65 @@ static int32_t calib_max_i32(int32_t a, int32_t b)
     return a >= b ? a : b;
 }
 
+static int32_t calib_min_i32(int32_t a, int32_t b)
+{
+    return a <= b ? a : b;
+}
+
+static bool pressure_raw_is_saturated(int32_t value)
+{
+    return value >= 0x7FFFF0 || value <= -0x7FFFF0;
+}
+
+static int32_t average_i32(const int32_t *samples, size_t count)
+{
+    int64_t sum = 0;
+    for (size_t i = 0; i < count; i++) {
+        sum += samples[i];
+    }
+    return (int32_t)(sum / (int64_t)count);
+}
+
+static int32_t peak_to_peak_i32(const int32_t *samples, size_t count)
+{
+    int32_t min_value = samples[0];
+    int32_t max_value = samples[0];
+
+    for (size_t i = 1; i < count; i++) {
+        min_value = calib_min_i32(min_value, samples[i]);
+        max_value = calib_max_i32(max_value, samples[i]);
+    }
+
+    return max_value - min_value;
+}
+
+static bool all_samples_equal(const int32_t *samples, size_t count)
+{
+    for (size_t i = 1; i < count; i++) {
+        if (samples[i] != samples[0]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static cpr_sensor_health_t health_from_faults(uint32_t faults)
+{
+    const uint32_t fail_faults =
+        CPR_SENSOR_FAULT_TOO_FEW_SAMPLES |
+        CPR_SENSOR_FAULT_STUCK_ZERO |
+        CPR_SENSOR_FAULT_SATURATED |
+        CPR_SENSOR_FAULT_STUCK_NO_CHANGE |
+        CPR_SENSOR_FAULT_NOISY_BASELINE |
+        CPR_SENSOR_FAULT_INVALID_RANGE;
+
+    return (faults & fail_faults) ? CPR_SENSOR_HEALTH_FAIL : CPR_SENSOR_HEALTH_OK;
+}
+
 /* thresholds are adaptive and derived from calibration_config_t at runtime */
+
+#define CPR_HALL_ADC_MAX_RAW 4095
 
 #define CPR_SENSOR_1_SIDE_LABEL "LEFT"
 #define CPR_SENSOR_2_SIDE_LABEL "RIGHT"
@@ -487,6 +545,253 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->ts_ms = s_last_sample_ms;
 
     xSemaphoreGive(s_mutex);
+
+    return ESP_OK;
+}
+
+int32_t hall_sensor_compute_delta(int32_t raw_value,
+                                  int32_t baseline,
+                                  int32_t direction)
+{
+    int32_t hall_dir = direction == 0 ? 1 : direction;
+    return (raw_value - baseline) * hall_dir;
+}
+
+int32_t pressure_sensor_compute_balance_pct(int32_t pressure_1_delta,
+                                            int32_t pressure_2_delta,
+                                            int32_t pressure_1_range_raw,
+                                            int32_t pressure_2_range_raw)
+{
+    int32_t p1_delta = calib_abs_i32(pressure_1_delta);
+    int32_t p2_delta = calib_abs_i32(pressure_2_delta);
+    int64_t p1_normalized = pressure_1_range_raw > 0
+                                 ? ((int64_t)p1_delta * 1000) / pressure_1_range_raw
+                                 : p1_delta;
+    int64_t p2_normalized = pressure_2_range_raw > 0
+                                 ? ((int64_t)p2_delta * 1000) / pressure_2_range_raw
+                                 : p2_delta;
+    int64_t total = p1_normalized + p2_normalized;
+
+    if (total <= 0) {
+        return 100;
+    }
+
+    return (int32_t)(llabs(p1_normalized - p2_normalized) * 100 / total);
+}
+
+esp_err_t pressure_sensor_evaluate_window(const int32_t *pressure_1_samples,
+                                          const int32_t *pressure_2_samples,
+                                          size_t sample_count,
+                                          size_t baseline_sample_count,
+                                          const calibration_config_t *calibration,
+                                          cpr_pressure_window_result_t *out_result)
+{
+    if (pressure_1_samples == NULL || pressure_2_samples == NULL ||
+        calibration == NULL || out_result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(out_result, 0, sizeof(*out_result));
+    out_result->health = CPR_SENSOR_HEALTH_FAIL;
+    out_result->imbalance_pct = 100;
+
+    if (sample_count == 0 || baseline_sample_count == 0 ||
+        baseline_sample_count > sample_count) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_TOO_FEW_SAMPLES;
+        return ESP_OK;
+    }
+
+    out_result->baseline_1 = average_i32(pressure_1_samples, baseline_sample_count);
+    out_result->baseline_2 = average_i32(pressure_2_samples, baseline_sample_count);
+    out_result->noise_1 = peak_to_peak_i32(pressure_1_samples, baseline_sample_count);
+    out_result->noise_2 = peak_to_peak_i32(pressure_2_samples, baseline_sample_count);
+
+    const int32_t noise_limit_1 = calibration->pressure_1_noise_raw > 0
+                                      ? calibration->pressure_1_noise_raw
+                                      : calibration->pressure_contact_threshold / 2;
+    const int32_t noise_limit_2 = calibration->pressure_2_noise_raw > 0
+                                      ? calibration->pressure_2_noise_raw
+                                      : calibration->pressure_contact_threshold / 2;
+
+    out_result->baseline_stable =
+        out_result->noise_1 <= noise_limit_1 &&
+        out_result->noise_2 <= noise_limit_2;
+
+    if (!out_result->baseline_stable) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_NOISY_BASELINE;
+    }
+
+    if ((out_result->baseline_1 == 0 && out_result->baseline_2 == 0) ||
+        (all_samples_equal(pressure_1_samples, sample_count) &&
+         all_samples_equal(pressure_2_samples, sample_count) &&
+         pressure_1_samples[0] == 0 && pressure_2_samples[0] == 0)) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_STUCK_ZERO;
+    }
+
+    bool saturated = false;
+    for (size_t i = 0; i < sample_count; i++) {
+        saturated = saturated ||
+                    pressure_raw_is_saturated(pressure_1_samples[i]) ||
+                    pressure_raw_is_saturated(pressure_2_samples[i]);
+
+        int32_t p1_delta = calib_abs_i32(pressure_1_samples[i] - out_result->baseline_1);
+        int32_t p2_delta = calib_abs_i32(pressure_2_samples[i] - out_result->baseline_2);
+        out_result->max_delta_1 = calib_max_i32(out_result->max_delta_1, p1_delta);
+        out_result->max_delta_2 = calib_max_i32(out_result->max_delta_2, p2_delta);
+    }
+
+    if (saturated) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_SATURATED;
+    }
+
+    if (sample_count >= 8 &&
+        all_samples_equal(pressure_1_samples, sample_count) &&
+        all_samples_equal(pressure_2_samples, sample_count)) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_STUCK_NO_CHANGE;
+    }
+
+    out_result->response_delta =
+        calib_max_i32(out_result->max_delta_1, out_result->max_delta_2);
+    out_result->response_detected =
+        out_result->response_delta >= calibration->pressure_valid_threshold;
+
+    out_result->release_delta_1 =
+        calib_abs_i32(pressure_1_samples[sample_count - 1] - out_result->baseline_1);
+    out_result->release_delta_2 =
+        calib_abs_i32(pressure_2_samples[sample_count - 1] - out_result->baseline_2);
+    out_result->release_near_baseline =
+        out_result->release_delta_1 <= calibration->pressure_contact_threshold &&
+        out_result->release_delta_2 <= calibration->pressure_contact_threshold;
+
+    if (out_result->response_detected && !out_result->release_near_baseline) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_RELEASE_NOT_NEAR_BASELINE;
+    }
+
+    out_result->imbalance_pct = pressure_sensor_compute_balance_pct(
+        out_result->max_delta_1,
+        out_result->max_delta_2,
+        calibration->pressure_1_range_raw,
+        calibration->pressure_2_range_raw);
+    out_result->balanced =
+        out_result->imbalance_pct <= calibration->pressure_balance_allowed_pct;
+
+    if (out_result->response_detected && !out_result->balanced) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_IMBALANCED;
+    }
+
+    out_result->health = health_from_faults(out_result->fault_flags);
+    return ESP_OK;
+}
+
+esp_err_t hall_sensor_evaluate_window(const int32_t *hall_samples,
+                                      size_t sample_count,
+                                      size_t baseline_sample_count,
+                                      const calibration_config_t *calibration,
+                                      cpr_hall_window_result_t *out_result)
+{
+    if (hall_samples == NULL || calibration == NULL || out_result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(out_result, 0, sizeof(*out_result));
+    out_result->health = CPR_SENSOR_HEALTH_FAIL;
+
+    if (sample_count == 0 || baseline_sample_count == 0 ||
+        baseline_sample_count > sample_count) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_TOO_FEW_SAMPLES;
+        return ESP_OK;
+    }
+
+    if (!(calibration->hall_direction == 1 || calibration->hall_direction == -1) ||
+        calibration->hall_range_raw <= 0) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_INVALID_RANGE;
+        return ESP_OK;
+    }
+
+    out_result->baseline = average_i32(hall_samples, baseline_sample_count);
+    out_result->noise = peak_to_peak_i32(hall_samples, baseline_sample_count);
+
+    const int32_t noise_limit = calibration->hall_noise_raw > 0
+                                    ? calibration->hall_noise_raw
+                                    : calibration->hall_tolerance_raw;
+    out_result->baseline_stable = out_result->noise <= noise_limit;
+    if (!out_result->baseline_stable) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_NOISY_BASELINE;
+    }
+
+    if (out_result->baseline <= 0) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_STUCK_ZERO;
+    }
+
+    bool saturated = false;
+    for (size_t i = 0; i < sample_count; i++) {
+        saturated = saturated ||
+                    hall_samples[i] <= 0 ||
+                    hall_samples[i] >= CPR_HALL_ADC_MAX_RAW;
+        int32_t delta = hall_sensor_compute_delta(hall_samples[i],
+                                                  out_result->baseline,
+                                                  calibration->hall_direction);
+        out_result->max_delta = calib_max_i32(out_result->max_delta, delta);
+    }
+
+    if (saturated) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_SATURATED;
+    }
+
+    if (sample_count >= 8 && all_samples_equal(hall_samples, sample_count)) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_STUCK_NO_CHANGE;
+    }
+
+    out_result->movement_detected =
+        out_result->max_delta >= calibration->hall_start_delta;
+    out_result->full_depth_detected =
+        out_result->max_delta >= calibration->hall_full_delta_threshold;
+    out_result->depth_progress = clampf((float)out_result->max_delta /
+                                            (float)calibration->hall_range_raw,
+                                        0.0f,
+                                        1.0f);
+
+    out_result->release_delta = calib_abs_i32(hall_sensor_compute_delta(
+        hall_samples[sample_count - 1],
+        out_result->baseline,
+        calibration->hall_direction));
+    out_result->recoil_detected =
+        out_result->release_delta <=
+        calibration->hall_recoil_delta + calibration->hall_tolerance_raw;
+
+    if (out_result->movement_detected && !out_result->recoil_detected) {
+        out_result->fault_flags |= CPR_SENSOR_FAULT_RELEASE_NOT_NEAR_BASELINE;
+    }
+
+    out_result->health = health_from_faults(out_result->fault_flags);
+    return ESP_OK;
+}
+
+esp_err_t sensor_readiness_evaluate(const cpr_pressure_window_result_t *pressure,
+                                    const cpr_hall_window_result_t *hall,
+                                    cpr_sensor_readiness_result_t *out_result)
+{
+    if (pressure == NULL || hall == NULL || out_result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(out_result, 0, sizeof(*out_result));
+    out_result->pressure_fault_flags = pressure->fault_flags;
+    out_result->hall_fault_flags = hall->fault_flags;
+    out_result->pressure_ok = pressure->health == CPR_SENSOR_HEALTH_OK;
+    out_result->hall_ok = hall->health == CPR_SENSOR_HEALTH_OK;
+
+    if (!out_result->pressure_ok || !out_result->hall_ok) {
+        out_result->readiness = CPR_READINESS_NOT_READY;
+        out_result->health = CPR_SENSOR_HEALTH_FAIL;
+    } else if (pressure->fault_flags != CPR_SENSOR_FAULT_NONE ||
+               hall->fault_flags != CPR_SENSOR_FAULT_NONE) {
+        out_result->readiness = CPR_READINESS_WARNING;
+        out_result->health = CPR_SENSOR_HEALTH_WARNING;
+    } else {
+        out_result->readiness = CPR_READINESS_READY_FOR_SESSION;
+        out_result->health = CPR_SENSOR_HEALTH_OK;
+    }
 
     return ESP_OK;
 }

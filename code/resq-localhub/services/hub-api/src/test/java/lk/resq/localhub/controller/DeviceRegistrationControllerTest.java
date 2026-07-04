@@ -5,7 +5,9 @@ import lk.resq.localhub.model.DeviceRegistrationResponse;
 import lk.resq.localhub.model.HubServiceInfoResponse;
 import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
+import lk.resq.localhub.service.MqttSubscriberService;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,12 +79,41 @@ class DeviceRegistrationControllerTest {
                 "tcp://localhost:1883",
                 "",
                 1883,
-                "http://localhost:1420"
+                "http://localhost:1420",
+                false,
+                false
         );
         DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MqttSubscriberService> mqttProvider = new ObjectProvider<>() {
+            @Override
+            public MqttSubscriberService getObject(Object... args) {
+                return null;
+            }
+
+            @Override
+            public MqttSubscriberService getIfAvailable() {
+                return null;
+            }
+
+            @Override
+            public MqttSubscriberService getIfUnique() {
+                return null;
+            }
+
+            @Override
+            public MqttSubscriberService getObject() {
+                return null;
+            }
+
+            @Override
+            public java.util.Iterator<MqttSubscriberService> iterator() {
+                return java.util.Collections.emptyIterator();
+            }
+        };
         return new Fixture(
                 new DeviceRegistrationController(registrationService),
-                new HubHealthController(serviceInfoService)
+                new HubHealthController(serviceInfoService, mqttProvider)
         );
     }
 

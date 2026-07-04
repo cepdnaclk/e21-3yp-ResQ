@@ -1,3 +1,5 @@
+import { getHubApiBaseUrl } from "./hubApiUrl";
+
 export type FirmwareCalibrationStartPayload = {
   hallDelta?: number | null;
   refPressure?: number | null;
@@ -173,11 +175,11 @@ export type FirmwareDeviceDiagnosticsResponse = {
 };
 
 function getFirmwareDeviceUrl(deviceId: string): string {
-  return `http://${window.location.hostname}:18080/api/firmware/devices/${encodeURIComponent(deviceId)}`;
+  return `${getHubApiBaseUrl()}/api/firmware/devices/${encodeURIComponent(deviceId)}`;
 }
 
 function getCalibrationProfilesUrl(): string {
-  return `http://${window.location.hostname}:18080/api/firmware/calibration-profiles`;
+  return `${getHubApiBaseUrl()}/api/firmware/calibration-profiles`;
 }
 
 async function readJsonResponse<T>(response: Response): Promise<T> {

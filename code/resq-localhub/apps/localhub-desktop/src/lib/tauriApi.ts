@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getHubApiBaseUrl } from "./hubApiUrl";
 
 export type AppInfo = {
   appName: string;
@@ -29,7 +30,7 @@ export type NetworkInfo = {
 };
 
 // Keep the backend URL in one place so it is easy to change later.
-export const HUB_API_BASE_URL = "http://localhost:18080";
+export const HUB_API_BASE_URL = getHubApiBaseUrl();
 
 const HUB_HEALTH_PATH = "/api/hub/health";
 
@@ -38,28 +39,33 @@ export async function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
 }
 
-export async function startApiService(): Promise<ApiServiceStatus> {
-  return invoke<ApiServiceStatus>("start_api_service");
+export async function startApiService(): Promise<void> {
+  return invoke<void>("start_api_service");
 }
 
-export async function stopApiService(): Promise<ApiServiceStatus> {
-  return invoke<ApiServiceStatus>("stop_api_service");
+export async function stopApiService(): Promise<void> {
+  return invoke<void>("stop_api_service");
 }
 
 export async function getApiServiceStatus(): Promise<ApiServiceStatus> {
   return invoke<ApiServiceStatus>("get_api_service_status");
 }
 
-export async function startBrokerService(): Promise<BrokerServiceStatus> {
-  return invoke<BrokerServiceStatus>("start_broker_service");
+export async function startBrokerService(): Promise<void> {
+  return invoke<void>("start_broker_service");
 }
 
-export async function stopBrokerService(): Promise<BrokerServiceStatus> {
-  return invoke<BrokerServiceStatus>("stop_broker_service");
+export async function stopBrokerService(): Promise<void> {
+  return invoke<void>("stop_broker_service");
 }
 
 export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
-  return invoke<BrokerServiceStatus>("get_broker_service_status");
+  const running = await invoke<boolean>("get_broker_service_status");
+  return {
+    running,
+    pid: null,
+    message: running ? "Broker process is running." : "Broker process is stopped.",
+  };
 }
 
 export async function getNetworkInfo(): Promise<NetworkInfo> {
