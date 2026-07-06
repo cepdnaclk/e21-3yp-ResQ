@@ -1,9 +1,23 @@
 package lk.resq.localhub.service;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 import com.fasterxml.jackson.databind.JsonNode;
+
 import lk.resq.localhub.model.ActiveSessionInfo;
 import lk.resq.localhub.model.AuthUser;
-import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionEndRequest;
@@ -14,19 +28,7 @@ import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.model.SessionSummary;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Collection;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import lk.resq.localhub.model.UserRole;
 
 @Service
 public class ActiveSessionService {
@@ -812,19 +814,30 @@ public class ActiveSessionService {
         private int totalCompressions;
         private int validCompressions;
         private int depthSampleCount;
+        private int depthAccuracyCount;
         private int depthProgressSampleCount;
         private int rateSampleCount;
+        private int rateAccuracyCount;
         private double depthSumMm;
+        private double depthSumSquaresMm;
         private double depthProgressSum;
         private double rateSumCpm;
+        private double rateSumSquaresCpm;
         private int recoilTrueCount;
         private int recoilFalseCount;
         private int pausesCount;
+        private double longestPauseSeconds;
+        private Double firstDepthMm;
         private Double lastDepthMm;
+        private Double firstRateCpm;
         private Double lastDepthProgress;
         private Double lastRateCpm;
         private Boolean lastRecoilOk;
         private Double lastPauseS;
+        private Double minDepthMm;
+        private Double maxDepthMm;
+        private Double minRateCpm;
+        private Double maxRateCpm;
         private String latestFlags;
 
         private void record(
@@ -853,7 +866,16 @@ public class ActiveSessionService {
             if (depthMm != null) {
                 depthSampleCount++;
                 depthSumMm += depthMm;
+                depthSumSquaresMm += depthMm * depthMm;
+                if (firstDepthMm == null) {
+                    firstDepthMm = depthMm;
+                }
                 lastDepthMm = depthMm;
+                minDepthMm = minDepthMm == null ? depthMm : Math.min(minDepthMm, depthMm);
+                maxDepthMm = maxDepthMm == null ? depthMm : Math.max(maxDepthMm, depthMm);
+                if (depthMm >= 50.0 && depthMm <= 60.0) {
+                    depthAccuracyCount++;
+                }
             }
 
             if (depthProgress != null) {
@@ -865,7 +887,16 @@ public class ActiveSessionService {
             if (rateCpm != null) {
                 rateSampleCount++;
                 rateSumCpm += rateCpm;
+                rateSumSquaresCpm += rateCpm * rateCpm;
+                if (firstRateCpm == null) {
+                    firstRateCpm = rateCpm;
+                }
                 lastRateCpm = rateCpm;
+                minRateCpm = minRateCpm == null ? rateCpm : Math.min(minRateCpm, rateCpm);
+                maxRateCpm = maxRateCpm == null ? rateCpm : Math.max(maxRateCpm, rateCpm);
+                if (rateCpm >= 100.0 && rateCpm <= 120.0) {
+                    rateAccuracyCount++;
+                }
             }
 
             if (recoilOk != null) {
@@ -886,6 +917,7 @@ public class ActiveSessionService {
             if (pauseS != null && pauseS > 0.5) {
                 pausesCount++;
                 lastPauseS = pauseS;
+                longestPauseSeconds = Math.max(longestPauseSeconds, pauseS);
             }
 
             if (flags != null) {
@@ -922,13 +954,20 @@ public class ActiveSessionService {
         }
 
         private SessionSummary toSummary(String sessionId, String deviceId, String traineeId, Instant startedAt, Instant endedAt) {
-            long durationSeconds = Math.max(0L, Duration.between(startedAt, endedAt).getSeconds());
+            long durationSeconds = Math.max(1L, Duration.between(startedAt, endedAt).getSeconds());
             int totalSamples = sampleCount;
             int totalRecoilSamples = recoilTrueCount + recoilFalseCount;
             double avgDepthMm = depthSampleCount == 0 ? 0.0 : depthSumMm / depthSampleCount;
             Double avgDepthProgress = depthProgressSampleCount == 0 ? null : depthProgressSum / depthProgressSampleCount;
             double avgRateCpm = rateSampleCount == 0 ? 0.0 : rateSumCpm / rateSampleCount;
             double recoilPct = totalRecoilSamples == 0 ? 0.0 : (recoilTrueCount * 100.0) / totalRecoilSamples;
+            double recoilErrorPercent = totalRecoilSamples == 0 ? 0.0 : (recoilFalseCount * 100.0) / totalRecoilSamples;
+            double minDepth = depthSampleCount == 0 ? 0.0 : minDepthMm;
+            double maxDepth = depthSampleCount == 0 ? 0.0 : maxDepthMm;
+            double depthAccuracyPercent = depthSampleCount == 0 ? 0.0 : (depthAccuracyCount * 100.0) / depthSampleCount;
+            double rateAccuracyPercent = rateSampleCount == 0 ? 0.0 : (rateAccuracyCount * 100.0) / rateSampleCount;
+            double consistencyScore = calculateConsistencyScore(avgDepthMm, avgRateCpm);
+            double fatigueDropPercent = calculateFatigueDropPercent();
 
             logger.info(
                     "Computed summary from telemetry (sessionId={}, sampleCount={}, depthSampleCount={}, depthProgressSampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
@@ -980,8 +1019,48 @@ public class ActiveSessionService {
                     baseSummary.incompleteRecoilCount(),
                     baseSummary.pausesCount(),
                     calculateScore(baseSummary),
-                    baseSummary.latestFlags()
+                    baseSummary.latestFlags(),
+                    minDepth,
+                    maxDepth,
+                    depthAccuracyPercent,
+                    rateAccuracyPercent,
+                    recoilErrorPercent,
+                    longestPauseSeconds,
+                    consistencyScore,
+                    fatigueDropPercent
             );
+        }
+
+        private double calculateConsistencyScore(double avgDepthMm, double avgRateCpm) {
+            double depthStdDev = depthSampleCount > 1
+                    ? Math.sqrt(Math.max(0.0, (depthSumSquaresMm / depthSampleCount) - (avgDepthMm * avgDepthMm)))
+                    : 0.0;
+            double rateStdDev = rateSampleCount > 1
+                    ? Math.sqrt(Math.max(0.0, (rateSumSquaresCpm / rateSampleCount) - (avgRateCpm * avgRateCpm)))
+                    : 0.0;
+            double spreadPenalty = (depthStdDev * 4.0) + (rateStdDev * 1.0) + (pausesCount * 2.0);
+            return clampPercent(100.0 - spreadPenalty);
+        }
+
+        private double calculateFatigueDropPercent() {
+            if (firstDepthMm == null || lastDepthMm == null || firstRateCpm == null || lastRateCpm == null) {
+                return 0.0;
+            }
+
+            double depthDrop = percentDrop(firstDepthMm, lastDepthMm);
+            double rateDrop = percentDrop(firstRateCpm, lastRateCpm);
+            return clampPercent((depthDrop + rateDrop) / 2.0);
+        }
+
+        private static double percentDrop(double first, double last) {
+            if (first <= 0.0) {
+                return 0.0;
+            }
+            return Math.max(0.0, ((first - last) / first) * 100.0);
+        }
+
+        private static double clampPercent(double value) {
+            return Math.max(0.0, Math.min(100.0, value));
         }
 
         private int calculateScore(SessionSummary summary) {
