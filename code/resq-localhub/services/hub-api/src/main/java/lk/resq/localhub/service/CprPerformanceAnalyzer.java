@@ -218,7 +218,7 @@ public class CprPerformanceAnalyzer {
 
         String shortReason = failedMetrics.isEmpty()
                 ? "Session stayed within the configured CPR performance thresholds."
-                : toShortReason(failedMetrics);
+                : toShortReason(failedMetrics, session);
         String recommendation = recommendations.isEmpty()
                 ? "Keep practicing to reinforce consistent CPR technique."
                 : String.join(" ", recommendations);
@@ -235,18 +235,26 @@ public class CprPerformanceAnalyzer {
         return normalized.isEmpty() ? null : normalized;
     }
 
-    private static String toShortReason(List<String> failedMetrics) {
+    private String toShortReason(List<String> failedMetrics, CprSessionSummaryResponse session) {
         if (failedMetrics.contains("avgDepthMm") && failedMetrics.contains("depthAccuracyPercent")) {
             return "Shallow depth and low depth accuracy were detected.";
         }
         if (failedMetrics.contains("avgDepthMm")) {
-            return "Compression depth was outside the configured target range.";
+            if (session.avgDepthMm() < properties.getCompressionDepthMinMm()) {
+                return "Shallow compression depth was detected.";
+            } else {
+                return "Too-deep compression depth was detected.";
+            }
         }
         if (failedMetrics.contains("avgRateCpm") && failedMetrics.contains("rateAccuracyPercent")) {
             return "Compression rate was too fast or too slow, and rate accuracy was low.";
         }
         if (failedMetrics.contains("avgRateCpm")) {
-            return "Compression rate was outside the configured target range.";
+            if (session.avgRateCpm() < properties.getCompressionRateMinCpm()) {
+                return "Slow compression rate was detected.";
+            } else {
+                return "Fast compression rate was detected.";
+            }
         }
         if (failedMetrics.contains("recoilErrorPercent")) {
             return "Recoil control was below the configured target.";

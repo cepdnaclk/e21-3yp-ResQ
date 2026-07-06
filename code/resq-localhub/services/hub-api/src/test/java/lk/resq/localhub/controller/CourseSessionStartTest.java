@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lk.resq.localhub.model.*;
 import lk.resq.localhub.model.cloudsync.*;
+import lk.resq.localhub.config.CprPerformanceAnalyzerProperties;
 import lk.resq.localhub.service.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,7 +74,11 @@ class CourseSessionStartTest {
         );
 
         authService = new TestAuthService(authRepository, rosterRepository, mapper);
-        controller = new SessionController(sessionService, authService, registry);
+        var properties = new CprPerformanceAnalyzerProperties();
+        var perfAnalyzer = new CprPerformanceAnalyzer(properties);
+        var trendAnalyzer = new CprTrendAnalyzer(perfAnalyzer, properties);
+        var coachResponseGenerator = new LocalCoachResponseGenerator();
+        controller = new SessionController(sessionService, authService, registry, trendAnalyzer, perfAnalyzer, coachResponseGenerator, sessionRepository);
 
         // Seed Roster Data
         rosterRepository.upsertUser(new CloudRosterUser("u-inst-1", "Instructor 1", "inst1@example.com", "INSTRUCTOR", true, Instant.now(), null), Instant.now());

@@ -197,6 +197,86 @@ See:
 - **Test localhost health**: `GET http://localhost:18080/api/hub/health` responds.
 - **Test LAN health**: From another machine on the LAN, `GET http://<LAN_IP>:18080/api/hub/health` responds.
 - **Test MQTT port**: Verify `1883` is reachable from the instructor PC and the ESP32.
-- **Re-provision firmware**: Reset NVS on the manikin if it has old dev config before testing.
 - **Verify registration payload**: Firmware should receive a non-loopback MQTT host (not `127.0.0.1` or `localhost`).
 - **If packaged app**: Ensure the app detected a LAN IP on startup (Tauri logs will show the selected IP) and the backend logs the advertised MQTT/HTTP addresses.
+
+## ResQ AI Coach Feature
+
+The **ResQ AI Coach** provides automated clinical analysis of CPR training session metrics, giving trainees and instructors localized, high-fidelity performance reviews.
+
+### 1. What ResQ Coach Does
+ResQ Coach evaluates completed CPR training history, detects performance issues (e.g. shallow compressions, incorrect compression rates, incomplete chest recoil, fatigue drops), and summarizes historical trends. It translates statistical metric distributions into natural language clinical feedback.
+
+### 2. Local-First Architecture
+The ResQ AI Coach is designed with a **local-first** processing model:
+- All analysis logic, performance classification rules, and trend heuristics run locally on the local hub database (SQLite).
+- This ensures high availability in low-connectivity areas (e.g., fields, mock clinics, offline training rooms) without sending training telemetry or user details over the internet.
+
+### 3. Why Cloud is Optional
+To support privacy-by-default and offline functionality, cloud-based LLM integration is completely optional. If internet connectivity is unavailable, the local rules engine generates natural language insights locally. A developer config toggle allows enabling cloud-based enhancement later:
+```yaml
+resq:
+  coach:
+    provider: local # Defaults to local rules engine. Change to 'cloud' for LLM support.
+```
+
+### 4. Data Used by the Coach
+The coach analyzes metrics recorded across one or more completed training sessions:
+- **Depth Accuracy**: Proportion of compressions reaching the recommended depth range (50-60 mm).
+- **Rate Accuracy**: Proportion of compressions within the recommended speed range (100-120 cpm).
+- **Recoil Error**: Percentage of compressions failing to completely release the chest at the top of the recoil stroke.
+- **Fatigue Drop**: Decline in compression rate or depth over the course of the session.
+- **Consistency Score**: Statistical variance in rate and depth pacing.
+- **Pauses**: Counts and duration of excessive pauses in chest compressions.
+
+### 5. Supported User Questions (Intent Detection)
+The coach includes a simple intent classification system supporting five core training questions:
+1. `"List my bad performances in the last 3 weeks"` - Identifies and details sessions failing one or more config thresholds.
+2. `"What mistakes do I repeat most?"` - Flags recurring performance errors appearing in multiple sessions.
+3. `"Am I improving?"` - Computes performance changes chronologically between early and late session lists.
+4. `"What should I practice next?"` - Targets the trainee's weakest metrics with training recommendations.
+5. `"Compare my last session with my best session"` - Contrasts overall scores and performance details between the latest and the top scoring run.
+
+### 6. API Endpoint Documentation
+- **Endpoint**: `POST /api/coach/query`
+- **Security**: Requires a valid session token. Trainees can only query their own username/userID.
+- **Request Body**:
+  ```json
+  {
+    "userId": "string (required)",
+    "question": "string (required)",
+    "fromDate": "ISO Date (optional)",
+    "toDate": "ISO Date (optional)"
+  }
+  ```
+  *Note: If `fromDate` and `toDate` are omitted, the query defaults to the last 3 weeks.*
+- **Response Body**:
+  ```json
+  {
+    "answer": "string",
+    "mainIssues": ["string"],
+    "recommendations": ["string"],
+    "badSessions": [
+      {
+        "sessionId": "string",
+        "sessionDateTime": "ISO Instant",
+        "overallScore": 75,
+        "shortReason": "string",
+        "recommendation": "string"
+      }
+    ],
+    "trendDirection": "IMPROVING / DECLINING / STABLE / NOT_ENOUGH_DATA"
+  }
+  ```
+
+### 7. Safety Limitations & Guardrails
+To remain suitable for CPR clinical instruction, the following safety limits are enforced:
+- **Training Focus**: All output is strictly restricted to CPR training performance metrics.
+- **No Diagnostics**: ResQ Coach does not diagnose cardiovascular conditions or provide medical prognoses.
+- **No Emergency Instructions**: It does not supply emergency instructions or step-by-step instructions for real-life emergencies.
+- **No Medical Assessment Claims**: Responses cannot be used as official medical certification or hospital assessments.
+- **Contextual Tagging**: Generated responses are prefixed with training tags: `"Based on your training session data..."`
+
+### 8. Future Improvements
+- **Cloud AI Integration**: Support optional external cloud providers (e.g. Gemini, OpenAI) to generate more descriptive narrative insights while remaining offline-first.
+- **Personalized Coaching Profiles**: Track muscle memory decay patterns over months to send proactive recommendations and custom refresher training reminders.

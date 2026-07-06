@@ -8,8 +8,12 @@ import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.UserRole;
+import lk.resq.localhub.config.CprPerformanceAnalyzerProperties;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CprPerformanceAnalyzer;
+import lk.resq.localhub.service.CprTrendAnalyzer;
+import lk.resq.localhub.service.LocalCoachResponseGenerator;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.FirmwareCalibrationService;
@@ -204,7 +208,11 @@ class SessionControllerTest {
             syncQueueService
         );
         AuthService authService = new AllowingAuthService(objectMapper);
-        SessionController controller = new SessionController(service, authService, registry);
+        CprPerformanceAnalyzerProperties properties = new CprPerformanceAnalyzerProperties();
+        CprPerformanceAnalyzer perfAnalyzer = new CprPerformanceAnalyzer(properties);
+        CprTrendAnalyzer trendAnalyzer = new CprTrendAnalyzer(perfAnalyzer, properties);
+        LocalCoachResponseGenerator coachResponseGenerator = new LocalCoachResponseGenerator();
+        SessionController controller = new SessionController(service, authService, registry, trendAnalyzer, perfAnalyzer, coachResponseGenerator, sessionRepository);
         return new Fixture(service, controller, syncQueueRepository, syncQueueService);
     }
 

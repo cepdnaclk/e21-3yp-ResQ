@@ -6,6 +6,8 @@ spring:
     name: hub-api
 
 resq:
+  sample-data:
+    enabled: ${RESQ_SAMPLE_DATA_ENABLED:false}
   localhub:
     backend:
       advertised-host: ${RESQ_BACKEND_ADVERTISED_HOST:}

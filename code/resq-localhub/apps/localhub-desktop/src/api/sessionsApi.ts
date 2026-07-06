@@ -79,3 +79,30 @@ export async function fetchSyncQueue(): Promise<SyncQueueItem[]> {
   return getJson<SyncQueueItem[]>("/api/sync-queue");
 }
 
+export interface CprCoachQueryRequest {
+  userId: string;
+  question: string;
+  fromDate?: string;
+  toDate?: string;
+}
+
+export interface CprCoachQueryResponse {
+  answer: string;
+  mainIssues: string[];
+  recommendations: string[];
+  badSessions: {
+    sessionId: string;
+    sessionDateTime: string;
+    overallScore: number;
+    failedMetrics: string[];
+    shortReason: string;
+    recommendation: string;
+  }[];
+  trendDirection: string;
+}
+
+export async function queryCoach(request: CprCoachQueryRequest): Promise<CprCoachQueryResponse> {
+  return postJson<CprCoachQueryResponse>("/api/coach/query", request);
+}
+
+
