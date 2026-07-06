@@ -133,6 +133,42 @@ class ManikinRegistryServiceTest {
     }
 
     @Test
+    void statusAndHeartbeatAcceptSnakeCaseFieldsFromFirmwarePayloads() throws Exception {
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+
+        registry.updateFromStatus("M01", objectMapper.readTree("""
+                {
+                  "session_id": "S-SNAKE",
+                  "state": "PAIRED_IDLE",
+                  "session_active": true,
+                  "ip_address": "192.168.1.55",
+                  "firmware_version": "1.2.3"
+                }
+                """));
+
+        registry.updateFromHeartbeat("M01", objectMapper.readTree("""
+                {
+                  "manikin_id": "MK-02",
+                  "session_id": "S-SNAKE",
+                  "state": "SESSION_ACTIVE",
+                  "rssi": -61,
+                  "battery": 88
+                }
+                """));
+
+        ManikinLiveSummary liveSummary = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(liveSummary.online()).isTrue();
+        assertThat(liveSummary.state()).isEqualTo("SESSION_ACTIVE");
+        assertThat(liveSummary.manikinId()).isEqualTo("MK-02");
+        assertThat(liveSummary.sessionId()).isEqualTo("S-SNAKE");
+        assertThat(liveSummary.ip()).isEqualTo("192.168.1.55");
+        assertThat(liveSummary.fw()).isEqualTo("1.2.3");
+        assertThat(liveSummary.sessionActive()).isTrue();
+        assertThat(liveSummary.rssi()).isEqualTo(-61);
+        assertThat(liveSummary.battery()).isEqualTo(88);
+    }
+
+    @Test
     void calibrationAndErrorEventsUseFirmwareEventIds() throws Exception {
         ManikinRegistryService registry = new ManikinRegistryService(12);
 
