@@ -16,12 +16,19 @@ export type HubHealthResponse = {
 export type ApiServiceStatus = {
   running: boolean;
   pid: number | null;
+  state: string;
+  message: string;
+  details: string;
+  logPath: string | null;
 };
 
 export type BrokerServiceStatus = {
   running: boolean;
   pid: number | null;
+  state: string;
   message: string;
+  details: string;
+  logPath: string | null;
 };
 
 export type NetworkInfo = {
@@ -45,33 +52,28 @@ export async function getAppInfo(): Promise<AppInfo> {
   return invoke<AppInfo>("get_app_info");
 }
 
-export async function startApiService(): Promise<void> {
-  return invoke<void>("start_api_service");
+export async function startApiService(): Promise<ApiServiceStatus> {
+  return invoke<ApiServiceStatus>("start_api_service");
 }
 
-export async function stopApiService(): Promise<void> {
-  return invoke<void>("stop_api_service");
+export async function stopApiService(): Promise<ApiServiceStatus> {
+  return invoke<ApiServiceStatus>("stop_api_service");
 }
 
 export async function getApiServiceStatus(): Promise<ApiServiceStatus> {
   return invoke<ApiServiceStatus>("get_api_service_status");
 }
 
-export async function startBrokerService(): Promise<void> {
-  return invoke<void>("start_broker_service");
+export async function startBrokerService(): Promise<BrokerServiceStatus> {
+  return invoke<BrokerServiceStatus>("start_broker_service");
 }
 
-export async function stopBrokerService(): Promise<void> {
-  return invoke<void>("stop_broker_service");
+export async function stopBrokerService(): Promise<BrokerServiceStatus> {
+  return invoke<BrokerServiceStatus>("stop_broker_service");
 }
 
 export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
-  const running = await invoke<boolean>("get_broker_service_status");
-  return {
-    running,
-    pid: null,
-    message: running ? "Broker process is running." : "Broker process is stopped.",
-  };
+  return invoke<BrokerServiceStatus>("get_broker_service_status");
 }
 
 export async function getNetworkInfo(): Promise<NetworkInfo> {

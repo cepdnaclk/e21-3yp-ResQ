@@ -265,14 +265,19 @@ fn fetch_pairing_token() -> Result<String, String> {
                 Err(e) => Err(format!("Failed to parse response: {}", e)),
             }
         }
-        Err(_e) => {
-            // Fallback: Generate a mock token for development when backend is unavailable
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            Ok(format!("dev-token-{}", timestamp))
+        Err(error) => {
+            if cfg!(debug_assertions) && std::env::var_os("RESQ_ALLOW_DEV_PAIRING_TOKEN").is_some() {
+                use std::time::{SystemTime, UNIX_EPOCH};
+                let timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                return Ok(format!("dev-token-{}", timestamp));
+            }
+
+            Err(format!(
+                "Unable to request a pairing token because the LocalHub backend is unavailable: {error}"
+            ))
         }
     }
 }

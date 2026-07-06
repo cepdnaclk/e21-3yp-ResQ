@@ -111,7 +111,11 @@ function formatApiDetail(state: ApiHealthState): string {
 }
 
 function getProcessLabel(apiService: ApiServiceStatus): string {
-  return apiService.running ? "Running" : "Stopped";
+  if (!apiService.running) {
+    return apiService.state === "failed" ? "Failed" : apiService.state === "starting" ? "Starting" : "Stopped";
+  }
+
+  return apiService.state === "ready" ? "Running" : "Starting";
 }
 
 function getHealthLabel(apiHealth: ApiHealthState): string {
@@ -169,6 +173,10 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
   const [apiService, setApiService] = useState<ApiServiceStatus>({
     running: false,
     pid: null,
+    state: "stopped",
+    message: "Checking backend status...",
+    details: "Checking backend status...",
+    logPath: null,
   });
   const [apiHealth, setApiHealth] = useState<ApiHealthState>({
     status: "checking",
@@ -177,7 +185,10 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
   const [brokerState, setBrokerState] = useState<BrokerServiceStatus>({
     running: false,
     pid: null,
+    state: "stopped",
     message: "Checking broker status...",
+    details: "Checking broker status...",
+    logPath: null,
   });
   const [brokerUiState, setBrokerUiState] = useState<BrokerUiState>({
     status: "checking",
@@ -240,8 +251,8 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
   function updateBrokerUi(service: BrokerServiceStatus) {
     setBrokerState(service);
     setBrokerUiState({
-      status: service.running ? "running" : "stopped",
-      detail: service.message,
+      status: service.running ? "running" : service.state === "failed" ? "stopped" : "stopped",
+      detail: service.message || service.details,
     });
   }
 
@@ -253,7 +264,10 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
       setBrokerState({
         running: false,
         pid: null,
-        message: "Broker process is stopped.",
+        state: "failed",
+        message: "Broker status could not be read.",
+        details: `Unable to query broker process state. ${getErrorMessage(error)}`,
+        logPath: null,
       });
       setBrokerUiState({
         status: "stopped",
@@ -299,7 +313,7 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
       if (!service.running) {
         setApiHealth({
           status: "unreachable",
-          detail: "Backend process is stopped.",
+          detail: service.message || service.details || "Backend process is stopped.",
         });
         return;
       }
@@ -315,6 +329,10 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
       setApiService({
         running: false,
         pid: null,
+        state: "failed",
+        message: "Backend status could not be read.",
+        details: `Unable to query backend status. ${getErrorMessage(error)}`,
+        logPath: null,
       });
       setApiHealth({
         status: "unreachable",
@@ -416,10 +434,16 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
       ]
     : [];
 
+  const backendReady = apiService.state === "ready" && apiHealth.status === "healthy";
+  const brokerReady = brokerState.state === "ready" && brokerUiState.status === "running";
+  const servicesReady = backendReady && brokerReady;
   const apiTone = apiHealth.status === "healthy" ? "healthy" : apiService.running ? "running" : "stopped";
   const brokerTone = brokerUiState.status === "running" ? "running" : brokerUiState.status === "checking" ? "checking" : "stopped";
   const lanTone = lanInfo.status === "checking" ? "checking" : manualLanIpOverride || lanInfo.status === "ready" ? "ready" : "error";
   const snapshotTone = apiTone === "healthy" ? "healthy" : apiTone === "running" ? "checking" : "stopped";
+  const readinessMessage = servicesReady
+    ? "Backend and broker are both ready. Pairing and session workflows are now available."
+    : "Pairing and session workflows stay disabled until the backend and broker are both ready.";
 
   function getRefreshLabel() {
     if (!lastRefreshedAt) {
@@ -489,12 +513,26 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
             </div>
 
             <div className="hero-card__actions">
-              <Button type="button" variant="primary" onClick={handleOpenInstructorDashboard} className="action-button action-button--primary">
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleOpenInstructorDashboard}
+                className="action-button action-button--primary"
+                disabled={!servicesReady}
+                title={servicesReady ? undefined : readinessMessage}
+              >
                 <span aria-hidden="true" className="action-button__icon">↗</span>
                 <span>Open Instructor Dashboard</span>
                 <span className="action-button__shortcut">Ctrl+I</span>
               </Button>
-              <Button type="button" variant="secondary" onClick={handleOpenTraineeDashboard} className="action-button">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleOpenTraineeDashboard}
+                className="action-button"
+                disabled={!servicesReady}
+                title={servicesReady ? undefined : readinessMessage}
+              >
                 <span aria-hidden="true" className="action-button__icon">↗</span>
                 <span>Open Trainee Dashboard</span>
                 <span className="action-button__shortcut">Ctrl+T</span>

@@ -29,8 +29,8 @@ fn main() {
             eprintln!("Broker start requested");
             let broker_state = app.state::<broker_service::BrokerServiceState>();
             match broker_state.start_with_app(&app_handle) {
-                Ok(_) => {
-                    eprintln!("Broker start completed successfully or already running");
+                Ok(status) => {
+                    eprintln!("Broker start completed with status: {}", status.message);
                 }
                 Err(error) => {
                     eprintln!("Failed to auto-start MQTT broker: {error}");
@@ -42,8 +42,8 @@ fn main() {
             match api_state.start_with_app(&app_handle) {
                 Ok(status) => {
                     eprintln!(
-                        "API start completed successfully: running={}, pid={:?}",
-                        status.running, status.pid
+                        "API start completed with status: state={}, running={}, pid={:?}",
+                        status.state, status.running, status.pid
                     );
                 }
                 Err(error) => {
