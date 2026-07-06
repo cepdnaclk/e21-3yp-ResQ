@@ -239,6 +239,23 @@ impl ApiServiceState {
         }
     }
 
+    fn backend_log_file(app: &tauri::AppHandle) -> Result<fs::File, String> {
+        let log_dir = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
+            .join("logs");
+        fs::create_dir_all(&log_dir)
+            .map_err(|error| format!("Failed to create backend log directory at {}: {error}", log_dir.display()))?;
+
+        let log_path = log_dir.join("hub-api.log");
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(|error| format!("Failed to open backend log file at {}: {error}", log_path.display()))
+    }
+
     fn build_packaged_command(app: &tauri::AppHandle) -> Result<Command, String> {
         let resource_dir = app
             .path()
@@ -255,6 +272,10 @@ impl ApiServiceState {
             let clean_jar = Self::clean_windows_path(&jar_path);
             let clean_config = Self::clean_windows_path(&config_path);
             let clean_java = Self::clean_windows_path(&java_path);
+            let log_file = Self::backend_log_file(app)?;
+            let log_file_err = log_file
+                .try_clone()
+                .map_err(|error| format!("Failed to clone backend log file handle: {error}"))?;
 
             let mut command = Command::new(clean_java);
             command
@@ -266,8 +287,8 @@ impl ApiServiceState {
                 ))
                 .current_dir(&resource_dir)
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                .stdout(Stdio::from(log_file))
+                .stderr(Stdio::from(log_file_err));
             return Ok(command);
         }
 

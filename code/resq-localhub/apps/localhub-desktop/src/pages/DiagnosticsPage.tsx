@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { Button, Select, Alert, Skeleton } from "../components/ui";
 import { Dialog } from "../components/ui/dialog";
 import { fetchManikinInventory, type ManikinInventoryEntry } from "../lib/browserManikinsApi";
+import { getHubApiBaseUrl } from "../lib/hubApiUrl";
+
+function getDiagUrl(deviceId: string, path: "ping" | "request"): string {
+  return `${getHubApiBaseUrl()}/api/devices/${encodeURIComponent(deviceId)}/diag/${path}`;
+}
 
 export default function DiagnosticsPage() {
   const [manikins, setManikins] = useState<ManikinInventoryEntry[] | null>(null);
@@ -47,8 +52,7 @@ export default function DiagnosticsPage() {
     setPingLoading(true);
     setPingResult(null);
     try {
-      const url = `http://${window.location.hostname}:8080/api/devices/${encodeURIComponent(selected)}/diag/ping`;
-      const res = await fetch(url, { method: "POST", credentials: "include" });
+      const res = await fetch(getDiagUrl(selected, "ping"), { method: "POST", credentials: "include" });
       if (!res.ok) {
         setPingResult(`Ping failed (${res.status})`);
         return;
@@ -78,8 +82,7 @@ export default function DiagnosticsPage() {
     setReportLoading(true);
     setReport(null);
     try {
-      const url = `http://${window.location.hostname}:8080/api/devices/${encodeURIComponent(selected)}/diag/request`;
-      const res = await fetch(url, { method: "POST", credentials: "include" });
+      const res = await fetch(getDiagUrl(selected, "request"), { method: "POST", credentials: "include" });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         setReport(`Request failed (${res.status}) ${text}`);

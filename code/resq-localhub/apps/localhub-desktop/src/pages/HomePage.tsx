@@ -10,10 +10,12 @@ import {
   getApiServiceStatus,
   getBrokerServiceStatus,
   getNetworkInfo,
+  getServiceLogPaths,
   type ApiServiceStatus,
   type BrokerServiceStatus,
   type HubHealthResponse,
   type NetworkInfo,
+  type ServiceLogPaths,
 } from "../lib/tauriApi";
 
 type HomePageProps = {
@@ -185,6 +187,7 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
     status: "checking",
     detail: "Checking...",
   });
+  const [serviceLogPaths, setServiceLogPaths] = useState<ServiceLogPaths | null>(null);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
@@ -279,6 +282,15 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
     }
   }
 
+  async function syncServiceLogPaths() {
+    try {
+      const paths = await getServiceLogPaths();
+      setServiceLogPaths(paths);
+    } catch {
+      setServiceLogPaths(null);
+    }
+  }
+
   async function syncApiState() {
     try {
       const service = await getApiServiceStatus();
@@ -315,7 +327,7 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
     setSnapshotLoading(true);
 
     try {
-      await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState()]);
+      await Promise.all([syncApiState(), syncBrokerState(), syncLanInfoState(), syncServiceLogPaths()]);
     } finally {
       setSnapshotLoading(false);
       setLastRefreshedAt(new Date());
@@ -650,6 +662,15 @@ export default function HomePage({ manualLanIpOverride, onOpenInstructorDashboar
             <p className="health-modal-card__label">Refresh</p>
             <p className="health-modal-card__value">{getRefreshLabel()}</p>
             <p className="health-modal-card__copy">Auto-refresh every 30 seconds.</p>
+          </div>
+          <div className="health-modal-card">
+            <p className="health-modal-card__label">Logs</p>
+            <p className="health-modal-card__value">Captured</p>
+            <p className="health-modal-card__copy">
+              {serviceLogPaths
+                ? `Backend: ${serviceLogPaths.backendLogPath} • Broker: ${serviceLogPaths.brokerLogPath}`
+                : "Log file paths are not available yet."}
+            </p>
           </div>
         </div>
       </Dialog>

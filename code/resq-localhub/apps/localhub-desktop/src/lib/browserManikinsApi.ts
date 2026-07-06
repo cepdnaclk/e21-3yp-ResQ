@@ -43,7 +43,7 @@ function getLiveManikinsUrl(): string {
 }
 
 function getManikinInventoryUrl(): string {
-  return `http://${getLocalServiceHost()}:8080/api/manikins`;
+  return `${getHubApiBaseUrl()}/api/manikins`;
 }
 
 export function getLiveManikinsStreamUrl(): string {

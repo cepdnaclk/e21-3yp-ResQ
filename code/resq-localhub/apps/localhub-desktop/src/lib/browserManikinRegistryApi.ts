@@ -26,6 +26,34 @@ function getManikinsRegistryUrl(): string {
   return `${getHubApiBaseUrl()}/api/manikins`;
 }
 
+function normalizeManikinRegistryEntry(value: unknown): ManikinRegistryEntry | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const deviceId = typeof record.deviceId === "string" && record.deviceId.trim() ? record.deviceId.trim() : null;
+
+  if (!deviceId) {
+    return null;
+  }
+
+  return {
+    deviceId,
+    online: typeof record.online === "boolean" ? record.online : false,
+    lastSeen: typeof record.lastSeen === "string" && record.lastSeen.trim() ? record.lastSeen.trim() : null,
+    state: typeof record.state === "string" && record.state.trim() ? record.state.trim() : null,
+    ip: typeof record.ip === "string" && record.ip.trim() ? record.ip.trim() : null,
+    fw: typeof record.fw === "string" && record.fw.trim() ? record.fw.trim() : null,
+    rssi: typeof record.rssi === "number" && Number.isFinite(record.rssi) ? record.rssi : null,
+    battery: typeof record.battery === "number" && Number.isFinite(record.battery) ? record.battery : null,
+    sessionActive: typeof record.sessionActive === "boolean" ? record.sessionActive : null,
+    firmwareState: typeof record.firmwareState === "string" && record.firmwareState.trim() ? record.firmwareState.trim() : null,
+    calibrated: typeof record.calibrated === "boolean" ? record.calibrated : null,
+    lastErrorId: typeof record.lastErrorId === "string" && record.lastErrorId.trim() ? record.lastErrorId.trim() : null,
+  };
+}
+
 // Fetches all known manikins from the registry.
 // Unlike the live stream, this is a simple one-time fetch —
 // the caller can refresh it periodically if needed.
@@ -48,5 +76,5 @@ export async function fetchManikinRegistry(): Promise<ManikinRegistryEntry[]> {
     throw new Error("Unexpected response format from manikin registry");
   }
 
-  return data as ManikinRegistryEntry[];
+  return data.map(normalizeManikinRegistryEntry).filter((entry): entry is ManikinRegistryEntry => Boolean(entry));
 }

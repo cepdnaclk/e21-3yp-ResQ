@@ -17,6 +17,49 @@ pub struct BrokerServiceState {
 }
 
 impl BrokerServiceState {
+    fn copy_runtime_broker_files(source_dir: &std::path::Path, working_dir: &std::path::Path) -> Result<(), String> {
+        fs::create_dir_all(working_dir)
+            .map_err(|error| format!("Failed to create broker runtime directory at {}: {error}", working_dir.display()))?;
+
+        for entry in fs::read_dir(source_dir)
+            .map_err(|error| format!("Failed to read Mosquitto resource directory {}: {error}", source_dir.display()))?
+        {
+            let entry = entry.map_err(|error| format!("Failed to read Mosquitto resource entry: {error}"))?;
+            let file_type = entry.file_type().map_err(|error| format!("Failed to inspect Mosquitto resource entry {}: {error}", entry.path().display()))?;
+            if !file_type.is_file() {
+                continue;
+            }
+
+            let destination = working_dir.join(entry.file_name());
+            fs::copy(entry.path(), &destination).map_err(|error| {
+                format!(
+                    "Failed to stage Mosquitto resource {} to {}: {error}",
+                    entry.path().display(),
+                    destination.display()
+                )
+            })?;
+        }
+
+        Ok(())
+    }
+
+    fn broker_log_file(app: &tauri::AppHandle) -> Result<fs::File, String> {
+        let log_dir = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
+            .join("logs");
+        fs::create_dir_all(&log_dir)
+            .map_err(|error| format!("Failed to create broker log directory at {}: {error}", log_dir.display()))?;
+
+        let log_path = log_dir.join("mosquitto.log");
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(|error| format!("Failed to open broker log file at {}: {error}", log_path.display()))
+    }
+
     pub fn start_with_app(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let mut child_slot = self
             .child
@@ -56,6 +99,9 @@ impl BrokerServiceState {
             .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
             .join("mosquitto");
 
+        let runtime_dir = working_dir.join("runtime");
+        Self::copy_runtime_broker_files(&mosquitto_dir, &runtime_dir)?;
+
         fs::create_dir_all(working_dir.join("data")).map_err(|error| {
             format!(
                 "Failed to create Mosquitto data directory at {}: {error}",
@@ -64,16 +110,23 @@ impl BrokerServiceState {
         })?;
 
         eprintln!("Broker executable path: {}", executable_path.display());
-        eprintln!("Broker working directory: {}", working_dir.display());
+        eprintln!("Broker working directory: {}", runtime_dir.display());
+        let log_file = Self::broker_log_file(app)?;
+        let log_file_err = log_file
+            .try_clone()
+            .map_err(|error| format!("Failed to clone broker log file handle: {error}"))?;
 
-        let mut command = Command::new(&executable_path);
+        let runtime_executable_path = runtime_dir.join("mosquitto.exe");
+        let runtime_config_path = runtime_dir.join("mosquitto.conf");
+
+        let mut command = Command::new(&runtime_executable_path);
         command
             .arg("-c")
-            .arg(&config_path)
-            .current_dir(&working_dir)
+            .arg(&runtime_config_path)
+            .current_dir(&runtime_dir)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(Stdio::from(log_file))
+            .stderr(Stdio::from(log_file_err));
 
         Self::hide_window(&mut command);
 

@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartRequest;
+import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.model.firmware.CalibrationStreamEvent;
@@ -47,6 +48,42 @@ class MqttSubscriberServiceTest {
         assertThat(service.parseTopic("resq/manikins/M01/events").messageType()).isEqualTo("events");
         assertThat(service.parseTopic("resq/manikins/M01/events/calibration").messageType()).isEqualTo("events/calibration");
         assertThat(service.parseTopic("other/M01/status")).isNull();
+    }
+
+    @Test
+    void statusAndHeartbeatPopulateLiveRegistry() throws Exception {
+        LiveRegistryFixture fixture = newLiveRegistryFixture();
+
+        fixture.subscriber().handleMessage("resq/manikins/M01/status", message("""
+            {
+              "sessionId": "S-LIVE-1",
+              "state": "READY_FOR_SESSION",
+              "sessionActive": false,
+              "ip": "192.168.1.44",
+              "fw": "1.2.3"
+            }
+            """));
+
+        fixture.subscriber().handleMessage("resq/manikins/M01/heartbeat", message("""
+            {
+              "sessionId": "S-LIVE-1",
+              "manikinId": "MK-01",
+              "rssi": -62,
+              "battery": 91
+            }
+            """));
+
+        ManikinLiveSummary liveSummary = fixture.registry().getLiveSummary("M01").orElseThrow();
+        assertThat(liveSummary.online()).isTrue();
+        assertThat(liveSummary.state()).isEqualTo("READY_FOR_SESSION");
+        assertThat(liveSummary.sessionId()).isEqualTo("S-LIVE-1");
+        assertThat(liveSummary.manikinId()).isEqualTo("MK-01");
+        assertThat(liveSummary.ip()).isEqualTo("192.168.1.44");
+        assertThat(liveSummary.fw()).isEqualTo("1.2.3");
+        assertThat(liveSummary.rssi()).isEqualTo(-62);
+        assertThat(liveSummary.battery()).isEqualTo(91);
+        assertThat(liveSummary.stale()).isFalse();
+        assertThat(liveSummary.offline()).isFalse();
     }
 
     @Test
@@ -473,6 +510,55 @@ class MqttSubscriberServiceTest {
         return new ServiceFixture(subscriber, activeSessionService, liveStreamService, readinessService, calibrationStreamService);
     }
 
+    private LiveRegistryFixture newLiveRegistryFixture() throws Exception {
+        FirmwarePersistenceRepository repository = newRepository();
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+        MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService(repository);
+        LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
+        CapturingLiveStreamService liveStreamService = new CapturingLiveStreamService();
+        TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+            Path.of("target", "mqtt-subscriber-live-registry-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        DeviceReadinessService readinessService = new DeviceReadinessService();
+        CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
+        SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
+            Path.of("target", "mqtt-subscriber-live-registry-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        syncQueueRepository.initialize();
+        SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, objectMapper, new CloudSessionSummaryPayloadMapper());
+        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
+            commandPublisher,
+            repository,
+            profileService,
+            registry
+        );
+        MqttSubscriberService subscriber = new MqttSubscriberService(
+                objectMapper,
+                registry,
+            new ActiveSessionService(
+                        registry,
+                        commandPublisher,
+                        sessionRepository,
+                        liveStreamService,
+                        traineeRecordsRepository,
+                        firmwareCalibrationService,
+                syncQueueService
+                ),
+                liveStreamService,
+                repository,
+                readinessService,
+                calibrationStreamService,
+                "tcp://127.0.0.1:1",
+                "test-subscriber",
+                null,
+                null
+        );
+        return new LiveRegistryFixture(subscriber, registry);
+    }
+
     private record ServiceFixture(
             MqttSubscriberService subscriber,
             ActiveSessionService activeSessionService,
@@ -481,6 +567,12 @@ class MqttSubscriberServiceTest {
             CapturingCalibrationStreamService calibrationStreamService
     ) {
     }
+
+        private record LiveRegistryFixture(
+            MqttSubscriberService subscriber,
+            ManikinRegistryService registry
+        ) {
+        }
 
     private static class CapturingCalibrationStreamService extends CalibrationStreamService {
         private final List<CalibrationStreamEvent> events = new java.util.ArrayList<>();

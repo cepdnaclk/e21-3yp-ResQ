@@ -29,6 +29,12 @@ export type NetworkInfo = {
   primaryIpv4: string | null;
 };
 
+export type ServiceLogPaths = {
+  logDir: string;
+  backendLogPath: string;
+  brokerLogPath: string;
+};
+
 // Keep the backend URL in one place so it is easy to change later.
 export const HUB_API_BASE_URL = getHubApiBaseUrl();
 
@@ -70,6 +76,10 @@ export async function getBrokerServiceStatus(): Promise<BrokerServiceStatus> {
 
 export async function getNetworkInfo(): Promise<NetworkInfo> {
   return invoke<NetworkInfo>("get_network_info");
+}
+
+export async function getServiceLogPaths(): Promise<ServiceLogPaths> {
+  return invoke<ServiceLogPaths>("get_service_log_paths");
 }
 
 function isHubHealthResponse(value: unknown): value is HubHealthResponse {
