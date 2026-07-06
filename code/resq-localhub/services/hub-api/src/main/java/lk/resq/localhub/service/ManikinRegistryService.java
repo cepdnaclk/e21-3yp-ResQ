@@ -33,11 +33,11 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
-            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
-            state.ip = firstText(payload, "ip", "ipAddress", state.ip);
-            state.fw = firstText(payload, "fw", "firmware", state.fw);
-            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "status", "firmwareState", "firmware_state"));
+            state.ip = firstTextWithFallback(payload, state.ip, "ip", "ipAddress", "ip_address");
+            state.fw = firstTextWithFallback(payload, state.fw, "fw", "firmware", "firmwareVersion", "firmware_version");
+            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive", "session_active");
             indexSession(state);
         });
     }
@@ -55,14 +55,14 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
-            state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
-            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
-            state.ip = firstText(payload, "ip", "ipAddress", state.ip);
-            state.fw = firstText(payload, "fw", "firmware", state.fw);
+            state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
+            state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "status", "firmwareState", "firmware_state"));
+            state.ip = firstTextWithFallback(payload, state.ip, "ip", "ipAddress", "ip_address");
+            state.fw = firstTextWithFallback(payload, state.fw, "fw", "firmware", "firmwareVersion", "firmware_version");
             state.rssi = firstInt(payload, "rssi", state.rssi);
             state.battery = firstInt(payload, "battery", state.battery);
-            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive", "session_active");
             indexSession(state);
         });
     }
@@ -71,14 +71,14 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
-            state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
-            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = canonicalFirmwareState(firstText(payload, "state", "debugState", state.state));
-            state.ip = firstText(payload, "ip", "ipAddress", state.ip);
-            state.fw = firstText(payload, "fw", "firmware", state.fw);
+            state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
+            state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "debugState", "firmwareState", "firmware_state"));
+            state.ip = firstTextWithFallback(payload, state.ip, "ip", "ipAddress", "ip_address");
+            state.fw = firstTextWithFallback(payload, state.fw, "fw", "firmware", "firmwareVersion", "firmware_version");
             state.rssi = firstInt(payload, "rssi", state.rssi);
             state.battery = firstInt(payload, "battery", state.battery);
-            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive", "session_active");
             indexSession(state);
         });
     }
@@ -408,6 +408,21 @@ public class ManikinRegistryService {
             return "CONNECTING";
         }
         return "BACKEND_SSE_FALLBACK";
+    }
+
+    private static String firstTextWithFallback(JsonNode payload, String fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            String value = text(payload, key);
+            if (value != null) {
+                return value;
+            }
+        }
+
+        return fallback;
     }
 
     private static String firstText(JsonNode payload, String firstKey, String secondKey, String fallback) {
