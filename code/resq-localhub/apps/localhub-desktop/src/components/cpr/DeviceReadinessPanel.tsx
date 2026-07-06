@@ -4,6 +4,7 @@ import {
   cancelCalibration,
   requestDebugSnapshot,
 } from "../../api/firmwareApi";
+import { connectCalibrationStream } from "../../api/liveEventsClient";
 import { useDeviceReadiness } from "../../hooks/useDeviceReadiness";
 import { useCalibrationProfiles } from "../../hooks/useCalibrationProfiles";
 import {
@@ -11,7 +12,7 @@ import {
   getFriendlyReason,
   getFriendlyAction,
 } from "../../utils/readinessState";
-import type { ManikinLiveSummary } from "../../types/manikin";
+import type { CalibrationStreamEvent, ManikinLiveSummary } from "../../types/manikin";
 import Card, { CardHeader } from "../ui/Card";
 import Button from "../ui/Button";
 import StatusBadge from "../ui/StatusBadge";
@@ -19,6 +20,7 @@ import { ReadinessChecklist } from "./ReadinessChecklist";
 import { CalibrationProfileCard } from "./CalibrationProfileCard";
 import { CalibrationProgressStepper } from "./CalibrationProgressStepper";
 import { CalibrationResultCard } from "./CalibrationResultCard";
+import type { FirmwareReadinessResponse } from "../../types/firmware";
 
 type DeviceReadinessPanelProps = {
   deviceId: string;
@@ -28,6 +30,34 @@ type DeviceReadinessPanelProps = {
   showBack?: boolean;
   onBack?: () => void;
 };
+
+function mergeCalibrationEventIntoReadiness(
+  event: CalibrationStreamEvent,
+  current: FirmwareReadinessResponse | null,
+): FirmwareReadinessResponse {
+  const ready =
+    event.readiness?.readyForSession ??
+    event.readyForSession ??
+    current?.readyForSession ??
+    current?.ready ??
+    false;
+
+  return {
+    deviceId: event.readiness?.deviceId ?? current?.deviceId ?? event.deviceId,
+    firmwareState: event.readiness?.firmwareState ?? event.firmwareState ?? current?.firmwareState ?? null,
+    calibrated: event.result === "PASS" || event.readiness?.readyForSession === true || current?.calibrated === true,
+    readyForSession: ready,
+    ready,
+    latestResult: event.readiness?.lastResult ?? event.result ?? current?.latestResult ?? null,
+    progressId: event.readiness?.currentProgressId ?? event.progressId ?? current?.progressId ?? null,
+    reasonId: event.readiness?.lastReasonId ?? event.reasonId ?? current?.reasonId ?? null,
+    actionId: event.readiness?.lastActionId ?? event.actionId ?? current?.actionId ?? null,
+    tsMs: event.tsMs ?? current?.tsMs ?? null,
+    receivedAt: event.receivedAt ?? current?.receivedAt ?? null,
+    sessionId: current?.sessionId ?? null,
+    lastErrorId: current?.lastErrorId ?? null,
+  };
+}
 
 export function DeviceReadinessPanel({
   deviceId,
@@ -93,12 +123,56 @@ export function DeviceReadinessPanel({
   const [calibrating, setCalibrating] = useState(false);
   const {
     readiness,
+    setReadiness,
     loading: readinessLoading,
     error: readinessError,
     refetch,
   } = useDeviceReadiness(deviceId, calibrating);
 
   const derivedState = deriveReadinessUiState(liveSummary, readiness);
+
+  useEffect(() => {
+    if (!deviceId) {
+      return;
+    }
+
+    let active = true;
+
+    const applyStreamEvent = (event: CalibrationStreamEvent) => {
+      if (!active) {
+        return;
+      }
+
+      setStreamError(null);
+      setReadiness((current) => mergeCalibrationEventIntoReadiness(event, current));
+
+      if (event.type === "calibration_final" || event.eventId === 4002) {
+        setOptimisticStatus(null);
+      }
+    };
+
+    let eventSource: EventSource | null = null;
+
+    try {
+      eventSource = connectCalibrationStream(deviceId, {
+        onSnapshot: applyStreamEvent,
+        onUpdate: applyStreamEvent,
+        onFinal: applyStreamEvent,
+        onError: () => {
+          if (active) {
+            setStreamError("Live calibration updates disconnected. Refresh if the progress view stops moving.");
+          }
+        },
+      });
+    } catch {
+      setStreamError("Live calibration updates could not be opened.");
+    }
+
+    return () => {
+      active = false;
+      eventSource?.close();
+    };
+  }, [deviceId]);
 
   useEffect(() => {
     setCalibrating(derivedState === "CALIBRATING");
@@ -108,6 +182,7 @@ export function DeviceReadinessPanel({
   const [actionLoading, setActionLoading] = useState(false);
   const [debugLoading, setDebugLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [optimisticStatus, setOptimisticStatus] = useState<string | null>(null);
 
   // Validation
@@ -349,6 +424,12 @@ export function DeviceReadinessPanel({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
+      {streamError && (
+        <div className="md:col-span-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-3 rounded-xl font-semibold shadow-sm">
+          {streamError}
+        </div>
+      )}
+
       {/* Left Column: Pre-Check Controls and Profile */}
       <div className="space-y-6">
         <Card className="p-6">

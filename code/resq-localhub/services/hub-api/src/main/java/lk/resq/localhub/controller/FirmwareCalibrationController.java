@@ -43,7 +43,7 @@ public class FirmwareCalibrationController {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
             var response = firmwareCalibrationService.startCalibration(deviceId, requestBody);
             authService.audit(actor.id(), "FIRMWARE_CALIBRATION_START", "device", response.deviceId(), Map.of("requestId", response.requestId()));
-            return ResponseEntity.ok(response);
+            return ResponseEntity.accepted().body(response);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {
@@ -59,7 +59,7 @@ public class FirmwareCalibrationController {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
             var response = firmwareCalibrationService.cancelCalibration(deviceId);
             authService.audit(actor.id(), "FIRMWARE_CALIBRATION_CANCEL", "device", response.deviceId(), Map.of("requestId", response.requestId()));
-            return ResponseEntity.ok(response);
+            return ResponseEntity.accepted().body(response);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {

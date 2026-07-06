@@ -35,6 +35,7 @@ public class FirmwareCalibrationService {
 
     public FirmwareCalibrationCommandResponse startCalibration(String deviceId, FirmwareCalibrationStartRequest request) {
         String normalizedDeviceId = requireDeviceId(deviceId);
+        ensureDeviceOnline(normalizedDeviceId);
         FirmwareCalibrationStartRequest normalizedRequest = request == null
                 ? new FirmwareCalibrationStartRequest(null, null, null, null, null)
                 : request;
@@ -77,6 +78,7 @@ public class FirmwareCalibrationService {
 
     public FirmwareCalibrationCommandResponse cancelCalibration(String deviceId) {
         String normalizedDeviceId = requireDeviceId(deviceId);
+        ensureDeviceOnline(normalizedDeviceId);
         MqttCommandPublisherService.FirmwareCommandPublishResult result =
                 mqttCommandPublisherService.publishCalibrationCancelCommand(normalizedDeviceId);
 
@@ -198,6 +200,16 @@ public class FirmwareCalibrationService {
             throw new IllegalArgumentException("deviceId is required");
         }
         return normalized;
+    }
+
+    private void ensureDeviceOnline(String deviceId) {
+        ManikinLiveSummary liveSummary = manikinRegistryService.getLiveSummary(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("Device " + deviceId + " is not registered"));
+
+        boolean online = liveSummary.online() && !liveSummary.offline() && !liveSummary.stale();
+        if (!online) {
+            throw new IllegalArgumentException("Device " + deviceId + " is offline or unavailable");
+        }
     }
 
     private static Integer requireInteger(Integer value, String message) {

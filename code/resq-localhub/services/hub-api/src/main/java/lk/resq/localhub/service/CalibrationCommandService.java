@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import lk.resq.localhub.model.firmware.CalibrationCommandResponse;
 import lk.resq.localhub.model.firmware.CalibrationStartRequest;
+import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.CalibrationEvidence;
 import org.slf4j.Logger;
@@ -72,6 +73,8 @@ public class CalibrationCommandService {
         if (manikinRegistryService.getLiveSummary(normalizedDeviceId).isEmpty()) {
             throw new IllegalArgumentException("Device " + normalizedDeviceId + " is not registered");
         }
+
+        ensureDeviceOnline(normalizedDeviceId);
 
         if (request == null) {
             throw new IllegalArgumentException("Request body must not be null");
@@ -174,6 +177,8 @@ public class CalibrationCommandService {
             throw new IllegalArgumentException("Device " + normalizedDeviceId + " is not registered");
         }
 
+        ensureDeviceOnline(normalizedDeviceId);
+
         String requestId = requestIdGenerator.nextRequestId(201);
 
         // Publish to MQTT broker
@@ -222,5 +227,15 @@ public class CalibrationCommandService {
                 "Calibration cancel command published. Waiting for firmware acknowledgement.",
                 Instant.now()
         );
+    }
+
+    private void ensureDeviceOnline(String deviceId) {
+        ManikinLiveSummary liveSummary = manikinRegistryService.getLiveSummary(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("Device " + deviceId + " is not registered"));
+
+        boolean online = liveSummary.online() && !liveSummary.offline() && !liveSummary.stale();
+        if (!online) {
+            throw new IllegalArgumentException("Device " + deviceId + " is offline or unavailable");
+        }
     }
 }

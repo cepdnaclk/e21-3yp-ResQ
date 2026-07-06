@@ -52,6 +52,28 @@ export function deriveReadinessUiState(
   liveSummary: ManikinLiveSummary | null | undefined,
   readiness: FirmwareReadinessResponse | null | undefined
 ): ReadinessUiState {
+  const readinessFirmwareState = readiness?.firmwareState?.toUpperCase();
+
+  if (
+    readinessFirmwareState === "STARTING" ||
+    readinessFirmwareState === "CALIBRATING"
+  ) {
+    return "CALIBRATING";
+  }
+
+  if (
+    readinessFirmwareState === "CALIBRATION_FAIL" ||
+    readinessFirmwareState === "CALIBRATION_CANCELLED" ||
+    readiness?.latestResult?.toUpperCase() === "FAIL" ||
+    readiness?.latestResult?.toUpperCase() === "CANCELLED"
+  ) {
+    return "FAILED";
+  }
+
+  if (readinessFirmwareState === "ERROR") {
+    return "ERROR";
+  }
+
   if (!liveSummary || !liveSummary.online || liveSummary.offline || liveSummary.stale) {
     return "OFFLINE";
   }
@@ -90,16 +112,16 @@ export function deriveReadinessUiState(
   if (readiness?.readyForSession || readiness?.ready) {
     return "READY";
   }
-  if (readiness?.firmwareState === "CALIBRATING") {
+  if (readinessFirmwareState === "CALIBRATING") {
     return "CALIBRATING";
   }
-  if (readiness?.firmwareState === "CALIBRATION_FAIL") {
+  if (readinessFirmwareState === "CALIBRATION_FAIL") {
     return "FAILED";
   }
-  if (readiness?.firmwareState === "ERROR") {
+  if (readinessFirmwareState === "ERROR") {
     return "ERROR";
   }
-  if (readiness?.firmwareState === "PAIRED_IDLE") {
+  if (readinessFirmwareState === "PAIRED_IDLE") {
     return "CALIBRATION_REQUIRED";
   }
 

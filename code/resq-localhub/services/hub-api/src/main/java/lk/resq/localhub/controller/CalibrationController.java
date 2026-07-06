@@ -62,7 +62,7 @@ public class CalibrationController {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR, UserRole.ADMIN);
             var response = calibrationCommandService.startCalibration(deviceId, requestBody, actor.username());
             authService.audit(actor.id(), "CALIBRATION_START", "device", deviceId, Map.of("requestId", response.requestId()));
-            return ResponseEntity.ok(response);
+            return ResponseEntity.accepted().body(response);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {
@@ -83,7 +83,7 @@ public class CalibrationController {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR, UserRole.ADMIN);
             var response = calibrationCommandService.cancelCalibration(deviceId);
             authService.audit(actor.id(), "CALIBRATION_CANCEL", "device", deviceId, Map.of("requestId", response.requestId()));
-            return ResponseEntity.ok(response);
+            return ResponseEntity.accepted().body(response);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {

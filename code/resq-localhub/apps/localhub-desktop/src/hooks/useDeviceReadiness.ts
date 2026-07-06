@@ -10,11 +10,12 @@ export function useDeviceReadiness(deviceId: string | null, isCalibrating: boole
   const fetchReadiness = async (showLoading = false) => {
     if (!deviceId) return;
     if (showLoading) setLoading(true);
+
     try {
       const res = await fetchDeviceReadiness(deviceId);
       setReadiness(res);
       setError(null);
-    } catch (err) {
+    } catch {
       setError("Failed to fetch device readiness.");
     } finally {
       if (showLoading) setLoading(false);
@@ -29,6 +30,7 @@ export function useDeviceReadiness(deviceId: string | null, isCalibrating: boole
     if (!deviceId) return;
 
     let intervalId: number | undefined;
+
     if (isCalibrating) {
       intervalId = window.setInterval(() => {
         fetchReadiness(false);
@@ -40,5 +42,11 @@ export function useDeviceReadiness(deviceId: string | null, isCalibrating: boole
     };
   }, [deviceId, isCalibrating]);
 
-  return { readiness, loading, error, refetch: () => fetchReadiness(false) };
+  return {
+    readiness,
+    setReadiness,
+    loading,
+    error,
+    refetch: () => fetchReadiness(false),
+  };
 }

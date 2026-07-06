@@ -2,9 +2,23 @@ type CalibrationProgressStepperProps = {
   progressId: number | null | undefined;
 };
 
+function progressIdToPercent(progressId: number | null | undefined): number | null {
+  if (progressId === null || progressId === undefined) {
+    return null;
+  }
+
+  if (progressId <= 1) return 12;
+  if (progressId <= 3) return 25;
+  if (progressId <= 5) return 40;
+  if (progressId <= 7) return 55;
+  if (progressId === 8) return 70;
+  if (progressId <= 10) return 85;
+  return 100;
+}
+
 export function CalibrationProgressStepper({ progressId }: CalibrationProgressStepperProps) {
   const hasProgress = progressId !== null && progressId !== undefined && progressId >= 0;
-  const progressPercent = hasProgress ? Math.min(100, Math.max(0, progressId!)) : null;
+  const progressPercent = hasProgress ? progressIdToPercent(progressId) : null;
 
   return (
     <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-5">
@@ -13,7 +27,7 @@ export function CalibrationProgressStepper({ progressId }: CalibrationProgressSt
           Calibration Pre-Check Progress
         </span>
         <span className="text-xs font-black text-teal-600 font-mono">
-          {progressPercent !== null ? `${progressPercent}%` : "Running..."}
+          {progressPercent !== null ? `${progressPercent}%` : "Waiting..."}
         </span>
       </div>
 
@@ -35,20 +49,20 @@ export function CalibrationProgressStepper({ progressId }: CalibrationProgressSt
         </div>
         <div
           className={`flex items-center gap-1.5 ${
-            progressPercent === null || progressPercent >= 33 ? "text-teal-600" : ""
+            progressPercent === null || progressPercent >= 25 ? "text-teal-600" : ""
           }`}
         >
-          {progressPercent !== null && progressPercent >= 33 && (
+          {progressPercent !== null && progressPercent >= 25 && (
             <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
           )}
           <span>2. Chamber Tests</span>
         </div>
         <div
           className={`flex items-center gap-1.5 ${
-            progressPercent !== null && progressPercent >= 75 ? "text-teal-600" : ""
+            progressPercent !== null && progressPercent >= 70 ? "text-teal-600" : ""
           }`}
         >
-          {progressPercent !== null && progressPercent >= 75 && (
+          {progressPercent !== null && progressPercent >= 70 && (
             <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
           )}
           <span>3. Calibration PASS</span>

@@ -37,7 +37,7 @@ class FirmwareCalibrationControllerTest {
                 new FirmwareCalibrationStartRequest(620, 20100, 15000, 15000, null)
         );
 
-        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.ACCEPTED);
         assertThat(response.getBody()).isInstanceOf(FirmwareCalibrationCommandResponse.class);
         FirmwareCalibrationCommandResponse body = (FirmwareCalibrationCommandResponse) response.getBody();
         assertThat(body.requestId()).isEqualTo("req-200-0001");
@@ -51,7 +51,7 @@ class FirmwareCalibrationControllerTest {
 
         ResponseEntity<?> response = fixture.controller.cancelCalibration(null, "M01");
 
-        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.ACCEPTED);
         assertThat(response.getBody()).isInstanceOf(FirmwareCalibrationCommandResponse.class);
         FirmwareCalibrationCommandResponse body = (FirmwareCalibrationCommandResponse) response.getBody();
         assertThat(body.requestId()).isEqualTo("req-201-0001");
@@ -71,11 +71,15 @@ class FirmwareCalibrationControllerTest {
         profileRepository.initialize();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
+        ManikinRegistryService registryService = new ManikinRegistryService(12);
+        com.fasterxml.jackson.databind.node.ObjectNode livePayload = objectMapper.createObjectNode();
+        livePayload.put("state", "paired_idle");
+        registryService.updateFromStatus("M01", livePayload);
         FirmwareCalibrationService service = new FirmwareCalibrationService(
                 publisher,
                 repository,
-            profileService,
-                new ManikinRegistryService(12)
+                profileService,
+                registryService
         );
         FirmwareCalibrationController controller = new FirmwareCalibrationController(service, new AllowingAuthService(objectMapper));
         return new Fixture(controller, publisher);

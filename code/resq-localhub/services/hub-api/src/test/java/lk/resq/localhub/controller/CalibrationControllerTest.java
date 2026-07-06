@@ -80,7 +80,7 @@ class CalibrationControllerTest {
         commandService.setMockStartResponse(mockResponse);
 
         ResponseEntity<?> response = controller.startCalibration(null, "M01", request);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody()).isEqualTo(mockResponse);
     }
 
@@ -129,7 +129,7 @@ class CalibrationControllerTest {
         commandService.setMockCancelResponse(mockResponse);
 
         ResponseEntity<?> response = controller.cancelCalibration(null, "M01");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getBody()).isEqualTo(mockResponse);
     }
 
