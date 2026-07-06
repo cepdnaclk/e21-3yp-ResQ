@@ -5,6 +5,7 @@ import lk.resq.localhub.model.DeviceRegistrationResponse;
 import lk.resq.localhub.model.HubServiceInfoResponse;
 import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
+import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttSubscriberService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -28,6 +29,10 @@ class DeviceRegistrationControllerTest {
         assertThat(response.getBody().deviceId()).startsWith("M");
         assertThat(response.getBody().mqttHost()).isEqualTo("192.168.8.187");
         assertThat(response.getBody().mqttPort()).isEqualTo(1883);
+
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId())).isPresent();
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId()).orElseThrow().online()).isTrue();
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId()).orElseThrow().state()).isEqualTo("ONLINE");
     }
 
     @Test
@@ -83,7 +88,8 @@ class DeviceRegistrationControllerTest {
                 false,
                 false
         );
-        DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService);
+            ManikinRegistryService registry = new ManikinRegistryService(12);
+            DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService, registry);
         @SuppressWarnings("unchecked")
         ObjectProvider<MqttSubscriberService> mqttProvider = new ObjectProvider<>() {
             @Override
@@ -113,10 +119,11 @@ class DeviceRegistrationControllerTest {
         };
         return new Fixture(
                 new DeviceRegistrationController(registrationService),
-                new HubHealthController(serviceInfoService, mqttProvider)
+                new HubHealthController(serviceInfoService, mqttProvider),
+                registry
         );
     }
 
-    private record Fixture(DeviceRegistrationController deviceController, HubHealthController hubController) {
+    private record Fixture(DeviceRegistrationController deviceController, HubHealthController hubController, ManikinRegistryService registry) {
     }
 }

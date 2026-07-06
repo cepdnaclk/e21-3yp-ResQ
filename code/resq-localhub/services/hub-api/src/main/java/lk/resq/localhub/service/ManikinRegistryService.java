@@ -42,6 +42,15 @@ public class ManikinRegistryService {
         });
     }
 
+    public void seedFromRegistration(String deviceId, lk.resq.localhub.model.DeviceRegistrationRequest request) {
+        upsert(deviceId, state -> {
+            state.lastSeen = Instant.now();
+            state.online = true;
+            state.state = "ONLINE";
+            state.fw = firstText(request == null ? null : request.firmwareVersion(), state.fw);
+        });
+    }
+
     public void updateFromHeartbeat(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
@@ -432,6 +441,15 @@ public class ManikinRegistryService {
         }
 
         return fallback;
+    }
+
+    private static String firstText(String value, String fallback) {
+        if (value == null) {
+            return fallback;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? fallback : trimmed;
     }
 
     private static String firstScalarAsText(JsonNode payload, String fallback, String... keys) {

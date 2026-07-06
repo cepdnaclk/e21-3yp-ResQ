@@ -334,7 +334,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(parse_reason,
                                                            visible_state,
-                                                           CAL_ACTION_SEND_VALID_PAYLOAD);
+                                                           CAL_ACTION_SEND_VALID_PAYLOAD,
+                                                           0);
 
                 runtime_helpers_publish_error_event(network_config,
                                                     visible_state,
@@ -354,7 +355,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_ALREADY_RUNNING,
                                                            RESQ_STATE_CALIBRATING,
-                                                           CAL_ACTION_WAIT_OR_CANCEL);
+                                                           CAL_ACTION_WAIT_OR_CANCEL,
+                                                           0);
                 continue;
             }
 

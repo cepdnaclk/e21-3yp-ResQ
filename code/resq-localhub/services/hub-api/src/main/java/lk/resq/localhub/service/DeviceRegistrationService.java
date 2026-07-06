@@ -12,14 +12,18 @@ import java.util.concurrent.ConcurrentMap;
 public class DeviceRegistrationService {
 
     private final HubServiceInfoService hubServiceInfoService;
+    private final ManikinRegistryService manikinRegistryService;
     private final ConcurrentMap<String, String> deviceIdsByRegistrationKey = new ConcurrentHashMap<>();
 
-    public DeviceRegistrationService(HubServiceInfoService hubServiceInfoService) {
+    public DeviceRegistrationService(HubServiceInfoService hubServiceInfoService, ManikinRegistryService manikinRegistryService) {
         this.hubServiceInfoService = hubServiceInfoService;
+        this.manikinRegistryService = manikinRegistryService;
     }
 
     public DeviceRegistrationResponse register(DeviceRegistrationRequest request) {
-        String deviceId = resolveDeviceId(request == null ? new DeviceRegistrationRequest(null, null, null, null) : request);
+        DeviceRegistrationRequest resolvedRequest = request == null ? new DeviceRegistrationRequest(null, null, null, null) : request;
+        String deviceId = resolveDeviceId(resolvedRequest);
+        manikinRegistryService.seedFromRegistration(deviceId, resolvedRequest);
         var serviceInfo = hubServiceInfoService.serviceInfo();
         return new DeviceRegistrationResponse(
                 true,
