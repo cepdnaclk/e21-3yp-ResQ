@@ -2,13 +2,13 @@
 
 #include <string.h>
 #include <stdio.h>
-#include <math.h>
 #include <stdlib.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "sensor_conversion.h"
 
 static int32_t calib_abs_i32(int32_t v)
 {
@@ -27,7 +27,7 @@ static int32_t calib_min_i32(int32_t a, int32_t b)
 
 static bool pressure_raw_is_saturated(int32_t value)
 {
-    return value >= 0x7FFFF0 || value <= -0x7FFFF0;
+    return sensor_conversion_pressure_raw_is_saturated(value);
 }
 
 static int32_t average_i32(const int32_t *samples, size_t count)
@@ -82,7 +82,6 @@ static cpr_sensor_health_t health_from_faults(uint32_t faults)
 
 #define CPR_SENSOR_1_SIDE_LABEL "LEFT"
 #define CPR_SENSOR_2_SIDE_LABEL "RIGHT"
-#define CPR_PRESSURE_SATURATION_RAW 8300000
 #define CPR_PRESSURE_BALANCE_SENSOR_MASK 0x06u
 #define CPR_PRESSURE_BALANCE_HOLD_MAX_MS 300
 
@@ -107,6 +106,12 @@ static int64_t s_last_compression_start_ms = 0;
 static int64_t s_current_compression_start_ms = 0;
 static int64_t s_last_compression_end_ms = 0;
 static float s_depth_progress = 0.0f;
+static float s_depth_mm = 0.0f;
+static float s_pressure_0_kpa = 0.0f;
+static float s_pressure_1_kpa = 0.0f;
+static float s_pressure_2_kpa = 0.0f;
+static bool s_pressure_kpa_valid = false;
+static bool s_hall_mm_valid = false;
 static float s_pressure_balance_pct = 0.0f;
 static int64_t s_last_sample_ms = 0;
 static char s_hand_placement[CPR_HAND_PLACEMENT_MAX_LEN] = "NO_CONTACT";
@@ -141,6 +146,12 @@ esp_err_t cpr_metrics_init(void)
     s_current_compression_start_ms = 0;
     s_last_compression_end_ms = 0;
     s_depth_progress = 0.0f;
+    s_depth_mm = 0.0f;
+    s_pressure_0_kpa = 0.0f;
+    s_pressure_1_kpa = 0.0f;
+    s_pressure_2_kpa = 0.0f;
+    s_pressure_kpa_valid = false;
+    s_hall_mm_valid = false;
     s_pressure_balance_pct = 0.0f;
     s_last_sample_ms = 0;
     s_prev_progress = 0.0f;
@@ -177,6 +188,12 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
     s_current_compression_start_ms = 0;
     s_last_compression_end_ms = 0;
     s_depth_progress = 0.0f;
+    s_depth_mm = 0.0f;
+    s_pressure_0_kpa = 0.0f;
+    s_pressure_1_kpa = 0.0f;
+    s_pressure_2_kpa = 0.0f;
+    s_pressure_kpa_valid = false;
+    s_hall_mm_valid = false;
     s_pressure_balance_pct = 0.0f;
     s_last_sample_ms = 0;
     s_prev_progress = 0.0f;
@@ -205,7 +222,7 @@ static float clampf(float v, float lo, float hi)
 
 static bool pressure_is_saturated(int32_t value)
 {
-    return value > CPR_PRESSURE_SATURATION_RAW || value < -CPR_PRESSURE_SATURATION_RAW;
+    return sensor_conversion_pressure_raw_is_saturated(value);
 }
 
 static bool calibration_uses_hall_only_pressure(void)
@@ -255,6 +272,17 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     bool hall_valid = (sample->quality_flags & CPR_SAMPLE_HALL_READ_FAILED) == 0;
     bool pressure_read_valid = (sample->quality_flags & CPR_SAMPLE_PRESSURE_READ_FAILED) == 0;
 
+    sensor_raw_sample_t raw = {
+        .pressure_0_raw = sample->pressure_0_raw,
+        .pressure_1_raw = sample->pressure_1_raw,
+        .pressure_2_raw = sample->pressure_2_raw,
+        .hall_raw = sample->hall_raw,
+        .ts_ms = sample->ts_ms,
+        .quality_flags = sample->quality_flags,
+    };
+    sensor_converted_sample_t converted = {0};
+    sensor_conversion_convert_sample(&raw, &s_calib, &converted);
+
     uint32_t current_quality_flags = 0;
     if (!hall_valid) {
         s_missed_hall_samples++;
@@ -265,28 +293,30 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         current_quality_flags |= CPR_SENSOR_QUALITY_PRESSURE_MISSED;
     }
 
-    uint8_t current_saturation_mask = pressure_read_valid ? pressure_saturation_mask(sample) : 0;
+    uint8_t current_saturation_mask = pressure_read_valid ? converted.pressure_saturation_mask : 0;
     if (current_saturation_mask != 0) {
         current_quality_flags |= CPR_SENSOR_QUALITY_PRESSURE_SATURATED;
     }
 
     s_pressure_saturation_mask = current_saturation_mask;
 
-    /* compute hall progress using adaptive calibration fields */
-    float progress = s_depth_progress;
-    int32_t hall_range_raw = s_calib.hall_range_raw;
-    int32_t hall_dir = s_calib.hall_direction == 0 ? 1 : s_calib.hall_direction;
+    bool pressure_kpa_valid =
+        pressure_read_valid &&
+        s_calib.pressure_valid &&
+        converted.pressure_kpa_valid;
+    s_pressure_0_kpa = pressure_kpa_valid && converted.pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f;
+    s_pressure_1_kpa = pressure_kpa_valid && converted.pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f;
+    s_pressure_2_kpa = pressure_kpa_valid && converted.pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f;
+    s_pressure_kpa_valid = pressure_kpa_valid;
+    s_hall_mm_valid = hall_valid && s_calib.hall_valid && converted.hall_mm_valid;
 
+    float progress = s_depth_progress;
     int32_t hall_delta_now = 0;
-    if (hall_valid) {
-        hall_delta_now = (sample->hall_raw - s_calib.hall_baseline) * hall_dir;
-        if (hall_range_raw > 0) {
-            progress = (float)hall_delta_now / (float)hall_range_raw;
-        } else {
-            progress = 0.0f;
-        }
-        progress = clampf(progress, 0.0f, 1.0f);
+    if (hall_valid && converted.hall_mm_valid) {
+        hall_delta_now = converted.hall_delta_raw;
+        progress = converted.hall_progress;
         s_depth_progress = progress;
+        s_depth_mm = converted.hall_mm;
     }
 
     /* pressures */
@@ -484,6 +514,7 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     out_snapshot->depth_progress = s_depth_progress;
+    out_snapshot->depth_mm = s_depth_mm;
     out_snapshot->rate_cpm = s_rate_cpm;
     out_snapshot->pause_s = 0.0f;
     if (s_last_compression_start_ms != 0) {
@@ -512,6 +543,11 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->using_last_stable_pressure = s_calib.using_last_stable_pressure;
     out_snapshot->pressure_valid = s_calib.pressure_valid && !out_snapshot->pressure_degraded;
     out_snapshot->hall_valid = s_calib.hall_valid;
+    out_snapshot->pressure_0_kpa = s_pressure_0_kpa;
+    out_snapshot->pressure_1_kpa = s_pressure_1_kpa;
+    out_snapshot->pressure_2_kpa = s_pressure_2_kpa;
+    out_snapshot->pressure_kpa_valid = s_pressure_kpa_valid;
+    out_snapshot->hall_mm_valid = s_hall_mm_valid;
     out_snapshot->pressure_saturation_mask = s_pressure_saturation_mask;
     out_snapshot->sensor_quality_flags = s_sensor_quality_flags;
     out_snapshot->missed_pressure_samples = s_missed_pressure_samples;

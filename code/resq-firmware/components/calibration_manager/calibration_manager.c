@@ -21,6 +21,7 @@
 #include "mqtt_manager.h"
 #include "mqtt_topics.h"
 #include "calibration_codes.h"
+#include "sensor_conversion.h"
 #include "cJSON.h"
 
 /* Calibration manager configuration */
@@ -271,7 +272,22 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                                          calibration_action_id_t action_id,
                                          int progress_id)
 {
-    char payload[512];
+    bool pressure_kpa_valid =
+        s_calibration_config.pressure_valid &&
+        !s_calibration_config.pressure_degraded &&
+        s_calibration_config.pressure_0_baseline != 0 &&
+        s_calibration_config.pressure_1_baseline != 0 &&
+        s_calibration_config.pressure_2_baseline != 0 &&
+        s_calibration_config.pressure_0_kpa_per_count > 0.0f &&
+        s_calibration_config.pressure_1_kpa_per_count > 0.0f &&
+        s_calibration_config.pressure_2_kpa_per_count > 0.0f;
+    bool hall_mm_valid =
+        s_calibration_config.hall_valid &&
+        s_calibration_config.hall_range_raw > 0 &&
+        s_calibration_config.full_depth_mm > 0.0f &&
+        (s_calibration_config.hall_direction == 1 || s_calibration_config.hall_direction == -1);
+
+    char payload[768];
     const char *reply_id = calibration_manager_get_request_id();
     char reply_segment[160] = {0};
     if (calibration_manager_is_running() && reply_id != NULL && reply_id[0] != '\0') {
@@ -299,6 +315,9 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                            "\"using_last_stable_pressure\":%s,"
                            "\"pressure_valid\":%s,"
                            "\"hall_valid\":%s,"
+                           "\"pressure_kpa_valid\":%s,"
+                           "\"hall_mm_valid\":%s,"
+                           "\"full_depth_mm\":%.3f,"
                            "\"ts_ms\":%lld"
                            "}",
                            4001,
@@ -312,6 +331,9 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                            s_calibration_config.using_last_stable_pressure ? "true" : "false",
                            s_calibration_config.pressure_valid ? "true" : "false",
                            s_calibration_config.hall_valid ? "true" : "false",
+                           pressure_kpa_valid ? "true" : "false",
+                           hall_mm_valid ? "true" : "false",
+                           s_calibration_config.full_depth_mm,
                            (long long)(esp_timer_get_time() / 1000));
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
@@ -2363,7 +2385,30 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
     }
     int progress_id = calibration_result_progress_id(result_to_publish);
 
-    char payload[1280];
+    float hall_full_press_mm = 0.0f;
+    float hall_full_press_progress = 0.0f;
+    int32_t hall_full_press_delta_raw = 0;
+    bool hall_mm_valid =
+        s_calibration_config.hall_valid &&
+        sensor_conversion_hall_to_mm(s_calibration_config.hall_full_press,
+                                     s_calibration_config.hall_baseline,
+                                     s_calibration_config.hall_range_raw,
+                                     s_calibration_config.hall_direction,
+                                     s_calibration_config.full_depth_mm,
+                                     &hall_full_press_mm,
+                                     &hall_full_press_progress,
+                                     &hall_full_press_delta_raw) == ESP_OK;
+    bool pressure_kpa_valid =
+        s_calibration_config.pressure_valid &&
+        !s_calibration_config.pressure_degraded &&
+        s_calibration_config.pressure_0_baseline != 0 &&
+        s_calibration_config.pressure_1_baseline != 0 &&
+        s_calibration_config.pressure_2_baseline != 0 &&
+        s_calibration_config.pressure_0_kpa_per_count > 0.0f &&
+        s_calibration_config.pressure_1_kpa_per_count > 0.0f &&
+        s_calibration_config.pressure_2_kpa_per_count > 0.0f;
+
+    char payload[1792];
     if (strcmp(result_to_publish, "PASS") == 0 || strcmp(result_to_publish, "PASS_WITH_WARNINGS") == 0) {
         int written = snprintf(payload,
                                sizeof(payload),
@@ -2383,12 +2428,26 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                "\"using_last_stable_pressure\":%s,"
                                "\"pressure_valid\":%s,"
                                "\"hall_valid\":%s,"
-                               "\"hall_baseline\":%d," 
-                               "\"hall_full_press\":%d," 
+                               "\"pressure_kpa_valid\":%s,"
+                               "\"hall_mm_valid\":%s,"
+                               "\"full_depth_mm\":%.3f,"
+                               "\"hall_baseline\":%d,"
+                               "\"hall_baseline_raw\":%d,"
+                               "\"hall_full_press\":%d,"
+                               "\"hall_full_press_raw\":%d,"
+                               "\"hall_full_press_mm\":%.3f,"
+                               "\"hall_full_press_progress\":%.3f,"
+                               "\"hall_full_press_delta_raw\":%d,"
                                "\"hall_range_raw\":%d," 
                                "\"hall_start_delta\":%d," 
                                "\"hall_full_delta_threshold\":%d," 
                                "\"hall_recoil_delta\":%d," 
+                               "\"pressure_0_baseline_raw\":%d,"
+                               "\"pressure_1_baseline_raw\":%d,"
+                               "\"pressure_2_baseline_raw\":%d,"
+                               "\"pressure_0_kpa_per_count\":%.9f,"
+                               "\"pressure_1_kpa_per_count\":%.9f,"
+                               "\"pressure_2_kpa_per_count\":%.9f,"
                                "\"pressure_1_range_raw\":%d," 
                                "\"pressure_2_range_raw\":%d," 
                                "\"pressure_contact_threshold\":%d," 
@@ -2409,12 +2468,26 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                s_calibration_config.using_last_stable_pressure ? "true" : "false",
                                s_calibration_config.pressure_valid ? "true" : "false",
                                s_calibration_config.hall_valid ? "true" : "false",
+                               pressure_kpa_valid ? "true" : "false",
+                               hall_mm_valid ? "true" : "false",
+                               s_calibration_config.full_depth_mm,
+                               (int)s_calibration_config.hall_baseline,
                                (int)s_calibration_config.hall_baseline,
                                (int)s_calibration_config.hall_full_press,
+                               (int)s_calibration_config.hall_full_press,
+                               hall_mm_valid ? hall_full_press_mm : 0.0f,
+                               hall_mm_valid ? hall_full_press_progress : 0.0f,
+                               hall_mm_valid ? (int)hall_full_press_delta_raw : 0,
                                (int)s_calibration_config.hall_range_raw,
                                (int)s_calibration_config.hall_start_delta,
                                (int)s_calibration_config.hall_full_delta_threshold,
                                (int)s_calibration_config.hall_recoil_delta,
+                               (int)s_calibration_config.pressure_0_baseline,
+                               (int)s_calibration_config.pressure_1_baseline,
+                               (int)s_calibration_config.pressure_2_baseline,
+                               s_calibration_config.pressure_0_kpa_per_count,
+                               s_calibration_config.pressure_1_kpa_per_count,
+                               s_calibration_config.pressure_2_kpa_per_count,
                                (int)s_calibration_config.pressure_1_range_raw,
                                (int)s_calibration_config.pressure_2_range_raw,
                                (int)s_calibration_config.pressure_contact_threshold,
@@ -2448,6 +2521,9 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                "\"using_last_stable_pressure\":%s,"
                                "\"pressure_valid\":%s,"
                                "\"hall_valid\":%s,"
+                               "\"pressure_kpa_valid\":%s,"
+                               "\"hall_mm_valid\":%s,"
+                               "\"full_depth_mm\":%.3f,"
                                "\"ts_ms\":%lld"
                                "}",
                                event_id,
@@ -2463,6 +2539,9 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                s_calibration_config.using_last_stable_pressure ? "true" : "false",
                                s_calibration_config.pressure_valid ? "true" : "false",
                                s_calibration_config.hall_valid ? "true" : "false",
+                               pressure_kpa_valid ? "true" : "false",
+                               hall_mm_valid ? "true" : "false",
+                               s_calibration_config.full_depth_mm,
                                (long long)(esp_timer_get_time() / 1000));
 
         if (written <= 0 || written >= (int)sizeof(payload)) {

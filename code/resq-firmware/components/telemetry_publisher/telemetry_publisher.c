@@ -1,7 +1,6 @@
 #include "telemetry_publisher.h"
 
 #include <inttypes.h>
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -20,6 +19,7 @@
 #include "board_config.h"
 #include "hall_sensor.h"
 #include "hx710.h"
+#include "sensor_conversion.h"
 
 static TaskHandle_t s_task = NULL;
 static TaskHandle_t s_sensor_stream_task = NULL;
@@ -81,51 +81,6 @@ static uint32_t clamp_interval_ms(uint32_t interval_ms)
         return SENSOR_STREAM_MAX_INTERVAL_MS;
     }
     return interval_ms;
-}
-
-static float clamp_float(float value, float min_value, float max_value)
-{
-    if (value < min_value) {
-        return min_value;
-    }
-    if (value > max_value) {
-        return max_value;
-    }
-    return value;
-}
-
-static bool convert_pressure_to_kpa(int32_t raw,
-                                    int32_t baseline_raw,
-                                    float kpa_per_count,
-                                    float *out_kpa)
-{
-    if (out_kpa == NULL || kpa_per_count <= 0.0f || baseline_raw == 0) {
-        return false;
-    }
-
-    *out_kpa = fabsf((float)(raw - baseline_raw)) * kpa_per_count;
-    return true;
-}
-
-static bool convert_hall_to_mm(int32_t hall_raw,
-                               int32_t hall_baseline_raw,
-                               int32_t hall_range_raw,
-                               int hall_direction,
-                               float full_depth_mm,
-                               float *out_mm)
-{
-    if (out_mm == NULL ||
-        hall_baseline_raw <= 0 ||
-        hall_range_raw <= 0 ||
-        full_depth_mm <= 0.0f ||
-        !(hall_direction == 1 || hall_direction == -1)) {
-        return false;
-    }
-
-    int32_t hall_delta_raw = (hall_raw - hall_baseline_raw) * hall_direction;
-    float hall_progress = clamp_float((float)hall_delta_raw / (float)hall_range_raw, 0.0f, 1.0f);
-    *out_mm = hall_progress * full_depth_mm;
-    return true;
 }
 
 static esp_err_t parse_sensor_stream_command(const char *payload, sensor_stream_command_t *out_command)
@@ -232,44 +187,30 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
         return ESP_ERR_INVALID_ARG;
     }
 
-    float pressure_0_kpa = 0.0f;
-    float pressure_1_kpa = 0.0f;
-    float pressure_2_kpa = 0.0f;
-    float hall_mm = 0.0f;
-
     bool pressure_read_ok = (sample->quality_flags & CPR_SAMPLE_PRESSURE_READ_FAILED) == 0;
     bool hall_read_ok = (sample->quality_flags & CPR_SAMPLE_HALL_READ_FAILED) == 0;
 
-    bool pressure_0_valid = pressure_read_ok &&
-        calibration->pressure_valid &&
-        convert_pressure_to_kpa(sample->pressure_0_raw,
-                                calibration->pressure_0_baseline,
-                                calibration->pressure_0_kpa_per_count,
-                                &pressure_0_kpa);
-    bool pressure_1_valid = pressure_read_ok &&
-        calibration->pressure_valid &&
-        convert_pressure_to_kpa(sample->pressure_1_raw,
-                                calibration->pressure_1_baseline,
-                                calibration->pressure_1_kpa_per_count,
-                                &pressure_1_kpa);
-    bool pressure_2_valid = pressure_read_ok &&
-        calibration->pressure_valid &&
-        convert_pressure_to_kpa(sample->pressure_2_raw,
-                                calibration->pressure_2_baseline,
-                                calibration->pressure_2_kpa_per_count,
-                                &pressure_2_kpa);
-    bool pressure_kpa_valid = pressure_0_valid && pressure_1_valid && pressure_2_valid;
+    sensor_raw_sample_t raw = {
+        .pressure_0_raw = sample->pressure_0_raw,
+        .pressure_1_raw = sample->pressure_1_raw,
+        .pressure_2_raw = sample->pressure_2_raw,
+        .hall_raw = sample->hall_raw,
+        .ts_ms = sample->ts_ms,
+        .quality_flags = sample->quality_flags,
+    };
+    sensor_converted_sample_t converted = {0};
+    sensor_conversion_convert_sample(&raw, calibration, &converted);
 
-    bool hall_mm_valid = hall_read_ok &&
+    bool pressure_kpa_valid =
+        pressure_read_ok &&
+        calibration->pressure_valid &&
+        converted.pressure_kpa_valid;
+    bool hall_mm_valid =
+        hall_read_ok &&
         calibration->hall_valid &&
-        convert_hall_to_mm(sample->hall_raw,
-                           calibration->hall_baseline,
-                           calibration->hall_range_raw,
-                           calibration->hall_direction,
-                           calibration->full_depth_mm,
-                           &hall_mm);
+        converted.hall_mm_valid;
 
-    char payload[768];
+    char payload[960];
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
@@ -281,20 +222,24 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
                            "\"pressure_1_kpa\":%.3f,"
                            "\"pressure_2_kpa\":%.3f,"
                            "\"hall_mm\":%.3f,"
+                           "\"hall_progress\":%.3f,"
                            "\"pressure_kpa_valid\":%s,"
                            "\"hall_mm_valid\":%s,"
+                           "\"pressure_saturation_mask\":%u,"
                            "\"interval_ms\":%" PRIu32 ","
                            "\"ts_ms\":%lld"
                            "}",
                            SENSOR_STREAM_EVENT_ID,
                            runtime_helpers_get_device_id(NULL),
                            resq_state_to_string(state),
-                           pressure_0_kpa,
-                           pressure_1_kpa,
-                           pressure_2_kpa,
-                           hall_mm,
+                           pressure_kpa_valid ? converted.pressure_0_kpa : 0.0f,
+                           pressure_kpa_valid ? converted.pressure_1_kpa : 0.0f,
+                           pressure_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           hall_mm_valid ? converted.hall_mm : 0.0f,
+                           hall_mm_valid ? converted.hall_progress : 0.0f,
                            pressure_kpa_valid ? "true" : "false",
                            hall_mm_valid ? "true" : "false",
+                           (unsigned int)(pressure_read_ok ? converted.pressure_saturation_mask : 0),
                            interval_ms,
                            (long long)sample->ts_ms);
 
@@ -366,7 +311,7 @@ static void telemetry_task(void *arg)
             continue;
         }
 
-        char payload[1280];
+        char payload[1536];
         const char *device_id = runtime_helpers_get_device_id(NULL);
         const char *session_id = session_manager_get_session_id();
 
@@ -377,6 +322,7 @@ static void telemetry_task(void *arg)
             "\"session_id\":\"%s\"," 
             "\"state\":\"SESSION_ACTIVE\"," 
             "\"depth_progress\":%.3f," 
+            "\"depth_mm\":%.3f,"
             "\"depth_source\":\"HALL\","
             "\"depth_ok\":%s," 
             "\"rate_cpm\":%.1f," 
@@ -393,6 +339,11 @@ static void telemetry_task(void *arg)
             "\"pressure_degraded\":%s,"
             "\"using_last_stable_pressure\":%s,"
             "\"hall_valid\":%s,"
+            "\"pressure_0_kpa\":%.3f,"
+            "\"pressure_1_kpa\":%.3f,"
+            "\"pressure_2_kpa\":%.3f,"
+            "\"pressure_kpa_valid\":%s,"
+            "\"hall_mm_valid\":%s,"
             "\"pressure_saturation_mask\":%u,"
             "\"sensor_quality_flags\":%u,"
             "\"missed_pressure_samples\":%d,"
@@ -403,6 +354,7 @@ static void telemetry_task(void *arg)
             device_id ? device_id : "",
             session_id ? session_id : "",
             snap.depth_progress,
+            snap.depth_mm,
             snap.depth_ok ? "true" : "false",
             snap.rate_cpm,
             snap.total_compressions,
@@ -418,6 +370,11 @@ static void telemetry_task(void *arg)
             snap.pressure_degraded ? "true" : "false",
             snap.using_last_stable_pressure ? "true" : "false",
             snap.hall_valid ? "true" : "false",
+            snap.pressure_kpa_valid ? snap.pressure_0_kpa : 0.0f,
+            snap.pressure_kpa_valid ? snap.pressure_1_kpa : 0.0f,
+            snap.pressure_kpa_valid ? snap.pressure_2_kpa : 0.0f,
+            snap.pressure_kpa_valid ? "true" : "false",
+            snap.hall_mm_valid ? "true" : "false",
             (unsigned int)snap.pressure_saturation_mask,
             (unsigned int)snap.sensor_quality_flags,
             snap.missed_pressure_samples,

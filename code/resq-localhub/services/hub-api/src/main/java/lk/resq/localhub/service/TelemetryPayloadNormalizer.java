@@ -211,11 +211,20 @@ final class TelemetryPayloadNormalizer {
     private static boolean looksLikeFirmwareTelemetry(JsonNode payload) {
         return payload.has("depth_progress")
                 || payload.has("depthProgress")
+                || payload.has("depth_mm")
+                || payload.has("depthMm")
                 || payload.has("depth_ok")
                 || payload.has("valid_compression_count")
                 || payload.has("quality_flags")
                 || payload.has("hand_placement")
-                || payload.has("pressure_balance_pct");
+                || payload.has("pressure_balance_pct")
+                || payload.has("pressure_0_kpa")
+                || payload.has("pressure_1_kpa")
+                || payload.has("pressure_2_kpa")
+                || payload.has("hall_mm")
+                || payload.has("pressure_kpa_valid")
+                || payload.has("hall_mm_valid")
+                || payload.has("telemetry_mode");
     }
 
     private static String firstText(JsonNode payload, String... keys) {

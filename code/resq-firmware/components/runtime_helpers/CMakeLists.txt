@@ -11,5 +11,6 @@ idf_component_register(
         esp_timer
         hx710
         hall_sensor
+        sensor_conversion
         esp_driver_gpio
 )

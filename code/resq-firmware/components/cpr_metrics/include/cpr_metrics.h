@@ -33,6 +33,7 @@ typedef struct {
 
 typedef struct {
     float depth_progress;
+    float depth_mm;
     float rate_cpm;
     float pause_s;
     int total_compressions;
@@ -49,6 +50,11 @@ typedef struct {
     bool using_last_stable_pressure;
     bool pressure_valid;
     bool hall_valid;
+    float pressure_0_kpa;
+    float pressure_1_kpa;
+    float pressure_2_kpa;
+    bool pressure_kpa_valid;
+    bool hall_mm_valid;
     uint8_t pressure_saturation_mask;
     uint32_t sensor_quality_flags;
     int missed_pressure_samples;

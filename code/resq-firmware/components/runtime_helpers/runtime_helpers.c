@@ -13,6 +13,7 @@
 #include "board_config.h"
 #include "hx710.h"
 #include "hall_sensor.h"
+#include "sensor_conversion.h"
 #include "esp_timer.h"
 
 static const char *TAG = "runtime_helpers";
@@ -310,7 +311,28 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
         return hall_err;
     }
 
-    char payload[384];
+    calibration_config_t calibration = {0};
+    esp_err_t config_err = config_store_load_calibration(&calibration);
+
+    sensor_raw_sample_t raw = {
+        .pressure_0_raw = pressure_0_raw,
+        .pressure_1_raw = pressure_1_raw,
+        .pressure_2_raw = pressure_2_raw,
+        .hall_raw = hall_raw,
+        .ts_ms = esp_timer_get_time() / 1000,
+        .quality_flags = 0,
+    };
+    sensor_converted_sample_t converted = {0};
+    bool converted_ok = config_err == ESP_OK &&
+                        sensor_conversion_convert_sample(&raw, &calibration, &converted) == ESP_OK;
+    bool pressure_kpa_valid = converted_ok &&
+                              calibration.pressure_valid &&
+                              converted.pressure_kpa_valid;
+    bool hall_mm_valid = converted_ok &&
+                         calibration.hall_valid &&
+                         converted.hall_mm_valid;
+
+    char payload[768];
 
     int written = snprintf(payload,
                            sizeof(payload),
@@ -320,6 +342,14 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                            "\"pressure_1_raw\":%ld," 
                            "\"pressure_2_raw\":%ld," 
                            "\"hall_raw\":%d," 
+                           "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_2_kpa\":%.3f,"
+                           "\"hall_mm\":%.3f,"
+                           "\"hall_progress\":%.3f,"
+                           "\"pressure_kpa_valid\":%s,"
+                           "\"hall_mm_valid\":%s,"
+                           "\"pressure_saturation_mask\":%u,"
                            "\"ts_ms\":%lld"
                            "}",
                            runtime_helpers_get_device_id(network_config),
@@ -327,7 +357,15 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                            (long)pressure_1_raw,
                            (long)pressure_2_raw,
                            hall_raw,
-                           (long long)(esp_timer_get_time() / 1000));
+                           pressure_kpa_valid ? converted.pressure_0_kpa : 0.0f,
+                           pressure_kpa_valid ? converted.pressure_1_kpa : 0.0f,
+                           pressure_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           hall_mm_valid ? converted.hall_mm : 0.0f,
+                           hall_mm_valid ? converted.hall_progress : 0.0f,
+                           pressure_kpa_valid ? "true" : "false",
+                           hall_mm_valid ? "true" : "false",
+                           (unsigned int)(converted_ok ? converted.pressure_saturation_mask : 0),
+                           (long long)raw.ts_ms);
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
         return ESP_ERR_INVALID_SIZE;

@@ -39,7 +39,7 @@ void calibration_config_set_defaults(calibration_config_t *config)
     config->pressure_0_kpa_per_count = 0.0f;
     config->pressure_1_kpa_per_count = 0.0f;
     config->pressure_2_kpa_per_count = 0.0f;
-    config->full_depth_mm = 0.0f;
+    config->full_depth_mm = 50.0f;
     config->calibration_sample_count = 60;
     config->calibration_window_ms = 2000;
     config->calibrated_at_ms = 0;
@@ -147,6 +147,10 @@ bool calibration_config_validate(calibration_config_t *config)
     }
 
     if (config->pressure_balance_allowed_pct < 5 || config->pressure_balance_allowed_pct > 60) {
+        valid = false;
+    }
+
+    if (config->full_depth_mm <= 0.0f) {
         valid = false;
     }
 

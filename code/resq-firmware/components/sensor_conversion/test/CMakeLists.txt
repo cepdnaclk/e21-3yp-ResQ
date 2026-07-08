@@ -1,13 +1,12 @@
 idf_component_register(
     SRCS
-        "cpr_metrics.c"
+        "test_sensor_conversion.c"
 
     INCLUDE_DIRS
-        "include"
+        "."
 
     REQUIRES
-        config
+        unity
         sensor_conversion
-        freertos
-        esp_timer
+        config
 )

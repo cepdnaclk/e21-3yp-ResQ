@@ -13,6 +13,7 @@ idf_component_register(
         config
         hall_sensor
         hx710
+        sensor_conversion
         esp_timer
         freertos
 )

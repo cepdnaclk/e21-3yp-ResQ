@@ -33,6 +33,44 @@ static const char *calibration_pressure_mode_to_string(calibration_pressure_mode
     }
 }
 
+static bool calibration_pressure_kpa_ready(const calibration_config_t *calibration)
+{
+    return calibration != NULL &&
+           calibration->calibrated &&
+           calibration->pressure_valid &&
+           !calibration->pressure_degraded &&
+           calibration->pressure_0_baseline != 0 &&
+           calibration->pressure_1_baseline != 0 &&
+           calibration->pressure_2_baseline != 0 &&
+           calibration->pressure_0_kpa_per_count > 0.0f &&
+           calibration->pressure_1_kpa_per_count > 0.0f &&
+           calibration->pressure_2_kpa_per_count > 0.0f;
+}
+
+static bool calibration_hall_mm_ready(const calibration_config_t *calibration)
+{
+    return calibration != NULL &&
+           calibration->calibrated &&
+           calibration->hall_valid &&
+           calibration->hall_baseline > 0 &&
+           calibration->hall_range_raw > 0 &&
+           calibration->full_depth_mm > 0.0f &&
+           (calibration->hall_direction == 1 || calibration->hall_direction == -1);
+}
+
+static void add_conversion_readiness_fields(cJSON *root,
+                                            const calibration_config_t *calibration)
+{
+    bool pressure_ready = calibration_pressure_kpa_ready(calibration);
+    bool hall_ready = calibration_hall_mm_ready(calibration);
+
+    cJSON_AddNumberToObject(root, "full_depth_mm", calibration ? calibration->full_depth_mm : 0.0f);
+    cJSON_AddBoolToObject(root, "pressure_kpa_calibrated", pressure_ready);
+    cJSON_AddBoolToObject(root, "hall_mm_calibrated", hall_ready);
+    cJSON_AddBoolToObject(root, "pressure_kpa_valid", pressure_ready);
+    cJSON_AddBoolToObject(root, "hall_mm_valid", hall_ready);
+}
+
 /* Topic model centralized in mqtt_topics.h */
 #include "mqtt_topics.h"
 
@@ -434,7 +472,8 @@ esp_err_t mqtt_manager_publish_status(resq_state_t state,
         cJSON_AddBoolToObject(root, "using_last_stable_pressure", calibration_config->using_last_stable_pressure);
         cJSON_AddBoolToObject(root, "pressure_valid", calibration_config->pressure_valid);
         cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
-        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_config->hall_valid);
+        add_conversion_readiness_fields(root, calibration_config);
+        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_hall_mm_ready(calibration_config));
     }
 
     cJSON_AddStringToObject(root, "ip", ip ? ip : "");
@@ -482,7 +521,8 @@ esp_err_t mqtt_manager_publish_error_status(resq_state_t state,
         cJSON_AddBoolToObject(root, "using_last_stable_pressure", calibration_config->using_last_stable_pressure);
         cJSON_AddBoolToObject(root, "pressure_valid", calibration_config->pressure_valid);
         cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
-        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_config->hall_valid);
+        add_conversion_readiness_fields(root, calibration_config);
+        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_hall_mm_ready(calibration_config));
     }
 
     cJSON_AddNumberToObject(root, "last_error_id", last_error_id);
@@ -575,7 +615,8 @@ esp_err_t mqtt_manager_publish_heartbeat(const network_config_t *network_config,
         cJSON_AddBoolToObject(root, "using_last_stable_pressure", calibration_config->using_last_stable_pressure);
         cJSON_AddBoolToObject(root, "pressure_valid", calibration_config->pressure_valid);
         cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
-        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_config->hall_valid);
+        add_conversion_readiness_fields(root, calibration_config);
+        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_hall_mm_ready(calibration_config));
     }
 
     cJSON_AddStringToObject(root, "ip", ip ? ip : "");

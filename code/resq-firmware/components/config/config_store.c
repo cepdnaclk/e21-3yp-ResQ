@@ -51,9 +51,9 @@
 #define NVS_KEY_PRESSURE0_BASE      "p0_base"
 #define NVS_KEY_PRESSURE1_BASE      "p1_base"
 #define NVS_KEY_PRESSURE2_BASE      "p2_base"
-#define NVS_KEY_PRESSURE0_KPA       "p0_kpa"
-#define NVS_KEY_PRESSURE1_KPA       "p1_kpa"
-#define NVS_KEY_PRESSURE2_KPA       "p2_kpa"
+#define NVS_KEY_PRESSURE0_KPA_SCALE "p0_kpa_scale"
+#define NVS_KEY_PRESSURE1_KPA_SCALE "p1_kpa_scale"
+#define NVS_KEY_PRESSURE2_KPA_SCALE "p2_kpa_scale"
 
 #define NVS_KEY_PRESSURE0_NOISE     "p0_noise"
 #define NVS_KEY_PRESSURE1_NOISE     "p1_noise"
@@ -70,7 +70,10 @@
 #define NVS_KEY_USING_LAST_PRESSURE "p_last_ok"
 #define NVS_KEY_PRESSURE_OK         "p_ok"
 #define NVS_KEY_HALL_OK             "hall_ok"
-#define NVS_KEY_FULL_DEPTH_MM       "depth_mm"
+#define NVS_KEY_FULL_DEPTH_MM       "full_depth_mm"
+
+#define SENSOR_CONVERSION_SCALE_FACTOR 1000000
+#define SENSOR_CONVERSION_MM_SCALE_FACTOR 1000
 
 #define NVS_KEY_CAL_SAMPLES         "cal_samples"
 #define NVS_KEY_CAL_WINDOW_MS       "cal_window_ms"
@@ -168,23 +171,32 @@ static esp_err_t nvs_get_string_safe(nvs_handle_t handle,
     return err;
 }
 
-static void nvs_get_float_safe(nvs_handle_t handle, const char *key, float *out_value)
+static void nvs_get_scaled_float_safe(nvs_handle_t handle,
+                                      const char *key,
+                                      int32_t scale_factor,
+                                      float *out_value)
 {
     if (out_value == NULL) {
         return;
     }
 
-    size_t value_len = sizeof(float);
-    float stored_value = 0.0f;
-    if (nvs_get_blob(handle, key, &stored_value, &value_len) == ESP_OK &&
-        value_len == sizeof(float)) {
-        *out_value = stored_value;
+    int32_t stored = 0;
+    if (scale_factor > 0 && nvs_get_i32(handle, key, &stored) == ESP_OK) {
+        *out_value = (float)stored / (float)scale_factor;
     }
 }
 
-static esp_err_t nvs_set_float_safe(nvs_handle_t handle, const char *key, float value)
+static esp_err_t nvs_set_scaled_float_safe(nvs_handle_t handle,
+                                           const char *key,
+                                           int32_t scale_factor,
+                                           float value)
 {
-    return nvs_set_blob(handle, key, &value, sizeof(value));
+    if (scale_factor <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int32_t stored = (int32_t)(value * (float)scale_factor);
+    return nvs_set_i32(handle, key, stored);
 }
 
 /**
@@ -338,9 +350,9 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
     nvs_get_i32(handle, NVS_KEY_PRESSURE0_BASE, &config->pressure_0_baseline);
     nvs_get_i32(handle, NVS_KEY_PRESSURE1_BASE, &config->pressure_1_baseline);
     nvs_get_i32(handle, NVS_KEY_PRESSURE2_BASE, &config->pressure_2_baseline);
-    nvs_get_float_safe(handle, NVS_KEY_PRESSURE0_KPA, &config->pressure_0_kpa_per_count);
-    nvs_get_float_safe(handle, NVS_KEY_PRESSURE1_KPA, &config->pressure_1_kpa_per_count);
-    nvs_get_float_safe(handle, NVS_KEY_PRESSURE2_KPA, &config->pressure_2_kpa_per_count);
+    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE0_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, &config->pressure_0_kpa_per_count);
+    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE1_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, &config->pressure_1_kpa_per_count);
+    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE2_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, &config->pressure_2_kpa_per_count);
 
     nvs_get_i32(handle, NVS_KEY_PRESSURE0_NOISE, &config->pressure_0_noise_raw);
     nvs_get_i32(handle, NVS_KEY_PRESSURE1_NOISE, &config->pressure_1_noise_raw);
@@ -375,7 +387,7 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
             config->hall_valid = flag ? true : false;
         }
     }
-    nvs_get_float_safe(handle, NVS_KEY_FULL_DEPTH_MM, &config->full_depth_mm);
+    nvs_get_scaled_float_safe(handle, NVS_KEY_FULL_DEPTH_MM, SENSOR_CONVERSION_MM_SCALE_FACTOR, &config->full_depth_mm);
 
     nvs_get_i32(handle, NVS_KEY_CAL_SAMPLES, &config->calibration_sample_count);
     nvs_get_i32(handle, NVS_KEY_CAL_WINDOW_MS, &config->calibration_window_ms);
@@ -456,11 +468,11 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     if (err != ESP_OK) goto exit;
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE2_BASE, config->pressure_2_baseline);
     if (err != ESP_OK) goto exit;
-    err = nvs_set_float_safe(handle, NVS_KEY_PRESSURE0_KPA, config->pressure_0_kpa_per_count);
+    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE0_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, config->pressure_0_kpa_per_count);
     if (err != ESP_OK) goto exit;
-    err = nvs_set_float_safe(handle, NVS_KEY_PRESSURE1_KPA, config->pressure_1_kpa_per_count);
+    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE1_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, config->pressure_1_kpa_per_count);
     if (err != ESP_OK) goto exit;
-    err = nvs_set_float_safe(handle, NVS_KEY_PRESSURE2_KPA, config->pressure_2_kpa_per_count);
+    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE2_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, config->pressure_2_kpa_per_count);
     if (err != ESP_OK) goto exit;
 
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE0_NOISE, config->pressure_0_noise_raw);
@@ -491,7 +503,7 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     if (err != ESP_OK) goto exit;
     err = nvs_set_u8(handle, NVS_KEY_HALL_OK, config->hall_valid ? 1 : 0);
     if (err != ESP_OK) goto exit;
-    err = nvs_set_float_safe(handle, NVS_KEY_FULL_DEPTH_MM, config->full_depth_mm);
+    err = nvs_set_scaled_float_safe(handle, NVS_KEY_FULL_DEPTH_MM, SENSOR_CONVERSION_MM_SCALE_FACTOR, config->full_depth_mm);
     if (err != ESP_OK) goto exit;
 
     err = nvs_set_i32(handle, NVS_KEY_CAL_SAMPLES, config->calibration_sample_count);
@@ -575,9 +587,9 @@ esp_err_t config_store_clear_calibration(void)
     nvs_erase_key(handle, NVS_KEY_PRESSURE0_BASE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE1_BASE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE2_BASE);
-    nvs_erase_key(handle, NVS_KEY_PRESSURE0_KPA);
-    nvs_erase_key(handle, NVS_KEY_PRESSURE1_KPA);
-    nvs_erase_key(handle, NVS_KEY_PRESSURE2_KPA);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE0_KPA_SCALE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE1_KPA_SCALE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE2_KPA_SCALE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE0_NOISE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE1_NOISE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE2_NOISE);
