@@ -18,6 +18,8 @@ esp_err_t telemetry_publisher_start(void);
 
 esp_err_t telemetry_publisher_stop(void);
 
+esp_err_t telemetry_publisher_stop_all(void);
+
 bool telemetry_publisher_is_running(void);
 
 esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,

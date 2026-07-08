@@ -89,4 +89,17 @@ TEST_CASE("convert_sample returns converted values and validity flags", "[sensor
     TEST_ASSERT_FALSE(converted.pressure_1_kpa_valid);
     TEST_ASSERT_FALSE(converted.pressure_kpa_valid);
     TEST_ASSERT_TRUE(converted.hall_mm_valid);
+
+    config = conversion_config();
+    raw.quality_flags = SENSOR_CONVERSION_QUALITY_PRESSURE_READ_FAILED;
+    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_convert_sample(&raw, &config, &converted));
+    TEST_ASSERT_FALSE(converted.pressure_0_kpa_valid);
+    TEST_ASSERT_FALSE(converted.pressure_1_kpa_valid);
+    TEST_ASSERT_FALSE(converted.pressure_2_kpa_valid);
+    TEST_ASSERT_TRUE(converted.hall_mm_valid);
+
+    raw.quality_flags = SENSOR_CONVERSION_QUALITY_HALL_READ_FAILED;
+    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_convert_sample(&raw, &config, &converted));
+    TEST_ASSERT_TRUE(converted.pressure_kpa_valid);
+    TEST_ASSERT_FALSE(converted.hall_mm_valid);
 }

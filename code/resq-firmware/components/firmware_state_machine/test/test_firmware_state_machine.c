@@ -624,6 +624,7 @@ TEST_CASE("Manager-owned states return delegated transitions", "[fsm]")
 
     reset_fixture();
     TEST_ASSERT_EQUAL(RESQ_STATE_RESETTING, run_state(RESQ_STATE_ERROR));
+    TEST_ASSERT_EQUAL(1, f.telemetry_stop_calls);
 }
 
 TEST_CASE("SESSION_INTERRUPTED reconnects retries and returns readiness", "[fsm]")

@@ -321,7 +321,16 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
             parsed.calibrated = false;
 
-            telemetry_publisher_stop_sensor_stream();
+            esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+            if (stream_stop_err != ESP_OK) {
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    RESQ_STATE_CALIBRATION_FAIL,
+                                                                    &command,
+                                                                    "cmd/calibration/start",
+                                                                    "NACK",
+                                                                    "07102");
+                continue;
+            }
 
             esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
                                                                                       RESQ_STATE_CALIBRATION_FAIL,

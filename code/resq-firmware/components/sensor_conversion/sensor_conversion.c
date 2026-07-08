@@ -83,28 +83,36 @@ esp_err_t sensor_conversion_convert_sample(const sensor_raw_sample_t *raw,
     memset(out, 0, sizeof(*out));
     out->ts_ms = raw->ts_ms;
 
-    if (sensor_conversion_pressure_raw_is_saturated(raw->pressure_0_raw)) {
+    bool pressure_read_failed =
+        (raw->quality_flags & SENSOR_CONVERSION_QUALITY_PRESSURE_READ_FAILED) != 0;
+    bool hall_read_failed =
+        (raw->quality_flags & SENSOR_CONVERSION_QUALITY_HALL_READ_FAILED) != 0;
+
+    if (!pressure_read_failed &&
+        sensor_conversion_pressure_raw_is_saturated(raw->pressure_0_raw)) {
         out->pressure_saturation_mask |= 0x01u;
     }
-    if (sensor_conversion_pressure_raw_is_saturated(raw->pressure_1_raw)) {
+    if (!pressure_read_failed &&
+        sensor_conversion_pressure_raw_is_saturated(raw->pressure_1_raw)) {
         out->pressure_saturation_mask |= 0x02u;
     }
-    if (sensor_conversion_pressure_raw_is_saturated(raw->pressure_2_raw)) {
+    if (!pressure_read_failed &&
+        sensor_conversion_pressure_raw_is_saturated(raw->pressure_2_raw)) {
         out->pressure_saturation_mask |= 0x04u;
     }
     out->pressure_saturated = out->pressure_saturation_mask != 0;
 
-    out->pressure_0_kpa_valid =
+    out->pressure_0_kpa_valid = !pressure_read_failed &&
         sensor_conversion_pressure_to_kpa(raw->pressure_0_raw,
                                           calibration->pressure_0_baseline,
                                           calibration->pressure_0_kpa_per_count,
                                           &out->pressure_0_kpa) == ESP_OK;
-    out->pressure_1_kpa_valid =
+    out->pressure_1_kpa_valid = !pressure_read_failed &&
         sensor_conversion_pressure_to_kpa(raw->pressure_1_raw,
                                           calibration->pressure_1_baseline,
                                           calibration->pressure_1_kpa_per_count,
                                           &out->pressure_1_kpa) == ESP_OK;
-    out->pressure_2_kpa_valid =
+    out->pressure_2_kpa_valid = !pressure_read_failed &&
         sensor_conversion_pressure_to_kpa(raw->pressure_2_raw,
                                           calibration->pressure_2_baseline,
                                           calibration->pressure_2_kpa_per_count,
@@ -114,7 +122,7 @@ esp_err_t sensor_conversion_convert_sample(const sensor_raw_sample_t *raw,
         out->pressure_1_kpa_valid &&
         out->pressure_2_kpa_valid;
 
-    out->hall_mm_valid =
+    out->hall_mm_valid = !hall_read_failed &&
         sensor_conversion_hall_to_mm(raw->hall_raw,
                                      calibration->hall_baseline,
                                      calibration->hall_range_raw,

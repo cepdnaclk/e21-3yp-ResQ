@@ -12,8 +12,13 @@ static calibration_config_t metrics_calibration(void)
         .hall_start_delta = 300,
         .hall_full_delta_threshold = 800,
         .hall_recoil_delta = 100,
+        .full_depth_mm = 50.0f,
+        .pressure_0_baseline = 1000,
         .pressure_1_baseline = 1000,
         .pressure_2_baseline = 1000,
+        .pressure_0_kpa_per_count = 0.01f,
+        .pressure_1_kpa_per_count = 0.01f,
+        .pressure_2_kpa_per_count = 0.01f,
         .pressure_1_range_raw = 1000,
         .pressure_2_range_raw = 1000,
         .pressure_contact_threshold = 100,
@@ -145,6 +150,32 @@ TEST_CASE("CPR metrics keeps Hall depth when pressure balance saturates", "[metr
     TEST_ASSERT_EQUAL(1, snapshot.valid_compressions);
     TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "PRESSURE_SATURATED"));
     TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "PRESSURE_BALANCE_HELD"));
+}
+
+TEST_CASE("CPR metrics exposes pressure kPa validity per channel", "[metrics]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    cpr_sensor_sample_t sample = {
+        .hall_raw = 1400,
+        .pressure_0_raw = 1100,
+        .pressure_1_raw = 1200,
+        .pressure_2_raw = 8300000,
+        .ts_ms = 1000,
+    };
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_update(&sample));
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+
+    TEST_ASSERT_TRUE(snapshot.pressure_0_kpa_valid);
+    TEST_ASSERT_TRUE(snapshot.pressure_1_kpa_valid);
+    TEST_ASSERT_FALSE(snapshot.pressure_2_kpa_valid);
+    TEST_ASSERT_FALSE(snapshot.pressure_kpa_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, snapshot.pressure_0_kpa);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f, snapshot.pressure_1_kpa);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, snapshot.pressure_2_kpa);
 }
 
 TEST_CASE("CPR metrics holds depth and state on missed Hall sample", "[metrics]")

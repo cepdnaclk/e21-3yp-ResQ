@@ -110,6 +110,9 @@ static float s_depth_mm = 0.0f;
 static float s_pressure_0_kpa = 0.0f;
 static float s_pressure_1_kpa = 0.0f;
 static float s_pressure_2_kpa = 0.0f;
+static bool s_pressure_0_kpa_valid = false;
+static bool s_pressure_1_kpa_valid = false;
+static bool s_pressure_2_kpa_valid = false;
 static bool s_pressure_kpa_valid = false;
 static bool s_hall_mm_valid = false;
 static float s_pressure_balance_pct = 0.0f;
@@ -150,6 +153,9 @@ esp_err_t cpr_metrics_init(void)
     s_pressure_0_kpa = 0.0f;
     s_pressure_1_kpa = 0.0f;
     s_pressure_2_kpa = 0.0f;
+    s_pressure_0_kpa_valid = false;
+    s_pressure_1_kpa_valid = false;
+    s_pressure_2_kpa_valid = false;
     s_pressure_kpa_valid = false;
     s_hall_mm_valid = false;
     s_pressure_balance_pct = 0.0f;
@@ -192,6 +198,9 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
     s_pressure_0_kpa = 0.0f;
     s_pressure_1_kpa = 0.0f;
     s_pressure_2_kpa = 0.0f;
+    s_pressure_0_kpa_valid = false;
+    s_pressure_1_kpa_valid = false;
+    s_pressure_2_kpa_valid = false;
     s_pressure_kpa_valid = false;
     s_hall_mm_valid = false;
     s_pressure_balance_pct = 0.0f;
@@ -300,19 +309,19 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
 
     s_pressure_saturation_mask = current_saturation_mask;
 
-    bool pressure_kpa_valid =
-        pressure_read_valid &&
-        s_calib.pressure_valid &&
-        converted.pressure_kpa_valid;
-    s_pressure_0_kpa = pressure_kpa_valid && converted.pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f;
-    s_pressure_1_kpa = pressure_kpa_valid && converted.pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f;
-    s_pressure_2_kpa = pressure_kpa_valid && converted.pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f;
-    s_pressure_kpa_valid = pressure_kpa_valid;
-    s_hall_mm_valid = hall_valid && s_calib.hall_valid && converted.hall_mm_valid;
+    s_pressure_0_kpa_valid = pressure_read_valid && s_calib.pressure_valid && converted.pressure_0_kpa_valid;
+    s_pressure_1_kpa_valid = pressure_read_valid && s_calib.pressure_valid && converted.pressure_1_kpa_valid;
+    s_pressure_2_kpa_valid = pressure_read_valid && s_calib.pressure_valid && converted.pressure_2_kpa_valid;
+    s_pressure_0_kpa = s_pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f;
+    s_pressure_1_kpa = s_pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f;
+    s_pressure_2_kpa = s_pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f;
+    s_pressure_kpa_valid = s_pressure_0_kpa_valid && s_pressure_1_kpa_valid && s_pressure_2_kpa_valid;
+    bool hall_sample_usable = hall_valid && s_calib.hall_valid && converted.hall_mm_valid;
+    s_hall_mm_valid = hall_sample_usable;
 
     float progress = s_depth_progress;
     int32_t hall_delta_now = 0;
-    if (hall_valid && converted.hall_mm_valid) {
+    if (hall_sample_usable) {
         hall_delta_now = converted.hall_delta_raw;
         progress = converted.hall_progress;
         s_depth_progress = progress;
@@ -407,7 +416,7 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     /* compression state machine. Without a Hall sample, keep the previous
      * depth/state and wait for a valid depth observation before advancing. */
     int64_t now = sample->ts_ms;
-    if (hall_valid) {
+    if (hall_sample_usable) {
         switch (s_state) {
             case WAITING_FOR_COMPRESSION:
                 /* compression start when adaptive hall start delta reached */
@@ -546,6 +555,9 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->pressure_0_kpa = s_pressure_0_kpa;
     out_snapshot->pressure_1_kpa = s_pressure_1_kpa;
     out_snapshot->pressure_2_kpa = s_pressure_2_kpa;
+    out_snapshot->pressure_0_kpa_valid = s_pressure_0_kpa_valid;
+    out_snapshot->pressure_1_kpa_valid = s_pressure_1_kpa_valid;
+    out_snapshot->pressure_2_kpa_valid = s_pressure_2_kpa_valid;
     out_snapshot->pressure_kpa_valid = s_pressure_kpa_valid;
     out_snapshot->hall_mm_valid = s_hall_mm_valid;
     out_snapshot->pressure_saturation_mask = s_pressure_saturation_mask;

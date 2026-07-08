@@ -112,9 +112,11 @@ static esp_err_t parse_sensor_stream_command(const char *payload, sensor_stream_
         cJSON *interval = cJSON_GetObjectItemCaseSensitive(root, "interval_ms");
         if (cJSON_IsNumber(interval)) {
             int value = interval->valueint;
-            if (value > 0) {
-                out_command->interval_ms = clamp_interval_ms((uint32_t)value);
+            if (value < SENSOR_STREAM_MIN_INTERVAL_MS || value > SENSOR_STREAM_MAX_INTERVAL_MS) {
+                result = ESP_ERR_INVALID_ARG;
+                goto exit;
             }
+            out_command->interval_ms = (uint32_t)value;
         }
     } else if (strcmp(action->valuestring, "STOP") == 0 || strcmp(action->valuestring, "stop") == 0) {
         out_command->action = SENSOR_STREAM_ACTION_STOP;
@@ -201,16 +203,24 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
     sensor_converted_sample_t converted = {0};
     sensor_conversion_convert_sample(&raw, calibration, &converted);
 
-    bool pressure_kpa_valid =
-        pressure_read_ok &&
-        calibration->pressure_valid &&
-        converted.pressure_kpa_valid;
+    bool pressure_0_kpa_valid = pressure_read_ok &&
+                                calibration->pressure_valid &&
+                                converted.pressure_0_kpa_valid;
+    bool pressure_1_kpa_valid = pressure_read_ok &&
+                                calibration->pressure_valid &&
+                                converted.pressure_1_kpa_valid;
+    bool pressure_2_kpa_valid = pressure_read_ok &&
+                                calibration->pressure_valid &&
+                                converted.pressure_2_kpa_valid;
+    bool pressure_kpa_valid = pressure_0_kpa_valid &&
+                              pressure_1_kpa_valid &&
+                              pressure_2_kpa_valid;
     bool hall_mm_valid =
         hall_read_ok &&
         calibration->hall_valid &&
         converted.hall_mm_valid;
 
-    char payload[960];
+    char payload[1152];
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
@@ -219,8 +229,11 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
                            "\"telemetry_mode\":\"SENSOR_STREAM\","
                            "\"state\":\"%s\","
                            "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_0_kpa_valid\":%s,"
                            "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_1_kpa_valid\":%s,"
                            "\"pressure_2_kpa\":%.3f,"
+                           "\"pressure_2_kpa_valid\":%s,"
                            "\"hall_mm\":%.3f,"
                            "\"hall_progress\":%.3f,"
                            "\"pressure_kpa_valid\":%s,"
@@ -232,9 +245,12 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
                            SENSOR_STREAM_EVENT_ID,
                            runtime_helpers_get_device_id(NULL),
                            resq_state_to_string(state),
-                           pressure_kpa_valid ? converted.pressure_0_kpa : 0.0f,
-                           pressure_kpa_valid ? converted.pressure_1_kpa : 0.0f,
-                           pressure_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f,
+                           pressure_0_kpa_valid ? "true" : "false",
+                           pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f,
+                           pressure_1_kpa_valid ? "true" : "false",
+                           pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           pressure_2_kpa_valid ? "true" : "false",
                            hall_mm_valid ? converted.hall_mm : 0.0f,
                            hall_mm_valid ? converted.hall_progress : 0.0f,
                            pressure_kpa_valid ? "true" : "false",
@@ -311,7 +327,7 @@ static void telemetry_task(void *arg)
             continue;
         }
 
-        char payload[1536];
+        char payload[1792];
         const char *device_id = runtime_helpers_get_device_id(NULL);
         const char *session_id = session_manager_get_session_id();
 
@@ -340,8 +356,11 @@ static void telemetry_task(void *arg)
             "\"using_last_stable_pressure\":%s,"
             "\"hall_valid\":%s,"
             "\"pressure_0_kpa\":%.3f,"
+            "\"pressure_0_kpa_valid\":%s,"
             "\"pressure_1_kpa\":%.3f,"
+            "\"pressure_1_kpa_valid\":%s,"
             "\"pressure_2_kpa\":%.3f,"
+            "\"pressure_2_kpa_valid\":%s,"
             "\"pressure_kpa_valid\":%s,"
             "\"hall_mm_valid\":%s,"
             "\"pressure_saturation_mask\":%u,"
@@ -370,9 +389,12 @@ static void telemetry_task(void *arg)
             snap.pressure_degraded ? "true" : "false",
             snap.using_last_stable_pressure ? "true" : "false",
             snap.hall_valid ? "true" : "false",
-            snap.pressure_kpa_valid ? snap.pressure_0_kpa : 0.0f,
-            snap.pressure_kpa_valid ? snap.pressure_1_kpa : 0.0f,
-            snap.pressure_kpa_valid ? snap.pressure_2_kpa : 0.0f,
+            snap.pressure_0_kpa_valid ? snap.pressure_0_kpa : 0.0f,
+            snap.pressure_0_kpa_valid ? "true" : "false",
+            snap.pressure_1_kpa_valid ? snap.pressure_1_kpa : 0.0f,
+            snap.pressure_1_kpa_valid ? "true" : "false",
+            snap.pressure_2_kpa_valid ? snap.pressure_2_kpa : 0.0f,
+            snap.pressure_2_kpa_valid ? "true" : "false",
             snap.pressure_kpa_valid ? "true" : "false",
             snap.hall_mm_valid ? "true" : "false",
             (unsigned int)snap.pressure_saturation_mask,
@@ -485,6 +507,23 @@ esp_err_t telemetry_publisher_stop(void)
         pdMS_TO_TICKS(TELEMETRY_TASK_STOP_TIMEOUT_MS));
 
     return (bits & TELEMETRY_TASK_STOPPED_BIT) ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+esp_err_t telemetry_publisher_stop_all(void)
+{
+    esp_err_t first_error = ESP_OK;
+
+    esp_err_t err = telemetry_publisher_stop_sensor_stream();
+    if (err != ESP_OK && first_error == ESP_OK) {
+        first_error = err;
+    }
+
+    err = telemetry_publisher_stop();
+    if (err != ESP_OK && first_error == ESP_OK) {
+        first_error = err;
+    }
+
+    return first_error;
 }
 
 bool telemetry_publisher_is_running(void)

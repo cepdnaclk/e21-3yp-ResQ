@@ -12,6 +12,8 @@ extern "C" {
 #endif
 
 #define SENSOR_CONVERSION_PRESSURE_SATURATION_RAW 8300000
+#define SENSOR_CONVERSION_QUALITY_PRESSURE_READ_FAILED (1u << 0)
+#define SENSOR_CONVERSION_QUALITY_HALL_READ_FAILED     (1u << 1)
 
 typedef struct {
     int32_t pressure_0_raw;

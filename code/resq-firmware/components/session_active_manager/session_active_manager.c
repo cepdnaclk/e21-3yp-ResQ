@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <inttypes.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -233,7 +232,7 @@ static esp_err_t session_sensor_task_stop(void)
 static esp_err_t stop_runtime_components(cpr_metrics_snapshot_t *out_snapshot)
 {
     esp_err_t first_error = ESP_OK;
-    esp_err_t err = telemetry_publisher_stop();
+    esp_err_t err = telemetry_publisher_stop_all();
     if (err != ESP_OK && first_error == ESP_OK) {
         first_error = err;
     }
@@ -256,6 +255,76 @@ static esp_err_t stop_runtime_components(cpr_metrics_snapshot_t *out_snapshot)
     }
 
     return first_error;
+}
+
+static esp_err_t publish_debug_snapshot_from_metrics(const network_config_t *network_config)
+{
+    cpr_metrics_snapshot_t snap = {0};
+    esp_err_t err = cpr_metrics_get_snapshot(&snap);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    char payload[1280];
+    int written = snprintf(payload,
+                           sizeof(payload),
+                           "{"
+                           "\"device_id\":\"%s\","
+                           "\"source\":\"SESSION_METRICS\","
+                           "\"depth_progress\":%.3f,"
+                           "\"depth_mm\":%.3f,"
+                           "\"depth_ok\":%s,"
+                           "\"rate_cpm\":%.1f,"
+                           "\"hand_placement\":\"%s\","
+                           "\"pressure_balance_pct\":%.2f,"
+                           "\"pressure_balance_reliable\":%s,"
+                           "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_0_kpa_valid\":%s,"
+                           "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_1_kpa_valid\":%s,"
+                           "\"pressure_2_kpa\":%.3f,"
+                           "\"pressure_2_kpa_valid\":%s,"
+                           "\"pressure_kpa_valid\":%s,"
+                           "\"hall_mm_valid\":%s,"
+                           "\"pressure_saturation_mask\":%u,"
+                           "\"sensor_quality_flags\":%u,"
+                           "\"missed_pressure_samples\":%d,"
+                           "\"missed_hall_samples\":%d,"
+                           "\"flags\":\"%s\","
+                           "\"ts_ms\":%lld"
+                           "}",
+                           runtime_helpers_get_device_id(network_config),
+                           snap.depth_progress,
+                           snap.depth_mm,
+                           snap.depth_ok ? "true" : "false",
+                           snap.rate_cpm,
+                           snap.hand_placement,
+                           snap.pressure_balance_pct,
+                           snap.pressure_balance_reliable ? "true" : "false",
+                           snap.pressure_0_kpa_valid ? snap.pressure_0_kpa : 0.0f,
+                           snap.pressure_0_kpa_valid ? "true" : "false",
+                           snap.pressure_1_kpa_valid ? snap.pressure_1_kpa : 0.0f,
+                           snap.pressure_1_kpa_valid ? "true" : "false",
+                           snap.pressure_2_kpa_valid ? snap.pressure_2_kpa : 0.0f,
+                           snap.pressure_2_kpa_valid ? "true" : "false",
+                           snap.pressure_kpa_valid ? "true" : "false",
+                           snap.hall_mm_valid ? "true" : "false",
+                           (unsigned int)snap.pressure_saturation_mask,
+                           (unsigned int)snap.sensor_quality_flags,
+                           snap.missed_pressure_samples,
+                           snap.missed_hall_samples,
+                           snap.flags,
+                           (long long)snap.ts_ms);
+
+    if (written <= 0 || written >= (int)sizeof(payload)) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    if (!mqtt_manager_is_connected()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    return mqtt_manager_publish_debug_json(payload);
 }
 
 static void remember_terminal_interruption(const char *session_id,
@@ -796,50 +865,15 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
         }
 
         if (strcmp(command_suffix, "cmd/debug") == 0) {
-            /* publish one debug snapshot */
-            int32_t p0 = 0, p1 = 0, p2 = 0;
-            esp_err_t perr = hx710_read_3_shared_sck(
-                BOARD_HX710_SHARED_SCK,
-                BOARD_HX710_0_DOUT,
-                BOARD_HX710_1_DOUT,
-                BOARD_HX710_2_DOUT,
-                &p0,
-                &p1,
-                &p2);
-            if (perr != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to read shared HX710 for debug: %s", esp_err_to_name(perr));
-                p0 = HX710_ERROR_TIMEOUT; p1 = HX710_ERROR_TIMEOUT; p2 = HX710_ERROR_TIMEOUT;
-            }
-            int32_t hall = 0;
-
-            hall_sensor_t local_h = {0};
-            if (hall_sensor_init(&local_h, BOARD_HALL_ADC_CHAN) == ESP_OK) {
-                int hall_raw = 0;
-                if (hall_sensor_read_raw(&local_h, &hall_raw) == ESP_OK) {
-                    hall = (int32_t)hall_raw;
-                }
-            }
-
-            char dbg[384];
-            int written = snprintf(dbg,
-                                sizeof(dbg),
-                                "{"
-                                "\"device_id\":\"%s\","
-                                "\"pressure_0_raw\":%" PRId32 ","
-                                "\"pressure_1_raw\":%" PRId32 ","
-                                "\"pressure_2_raw\":%" PRId32 ","
-                                "\"hall_raw\":%" PRId32 ","
-                                "\"ts_ms\":%lld"
-                                "}",
-                                runtime_helpers_get_device_id(network_config),
-                                p0,
-                                p1,
-                                p2,
-                                hall,
-                                (long long)(esp_timer_get_time() / 1000));
-
-            if (written > 0 && mqtt_manager_is_connected()) {
-                mqtt_manager_publish_debug_json(dbg);
+            esp_err_t debug_err = publish_debug_snapshot_from_metrics(network_config);
+            if (debug_err != ESP_OK) {
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    RESQ_STATE_SESSION_ACTIVE,
+                                                                    &command,
+                                                                    "cmd/debug",
+                                                                    "NACK",
+                                                                    "debug_read_failed");
+                continue;
             }
 
             runtime_helpers_publish_command_result_from_command(network_config,

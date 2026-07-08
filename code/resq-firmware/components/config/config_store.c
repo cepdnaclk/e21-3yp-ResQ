@@ -1,4 +1,5 @@
 #include "config_store.h"
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -72,7 +73,7 @@
 #define NVS_KEY_HALL_OK             "hall_ok"
 #define NVS_KEY_FULL_DEPTH_MM       "full_depth_mm"
 
-#define SENSOR_CONVERSION_SCALE_FACTOR 1000000
+#define SENSOR_CONVERSION_KPA_SCALE_FACTOR 1000000000
 #define SENSOR_CONVERSION_MM_SCALE_FACTOR 1000
 
 #define NVS_KEY_CAL_SAMPLES         "cal_samples"
@@ -195,7 +196,12 @@ static esp_err_t nvs_set_scaled_float_safe(nvs_handle_t handle,
         return ESP_ERR_INVALID_ARG;
     }
 
-    int32_t stored = (int32_t)(value * (float)scale_factor);
+    double scaled = (double)value * (double)scale_factor;
+    if (scaled > (double)INT32_MAX || scaled < (double)INT32_MIN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    int32_t stored = (int32_t)(scaled >= 0.0 ? scaled + 0.5 : scaled - 0.5);
     return nvs_set_i32(handle, key, stored);
 }
 
@@ -350,9 +356,9 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
     nvs_get_i32(handle, NVS_KEY_PRESSURE0_BASE, &config->pressure_0_baseline);
     nvs_get_i32(handle, NVS_KEY_PRESSURE1_BASE, &config->pressure_1_baseline);
     nvs_get_i32(handle, NVS_KEY_PRESSURE2_BASE, &config->pressure_2_baseline);
-    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE0_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, &config->pressure_0_kpa_per_count);
-    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE1_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, &config->pressure_1_kpa_per_count);
-    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE2_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, &config->pressure_2_kpa_per_count);
+    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE0_KPA_SCALE, SENSOR_CONVERSION_KPA_SCALE_FACTOR, &config->pressure_0_kpa_per_count);
+    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE1_KPA_SCALE, SENSOR_CONVERSION_KPA_SCALE_FACTOR, &config->pressure_1_kpa_per_count);
+    nvs_get_scaled_float_safe(handle, NVS_KEY_PRESSURE2_KPA_SCALE, SENSOR_CONVERSION_KPA_SCALE_FACTOR, &config->pressure_2_kpa_per_count);
 
     nvs_get_i32(handle, NVS_KEY_PRESSURE0_NOISE, &config->pressure_0_noise_raw);
     nvs_get_i32(handle, NVS_KEY_PRESSURE1_NOISE, &config->pressure_1_noise_raw);
@@ -468,11 +474,11 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     if (err != ESP_OK) goto exit;
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE2_BASE, config->pressure_2_baseline);
     if (err != ESP_OK) goto exit;
-    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE0_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, config->pressure_0_kpa_per_count);
+    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE0_KPA_SCALE, SENSOR_CONVERSION_KPA_SCALE_FACTOR, config->pressure_0_kpa_per_count);
     if (err != ESP_OK) goto exit;
-    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE1_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, config->pressure_1_kpa_per_count);
+    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE1_KPA_SCALE, SENSOR_CONVERSION_KPA_SCALE_FACTOR, config->pressure_1_kpa_per_count);
     if (err != ESP_OK) goto exit;
-    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE2_KPA_SCALE, SENSOR_CONVERSION_SCALE_FACTOR, config->pressure_2_kpa_per_count);
+    err = nvs_set_scaled_float_safe(handle, NVS_KEY_PRESSURE2_KPA_SCALE, SENSOR_CONVERSION_KPA_SCALE_FACTOR, config->pressure_2_kpa_per_count);
     if (err != ESP_OK) goto exit;
 
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE0_NOISE, config->pressure_0_noise_raw);

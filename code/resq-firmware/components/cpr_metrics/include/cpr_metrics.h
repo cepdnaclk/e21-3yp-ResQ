@@ -53,6 +53,9 @@ typedef struct {
     float pressure_0_kpa;
     float pressure_1_kpa;
     float pressure_2_kpa;
+    bool pressure_0_kpa_valid;
+    bool pressure_1_kpa_valid;
+    bool pressure_2_kpa_valid;
     bool pressure_kpa_valid;
     bool hall_mm_valid;
     uint8_t pressure_saturation_mask;

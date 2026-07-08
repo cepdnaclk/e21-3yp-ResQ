@@ -325,14 +325,23 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
     sensor_converted_sample_t converted = {0};
     bool converted_ok = config_err == ESP_OK &&
                         sensor_conversion_convert_sample(&raw, &calibration, &converted) == ESP_OK;
-    bool pressure_kpa_valid = converted_ok &&
-                              calibration.pressure_valid &&
-                              converted.pressure_kpa_valid;
+    bool pressure_0_kpa_valid = converted_ok &&
+                                calibration.pressure_valid &&
+                                converted.pressure_0_kpa_valid;
+    bool pressure_1_kpa_valid = converted_ok &&
+                                calibration.pressure_valid &&
+                                converted.pressure_1_kpa_valid;
+    bool pressure_2_kpa_valid = converted_ok &&
+                                calibration.pressure_valid &&
+                                converted.pressure_2_kpa_valid;
+    bool pressure_kpa_valid = pressure_0_kpa_valid &&
+                              pressure_1_kpa_valid &&
+                              pressure_2_kpa_valid;
     bool hall_mm_valid = converted_ok &&
                          calibration.hall_valid &&
                          converted.hall_mm_valid;
 
-    char payload[768];
+    char payload[960];
 
     int written = snprintf(payload,
                            sizeof(payload),
@@ -343,8 +352,11 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                            "\"pressure_2_raw\":%ld," 
                            "\"hall_raw\":%d," 
                            "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_0_kpa_valid\":%s,"
                            "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_1_kpa_valid\":%s,"
                            "\"pressure_2_kpa\":%.3f,"
+                           "\"pressure_2_kpa_valid\":%s,"
                            "\"hall_mm\":%.3f,"
                            "\"hall_progress\":%.3f,"
                            "\"pressure_kpa_valid\":%s,"
@@ -357,9 +369,12 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                            (long)pressure_1_raw,
                            (long)pressure_2_raw,
                            hall_raw,
-                           pressure_kpa_valid ? converted.pressure_0_kpa : 0.0f,
-                           pressure_kpa_valid ? converted.pressure_1_kpa : 0.0f,
-                           pressure_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f,
+                           pressure_0_kpa_valid ? "true" : "false",
+                           pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f,
+                           pressure_1_kpa_valid ? "true" : "false",
+                           pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           pressure_2_kpa_valid ? "true" : "false",
                            hall_mm_valid ? converted.hall_mm : 0.0f,
                            hall_mm_valid ? converted.hall_progress : 0.0f,
                            pressure_kpa_valid ? "true" : "false",

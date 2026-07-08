@@ -18,6 +18,7 @@
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
 #include "status_indicator.h"
+#include "telemetry_publisher.h"
 
 #ifndef BUTTON_1
 #define BUTTON_1 GPIO_NUM_9
@@ -115,6 +116,12 @@ resq_state_t error_manager_run(network_config_t *network_config,
     ESP_LOGE(TAG, "Entered ERROR state");
 
     status_indicator_set_state(RESQ_STATE_ERROR);
+    esp_err_t stop_err = telemetry_publisher_stop_all();
+    if (stop_err != ESP_OK) {
+        ESP_LOGW(TAG,
+                 "Failed to stop telemetry publishers on ERROR entry: %s",
+                 esp_err_to_name(stop_err));
+    }
 
     /* Publish minimal firmware error event if possible */
     if (mqtt_manager_is_connected() && network_config != NULL) {

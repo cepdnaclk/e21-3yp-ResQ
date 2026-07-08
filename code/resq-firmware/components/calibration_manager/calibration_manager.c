@@ -217,6 +217,10 @@ typedef struct {
 } calibration_pressure_snapshot_t;
 
 static calibration_pressure_snapshot_t s_pressure_snapshot;
+static sensor_raw_sample_t s_last_calibration_raw_sample;
+static bool s_has_last_calibration_raw_sample = false;
+static bool s_last_calibration_pressure_valid = false;
+static bool s_last_calibration_hall_valid = false;
 
 static bool calibration_pressure_is_optional(void)
 {
@@ -282,12 +286,37 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
         s_calibration_config.pressure_1_kpa_per_count > 0.0f &&
         s_calibration_config.pressure_2_kpa_per_count > 0.0f;
     bool hall_mm_valid =
-        s_calibration_config.hall_valid &&
+        s_calibration_config.hall_baseline > 0 &&
         s_calibration_config.hall_range_raw > 0 &&
         s_calibration_config.full_depth_mm > 0.0f &&
         (s_calibration_config.hall_direction == 1 || s_calibration_config.hall_direction == -1);
 
-    char payload[768];
+    sensor_converted_sample_t converted = {0};
+    bool converted_ok = s_has_last_calibration_raw_sample &&
+                        sensor_conversion_convert_sample(&s_last_calibration_raw_sample,
+                                                         &s_calibration_config,
+                                                         &converted) == ESP_OK;
+    bool pressure_0_kpa_valid = converted_ok &&
+                                s_last_calibration_pressure_valid &&
+                                pressure_kpa_valid &&
+                                converted.pressure_0_kpa_valid;
+    bool pressure_1_kpa_valid = converted_ok &&
+                                s_last_calibration_pressure_valid &&
+                                pressure_kpa_valid &&
+                                converted.pressure_1_kpa_valid;
+    bool pressure_2_kpa_valid = converted_ok &&
+                                s_last_calibration_pressure_valid &&
+                                pressure_kpa_valid &&
+                                converted.pressure_2_kpa_valid;
+    bool sample_pressure_kpa_valid = pressure_0_kpa_valid &&
+                                     pressure_1_kpa_valid &&
+                                     pressure_2_kpa_valid;
+    bool sample_hall_mm_valid = converted_ok &&
+                                s_last_calibration_hall_valid &&
+                                hall_mm_valid &&
+                                converted.hall_mm_valid;
+
+    char payload[1408];
     const char *reply_id = calibration_manager_get_request_id();
     char reply_segment[160] = {0};
     if (calibration_manager_is_running() && reply_id != NULL && reply_id[0] != '\0') {
@@ -318,6 +347,16 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                            "\"pressure_kpa_valid\":%s,"
                            "\"hall_mm_valid\":%s,"
                            "\"full_depth_mm\":%.3f,"
+                           "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_0_kpa_valid\":%s,"
+                           "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_1_kpa_valid\":%s,"
+                           "\"pressure_2_kpa\":%.3f,"
+                           "\"pressure_2_kpa_valid\":%s,"
+                           "\"hall_mm\":%.3f,"
+                           "\"hall_progress\":%.3f,"
+                           "\"sample_pressure_kpa_valid\":%s,"
+                           "\"sample_hall_mm_valid\":%s,"
                            "\"ts_ms\":%lld"
                            "}",
                            4001,
@@ -334,6 +373,16 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                            pressure_kpa_valid ? "true" : "false",
                            hall_mm_valid ? "true" : "false",
                            s_calibration_config.full_depth_mm,
+                           pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f,
+                           pressure_0_kpa_valid ? "true" : "false",
+                           pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f,
+                           pressure_1_kpa_valid ? "true" : "false",
+                           pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           pressure_2_kpa_valid ? "true" : "false",
+                           sample_hall_mm_valid ? converted.hall_mm : 0.0f,
+                           sample_hall_mm_valid ? converted.hall_progress : 0.0f,
+                           sample_pressure_kpa_valid ? "true" : "false",
+                           sample_hall_mm_valid ? "true" : "false",
                            (long long)(esp_timer_get_time() / 1000));
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
@@ -370,7 +419,7 @@ static bool calibration_is_within_tolerance(int32_t reading,
  */
 static bool calibration_is_saturated_24bit(int32_t value)
 {
-    return value > 8300000 || value < -8300000;
+    return sensor_conversion_pressure_raw_is_saturated(value);
 }
 
 /* Calibration signal stats type (full definition needed by functions that access fields) */
@@ -423,6 +472,30 @@ static calibration_reason_id_t calibration_validate_pressure_rest_health(
     const calibration_signal_stats_t *p0,
     const calibration_signal_stats_t *p1,
     const calibration_signal_stats_t *p2);
+
+static void calibration_record_progress_sample(int32_t hall_raw,
+                                               int32_t p0,
+                                               int32_t p1,
+                                               int32_t p2,
+                                               bool pressure_valid,
+                                               bool hall_valid)
+{
+    s_last_calibration_raw_sample.pressure_0_raw = p0;
+    s_last_calibration_raw_sample.pressure_1_raw = p1;
+    s_last_calibration_raw_sample.pressure_2_raw = p2;
+    s_last_calibration_raw_sample.hall_raw = hall_raw;
+    s_last_calibration_raw_sample.ts_ms = esp_timer_get_time() / 1000;
+    s_last_calibration_raw_sample.quality_flags = 0;
+    if (!pressure_valid) {
+        s_last_calibration_raw_sample.quality_flags |= SENSOR_CONVERSION_QUALITY_PRESSURE_READ_FAILED;
+    }
+    if (!hall_valid) {
+        s_last_calibration_raw_sample.quality_flags |= SENSOR_CONVERSION_QUALITY_HALL_READ_FAILED;
+    }
+    s_last_calibration_pressure_valid = pressure_valid;
+    s_last_calibration_hall_valid = hall_valid;
+    s_has_last_calibration_raw_sample = true;
+}
 
 /* Collect rest statistics for Hall and the three pressure sensors.
  * Caller must ensure s_calibration_config.calibration_sample_count and
@@ -1124,6 +1197,8 @@ static esp_err_t calibration_read_valid_sample(calibration_sample_t *out_sample)
         return ESP_ERR_INVALID_ARG;
     }
 
+    memset(out_sample, 0, sizeof(*out_sample));
+
     esp_err_t err = calibration_read_hall_average(&out_sample->hall);
     if (err != ESP_OK) {
         return err;
@@ -1138,12 +1213,21 @@ static esp_err_t calibration_read_valid_sample(calibration_sample_t *out_sample)
                                   &out_sample->p2);
     if (err != ESP_OK) {
         memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
+        calibration_record_progress_sample(out_sample->hall, 0, 0, 0, false, true);
         return err;
     }
 
-    return calibration_validate_pressure_triplet(out_sample->p0,
-                                                 out_sample->p1,
-                                                 out_sample->p2);
+    err = calibration_validate_pressure_triplet(out_sample->p0,
+                                               out_sample->p1,
+                                               out_sample->p2);
+    out_sample->pressure_valid = err == ESP_OK;
+    calibration_record_progress_sample(out_sample->hall,
+                                       out_sample->p0,
+                                       out_sample->p1,
+                                       out_sample->p2,
+                                       out_sample->pressure_valid,
+                                       true);
+    return err;
 }
 
 static esp_err_t calibration_read_hall_pressure_sample(calibration_sample_t *out_sample)
@@ -1169,6 +1253,7 @@ static esp_err_t calibration_read_hall_pressure_sample(calibration_sample_t *out
     if (pressure_err != ESP_OK) {
         memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
         out_sample->pressure_valid = false;
+        calibration_record_progress_sample(out_sample->hall, 0, 0, 0, false, true);
         return calibration_pressure_is_optional() ? ESP_OK : pressure_err;
     }
 
@@ -1176,6 +1261,12 @@ static esp_err_t calibration_read_hall_pressure_sample(calibration_sample_t *out
                                                          out_sample->p1,
                                                          out_sample->p2);
     out_sample->pressure_valid = pressure_err == ESP_OK;
+    calibration_record_progress_sample(out_sample->hall,
+                                       out_sample->p0,
+                                       out_sample->p1,
+                                       out_sample->p2,
+                                       out_sample->pressure_valid,
+                                       true);
     if (!out_sample->pressure_valid && !calibration_pressure_is_optional()) {
         return pressure_err;
     }
@@ -2045,10 +2136,18 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     s_calibration_config.bladder_1_pressure = host_params->bladder_1_pressure;
     s_calibration_config.bladder_2_pressure = host_params->bladder_2_pressure;
     s_calibration_config.hall_delta = host_params->hall_delta;
-    s_calibration_config.full_depth_mm = host_params->full_depth_mm;
-    s_calibration_config.pressure_0_kpa_per_count = host_params->pressure_0_kpa_per_count;
-    s_calibration_config.pressure_1_kpa_per_count = host_params->pressure_1_kpa_per_count;
-    s_calibration_config.pressure_2_kpa_per_count = host_params->pressure_2_kpa_per_count;
+    if (host_params->full_depth_mm > 0.0f) {
+        s_calibration_config.full_depth_mm = host_params->full_depth_mm;
+    }
+    if (host_params->pressure_0_kpa_per_count > 0.0f) {
+        s_calibration_config.pressure_0_kpa_per_count = host_params->pressure_0_kpa_per_count;
+    }
+    if (host_params->pressure_1_kpa_per_count > 0.0f) {
+        s_calibration_config.pressure_1_kpa_per_count = host_params->pressure_1_kpa_per_count;
+    }
+    if (host_params->pressure_2_kpa_per_count > 0.0f) {
+        s_calibration_config.pressure_2_kpa_per_count = host_params->pressure_2_kpa_per_count;
+    }
     s_calibration_config.pressure_mode = host_params->pressure_mode;
     if (s_calibration_config.pressure_mode < CALIBRATION_PRESSURE_REQUIRED ||
         s_calibration_config.pressure_mode > CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE) {
@@ -2095,6 +2194,10 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
     memset(s_last_hx710_raw, 0, sizeof(s_last_hx710_raw));
     memset(&s_pressure_snapshot, 0, sizeof(s_pressure_snapshot));
+    memset(&s_last_calibration_raw_sample, 0, sizeof(s_last_calibration_raw_sample));
+    s_has_last_calibration_raw_sample = false;
+    s_last_calibration_pressure_valid = false;
+    s_last_calibration_hall_valid = false;
 
     /* Debug: log the received host calibration payload values */
     ESP_LOGI(TAG, "Calibration payload: hall_delta=%ld ref_pressure=%ld bladder_1=%ld bladder_2=%ld balance_pct=%d",
