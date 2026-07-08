@@ -7,6 +7,8 @@ import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationStartRequest;
 import lk.resq.localhub.model.firmware.FirmwareReadinessResponse;
 import lk.resq.localhub.model.firmware.FirmwareState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -15,6 +17,8 @@ import java.util.Optional;
 
 @Service
 public class FirmwareCalibrationService {
+
+    private static final Logger logger = LoggerFactory.getLogger(FirmwareCalibrationService.class);
 
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
@@ -54,6 +58,7 @@ public class FirmwareCalibrationService {
         refPressure = requirePositiveInteger(refPressure, "refPressure must be greater than 0");
         bladder1Pressure = requirePositiveInteger(bladder1Pressure, "bladder1Pressure must be greater than 0");
         bladder2Pressure = requirePositiveInteger(bladder2Pressure, "bladder2Pressure must be greater than 0");
+        warnIfSuspiciousPressureScale(normalizedDeviceId, refPressure, bladder1Pressure, bladder2Pressure);
 
         String resolvedProfileId = requestedProfileId != null ? requestedProfileId : profile.profileId();
 
@@ -99,9 +104,13 @@ public class FirmwareCalibrationService {
         String registryState = summary.map(ManikinLiveSummary::state).map(FirmwareCalibrationService::normalize).orElse(null);
         FirmwareCalibrationResultRecord result = latest.orElse(null);
         String firmwareState = firstNonBlank(registryState, result == null ? null : result.firmwareState());
-        String latestResult = normalize(result == null ? null : result.result());
-        boolean calibrated = Boolean.TRUE.equals(result == null ? null : result.calibrated()) || "PASS".equalsIgnoreCase(nullToBlank(latestResult));
-        boolean readyForSession = determineReadyForSession(firmwareState, latestResult);
+        String latestResult = firstNonBlank(result == null ? null : result.result(), summary.map(ManikinLiveSummary::calibrationResult).orElse(null));
+        boolean calibrated = Boolean.TRUE.equals(result == null ? null : result.calibrated())
+                || summary.map(ManikinLiveSummary::calibrated).orElse(null) == Boolean.TRUE
+                || "PASS".equalsIgnoreCase(nullToBlank(latestResult))
+                || "PASS_WITH_WARNINGS".equalsIgnoreCase(nullToBlank(latestResult));
+        boolean readyForSession = determineReadyForSession(firmwareState, latestResult)
+                || summary.map(ManikinLiveSummary::readyForSession).orElse(null) == Boolean.TRUE;
 
         return new FirmwareReadinessResponse(
                 normalizedDeviceId,
@@ -109,9 +118,9 @@ public class FirmwareCalibrationService {
                 calibrated,
                 readyForSession,
                 latestResult,
-                result == null ? null : result.progressId(),
-                result == null ? null : result.reasonId(),
-                result == null ? null : result.actionId(),
+                result != null && result.progressId() != null ? result.progressId() : summary.map(ManikinLiveSummary::progressId).orElse(null),
+                result != null && result.reasonId() != null ? result.reasonId() : summary.map(ManikinLiveSummary::reasonId).orElse(null),
+                result != null && result.actionId() != null ? result.actionId() : summary.map(ManikinLiveSummary::actionId).orElse(null),
                 result == null ? null : result.tsMs(),
                 result == null ? null : toIso(result.receivedAt()),
                 summary.map(ManikinLiveSummary::sessionId).orElse(null),
@@ -131,7 +140,10 @@ public class FirmwareCalibrationService {
                 summary.map(ManikinLiveSummary::state).orElse(null),
                 latest.map(FirmwareCalibrationResultRecord::firmwareState).orElse(null)
         );
-        String latestResult = latest.map(FirmwareCalibrationResultRecord::result).map(FirmwareCalibrationService::normalize).orElse(null);
+        String latestResult = firstNonBlank(
+                latest.map(FirmwareCalibrationResultRecord::result).orElse(null),
+                summary.map(ManikinLiveSummary::calibrationResult).orElse(null)
+        );
 
         if (!hasFirmwareReadinessEvidence(firmwareState, latestResult)) {
             return Optional.empty();
@@ -170,7 +182,8 @@ public class FirmwareCalibrationService {
             }
         }
 
-        return "PASS".equalsIgnoreCase(nullToBlank(normalizedResult));
+        return "PASS".equalsIgnoreCase(nullToBlank(normalizedResult))
+                || "PASS_WITH_WARNINGS".equalsIgnoreCase(nullToBlank(normalizedResult));
     }
 
     private static boolean hasFirmwareReadinessEvidence(String firmwareState, String latestResult) {
@@ -224,6 +237,20 @@ public class FirmwareCalibrationService {
             throw new IllegalArgumentException(message);
         }
         return value;
+    }
+
+    private static void warnIfSuspiciousPressureScale(String deviceId, Integer refPressure, Integer bladder1Pressure, Integer bladder2Pressure) {
+        if (refPressure < CalibrationConstraints.SUSPICIOUS_PRESSURE_TARGET_BELOW_RAW
+                || bladder1Pressure < CalibrationConstraints.SUSPICIOUS_PRESSURE_TARGET_BELOW_RAW
+                || bladder2Pressure < CalibrationConstraints.SUSPICIOUS_PRESSURE_TARGET_BELOW_RAW) {
+            logger.warn(
+                    "Calibration targets for device {} look below the current firmware raw HX710 scale: refPressure={}, bladder1Pressure={}, bladder2Pressure={}",
+                    deviceId,
+                    refPressure,
+                    bladder1Pressure,
+                    bladder2Pressure
+            );
+        }
     }
 
     private static Integer coalesce(Integer first, Integer second) {

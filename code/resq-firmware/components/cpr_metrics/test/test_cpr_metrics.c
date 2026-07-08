@@ -19,6 +19,9 @@ static calibration_config_t metrics_calibration(void)
         .pressure_contact_threshold = 100,
         .pressure_valid_threshold = 500,
         .pressure_balance_allowed_pct = 20,
+        .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
+        .pressure_valid = true,
+        .hall_valid = true,
     };
     return config;
 }

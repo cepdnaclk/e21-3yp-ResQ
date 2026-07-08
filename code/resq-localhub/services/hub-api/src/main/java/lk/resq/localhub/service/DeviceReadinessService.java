@@ -115,7 +115,7 @@ public class DeviceReadinessService {
             }
             readyForSession = false;
         } else if (event.eventId() == 4002) {
-            if ("PASS".equals(resultClean)) {
+            if ("PASS".equals(resultClean) || "PASS_WITH_WARNINGS".equals(resultClean)) {
                 calibrationState = CalibrationState.READY;
                 readyForSession = true;
             } else if ("FAIL".equals(resultClean) || "NACK".equals(statusClean)) {

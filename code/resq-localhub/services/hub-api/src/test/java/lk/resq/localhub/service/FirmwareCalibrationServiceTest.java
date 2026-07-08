@@ -50,7 +50,9 @@ class FirmwareCalibrationServiceTest {
 
         assertThat(response.deviceId()).isEqualTo("M01");
         assertThat(fixture.publisher.lastPayload).contains("\"hall_delta\":620");
-        assertThat(fixture.publisher.lastPayload).contains("\"ref_pressure\":20100");
+        assertThat(fixture.publisher.lastPayload).contains("\"ref_pressure\":1405000");
+        assertThat(fixture.publisher.lastPayload).contains("\"bladder_1_pressure\":1500000");
+        assertThat(fixture.publisher.lastPayload).contains("\"bladder_2_pressure\":1500000");
         assertThat(fixture.publisher.lastPayload).contains("\"profile_id\":\"adult-basic\"");
     }
 
@@ -158,6 +160,7 @@ class FirmwareCalibrationServiceTest {
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         ManikinRegistryService registry = new ManikinRegistryService(12);
+        registry.seedFromRegistration("M01", null);
         FirmwareCalibrationService service = new FirmwareCalibrationService(publisher, repository, profileService, registry);
         return new Fixture(service, repository, publisher, registry, profileService);
     }

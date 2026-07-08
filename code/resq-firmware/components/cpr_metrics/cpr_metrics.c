@@ -208,6 +208,14 @@ static bool pressure_is_saturated(int32_t value)
     return value > CPR_PRESSURE_SATURATION_RAW || value < -CPR_PRESSURE_SATURATION_RAW;
 }
 
+static bool calibration_uses_hall_only_pressure(void)
+{
+    return s_calib.pressure_mode == CALIBRATION_HALL_ONLY ||
+           s_calib.pressure_mode == CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE ||
+           s_calib.pressure_degraded ||
+           !s_calib.pressure_valid;
+}
+
 static uint8_t pressure_saturation_mask(const cpr_sensor_sample_t *sample)
 {
     uint8_t mask = 0;
@@ -290,7 +298,8 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     bool pressure_balanced = false;
     bool pressure_balance_saturated =
         (current_saturation_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) != 0;
-    bool pressure_balance_reliable = pressure_read_valid && !pressure_balance_saturated;
+    bool pressure_unavailable = calibration_uses_hall_only_pressure();
+    bool pressure_balance_reliable = pressure_read_valid && !pressure_balance_saturated && !pressure_unavailable;
     bool pressure_balance_held_center =
         pressure_read_valid &&
         ((current_saturation_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) ==
@@ -306,7 +315,11 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
      * pressure channels have different gains.
      */
     if (!pressure_balance_reliable) {
-        if (s_has_reliable_pressure_balance) {
+        if (pressure_unavailable) {
+            strncpy(s_hand_placement, "UNAVAILABLE", sizeof(s_hand_placement) - 1);
+            s_hand_placement[sizeof(s_hand_placement) - 1] = '\0';
+            s_pressure_balance_pct = 0.0f;
+        } else if (s_has_reliable_pressure_balance) {
             strncpy(s_hand_placement,
                     s_last_reliable_hand_placement,
                     sizeof(s_hand_placement) - 1);
@@ -406,7 +419,7 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                         pressure_ok = true;
                     }
 
-                    if (pressure_ok) {
+                    if (pressure_ok || pressure_unavailable) {
                         s_valid_compressions++;
                     }
                 }
@@ -491,6 +504,14 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->hand_placement[sizeof(out_snapshot->hand_placement) - 1] = '\0';
     out_snapshot->pressure_balance_pct = s_pressure_balance_pct;
     out_snapshot->pressure_balance_reliable = s_pressure_balance_reliable;
+    out_snapshot->pressure_mode = s_calib.pressure_mode;
+    out_snapshot->pressure_degraded = s_calib.pressure_degraded ||
+                                      s_calib.pressure_mode == CALIBRATION_HALL_ONLY ||
+                                      s_calib.pressure_mode == CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE ||
+                                      !s_calib.pressure_valid;
+    out_snapshot->using_last_stable_pressure = s_calib.using_last_stable_pressure;
+    out_snapshot->pressure_valid = s_calib.pressure_valid && !out_snapshot->pressure_degraded;
+    out_snapshot->hall_valid = s_calib.hall_valid;
     out_snapshot->pressure_saturation_mask = s_pressure_saturation_mask;
     out_snapshot->sensor_quality_flags = s_sensor_quality_flags;
     out_snapshot->missed_pressure_samples = s_missed_pressure_samples;
@@ -530,6 +551,9 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     }
     if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD) {
         append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "PRESSURE_BALANCE_HELD,");
+    }
+    if (calibration_uses_hall_only_pressure()) {
+        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HALL_ONLY,PRESSURE_UNAVAILABLE,");
     }
 
     if (strcmp(out_snapshot->hand_placement, "CENTER") == 0) {

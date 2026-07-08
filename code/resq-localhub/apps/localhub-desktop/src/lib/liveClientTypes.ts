@@ -75,9 +75,9 @@ export function toLiveClientUpdate(raw: unknown): LiveClientUpdate | null {
     calibrated: booleanOrNull(raw.calibrated) ?? firmware?.calibrated ?? null,
     sessionActive: booleanOrNull(raw.sessionActive) ?? booleanOrNull(raw.session_active) ?? firmware?.sessionActive ?? null,
     lastErrorId: text(raw.lastErrorId) ?? text(raw.last_error_id) ?? firmware?.lastErrorId ?? null,
-    reasonId: text(raw.reasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
-    actionId: numberOrNull(raw.actionId) ?? numberOrNull(raw.action_id) ?? firmware?.actionId ?? null,
-    progressId: numberOrNull(raw.progressId) ?? numberOrNull(raw.progress_id) ?? firmware?.progressId ?? null,
+    reasonId: text(raw.reasonId) ?? text(raw.calibrationReasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
+    actionId: numberOrNull(raw.actionId) ?? numberOrNull(raw.calibrationActionId) ?? numberOrNull(raw.action_id) ?? firmware?.actionId ?? null,
+    progressId: numberOrNull(raw.progressId) ?? numberOrNull(raw.calibrationProgressId) ?? numberOrNull(raw.progress_id) ?? firmware?.progressId ?? null,
     eventId: numberOrNull(raw.eventId) ?? numberOrNull(raw.event_id) ?? firmware?.eventId ?? null,
     debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
   };
@@ -108,7 +108,7 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
 
   let depthMm = numberOrNull(raw.depthMm ?? raw.depth_mm);
   const depthProgress = numberOrNull(raw.depthProgress ?? raw.depth_progress ?? firmware?.depthProgress);
-  let sourceMode = sourceModeOrNull(raw.sourceMode ?? raw.source_mode);
+  let sourceMode = sourceModeOrNull(raw.sourceMode ?? raw.source_mode ?? raw.depthSource ?? raw.depth_source);
   if (depthMm === null) {
     depthMm = numberOrNull(raw.current_delta ?? raw.currentDelta);
     if (depthMm !== null) {
@@ -163,9 +163,9 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
       calibrated: booleanOrNull(raw.calibrated) ?? firmware?.calibrated ?? null,
       lastErrorId: text(raw.lastErrorId) ?? text(raw.last_error_id) ?? firmware?.lastErrorId ?? null,
       eventId: numberOrNull(raw.eventId ?? raw.event_id ?? firmware?.eventId),
-      reasonId: text(raw.reasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
-      actionId: numberOrNull(raw.actionId ?? raw.action_id ?? firmware?.actionId),
-      progressId: numberOrNull(raw.progressId ?? raw.progress_id ?? firmware?.progressId),
+      reasonId: text(raw.reasonId) ?? text(raw.calibrationReasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
+      actionId: numberOrNull(raw.actionId ?? raw.calibrationActionId ?? raw.action_id ?? firmware?.actionId),
+      progressId: numberOrNull(raw.progressId ?? raw.calibrationProgressId ?? raw.progress_id ?? firmware?.progressId),
       validCompressionCount: numberOrNull(raw.validCompressionCount ?? raw.valid_compression_count ?? firmware?.validCompressionCount),
       recoilOkCount: numberOrNull(raw.recoilOkCount ?? raw.recoil_ok_count ?? firmware?.recoilOkCount),
       incompleteRecoilCount: numberOrNull(raw.incompleteRecoilCount ?? raw.incomplete_recoil_count ?? firmware?.incompleteRecoilCount),
@@ -230,8 +230,11 @@ function flagsOrNull(value: unknown): string | string[] | null {
 }
 
 function sourceModeOrNull(value: unknown): LiveMetricSourceMode | null {
-  if (value === "real" || value === "simulator" || value === "calibration" || value === "debug") {
+  if (value === "real" || value === "simulator" || value === "calibration" || value === "debug" || value === "hall") {
     return value;
+  }
+  if (typeof value === "string" && value.trim().toUpperCase() === "HALL") {
+    return "hall";
   }
   if (typeof value === "string" && value.trim()) {
     return "debug";

@@ -166,6 +166,28 @@ class DeviceReadinessServiceTest {
     }
 
     @Test
+    void event4002WithPassWithWarningsUpdatesToReadyAndReadyForSession() {
+        CalibrationMqttEvent passWithWarningsEvent = new CalibrationMqttEvent(
+                "device-01",
+                4002,
+                "req-1",
+                "ACK",
+                11,
+                "PASS_WITH_WARNINGS",
+                "08411",
+                0,
+                "READY_FOR_SESSION",
+                1005L,
+                Instant.now()
+        );
+        DeviceReadinessState state = service.handleCalibrationEvent("device-01", passWithWarningsEvent);
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.READY);
+        assertThat(state.readyForSession()).isTrue();
+        assertThat(service.isReadyForSession("device-01")).isTrue();
+        assertThat(state.lastReasonId()).isEqualTo("08411");
+    }
+
+    @Test
     void event4002WithResultFailOrStatusNackUpdatesToFailed() {
         CalibrationMqttEvent failEvent = new CalibrationMqttEvent(
                 "device-01",

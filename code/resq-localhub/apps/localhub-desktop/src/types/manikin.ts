@@ -45,6 +45,25 @@ export type ManikinLiveSummary = {
 
   pressureBalancePct: number | null;
   pressureSkewed: boolean | null;
+  firmwareState?: string | null;
+  calibrated?: boolean | null;
+  readyForSession?: boolean | null;
+  calibrationState?: CalibrationState | string | null;
+  progressId?: number | null;
+  reasonId?: string | null;
+  actionId?: number | null;
+  calibrationProgressId?: number | null;
+  calibrationReasonId?: string | null;
+  calibrationActionId?: number | null;
+  calibrationResult?: string | null;
+  profileId?: string | null;
+  pressureMode?: string | null;
+  pressureDegraded?: boolean | null;
+  usingLastStablePressure?: boolean | null;
+  pressureValid?: boolean | null;
+  hallValid?: boolean | null;
+  depthSource?: string | null;
+  warnings?: string | null;
 
   /** Session context fields (null when no active session) */
   activeSessionId: string | null;

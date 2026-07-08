@@ -126,6 +126,26 @@ class TelemetryPayloadNormalizerTest {
     }
 
     @Test
+    void mapsHallDepthSourceForPressureDegradedTelemetry() throws Exception {
+        var payload = objectMapper.readTree("""
+                {
+                  "session_id": "S-HALL-1",
+                  "depth_progress": 0.64,
+                  "depth_source": "HALL",
+                  "rate_cpm": 109,
+                  "pressure_valid": false,
+                  "pressure_degraded": true
+                }
+                """);
+
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult result =
+                TelemetryPayloadNormalizer.normalize(payload, "M01");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.value().sourceMode()).isEqualTo("hall");
+    }
+
+    @Test
     void keepsLegacyCurrentDeltaAndFeedbackCompatibility() throws Exception {
         var payload = objectMapper.readTree("""
                 {

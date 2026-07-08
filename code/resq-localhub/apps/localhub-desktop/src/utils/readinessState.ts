@@ -24,6 +24,8 @@ export const REASON_MESSAGES: Record<string, string> = {
   "08407": "Left/right pressure imbalance is too high.",
   "08408": "Calibration values are outside the valid range.",
   "08409": "Sensor readings are stuck or too noisy.",
+  "08411": "Pressure sensor saturated. Continuing with last stable pressure state and Hall sensor.",
+  "08418": "Hall sensor noise is too high for calibration.",
   "08701": "Calibration was cancelled."
 };
 

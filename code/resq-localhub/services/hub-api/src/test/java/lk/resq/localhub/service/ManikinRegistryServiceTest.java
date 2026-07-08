@@ -37,6 +37,8 @@ class ManikinRegistryServiceTest {
         assertThat(device.latestMetric()).isNotNull();
         assertThat(device.latestMetric().sessionId()).isEqualTo("S-TEST-001");
         assertThat(device.latestMetric().depthMm()).isEqualTo(52.0);
+        assertThat(device.latestDepthProgress()).isNull();
+        assertThat(device.latestCompressionCount()).isEqualTo(18);
         assertThat(device.seq()).isEqualTo(1L);
         assertThat(device.connectionState()).isEqualTo("BACKEND_SSE_FALLBACK");
         assertThat(device.stale()).isFalse();
@@ -136,8 +138,9 @@ class ManikinRegistryServiceTest {
     void statusAndHeartbeatAcceptSnakeCaseFieldsFromFirmwarePayloads() throws Exception {
         ManikinRegistryService registry = new ManikinRegistryService(12);
 
-        registry.updateFromStatus("M01", objectMapper.readTree("""
+        registry.updateFromStatus(" M01 ", objectMapper.readTree("""
                 {
+                  "device_id": "M01",
                   "session_id": "S-SNAKE",
                   "state": "PAIRED_IDLE",
                   "session_active": true,
@@ -184,6 +187,10 @@ class ManikinRegistryServiceTest {
         assertThat(calibrated.state()).isEqualTo("READY_FOR_SESSION");
         assertThat(calibrated.lastEventType()).isEqualTo("4001");
         assertThat(calibrated.sessionActive()).isFalse();
+        ManikinLiveSummary liveCalibrated = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(liveCalibrated.calibrated()).isTrue();
+        assertThat(liveCalibrated.readyForSession()).isTrue();
+        assertThat(liveCalibrated.calibrationResult()).isEqualTo("pass");
 
         registry.updateFromErrorEvent("M01", objectMapper.readTree("""
                 {

@@ -62,6 +62,11 @@
 #define NVS_KEY_PRESSURE_CONTACT    "p_contact"
 #define NVS_KEY_PRESSURE_VALID      "p_valid"
 #define NVS_KEY_PRESSURE_BALANCE_PCT "p_balance_pct"
+#define NVS_KEY_PRESSURE_MODE       "p_mode"
+#define NVS_KEY_PRESSURE_DEGRADED   "p_degraded"
+#define NVS_KEY_USING_LAST_PRESSURE "p_last_ok"
+#define NVS_KEY_PRESSURE_OK         "p_ok"
+#define NVS_KEY_HALL_OK             "hall_ok"
 
 #define NVS_KEY_CAL_SAMPLES         "cal_samples"
 #define NVS_KEY_CAL_WINDOW_MS       "cal_window_ms"
@@ -321,6 +326,29 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
     nvs_get_i32(handle, NVS_KEY_PRESSURE_CONTACT, &config->pressure_contact_threshold);
     nvs_get_i32(handle, NVS_KEY_PRESSURE_VALID, &config->pressure_valid_threshold);
     nvs_get_i32(handle, NVS_KEY_PRESSURE_BALANCE_PCT, &config->pressure_balance_allowed_pct);
+    {
+        int32_t pressure_mode = config->pressure_mode;
+        if (nvs_get_i32(handle, NVS_KEY_PRESSURE_MODE, &pressure_mode) == ESP_OK &&
+            pressure_mode >= CALIBRATION_PRESSURE_REQUIRED &&
+            pressure_mode <= CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE) {
+            config->pressure_mode = (calibration_pressure_mode_t)pressure_mode;
+        }
+    }
+    {
+        uint8_t flag = 0;
+        if (nvs_get_u8(handle, NVS_KEY_PRESSURE_DEGRADED, &flag) == ESP_OK) {
+            config->pressure_degraded = flag ? true : false;
+        }
+        if (nvs_get_u8(handle, NVS_KEY_USING_LAST_PRESSURE, &flag) == ESP_OK) {
+            config->using_last_stable_pressure = flag ? true : false;
+        }
+        if (nvs_get_u8(handle, NVS_KEY_PRESSURE_OK, &flag) == ESP_OK) {
+            config->pressure_valid = flag ? true : false;
+        }
+        if (nvs_get_u8(handle, NVS_KEY_HALL_OK, &flag) == ESP_OK) {
+            config->hall_valid = flag ? true : false;
+        }
+    }
 
     nvs_get_i32(handle, NVS_KEY_CAL_SAMPLES, &config->calibration_sample_count);
     nvs_get_i32(handle, NVS_KEY_CAL_WINDOW_MS, &config->calibration_window_ms);
@@ -419,6 +447,16 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE_VALID, config->pressure_valid_threshold);
     if (err != ESP_OK) goto exit;
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE_BALANCE_PCT, config->pressure_balance_allowed_pct);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_i32(handle, NVS_KEY_PRESSURE_MODE, (int32_t)config->pressure_mode);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_u8(handle, NVS_KEY_PRESSURE_DEGRADED, config->pressure_degraded ? 1 : 0);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_u8(handle, NVS_KEY_USING_LAST_PRESSURE, config->using_last_stable_pressure ? 1 : 0);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_u8(handle, NVS_KEY_PRESSURE_OK, config->pressure_valid ? 1 : 0);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_u8(handle, NVS_KEY_HALL_OK, config->hall_valid ? 1 : 0);
     if (err != ESP_OK) goto exit;
 
     err = nvs_set_i32(handle, NVS_KEY_CAL_SAMPLES, config->calibration_sample_count);

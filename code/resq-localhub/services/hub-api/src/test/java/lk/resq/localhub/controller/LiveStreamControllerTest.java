@@ -3,6 +3,7 @@ package lk.resq.localhub.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lk.resq.localhub.model.AuthUser;
+import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.ActiveSessionService;
@@ -19,6 +20,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -66,9 +69,49 @@ class LiveStreamControllerTest {
         assertThat(response.getBody()).isNull();
     }
 
+    @Test
+    void streamManikinsLiveSubscribesWithInitialSnapshot() throws Exception {
+        DummyLiveStreamService liveStreamService = new DummyLiveStreamService();
+        DummyManikinRegistryService registryService = new DummyManikinRegistryService();
+        registryService.updateFromStatus("M-DEV", new ObjectMapper().readTree("""
+                {
+                  "device_id": "M-DEV",
+                  "state": "PAIRED_IDLE",
+                  "session_active": false,
+                  "ip": "192.168.8.161",
+                  "ts_ms": 5324
+                }
+                """));
+
+        LiveStreamController liveController = new LiveStreamController(
+                liveStreamService,
+                registryService,
+                new DummyActiveSessionService(),
+                authService,
+                calibrationStreamService
+        );
+
+        ResponseEntity<SseEmitter> response = liveController.streamManikinsLive(null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(liveStreamService.initialInstructorSnapshots).hasSize(1);
+        assertThat(liveStreamService.initialInstructorSnapshots.get(0))
+                .extracting(ManikinLiveSummary::deviceId)
+                .containsExactly("M-DEV");
+    }
+
     private static final class DummyLiveStreamService extends LiveStreamService {
+        private final List<List<ManikinLiveSummary>> initialInstructorSnapshots = new ArrayList<>();
+
         private DummyLiveStreamService() {
             super();
+        }
+
+        @Override
+        public SseEmitter subscribeInstructor(List<ManikinLiveSummary> initialPayload) {
+            initialInstructorSnapshots.add(initialPayload);
+            return new SseEmitter(0L);
         }
     }
 
@@ -81,6 +124,11 @@ class LiveStreamControllerTest {
     private static final class DummyActiveSessionService extends ActiveSessionService {
         private DummyActiveSessionService() {
             super(null, null, null, null, null, null, null);
+        }
+
+        @Override
+        public ManikinLiveSummary decorateLiveSummary(ManikinLiveSummary summary) {
+            return summary;
         }
     }
 

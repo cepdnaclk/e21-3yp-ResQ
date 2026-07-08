@@ -43,6 +43,22 @@ TEST_CASE("Calibration reason table covers every documented failure", "[calibrat
     }
 }
 
+TEST_CASE("Calibration pressure saturation fallback is documented as a warning", "[calibration]")
+{
+    const calibration_reason_entry_t *entry =
+        calibration_codes_get_reason_entry(
+            CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE);
+
+    TEST_ASSERT_NOT_NULL(entry);
+    TEST_ASSERT_EQUAL(CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
+                      entry->reason_id);
+    TEST_ASSERT_EQUAL_STRING("PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE",
+                             entry->reason_code);
+    TEST_ASSERT_EQUAL(CAL_ACTION_NONE,
+                      calibration_codes_default_action_for_reason(
+                          CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE));
+}
+
 TEST_CASE("Calibration code lookups reject unknown IDs", "[calibration]")
 {
     TEST_ASSERT_EQUAL(CAL_REASON_NONE,

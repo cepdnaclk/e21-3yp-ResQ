@@ -44,6 +44,11 @@ typedef struct {
     char hand_placement[CPR_HAND_PLACEMENT_MAX_LEN];
     float pressure_balance_pct;
     bool pressure_balance_reliable;
+    calibration_pressure_mode_t pressure_mode;
+    bool pressure_degraded;
+    bool using_last_stable_pressure;
+    bool pressure_valid;
+    bool hall_valid;
     uint8_t pressure_saturation_mask;
     uint32_t sensor_quality_flags;
     int missed_pressure_samples;

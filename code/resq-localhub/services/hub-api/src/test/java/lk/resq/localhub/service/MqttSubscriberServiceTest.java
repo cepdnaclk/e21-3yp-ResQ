@@ -51,39 +51,67 @@ class MqttSubscriberServiceTest {
     }
 
     @Test
-    void statusAndHeartbeatPopulateLiveRegistry() throws Exception {
+    void currentFirmwareStatusAndHeartbeatPopulateLiveRegistryAndSse() throws Exception {
         LiveRegistryFixture fixture = newLiveRegistryFixture();
+        Instant beforeStatus = Instant.now();
 
-        fixture.subscriber().handleMessage("resq/manikins/M01/status", message("""
+        fixture.subscriber().handleMessage("resq/M-DEV/status", message("""
             {
-              "sessionId": "S-LIVE-1",
-              "state": "READY_FOR_SESSION",
-              "sessionActive": false,
-              "ip": "192.168.1.44",
-              "fw": "1.2.3"
+              "event_id": 1001,
+              "device_id": "M-DEV",
+              "state": "PAIRED_IDLE",
+              "session_active": false,
+              "session_id": "",
+              "calibrated": false,
+              "hall_range_raw": 0,
+              "pressure_contact_threshold": 0,
+              "pressure_valid_threshold": 0,
+              "ip": "192.168.8.161",
+              "ts_ms": 5324
             }
             """));
 
-        fixture.subscriber().handleMessage("resq/manikins/M01/heartbeat", message("""
+        ManikinLiveSummary afterStatus = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
+        assertThat(afterStatus.online()).isTrue();
+        assertThat(afterStatus.state()).isEqualTo("PAIRED_IDLE");
+        assertThat(afterStatus.lastSeen()).isAfterOrEqualTo(beforeStatus);
+        assertThat(afterStatus.lastSeen().toEpochMilli()).isGreaterThan(1_000_000_000_000L);
+        assertThat(afterStatus.ip()).isEqualTo("192.168.8.161");
+        assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).isNotEmpty();
+
+        Instant statusLastSeen = afterStatus.lastSeen();
+        Thread.sleep(2L);
+
+        fixture.subscriber().handleMessage("resq/M-DEV/heartbeat", message("""
             {
-              "sessionId": "S-LIVE-1",
-              "manikinId": "MK-01",
-              "rssi": -62,
-              "battery": 91
+              "device_id": "M-DEV",
+              "wifi_connected": true,
+              "mqtt_connected": true,
+              "session_active": false,
+              "sensor_running": false,
+              "session_id": "",
+              "calibrated": false,
+              "ip": "192.168.8.161",
+              "force1_ok": true,
+              "force2_ok": true,
+              "hall_ok": true,
+              "compression_count": 0,
+              "ts_ms": 5824
             }
             """));
 
-        ManikinLiveSummary liveSummary = fixture.registry().getLiveSummary("M01").orElseThrow();
+        ManikinLiveSummary liveSummary = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
         assertThat(liveSummary.online()).isTrue();
-        assertThat(liveSummary.state()).isEqualTo("READY_FOR_SESSION");
-        assertThat(liveSummary.sessionId()).isEqualTo("S-LIVE-1");
-        assertThat(liveSummary.manikinId()).isEqualTo("MK-01");
-        assertThat(liveSummary.ip()).isEqualTo("192.168.1.44");
-        assertThat(liveSummary.fw()).isEqualTo("1.2.3");
-        assertThat(liveSummary.rssi()).isEqualTo(-62);
-        assertThat(liveSummary.battery()).isEqualTo(91);
+        assertThat(liveSummary.lastSeen()).isAfter(statusLastSeen);
+        assertThat(liveSummary.state()).isEqualTo("PAIRED_IDLE");
+        assertThat(liveSummary.sessionActive()).isFalse();
+        assertThat(liveSummary.ip()).isEqualTo("192.168.8.161");
         assertThat(liveSummary.stale()).isFalse();
         assertThat(liveSummary.offline()).isFalse();
+        List<List<ManikinLiveSummary>> snapshots = fixture.liveStreamService().getInstructorLiveSnapshots();
+        assertThat(snapshots.get(snapshots.size() - 1))
+                .extracting(ManikinLiveSummary::deviceId)
+                .contains("M-DEV");
     }
 
     @Test
@@ -224,6 +252,10 @@ class MqttSubscriberServiceTest {
             """.formatted(session.sessionId())));
 
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
+        var liveSummary = fixture.registry().getLiveSummary("M01").orElseThrow();
+        assertThat(liveSummary.online()).isTrue();
+        assertThat(liveSummary.offline()).isFalse();
+        assertThat(liveSummary.stale()).isFalse();
         assertThat(liveView.deviceId()).isEqualTo("M01");
         assertThat(liveView.latestDepthMm()).isEqualTo(39.0);
         assertThat(liveView.latestMetric()).isNotNull();
@@ -295,7 +327,7 @@ class MqttSubscriberServiceTest {
             {
               "event_id": 4001,
               "progress_id": 2,
-              "reason_id": "00000",
+              "reason_id": 0,
               "state": "CALIBRATING",
               "action_id": 0,
               "ts_ms": 123456
@@ -335,7 +367,7 @@ class MqttSubscriberServiceTest {
             {
               "event_id": 4001,
               "progress_id": 2,
-              "reason_id": "00000",
+              "reason_id": 0,
               "state": "CALIBRATING",
               "action_id": 0,
               "ts_ms": 123456
@@ -346,6 +378,14 @@ class MqttSubscriberServiceTest {
         assertThat(updateEvent.type()).isEqualTo("calibration_update");
         assertThat(updateEvent.eventId()).isEqualTo(4001);
         assertThat(updateEvent.progressId()).isEqualTo(2);
+        assertThat(updateEvent.reasonId()).isEqualTo("00000");
+        assertThat(fixture.readinessService().getReadiness("M01").lastReasonId()).isEqualTo("00000");
+        ManikinLiveSummary liveAfterProgress = fixture.registry().getLiveSummary("M01").orElseThrow();
+        assertThat(liveAfterProgress.online()).isTrue();
+        assertThat(liveAfterProgress.calibrationProgressId()).isEqualTo(2);
+        assertThat(liveAfterProgress.progressId()).isEqualTo(2);
+        assertThat(liveAfterProgress.calibrationReasonId()).isEqualTo("00000");
+        assertThat(liveAfterProgress.readyForSession()).isFalse();
 
         // 2. Send Event 4002 result PASS
         subscriber.handleMessage("resq/M01/events/calibration", message("""
@@ -365,6 +405,51 @@ class MqttSubscriberServiceTest {
         assertThat(finalEvent.type()).isEqualTo("calibration_final");
         assertThat(finalEvent.eventId()).isEqualTo(4002);
         assertThat(finalEvent.readyForSession()).isTrue();
+        ManikinLiveSummary liveAfterFinal = fixture.registry().getLiveSummary("M01").orElseThrow();
+        assertThat(liveAfterFinal.calibrated()).isTrue();
+        assertThat(liveAfterFinal.readyForSession()).isTrue();
+        assertThat(liveAfterFinal.calibrationResult()).isEqualTo("PASS");
+    }
+
+    @Test
+    void passWithWarningsPreservesPressureFallbackFieldsInLiveRegistry() throws Exception {
+        ServiceFixture fixture = newFixture(newRepository());
+
+        fixture.subscriber().handleMessage("resq/M01/events/calibration", message("""
+            {
+              "event_id": 4002,
+              "reply_id": "req-200-0001",
+              "status": "ACK",
+              "result": "PASS_WITH_WARNINGS",
+              "progress_id": 11,
+              "reason_id": "08411",
+              "action_id": 0,
+              "state": "READY_FOR_SESSION",
+              "pressure_mode": "HALL_WITH_LAST_STABLE_PRESSURE",
+              "pressure_degraded": true,
+              "using_last_stable_pressure": true,
+              "pressure_valid": false,
+              "hall_valid": true,
+              "warnings": "PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE",
+              "ts_ms": 123456
+            }
+            """));
+
+        DeviceReadinessState readiness = fixture.readinessService().getReadiness("M01");
+        assertThat(readiness.calibrationState()).isEqualTo(CalibrationState.READY);
+        assertThat(readiness.readyForSession()).isTrue();
+        assertThat(readiness.lastReasonId()).isEqualTo("08411");
+
+        ManikinLiveSummary live = fixture.registry().getLiveSummary("M01").orElseThrow();
+        assertThat(live.calibrated()).isTrue();
+        assertThat(live.readyForSession()).isTrue();
+        assertThat(live.calibrationResult()).isEqualTo("PASS_WITH_WARNINGS");
+        assertThat(live.pressureMode()).isEqualTo("HALL_WITH_LAST_STABLE_PRESSURE");
+        assertThat(live.pressureDegraded()).isTrue();
+        assertThat(live.usingLastStablePressure()).isTrue();
+        assertThat(live.pressureValid()).isFalse();
+        assertThat(live.hallValid()).isTrue();
+        assertThat(live.warnings()).contains("PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE");
     }
 
     @Test
@@ -507,7 +592,7 @@ class MqttSubscriberServiceTest {
                 null,
                 null
         );
-        return new ServiceFixture(subscriber, activeSessionService, liveStreamService, readinessService, calibrationStreamService);
+        return new ServiceFixture(subscriber, registry, activeSessionService, liveStreamService, readinessService, calibrationStreamService);
     }
 
     private LiveRegistryFixture newLiveRegistryFixture() throws Exception {
@@ -556,11 +641,12 @@ class MqttSubscriberServiceTest {
                 null,
                 null
         );
-        return new LiveRegistryFixture(subscriber, registry);
+        return new LiveRegistryFixture(subscriber, registry, liveStreamService);
     }
 
     private record ServiceFixture(
             MqttSubscriberService subscriber,
+            ManikinRegistryService registry,
             ActiveSessionService activeSessionService,
             CapturingLiveStreamService liveStreamService,
             DeviceReadinessService readinessService,
@@ -570,7 +656,8 @@ class MqttSubscriberServiceTest {
 
         private record LiveRegistryFixture(
             MqttSubscriberService subscriber,
-            ManikinRegistryService registry
+            ManikinRegistryService registry,
+            CapturingLiveStreamService liveStreamService
         ) {
         }
 
@@ -627,6 +714,12 @@ class MqttSubscriberServiceTest {
 
     private static final class CapturingLiveStreamService extends LiveStreamService {
         private final List<lk.resq.localhub.model.SessionLiveView> sessionLiveViews = new java.util.ArrayList<>();
+        private final List<List<ManikinLiveSummary>> instructorLiveSnapshots = new java.util.ArrayList<>();
+
+        @Override
+        public void publishInstructorLive(List<ManikinLiveSummary> payload) {
+            instructorLiveSnapshots.add(payload);
+        }
 
         @Override
         public void publishSessionLive(String sessionId, lk.resq.localhub.model.SessionLiveView payload) {
@@ -637,6 +730,10 @@ class MqttSubscriberServiceTest {
 
         public List<lk.resq.localhub.model.SessionLiveView> getSessionLiveViews() {
             return sessionLiveViews;
+        }
+
+        public List<List<ManikinLiveSummary>> getInstructorLiveSnapshots() {
+            return instructorLiveSnapshots;
         }
     }
 

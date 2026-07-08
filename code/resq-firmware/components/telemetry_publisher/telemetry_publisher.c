@@ -25,6 +25,22 @@ static volatile bool s_running = false;
 #define TELEMETRY_TASK_START_TIMEOUT_MS 1000
 #define TELEMETRY_TASK_STOP_TIMEOUT_MS 1500
 
+static const char *calibration_pressure_mode_to_string(calibration_pressure_mode_t mode)
+{
+    switch (mode) {
+        case CALIBRATION_PRESSURE_REQUIRED:
+            return "REQUIRED";
+        case CALIBRATION_PRESSURE_OPTIONAL:
+            return "OPTIONAL";
+        case CALIBRATION_HALL_ONLY:
+            return "HALL_ONLY";
+        case CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE:
+            return "HALL_WITH_LAST_STABLE_PRESSURE";
+        default:
+            return "OPTIONAL";
+    }
+}
+
 static void telemetry_task(void *arg)
 {
     (void)arg;
@@ -54,6 +70,7 @@ static void telemetry_task(void *arg)
             "\"session_id\":\"%s\"," 
             "\"state\":\"SESSION_ACTIVE\"," 
             "\"depth_progress\":%.3f," 
+            "\"depth_source\":\"HALL\","
             "\"depth_ok\":%s," 
             "\"rate_cpm\":%.1f," 
             "\"compression_count\":%d," 
@@ -64,6 +81,11 @@ static void telemetry_task(void *arg)
             "\"hand_placement\":\"%s\"," 
             "\"pressure_balance_pct\":%.2f," 
             "\"pressure_balance_reliable\":%s,"
+            "\"pressure_mode\":\"%s\","
+            "\"pressure_valid\":%s,"
+            "\"pressure_degraded\":%s,"
+            "\"using_last_stable_pressure\":%s,"
+            "\"hall_valid\":%s,"
             "\"pressure_saturation_mask\":%u,"
             "\"sensor_quality_flags\":%u,"
             "\"missed_pressure_samples\":%d,"
@@ -84,6 +106,11 @@ static void telemetry_task(void *arg)
             snap.hand_placement,
             snap.pressure_balance_pct,
             snap.pressure_balance_reliable ? "true" : "false",
+            calibration_pressure_mode_to_string(snap.pressure_mode),
+            snap.pressure_valid ? "true" : "false",
+            snap.pressure_degraded ? "true" : "false",
+            snap.using_last_stable_pressure ? "true" : "false",
+            snap.hall_valid ? "true" : "false",
             (unsigned int)snap.pressure_saturation_mask,
             (unsigned int)snap.sensor_quality_flags,
             snap.missed_pressure_samples,

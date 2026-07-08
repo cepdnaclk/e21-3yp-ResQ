@@ -17,6 +17,22 @@
 
 static const char *TAG = "mqtt_manager";
 
+static const char *calibration_pressure_mode_to_string(calibration_pressure_mode_t mode)
+{
+    switch (mode) {
+        case CALIBRATION_PRESSURE_REQUIRED:
+            return "REQUIRED";
+        case CALIBRATION_PRESSURE_OPTIONAL:
+            return "OPTIONAL";
+        case CALIBRATION_HALL_ONLY:
+            return "HALL_ONLY";
+        case CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE:
+            return "HALL_WITH_LAST_STABLE_PRESSURE";
+        default:
+            return "OPTIONAL";
+    }
+}
+
 /* Topic model centralized in mqtt_topics.h */
 #include "mqtt_topics.h"
 
@@ -413,6 +429,12 @@ esp_err_t mqtt_manager_publish_status(resq_state_t state,
         cJSON_AddNumberToObject(root, "hall_range_raw", calibration_config->hall_range_raw);
         cJSON_AddNumberToObject(root, "pressure_contact_threshold", calibration_config->pressure_contact_threshold);
         cJSON_AddNumberToObject(root, "pressure_valid_threshold", calibration_config->pressure_valid_threshold);
+        cJSON_AddStringToObject(root, "pressure_mode", calibration_pressure_mode_to_string(calibration_config->pressure_mode));
+        cJSON_AddBoolToObject(root, "pressure_degraded", calibration_config->pressure_degraded);
+        cJSON_AddBoolToObject(root, "using_last_stable_pressure", calibration_config->using_last_stable_pressure);
+        cJSON_AddBoolToObject(root, "pressure_valid", calibration_config->pressure_valid);
+        cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
+        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_config->hall_valid);
     }
 
     cJSON_AddStringToObject(root, "ip", ip ? ip : "");
@@ -454,6 +476,14 @@ esp_err_t mqtt_manager_publish_error_status(resq_state_t state,
 
     bool calibrated = (calibration_config && calibration_config->calibrated);
     cJSON_AddBoolToObject(root, "calibrated", calibrated);
+    if (calibration_config) {
+        cJSON_AddStringToObject(root, "pressure_mode", calibration_pressure_mode_to_string(calibration_config->pressure_mode));
+        cJSON_AddBoolToObject(root, "pressure_degraded", calibration_config->pressure_degraded);
+        cJSON_AddBoolToObject(root, "using_last_stable_pressure", calibration_config->using_last_stable_pressure);
+        cJSON_AddBoolToObject(root, "pressure_valid", calibration_config->pressure_valid);
+        cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
+        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_config->hall_valid);
+    }
 
     cJSON_AddNumberToObject(root, "last_error_id", last_error_id);
 
@@ -539,6 +569,14 @@ esp_err_t mqtt_manager_publish_heartbeat(const network_config_t *network_config,
 
     bool calibrated = (calibration_config && calibration_config->calibrated);
     cJSON_AddBoolToObject(root, "calibrated", calibrated);
+    if (calibration_config) {
+        cJSON_AddStringToObject(root, "pressure_mode", calibration_pressure_mode_to_string(calibration_config->pressure_mode));
+        cJSON_AddBoolToObject(root, "pressure_degraded", calibration_config->pressure_degraded);
+        cJSON_AddBoolToObject(root, "using_last_stable_pressure", calibration_config->using_last_stable_pressure);
+        cJSON_AddBoolToObject(root, "pressure_valid", calibration_config->pressure_valid);
+        cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
+        cJSON_AddBoolToObject(root, "ready_for_session", calibrated && calibration_config->hall_valid);
+    }
 
     cJSON_AddStringToObject(root, "ip", ip ? ip : "");
     cJSON_AddNumberToObject(root, "rssi", rssi);

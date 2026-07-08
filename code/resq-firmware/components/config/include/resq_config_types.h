@@ -47,6 +47,13 @@ typedef struct
 
 } network_config_t;
 
+typedef enum {
+    CALIBRATION_PRESSURE_REQUIRED = 0,
+    CALIBRATION_PRESSURE_OPTIONAL = 1,
+    CALIBRATION_HALL_ONLY = 2,
+    CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE = 3
+} calibration_pressure_mode_t;
+
 /* =========================================================
  * Calibration configuration
  *
@@ -104,6 +111,12 @@ typedef struct
     int32_t pressure_contact_threshold;
     int32_t pressure_valid_threshold;
     int32_t pressure_balance_allowed_pct;
+
+    calibration_pressure_mode_t pressure_mode;
+    bool pressure_degraded;
+    bool using_last_stable_pressure;
+    bool pressure_valid;
+    bool hall_valid;
 
     int32_t calibration_sample_count;
     int32_t calibration_window_ms;

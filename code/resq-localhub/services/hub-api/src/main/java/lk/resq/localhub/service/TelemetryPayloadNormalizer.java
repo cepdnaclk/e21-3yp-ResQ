@@ -46,7 +46,7 @@ final class TelemetryPayloadNormalizer {
 
         Double depthMm = firstDouble(payload, "depthMm", "depth_mm");
         Double depthProgress = firstDouble(payload, "depthProgress", "depth_progress");
-        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "mode"));
+        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "depthSource", "depth_source", "mode"));
 
         Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
 
@@ -188,7 +188,7 @@ final class TelemetryPayloadNormalizer {
         }
         String normalized = value.toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "real", "simulator", "calibration", "debug" -> normalized;
+            case "real", "simulator", "calibration", "debug", "hall" -> normalized;
             default -> "debug";
         };
     }

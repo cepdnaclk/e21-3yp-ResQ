@@ -449,7 +449,7 @@ public class MqttSubscriberService {
         String requestId = firstText(payload, "request_id", "requestId");
         String status = firstText(payload, "status");
         String result = firstText(payload, "result");
-        String reasonId = firstText(payload, "reason_id", "reasonId");
+        String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
         Integer actionId = integer(payload, "action_id", "actionId");
         Integer progressId = integer(payload, "progress_id", "progressId");
         String firmwareState = firstText(payload, "state");
@@ -535,7 +535,7 @@ public class MqttSubscriberService {
         String status = firstText(payload, "status");
         Integer progressId = integer(payload, "progress_id", "progressId");
         String result = firstText(payload, "result");
-        String reasonId = firstText(payload, "reason_id", "reasonId");
+        String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
         Integer actionId = integer(payload, "action_id", "actionId");
         String firmwareState = firstText(payload, "state");
         Long tsMs = longValue(payload, "ts_ms", "tsMs");
@@ -664,7 +664,7 @@ public class MqttSubscriberService {
 
         String normalized = result.trim().toUpperCase(Locale.ROOT);
         return switch (normalized) {
-            case "PASS", "READY", "CALIBRATED" -> true;
+            case "PASS", "PASS_WITH_WARNINGS", "READY", "CALIBRATED" -> true;
             case "FAIL", "FAILED", "CANCELLED", "CANCELED" -> false;
             default -> null;
         };
@@ -732,6 +732,74 @@ public class MqttSubscriberService {
         }
 
         return null;
+    }
+
+    private static String firstScalarAsText(JsonNode payload, String... keys) {
+        if (payload == null) {
+            return null;
+        }
+
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isTextual() || node.isNumber() || node.isBoolean()) {
+                String value = node.asText().trim();
+                if (!value.isEmpty()) {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static String normalizedReasonId(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        if (trimmed.chars().allMatch(Character::isDigit)) {
+            int numeric = Integer.parseInt(trimmed);
+            return switch (numeric) {
+                case 0 -> "00000";
+                case 100 -> "08101";
+                case 101 -> "08102";
+                case 102 -> "08103";
+                case 200 -> "08401";
+                case 201 -> "08402";
+                case 202 -> "08403";
+                case 203 -> "08404";
+                case 204 -> "08405";
+                case 205 -> "08406";
+                case 206 -> "08407";
+                case 207 -> "08408";
+                case 208 -> "08409";
+                case 209 -> "08410";
+                case 210 -> "08418";
+                case 211 -> "08412";
+                case 212 -> "08413";
+                case 213 -> "08414";
+                case 214 -> "08415";
+                case 215 -> "08416";
+                case 216 -> "08417";
+                case 217 -> "08411";
+                case 300 -> "08301";
+                case 400 -> "08501";
+                case 401 -> "08502";
+                case 900 -> "08701";
+                default -> String.format(Locale.ROOT, "%05d", numeric);
+            };
+        }
+
+        return trimmed;
     }
 
     private static FirmwarePersistenceRepository defaultFirmwarePersistenceRepository() {

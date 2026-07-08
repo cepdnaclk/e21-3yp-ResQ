@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveReadinessUiState } from "./readinessState";
+import { deriveReadinessUiState, getFriendlyReason } from "./readinessState";
 
 describe("deriveReadinessUiState", () => {
   it("keeps calibration visible even when the live snapshot is temporarily stale", () => {
@@ -48,5 +48,9 @@ describe("deriveReadinessUiState", () => {
         },
       ),
     ).toBe("CALIBRATING");
+  });
+
+  it("explains pressure saturation fallback warnings", () => {
+    expect(getFriendlyReason("08411")).toContain("last stable pressure");
   });
 });

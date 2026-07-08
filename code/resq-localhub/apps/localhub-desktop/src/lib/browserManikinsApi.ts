@@ -12,6 +12,23 @@ export type ManikinLiveSummary = {
   sessionActive: boolean | null;
   firmwareState?: string | null;
   calibrated?: boolean | null;
+  readyForSession?: boolean | null;
+  calibrationState?: string | null;
+  progressId?: number | null;
+  reasonId?: string | null;
+  actionId?: number | null;
+  calibrationProgressId?: number | null;
+  calibrationReasonId?: string | null;
+  calibrationActionId?: number | null;
+  calibrationResult?: string | null;
+  profileId?: string | null;
+  pressureMode?: string | null;
+  pressureDegraded?: boolean | null;
+  usingLastStablePressure?: boolean | null;
+  pressureValid?: boolean | null;
+  hallValid?: boolean | null;
+  depthSource?: string | null;
+  warnings?: string | null;
   lastErrorId?: string | null;
   latestDepthMm: number | null;
   latestDepthProgress?: number | null;
@@ -103,6 +120,23 @@ function normalizeLiveSummary(value: unknown): ManikinLiveSummary | null {
     sessionActive: asBoolean(record.sessionActive),
     firmwareState: asString(record.firmwareState),
     calibrated: asBoolean(record.calibrated),
+    readyForSession: asBoolean(record.readyForSession),
+    calibrationState: asString(record.calibrationState),
+    progressId: asNumber(record.progressId),
+    reasonId: asString(record.reasonId),
+    actionId: asNumber(record.actionId),
+    calibrationProgressId: asNumber(record.calibrationProgressId),
+    calibrationReasonId: asString(record.calibrationReasonId),
+    calibrationActionId: asNumber(record.calibrationActionId),
+    calibrationResult: asString(record.calibrationResult),
+    profileId: asString(record.profileId),
+    pressureMode: asString(record.pressureMode),
+    pressureDegraded: asBoolean(record.pressureDegraded),
+    usingLastStablePressure: asBoolean(record.usingLastStablePressure),
+    pressureValid: asBoolean(record.pressureValid),
+    hallValid: asBoolean(record.hallValid),
+    depthSource: asString(record.depthSource),
+    warnings: asString(record.warnings),
     lastErrorId: asString(record.lastErrorId),
     latestDepthMm: asNumber(record.latestDepthMm),
     latestDepthProgress: asNumber(record.latestDepthProgress),
