@@ -17,6 +17,7 @@ class FirmwareTopicsTest {
         assertThat(FirmwareTopics.calibrationEventsTopic("M01")).isEqualTo("resq/M01/events/calibration");
         assertThat(FirmwareTopics.errorEventsTopic("M01")).isEqualTo("resq/M01/events/error");
         assertThat(FirmwareTopics.sessionStartCommandTopic("M01")).isEqualTo("resq/M01/cmd/session/start");
+        assertThat(FirmwareTopics.telemetryCommandTopic("M01")).isEqualTo("resq/M01/cmd/telemetry");
         assertThat(FirmwareTopics.systemFlushConfigCommandTopic("M01")).isEqualTo("resq/M01/cmd/system/flush-config");
     }
 }

@@ -25,6 +25,7 @@
 #include "calibration_manager.h"
 #include "session_active_manager.h"
 #include "system_button_manager.h"
+#include "telemetry_publisher.h"
 
 static const char *TAG = "paired_idle";
 
@@ -198,6 +199,15 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                  command_suffix,
                  resq_state_to_string(visible_state));
 
+        if (strcmp(command_suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+            telemetry_publisher_handle_sensor_stream_command(network_config,
+                                                             visible_state,
+                                                             calibration_config,
+                                                             &command,
+                                                             true);
+            continue;
+        }
+
         if (strcmp(command_suffix, "cmd/debug") == 0) {
             esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
 
@@ -291,6 +301,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                 continue;
             }
 
+            telemetry_publisher_stop_sensor_stream();
+
             /* attempt to start active session; pass full command context so the
              * session manager can reply using the request_id */
             resq_state_t start_state = session_active_manager_start(network_config,
@@ -361,6 +373,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
             }
 
             calibration_config->calibrated = false;
+
+            telemetry_publisher_stop_sensor_stream();
 
             esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
                                                                                       visible_state,

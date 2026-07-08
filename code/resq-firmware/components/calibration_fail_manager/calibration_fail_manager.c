@@ -19,6 +19,7 @@
 #include "status_indicator.h"
 #include "wifi_manager.h"
 #include "esp_timer.h"
+#include "telemetry_publisher.h"
 
 static const char *TAG = "calibration_fail_mgr";
 static bool s_initialized = false;
@@ -194,6 +195,15 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
             continue;
         }
 
+        if (strcmp(suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+            telemetry_publisher_handle_sensor_stream_command(network_config,
+                                                             RESQ_STATE_CALIBRATION_FAIL,
+                                                             calibration_config,
+                                                             &command,
+                                                             true);
+            continue;
+        }
+
         if (strcmp(suffix, "cmd/calibration/cancel") == 0) {
             char reply_id[128] = {0};
             if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
@@ -310,6 +320,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
             calibration_manager_drop_temporary_values();
 
             parsed.calibrated = false;
+
+            telemetry_publisher_stop_sensor_stream();
 
             esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
                                                                                       RESQ_STATE_CALIBRATION_FAIL,

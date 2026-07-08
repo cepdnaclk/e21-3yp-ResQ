@@ -15,6 +15,7 @@
 #define RESQ_SUFFIX_CMD_CALIBRATION_CANCEL    "cmd/calibration/cancel"
 #define RESQ_SUFFIX_CMD_SESSION_START         "cmd/session/start"
 #define RESQ_SUFFIX_CMD_SESSION_STOP          "cmd/session/stop"
+#define RESQ_SUFFIX_CMD_TELEMETRY             "cmd/telemetry"
 #define RESQ_SUFFIX_CMD_SYSTEM_RETRY          "cmd/system/retry"
 #define RESQ_SUFFIX_CMD_SYSTEM_RESET          "cmd/system/reset"
 #define RESQ_SUFFIX_CMD_SYSTEM_FLUSH_CONFIG   "cmd/system/flush-config"

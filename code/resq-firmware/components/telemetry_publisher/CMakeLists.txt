@@ -10,6 +10,9 @@ idf_component_register(
         session_manager
         cpr_metrics
         runtime_helpers
+        config
+        hall_sensor
+        hx710
         esp_timer
         freertos
 )

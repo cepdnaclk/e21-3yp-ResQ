@@ -15,6 +15,7 @@
 #include "status_indicator.h"
 #include "error_manager.h"
 #include "system_button_manager.h"
+#include "telemetry_publisher.h"
 
 static const char *TAG = "calibration_state_manager";
 
@@ -121,6 +122,15 @@ resq_state_t calibration_state_manager_run(network_config_t *network_config,
                 }
 
                 return RESQ_STATE_PAIRED_IDLE;
+            }
+
+            if (suffix != NULL && strcmp(suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+                telemetry_publisher_handle_sensor_stream_command(network_config,
+                                                                 RESQ_STATE_CALIBRATING,
+                                                                 calibration_config,
+                                                                 &command,
+                                                                 false);
+                continue;
             }
 
             ESP_LOGW(TAG,

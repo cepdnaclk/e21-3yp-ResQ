@@ -26,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.nio.file.Path;
 import java.util.concurrent.Executors;
@@ -189,6 +190,18 @@ public class MqttCommandPublisherService {
         if (request.calibrationWindowMs() != null) {
             payload.put("calibration_window_ms", request.calibrationWindowMs());
         }
+        if (request.fullDepthMm() != null && request.fullDepthMm() > 0.0) {
+            payload.put("full_depth_mm", request.fullDepthMm());
+        }
+        if (request.pressure0KpaPerCount() != null && request.pressure0KpaPerCount() > 0.0) {
+            payload.put("pressure_0_kpa_per_count", request.pressure0KpaPerCount());
+        }
+        if (request.pressure1KpaPerCount() != null && request.pressure1KpaPerCount() > 0.0) {
+            payload.put("pressure_1_kpa_per_count", request.pressure1KpaPerCount());
+        }
+        if (request.pressure2KpaPerCount() != null && request.pressure2KpaPerCount() > 0.0) {
+            payload.put("pressure_2_kpa_per_count", request.pressure2KpaPerCount());
+        }
 
         return publishFirmwareCommand(
                 FirmwareTopics.calibrationStartCommandTopic(deviceId),
@@ -236,6 +249,31 @@ public class MqttCommandPublisherService {
                 payload,
                 "session stop",
                 FirmwareCommandTypeId.SESSION_STOP
+        );
+    }
+
+    public FirmwareCommandPublishResult publishTelemetryControl(String deviceId, String action, Integer intervalMs) {
+        String normalizedAction = normalize(action);
+        if (normalizedAction == null) {
+            throw new IllegalArgumentException("action must not be blank");
+        }
+
+        normalizedAction = normalizedAction.toUpperCase(Locale.ROOT);
+        if (!"START".equals(normalizedAction) && !"STOP".equals(normalizedAction)) {
+            throw new IllegalArgumentException("action must be START or STOP");
+        }
+
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.TELEMETRY_CONTROL, null);
+        payload.put("action", normalizedAction);
+        if ("START".equals(normalizedAction) && intervalMs != null) {
+            payload.put("interval_ms", Math.max(50, Math.min(1000, intervalMs)));
+        }
+
+        return publishFirmwareCommand(
+                FirmwareTopics.telemetryCommandTopic(deviceId),
+                payload,
+                "telemetry control",
+                FirmwareCommandTypeId.TELEMETRY_CONTROL
         );
     }
 

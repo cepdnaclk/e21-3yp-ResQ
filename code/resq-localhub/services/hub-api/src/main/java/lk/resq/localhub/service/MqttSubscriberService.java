@@ -327,6 +327,13 @@ public class MqttSubscriberService {
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
+                    if (isSensorStreamTelemetry(payload)) {
+                        manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, payload);
+                        publishInstructorLiveSnapshot();
+                        logger.info("Processed SENSOR_STREAM telemetry for {}", parsedTopic.deviceId);
+                        return;
+                    }
+
                     String payloadSessionId = firstText(payload, "sessionId", "session_id");
                     if (payloadSessionId == null) {
                         payloadSessionId = activeSessionService.findActiveSessionForDevice(parsedTopic.deviceId)
@@ -676,6 +683,11 @@ public class MqttSubscriberService {
                         .map(activeSessionService::decorateLiveSummary)
                         .toList()
         );
+    }
+
+    private static boolean isSensorStreamTelemetry(JsonNode payload) {
+        String telemetryMode = firstText(payload, "telemetry_mode", "telemetryMode");
+        return telemetryMode != null && "SENSOR_STREAM".equalsIgnoreCase(telemetryMode);
     }
 
     private void publishSessionLiveForDevice(String deviceId) {

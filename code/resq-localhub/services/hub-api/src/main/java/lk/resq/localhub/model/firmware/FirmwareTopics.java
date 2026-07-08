@@ -60,6 +60,10 @@ public final class FirmwareTopics {
         return commandTopic(deviceId, "cmd/session/stop");
     }
 
+    public static String telemetryCommandTopic(String deviceId) {
+        return commandTopic(deviceId, "cmd/telemetry");
+    }
+
     public static String systemRetryCommandTopic(String deviceId) {
         return commandTopic(deviceId, "cmd/system/retry");
     }

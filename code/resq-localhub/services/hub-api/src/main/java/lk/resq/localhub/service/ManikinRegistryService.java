@@ -97,6 +97,7 @@ public class ManikinRegistryService {
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "firmwareState", "firmware_state"));
             state.seq = firstLong(payload, state.seq, "seq");
             Double payloadDepthMm = firstDouble(payload, null, "depthMm", "depth_mm");
             Double payloadDepthProgress = firstDouble(payload, null, "depthProgress", "depth_progress");
@@ -133,6 +134,10 @@ public class ManikinRegistryService {
             state.depthSource = firstTextWithFallback(payload, state.depthSource, "depthSource", "depth_source", "sourceMode", "source_mode");
 
             state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
+            Object debugRaw = jsonValue(payload.get("debugRaw"));
+            if (debugRaw == null && isSensorStreamTelemetry(payload)) {
+                debugRaw = jsonValue(payload);
+            }
             state.latestMetric = new LiveMetricPayload(
                     firstText(payload, "deviceId", "device_id", state.deviceId),
                     state.manikinId,
@@ -160,7 +165,7 @@ public class ManikinRegistryService {
                     jsonValue(payload.get("flags")),
                     state.pressureBalancePct,
                     firstTextWithFallback(payload, state.depthSource, "sourceMode", "source_mode", "depthSource", "depth_source"),
-                    jsonValue(payload.get("debugRaw"))
+                    debugRaw
             );
             indexSession(state);
         });
@@ -516,6 +521,11 @@ public class ManikinRegistryService {
         if (warnings != null) {
             state.warnings = appendWarning(state.warnings, warnings);
         }
+    }
+
+    private static boolean isSensorStreamTelemetry(JsonNode payload) {
+        String telemetryMode = firstTextWithFallback(payload, null, "telemetry_mode", "telemetryMode");
+        return telemetryMode != null && "SENSOR_STREAM".equalsIgnoreCase(telemetryMode);
     }
 
     private static String appendWarning(String existing, String warning) {

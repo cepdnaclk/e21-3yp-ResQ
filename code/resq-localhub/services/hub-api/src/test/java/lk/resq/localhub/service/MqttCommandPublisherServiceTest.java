@@ -69,6 +69,27 @@ class MqttCommandPublisherServiceTest {
         assertThat(stored.completedAt()).isNotNull();
     }
 
+    @Test
+    void publishesTelemetryControlCommandWithClampedInterval() {
+        FirmwarePersistenceRepository repository = newRepository();
+        CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository, false);
+
+        MqttCommandPublisherService.FirmwareCommandPublishResult result =
+                publisher.publishTelemetryControl("M01", "start", 25);
+
+        assertThat(result.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+        assertThat(result.requestId()).isEqualTo("req-151-0001");
+        assertThat(result.payload()).containsEntry("request_id", "req-151-0001");
+        assertThat(result.payload()).containsEntry("action", "START");
+        assertThat(result.payload()).containsEntry("interval_ms", 50);
+        assertThat(publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.TELEMETRY_CONTROL);
+
+        FirmwareCommandRequestRecord stored = repository.findCommandByRequestId("req-151-0001").orElseThrow();
+        assertThat(stored.status()).isEqualTo("PUBLISHED");
+        assertThat(stored.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+        assertThat(stored.commandTypeId()).isEqualTo(FirmwareCommandTypeId.TELEMETRY_CONTROL.value());
+    }
+
     private static final class CapturingPublisher extends MqttCommandPublisherService {
         private String lastTopic;
         private FirmwareCommandTypeId lastCommandTypeId;

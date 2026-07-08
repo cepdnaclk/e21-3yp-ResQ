@@ -661,6 +661,15 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
 
         ESP_LOGI(TAG, "Session active command=%s", command_suffix);
 
+        if (strcmp(command_suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+            telemetry_publisher_handle_sensor_stream_command(network_config,
+                                                             RESQ_STATE_SESSION_ACTIVE,
+                                                             calibration_config,
+                                                             &command,
+                                                             false);
+            continue;
+        }
+
         if (strcmp(command_suffix, "cmd/session/stop") == 0) {
             /* determine active session id (copy it before stopping) */
             session_state_t current_session = {0};

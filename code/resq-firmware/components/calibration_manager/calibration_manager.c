@@ -2023,6 +2023,10 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     s_calibration_config.bladder_1_pressure = host_params->bladder_1_pressure;
     s_calibration_config.bladder_2_pressure = host_params->bladder_2_pressure;
     s_calibration_config.hall_delta = host_params->hall_delta;
+    s_calibration_config.full_depth_mm = host_params->full_depth_mm;
+    s_calibration_config.pressure_0_kpa_per_count = host_params->pressure_0_kpa_per_count;
+    s_calibration_config.pressure_1_kpa_per_count = host_params->pressure_1_kpa_per_count;
+    s_calibration_config.pressure_2_kpa_per_count = host_params->pressure_2_kpa_per_count;
     s_calibration_config.pressure_mode = host_params->pressure_mode;
     if (s_calibration_config.pressure_mode < CALIBRATION_PRESSURE_REQUIRED ||
         s_calibration_config.pressure_mode > CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE) {
@@ -2254,6 +2258,10 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
     cJSON *bladder_2_pressure = cJSON_GetObjectItemCaseSensitive(root, "bladder_2_pressure");
     cJSON *profile_id = cJSON_GetObjectItemCaseSensitive(root, "profile_id");
     cJSON *pressure_balance_allowed_pct = cJSON_GetObjectItemCaseSensitive(root, "pressure_balance_allowed_pct");
+    cJSON *full_depth_mm = cJSON_GetObjectItemCaseSensitive(root, "full_depth_mm");
+    cJSON *pressure_0_kpa_per_count = cJSON_GetObjectItemCaseSensitive(root, "pressure_0_kpa_per_count");
+    cJSON *pressure_1_kpa_per_count = cJSON_GetObjectItemCaseSensitive(root, "pressure_1_kpa_per_count");
+    cJSON *pressure_2_kpa_per_count = cJSON_GetObjectItemCaseSensitive(root, "pressure_2_kpa_per_count");
 
     /* Require either request_id (preferred) or legacy command_id, and numeric fields. */
     if ((!cJSON_IsString(command_id) || command_id->valuestring == NULL) ||
@@ -2308,6 +2316,19 @@ esp_err_t calibration_manager_parse_start_payload(const char *payload,
         if (pct >= 5 && pct <= 60) {
             out_config->pressure_balance_allowed_pct = pct;
         }
+    }
+
+    if (cJSON_IsNumber(full_depth_mm) && full_depth_mm->valuedouble > 0.0) {
+        out_config->full_depth_mm = (float)full_depth_mm->valuedouble;
+    }
+    if (cJSON_IsNumber(pressure_0_kpa_per_count) && pressure_0_kpa_per_count->valuedouble > 0.0) {
+        out_config->pressure_0_kpa_per_count = (float)pressure_0_kpa_per_count->valuedouble;
+    }
+    if (cJSON_IsNumber(pressure_1_kpa_per_count) && pressure_1_kpa_per_count->valuedouble > 0.0) {
+        out_config->pressure_1_kpa_per_count = (float)pressure_1_kpa_per_count->valuedouble;
+    }
+    if (cJSON_IsNumber(pressure_2_kpa_per_count) && pressure_2_kpa_per_count->valuedouble > 0.0) {
+        out_config->pressure_2_kpa_per_count = (float)pressure_2_kpa_per_count->valuedouble;
     }
 
 exit:

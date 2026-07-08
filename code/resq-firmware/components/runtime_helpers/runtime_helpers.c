@@ -17,6 +17,26 @@
 
 static const char *TAG = "runtime_helpers";
 
+static bool runtime_helpers_is_blank(const char *value)
+{
+    return value == NULL || value[0] == '\0';
+}
+
+static bool runtime_helpers_is_reason_id(const char *value)
+{
+    if (runtime_helpers_is_blank(value)) {
+        return false;
+    }
+
+    for (const char *p = value; *p != '\0'; ++p) {
+        if (*p < '0' || *p > '9') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static int64_t runtime_helpers_now_ms(void)
 {
     return esp_timer_get_time() / 1000;
@@ -145,13 +165,12 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
     }
 
     (void)network_config;
-    (void)reason;
 
     /* Extract request_id (must be present for command replies) */
     char request_id[128] = {0};
     esp_err_t id_err = resq_command_extract_request_id(cmd->payload, request_id, sizeof(request_id));
     if (id_err != ESP_OK) {
-        return ESP_ERR_INVALID_ARG;
+        request_id[0] = '\0';
     }
 
     /* Determine routing and event_id based on command suffix */
@@ -174,20 +193,36 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
         }
     }
 
-    char payload[512];
+    char reason_segment[160] = {0};
+    if (!runtime_helpers_is_blank(reason) && status != NULL && strcmp(status, "NACK") == 0) {
+        const char *field_name = runtime_helpers_is_reason_id(reason) ? "reason_id" : "reason";
+        int reason_written = snprintf(reason_segment,
+                                      sizeof(reason_segment),
+                                      ",\"%s\":\"%s\"",
+                                      field_name,
+                                      reason);
+        if (reason_written <= 0 || reason_written >= (int)sizeof(reason_segment)) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+    }
+
+    char payload[640];
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
                            "\"event_id\":%d," 
                            "\"reply_id\":\"%s\"," 
                            "\"status\":\"%s\"," 
-                           "\"state\":\"%s\"," 
+                           "\"state\":\"%s\""
+                           "%s"
+                           ","
                            "\"ts_ms\":%lld"
                            "}",
                            event_id,
                            request_id,
                            status != NULL ? status : "",
                            resq_state_to_string(state),
+                           reason_segment,
                            (long long)runtime_helpers_now_ms());
 
     if (written <= 0 || written >= (int)sizeof(payload)) {

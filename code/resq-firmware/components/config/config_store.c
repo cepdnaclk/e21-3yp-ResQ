@@ -51,6 +51,9 @@
 #define NVS_KEY_PRESSURE0_BASE      "p0_base"
 #define NVS_KEY_PRESSURE1_BASE      "p1_base"
 #define NVS_KEY_PRESSURE2_BASE      "p2_base"
+#define NVS_KEY_PRESSURE0_KPA       "p0_kpa"
+#define NVS_KEY_PRESSURE1_KPA       "p1_kpa"
+#define NVS_KEY_PRESSURE2_KPA       "p2_kpa"
 
 #define NVS_KEY_PRESSURE0_NOISE     "p0_noise"
 #define NVS_KEY_PRESSURE1_NOISE     "p1_noise"
@@ -67,6 +70,7 @@
 #define NVS_KEY_USING_LAST_PRESSURE "p_last_ok"
 #define NVS_KEY_PRESSURE_OK         "p_ok"
 #define NVS_KEY_HALL_OK             "hall_ok"
+#define NVS_KEY_FULL_DEPTH_MM       "depth_mm"
 
 #define NVS_KEY_CAL_SAMPLES         "cal_samples"
 #define NVS_KEY_CAL_WINDOW_MS       "cal_window_ms"
@@ -162,6 +166,25 @@ static esp_err_t nvs_get_string_safe(nvs_handle_t handle,
     }
 
     return err;
+}
+
+static void nvs_get_float_safe(nvs_handle_t handle, const char *key, float *out_value)
+{
+    if (out_value == NULL) {
+        return;
+    }
+
+    size_t value_len = sizeof(float);
+    float stored_value = 0.0f;
+    if (nvs_get_blob(handle, key, &stored_value, &value_len) == ESP_OK &&
+        value_len == sizeof(float)) {
+        *out_value = stored_value;
+    }
+}
+
+static esp_err_t nvs_set_float_safe(nvs_handle_t handle, const char *key, float value)
+{
+    return nvs_set_blob(handle, key, &value, sizeof(value));
 }
 
 /**
@@ -315,6 +338,9 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
     nvs_get_i32(handle, NVS_KEY_PRESSURE0_BASE, &config->pressure_0_baseline);
     nvs_get_i32(handle, NVS_KEY_PRESSURE1_BASE, &config->pressure_1_baseline);
     nvs_get_i32(handle, NVS_KEY_PRESSURE2_BASE, &config->pressure_2_baseline);
+    nvs_get_float_safe(handle, NVS_KEY_PRESSURE0_KPA, &config->pressure_0_kpa_per_count);
+    nvs_get_float_safe(handle, NVS_KEY_PRESSURE1_KPA, &config->pressure_1_kpa_per_count);
+    nvs_get_float_safe(handle, NVS_KEY_PRESSURE2_KPA, &config->pressure_2_kpa_per_count);
 
     nvs_get_i32(handle, NVS_KEY_PRESSURE0_NOISE, &config->pressure_0_noise_raw);
     nvs_get_i32(handle, NVS_KEY_PRESSURE1_NOISE, &config->pressure_1_noise_raw);
@@ -349,6 +375,7 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
             config->hall_valid = flag ? true : false;
         }
     }
+    nvs_get_float_safe(handle, NVS_KEY_FULL_DEPTH_MM, &config->full_depth_mm);
 
     nvs_get_i32(handle, NVS_KEY_CAL_SAMPLES, &config->calibration_sample_count);
     nvs_get_i32(handle, NVS_KEY_CAL_WINDOW_MS, &config->calibration_window_ms);
@@ -429,6 +456,12 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     if (err != ESP_OK) goto exit;
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE2_BASE, config->pressure_2_baseline);
     if (err != ESP_OK) goto exit;
+    err = nvs_set_float_safe(handle, NVS_KEY_PRESSURE0_KPA, config->pressure_0_kpa_per_count);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_float_safe(handle, NVS_KEY_PRESSURE1_KPA, config->pressure_1_kpa_per_count);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_float_safe(handle, NVS_KEY_PRESSURE2_KPA, config->pressure_2_kpa_per_count);
+    if (err != ESP_OK) goto exit;
 
     err = nvs_set_i32(handle, NVS_KEY_PRESSURE0_NOISE, config->pressure_0_noise_raw);
     if (err != ESP_OK) goto exit;
@@ -457,6 +490,8 @@ esp_err_t config_store_save_calibration(const calibration_config_t *config)
     err = nvs_set_u8(handle, NVS_KEY_PRESSURE_OK, config->pressure_valid ? 1 : 0);
     if (err != ESP_OK) goto exit;
     err = nvs_set_u8(handle, NVS_KEY_HALL_OK, config->hall_valid ? 1 : 0);
+    if (err != ESP_OK) goto exit;
+    err = nvs_set_float_safe(handle, NVS_KEY_FULL_DEPTH_MM, config->full_depth_mm);
     if (err != ESP_OK) goto exit;
 
     err = nvs_set_i32(handle, NVS_KEY_CAL_SAMPLES, config->calibration_sample_count);
@@ -540,6 +575,9 @@ esp_err_t config_store_clear_calibration(void)
     nvs_erase_key(handle, NVS_KEY_PRESSURE0_BASE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE1_BASE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE2_BASE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE0_KPA);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE1_KPA);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE2_KPA);
     nvs_erase_key(handle, NVS_KEY_PRESSURE0_NOISE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE1_NOISE);
     nvs_erase_key(handle, NVS_KEY_PRESSURE2_NOISE);
@@ -551,6 +589,7 @@ esp_err_t config_store_clear_calibration(void)
     nvs_erase_key(handle, NVS_KEY_CAL_SAMPLES);
     nvs_erase_key(handle, NVS_KEY_CAL_WINDOW_MS);
     nvs_erase_key(handle, NVS_KEY_CALIBRATED_AT_MS);
+    nvs_erase_key(handle, NVS_KEY_FULL_DEPTH_MM);
 
     err = nvs_commit(handle);
     nvs_close(handle);

@@ -101,6 +101,10 @@ typedef struct
     int32_t pressure_1_baseline;
     int32_t pressure_2_baseline;
 
+    float pressure_0_kpa_per_count;
+    float pressure_1_kpa_per_count;
+    float pressure_2_kpa_per_count;
+
     int32_t pressure_0_noise_raw;
     int32_t pressure_1_noise_raw;
     int32_t pressure_2_noise_raw;
@@ -117,6 +121,8 @@ typedef struct
     bool using_last_stable_pressure;
     bool pressure_valid;
     bool hall_valid;
+
+    float full_depth_mm;
 
     int32_t calibration_sample_count;
     int32_t calibration_window_ms;
