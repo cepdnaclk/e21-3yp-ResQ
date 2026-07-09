@@ -13,9 +13,30 @@
 #include "board_config.h"
 #include "hx710.h"
 #include "hall_sensor.h"
+#include "sensor_conversion.h"
 #include "esp_timer.h"
 
 static const char *TAG = "runtime_helpers";
+
+static bool runtime_helpers_is_blank(const char *value)
+{
+    return value == NULL || value[0] == '\0';
+}
+
+static bool runtime_helpers_is_reason_id(const char *value)
+{
+    if (runtime_helpers_is_blank(value)) {
+        return false;
+    }
+
+    for (const char *p = value; *p != '\0'; ++p) {
+        if (*p < '0' || *p > '9') {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 static int64_t runtime_helpers_now_ms(void)
 {
@@ -157,13 +178,12 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
     }
 
     (void)network_config;
-    (void)reason;
 
     /* Extract request_id (must be present for command replies) */
     char request_id[128] = {0};
     esp_err_t id_err = resq_command_extract_request_id(cmd->payload, request_id, sizeof(request_id));
     if (id_err != ESP_OK) {
-        return ESP_ERR_INVALID_ARG;
+        request_id[0] = '\0';
     }
 
     /* Determine routing and event_id based on command suffix */
@@ -186,20 +206,36 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
         }
     }
 
-    char payload[512];
+    char reason_segment[160] = {0};
+    if (!runtime_helpers_is_blank(reason) && status != NULL && strcmp(status, "NACK") == 0) {
+        const char *field_name = runtime_helpers_is_reason_id(reason) ? "reason_id" : "reason";
+        int reason_written = snprintf(reason_segment,
+                                      sizeof(reason_segment),
+                                      ",\"%s\":\"%s\"",
+                                      field_name,
+                                      reason);
+        if (reason_written <= 0 || reason_written >= (int)sizeof(reason_segment)) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+    }
+
+    char payload[640];
     int written = snprintf(payload,
                            sizeof(payload),
                            "{"
                            "\"event_id\":%d," 
                            "\"reply_id\":\"%s\"," 
                            "\"status\":\"%s\"," 
-                           "\"state\":\"%s\"," 
+                           "\"state\":\"%s\""
+                           "%s"
+                           ","
                            "\"ts_ms\":%lld"
                            "}",
                            event_id,
                            request_id,
                            status != NULL ? status : "",
                            resq_state_to_string(state),
+                           reason_segment,
                            (long long)runtime_helpers_now_ms());
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
@@ -287,7 +323,37 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
         return hall_err;
     }
 
-    char payload[384];
+    calibration_config_t calibration = {0};
+    esp_err_t config_err = config_store_load_calibration(&calibration);
+
+    sensor_raw_sample_t raw = {
+        .pressure_0_raw = pressure_0_raw,
+        .pressure_1_raw = pressure_1_raw,
+        .pressure_2_raw = pressure_2_raw,
+        .hall_raw = hall_raw,
+        .ts_ms = esp_timer_get_time() / 1000,
+        .quality_flags = 0,
+    };
+    sensor_converted_sample_t converted = {0};
+    bool converted_ok = config_err == ESP_OK &&
+                        sensor_conversion_convert_sample(&raw, &calibration, &converted) == ESP_OK;
+    bool pressure_0_kpa_valid = converted_ok &&
+                                calibration.pressure_valid &&
+                                converted.pressure_0_kpa_valid;
+    bool pressure_1_kpa_valid = converted_ok &&
+                                calibration.pressure_valid &&
+                                converted.pressure_1_kpa_valid;
+    bool pressure_2_kpa_valid = converted_ok &&
+                                calibration.pressure_valid &&
+                                converted.pressure_2_kpa_valid;
+    bool pressure_kpa_valid = pressure_0_kpa_valid &&
+                              pressure_1_kpa_valid &&
+                              pressure_2_kpa_valid;
+    bool hall_mm_valid = converted_ok &&
+                         calibration.hall_valid &&
+                         converted.hall_mm_valid;
+
+    char payload[960];
 
     int written = snprintf(payload,
                            sizeof(payload),
@@ -297,6 +363,17 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                            "\"pressure_1_raw\":%ld," 
                            "\"pressure_2_raw\":%ld," 
                            "\"hall_raw\":%d," 
+                           "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_0_kpa_valid\":%s,"
+                           "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_1_kpa_valid\":%s,"
+                           "\"pressure_2_kpa\":%.3f,"
+                           "\"pressure_2_kpa_valid\":%s,"
+                           "\"hall_mm\":%.3f,"
+                           "\"hall_progress\":%.3f,"
+                           "\"pressure_kpa_valid\":%s,"
+                           "\"hall_mm_valid\":%s,"
+                           "\"pressure_saturation_mask\":%u,"
                            "\"ts_ms\":%lld"
                            "}",
                            runtime_helpers_get_device_id(network_config),
@@ -304,7 +381,18 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                            (long)pressure_1_raw,
                            (long)pressure_2_raw,
                            hall_raw,
-                           (long long)(esp_timer_get_time() / 1000));
+                           pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f,
+                           pressure_0_kpa_valid ? "true" : "false",
+                           pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f,
+                           pressure_1_kpa_valid ? "true" : "false",
+                           pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           pressure_2_kpa_valid ? "true" : "false",
+                           hall_mm_valid ? converted.hall_mm : 0.0f,
+                           hall_mm_valid ? converted.hall_progress : 0.0f,
+                           pressure_kpa_valid ? "true" : "false",
+                           hall_mm_valid ? "true" : "false",
+                           (unsigned int)(converted_ok ? converted.pressure_saturation_mask : 0),
+                           (long long)raw.ts_ms);
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
         return ESP_ERR_INVALID_SIZE;

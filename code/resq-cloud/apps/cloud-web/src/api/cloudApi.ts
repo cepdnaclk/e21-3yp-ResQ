@@ -62,6 +62,7 @@ export interface CloudUser {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  localLoginHash?: string | null;
 }
 
 export interface CloudCourse {
@@ -200,6 +201,13 @@ export function updateCloudUserPassword(userId: string, password: string): Promi
   });
 }
 
+export function setLocalHubPassword(userId: string, password: string): Promise<CloudUser> {
+  return requestJson(`/api/cloud/users/${encodeURIComponent(userId)}/localhub-password`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
 export function fetchCloudCourses(): Promise<CloudCourse[]> {
   return requestJson("/api/cloud/courses");
 }
@@ -277,6 +285,10 @@ export function listSessionSummaries(filters: SessionSummaryFilters): Promise<Cl
 
   const query = params.toString();
   return requestJson(`/api/cloud/session-summaries${query ? `?${query}` : ""}`);
+}
+
+export function fetchMySessionSummaries(): Promise<CloudSessionSummaryRecord[]> {
+  return listSessionSummaries({});
 }
 
 

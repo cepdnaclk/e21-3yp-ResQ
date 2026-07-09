@@ -5,7 +5,15 @@
  */
 
 import { getJson, postJson } from "./localHubClient";
-import type { ManikinLiveSummary, ManikinPairTokenResponse } from "../types/manikin";
+import type {
+  ManikinLiveSummary,
+  ManikinPairTokenResponse,
+  DeviceReadinessState,
+  CalibrationStartRequest,
+  CalibrationCommandResponse,
+  CalibrationEvidence,
+  CalibrationEvidenceDetail,
+} from "../types/manikin";
 
 /** GET /api/manikins — full registry of all known devices */
 export async function fetchManikins(): Promise<ManikinLiveSummary[]> {
@@ -28,4 +36,45 @@ export async function fetchLiveManikin(deviceId: string): Promise<ManikinLiveSum
  */
 export async function requestPairingToken(deviceId: string): Promise<ManikinPairTokenResponse> {
   return postJson<ManikinPairTokenResponse>("/api/manikins/pair-request", { deviceId });
+}
+
+/** GET /api/devices/{deviceId}/readiness */
+export async function getDeviceReadiness(deviceId: string): Promise<DeviceReadinessState> {
+  return getJson<DeviceReadinessState>(`/api/devices/${encodeURIComponent(deviceId)}/readiness`);
+}
+
+/** POST /api/devices/{deviceId}/calibration/start */
+export async function startCalibration(
+  deviceId: string,
+  request: CalibrationStartRequest,
+): Promise<CalibrationCommandResponse> {
+  return postJson<CalibrationCommandResponse>(
+    `/api/devices/${encodeURIComponent(deviceId)}/calibration/start`,
+    request,
+  );
+}
+
+/** POST /api/devices/{deviceId}/calibration/cancel */
+export async function cancelCalibration(
+  deviceId: string,
+): Promise<CalibrationCommandResponse> {
+  return postJson<CalibrationCommandResponse>(
+    `/api/devices/${encodeURIComponent(deviceId)}/calibration/cancel`,
+  );
+}
+
+/** GET /api/devices/{deviceId}/calibration/latest */
+export async function getLatestCalibrationEvidence(deviceId: string): Promise<CalibrationEvidence | null> {
+  return getJson<CalibrationEvidence | null>(`/api/devices/${encodeURIComponent(deviceId)}/calibration/latest`);
+}
+
+/** GET /api/devices/{deviceId}/calibration/history */
+export async function getCalibrationHistory(deviceId: string, limit?: number): Promise<CalibrationEvidence[]> {
+  const query = limit !== undefined ? `?limit=${limit}` : "";
+  return getJson<CalibrationEvidence[]>(`/api/devices/${encodeURIComponent(deviceId)}/calibration/history${query}`);
+}
+
+/** GET /api/devices/{deviceId}/calibration/history/{evidenceId} */
+export async function getCalibrationEvidence(deviceId: string, evidenceId: number): Promise<CalibrationEvidenceDetail> {
+  return getJson<CalibrationEvidenceDetail>(`/api/devices/${encodeURIComponent(deviceId)}/calibration/history/${evidenceId}`);
 }

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "./auth/AuthContext";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "./lib/accessHost";
+import Card from "./components/ui/Card";
+import Button from "./components/ui/Button";
 
 // Import V2 Pages
 import V2LoginPage from "./pages/v2/LoginPage";
@@ -9,6 +11,7 @@ import V2LocalHubHomePage from "./pages/v2/LocalHubHomePage";
 import V2InstructorDashboardPage from "./pages/v2/InstructorDashboardPage";
 import V2PairManikinPage from "./pages/v2/PairManikinPage";
 import V2ManikinReadinessPage from "./pages/v2/ManikinReadinessPage";
+import V2CalibrationWizardPage from "./pages/v2/CalibrationWizardPage";
 import V2InstructorLiveSessionPage from "./pages/v2/InstructorLiveSessionPage";
 import V2TraineeLiveSessionPage from "./pages/v2/TraineeLiveSessionPage";
 import V2RecentSessionsPage from "./pages/v2/RecentSessionsPage";
@@ -41,6 +44,7 @@ type RouteState =
   | { name: "instructor" }
   | { name: "pair-manikin" }
   | { name: "readiness"; deviceId: string }
+  | { name: "calibration"; deviceId: string }
   | { name: "instructor-live"; sessionId: string }
   | { name: "trainee-live"; sessionId: string }
   | { name: "sessions" }
@@ -75,6 +79,10 @@ function parseRoute(path: string): RouteState {
   // /instructor/manikins/:deviceId/readiness
   const readinessMatch = p.match(/^\/instructor\/manikins\/([^/]+)\/readiness$/);
   if (readinessMatch) return { name: "readiness", deviceId: decodeURIComponent(readinessMatch[1]) };
+
+  // /instructor/manikins/:deviceId/calibration
+  const calibrationMatch = p.match(/^\/instructor\/manikins\/([^/]+)\/calibration$/);
+  if (calibrationMatch) return { name: "calibration", deviceId: decodeURIComponent(calibrationMatch[1]) };
 
   // /instructor/sessions/:sessionId/live
   const instLiveMatch = p.match(/^\/instructor\/sessions\/([^/]+)\/live$/);
@@ -215,6 +223,9 @@ export default function App() {
   if (currentRoute.name === "readiness" && !isInstructorOrAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
+  if (currentRoute.name === "calibration" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
   if (currentRoute.name === "pair-manikin" && !isInstructorOrAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
@@ -262,6 +273,7 @@ export default function App() {
     currentRoute.name === "instructor" ||
     currentRoute.name === "pair-manikin" ||
     currentRoute.name === "readiness" ||
+    currentRoute.name === "calibration" ||
     currentRoute.name === "instructor-live"
   ) {
     activeShellKey = "instructor";
@@ -314,6 +326,7 @@ export default function App() {
         <V2InstructorDashboardPage
           onStartSession={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
           onRunReadinessCheck={(did) => navigate(`/instructor/manikins/${did}/readiness`)}
+          onRunCalibration={(did) => navigate(`/instructor/manikins/${did}/calibration`)}
           onPairNewManikin={() => navigate("/instructor/pair")}
           onViewRecentSessions={() => navigate("/sessions")}
         />
@@ -323,6 +336,12 @@ export default function App() {
       )}
       {currentRoute.name === "readiness" && (
         <V2ManikinReadinessPage
+          deviceId={currentRoute.deviceId}
+          onBack={() => navigate("/instructor")}
+        />
+      )}
+      {currentRoute.name === "calibration" && (
+        <V2CalibrationWizardPage
           deviceId={currentRoute.deviceId}
           onBack={() => navigate("/instructor")}
         />

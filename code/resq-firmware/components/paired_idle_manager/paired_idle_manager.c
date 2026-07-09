@@ -25,6 +25,7 @@
 #include "calibration_manager.h"
 #include "session_active_manager.h"
 #include "system_button_manager.h"
+#include "telemetry_publisher.h"
 
 static const char *TAG = "paired_idle";
 
@@ -198,6 +199,15 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                  command_suffix,
                  resq_state_to_string(visible_state));
 
+        if (strcmp(command_suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+            telemetry_publisher_handle_sensor_stream_command(network_config,
+                                                             visible_state,
+                                                             calibration_config,
+                                                             &command,
+                                                             true);
+            continue;
+        }
+
         if (strcmp(command_suffix, "cmd/debug") == 0) {
             esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
 
@@ -291,6 +301,17 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
                 continue;
             }
 
+            esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+            if (stream_stop_err != ESP_OK) {
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    "cmd/session/start",
+                                                                    "NACK",
+                                                                    "07102");
+                continue;
+            }
+
             /* attempt to start active session; pass full command context so the
              * session manager can reply using the request_id */
             resq_state_t start_state = session_active_manager_start(network_config,
@@ -334,7 +355,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(parse_reason,
                                                            visible_state,
-                                                           CAL_ACTION_SEND_VALID_PAYLOAD);
+                                                           CAL_ACTION_SEND_VALID_PAYLOAD,
+                                                           0);
 
                 runtime_helpers_publish_error_event(network_config,
                                                     visible_state,
@@ -354,11 +376,23 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_ALREADY_RUNNING,
                                                            RESQ_STATE_CALIBRATING,
-                                                           CAL_ACTION_WAIT_OR_CANCEL);
+                                                           CAL_ACTION_WAIT_OR_CANCEL,
+                                                           0);
                 continue;
             }
 
             calibration_config->calibrated = false;
+
+            esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+            if (stream_stop_err != ESP_OK) {
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    visible_state,
+                                                                    &command,
+                                                                    "cmd/calibration/start",
+                                                                    "NACK",
+                                                                    "07102");
+                continue;
+            }
 
             esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
                                                                                       visible_state,

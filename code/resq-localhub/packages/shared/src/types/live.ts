@@ -1,4 +1,4 @@
-export type LiveMetricSourceMode = "real" | "simulator" | "calibration" | "debug";
+export type LiveMetricSourceMode = "real" | "simulator" | "calibration" | "debug" | "hall";
 
 export const LIVE_CONNECTION_STATES = [
   "CONNECTING",

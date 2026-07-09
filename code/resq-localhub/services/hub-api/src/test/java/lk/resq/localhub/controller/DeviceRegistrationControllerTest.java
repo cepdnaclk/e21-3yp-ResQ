@@ -5,6 +5,7 @@ import lk.resq.localhub.model.DeviceRegistrationResponse;
 import lk.resq.localhub.model.HubServiceInfoResponse;
 import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
+import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttSubscriberService;
 import lk.resq.localhub.service.ManikinRegistryService;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,10 @@ class DeviceRegistrationControllerTest {
         assertThat(response.getBody().deviceId()).startsWith("M");
         assertThat(response.getBody().mqttHost()).isEqualTo("192.168.8.187");
         assertThat(response.getBody().mqttPort()).isEqualTo(1883);
+
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId())).isPresent();
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId()).orElseThrow().online()).isTrue();
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId()).orElseThrow().state()).isEqualTo("ONLINE");
     }
 
     @Test
@@ -90,12 +95,9 @@ class DeviceRegistrationControllerTest {
                 false,
                 false
         );
-
-        ManikinRegistryService manikinRegistryService = new ManikinRegistryService(12);
-
-        DeviceRegistrationService service =
-                new DeviceRegistrationService(serviceInfoService, manikinRegistryService);
-
+            ManikinRegistryService registry = new ManikinRegistryService(12);
+            DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService, registry);
+        @SuppressWarnings("unchecked")
         ObjectProvider<MqttSubscriberService> mqttProvider = new ObjectProvider<>() {
             @Override
             public MqttSubscriberService getObject(Object... args) {
@@ -124,14 +126,12 @@ class DeviceRegistrationControllerTest {
         };
 
         return new Fixture(
-                new DeviceRegistrationController(service),
-                new HubHealthController(serviceInfoService, mqttProvider, manikinRegistryService)
+                new DeviceRegistrationController(registrationService),
+                new HubHealthController(serviceInfoService, mqttProvider),
+                registry
         );
     }
 
-    private record Fixture(
-            DeviceRegistrationController deviceController,
-            HubHealthController hubController
-    ) {
+    private record Fixture(DeviceRegistrationController deviceController, HubHealthController hubController, ManikinRegistryService registry) {
     }
 }

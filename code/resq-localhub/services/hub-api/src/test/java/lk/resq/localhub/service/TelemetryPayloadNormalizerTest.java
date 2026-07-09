@@ -70,7 +70,8 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.ok()).isTrue();
         assertThat(result.value().deviceId()).isEqualTo("M01");
         assertThat(result.value().sessionId()).isEqualTo("S-FW-2");
-        assertThat(result.value().depthMm()).isNull();
+        assertThat(result.value().depthMm()).isEqualTo(39.0);
+
         assertThat(result.value().depthProgress()).isEqualTo(0.78);
         assertThat(result.value().depthOk()).isTrue();
         assertThat(result.value().rateCpm()).isEqualTo(111.0);
@@ -122,6 +123,26 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.ok()).isTrue();
         assertThat(result.value().depthMm()).isEqualTo(49.5);
         assertThat(result.value().depthProgress()).isEqualTo(0.9);
+    }
+
+    @Test
+    void mapsHallDepthSourceForPressureDegradedTelemetry() throws Exception {
+        var payload = objectMapper.readTree("""
+                {
+                  "session_id": "S-HALL-1",
+                  "depth_progress": 0.64,
+                  "depth_source": "HALL",
+                  "rate_cpm": 109,
+                  "pressure_valid": false,
+                  "pressure_degraded": true
+                }
+                """);
+
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult result =
+                TelemetryPayloadNormalizer.normalize(payload, "M01");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.value().sourceMode()).isEqualTo("hall");
     }
 
     @Test

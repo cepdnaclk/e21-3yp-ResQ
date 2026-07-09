@@ -6,8 +6,10 @@ import Button from "../../components/ui/Button";
 import LoadingState from "../../components/ui/LoadingState";
 import PageHeader from "../../components/ui/PageHeader";
 import StatusBadge from "../../components/ui/StatusBadge";
+import { useAuth } from "../../auth/AuthContext";
 
 export function AdminUsersPage() {
+  const { currentUser } = useAuth();
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,12 +66,20 @@ export function AdminUsersPage() {
   }
 
   async function handleToggleStatus(user: AuthUser) {
+    if (!user.id) {
+      setError("User ID unavailable");
+      return;
+    }
+    if (currentUser && currentUser.id === user.id) {
+      setError("You cannot disable your own active admin account.");
+      return;
+    }
     setError(null);
     try {
       if (!user.disabledAt) {
-        await disableUser(user.username);
+        await disableUser(user.id);
       } else {
-        await enableUser(user.username);
+        await enableUser(user.id);
       }
       await loadUsers();
     } catch (err) {
@@ -232,9 +242,10 @@ export function AdminUsersPage() {
                       type="button"
                       variant={!u.disabledAt ? "danger" : "success"}
                       size="sm"
+                      disabled={!u.id || !!(currentUser && currentUser.id === u.id)}
                       onClick={() => handleToggleStatus(u)}
                     >
-                      {!u.disabledAt ? "Disable" : "Enable"}
+                      {!u.id ? "User ID unavailable" : (!u.disabledAt ? "Disable" : "Enable")}
                     </Button>
                   </td>
                 </tr>

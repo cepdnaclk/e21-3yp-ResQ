@@ -9,7 +9,18 @@ import type {
   FirmwareCalibrationCommandResponse,
   FirmwareDeviceDiagnosticsResponse,
   FirmwareCalibrationStartRequest,
+  CalibrationProfileResponse,
 } from "../types/firmware";
+
+/** GET /api/firmware/calibration-profiles */
+export async function getCalibrationProfiles(): Promise<CalibrationProfileResponse[]> {
+  return getJson<CalibrationProfileResponse[]>("/api/firmware/calibration-profiles");
+}
+
+/** GET /api/firmware/calibration-profiles/default */
+export async function getDefaultCalibrationProfile(): Promise<CalibrationProfileResponse | null> {
+  return getJson<CalibrationProfileResponse | null>("/api/firmware/calibration-profiles/default");
+}
 
 function devicePath(deviceId: string, suffix: string): string {
   return `/api/firmware/devices/${encodeURIComponent(deviceId)}${suffix}`;

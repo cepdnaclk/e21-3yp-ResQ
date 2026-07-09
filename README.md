@@ -192,6 +192,73 @@ After the local prototype becomes stable, the project can be extended with bette
 
 ---
 
+## LocalHub Desktop For Windows
+
+The LocalHub desktop app is the instructor-side Windows application for running the local backend API, MQTT broker, and browser dashboard together.
+
+### Development Run
+
+1. Install dependencies:
+
+```bash
+cd code/resq-localhub/apps/localhub-desktop
+pnpm install
+```
+
+2. Run the frontend and desktop shell in development:
+
+```bash
+pnpm tauri:dev
+```
+
+3. Run backend tests when needed:
+
+```bash
+cd ../../services/hub-api
+.\mvnw test
+```
+
+### Packaged Build
+
+Build the Windows desktop app from `code/resq-localhub/apps/localhub-desktop`:
+
+```bash
+pnpm run typecheck
+pnpm run build
+pnpm tauri:build
+```
+
+The packaged installer is generated under the Tauri target bundle folders, typically:
+
+- `code/resq-localhub/apps/localhub-desktop/src-tauri/target/release/bundle/nsis/`
+- `code/resq-localhub/apps/localhub-desktop/src-tauri/target/release/bundle/msi/`
+
+### Packaged App Usage
+
+- Launch the installed Windows app from the Start menu or desktop shortcut.
+- Use Start Services to run the bundled backend API and MQTT broker.
+- Use Stop Services to shut down the managed child processes cleanly.
+- The Home screen shows backend health, broker health, LAN IP, dashboard URLs, and log file locations.
+- The instructor dashboard uses the local API at port 18080 in packaged mode.
+- If cloud sync is unavailable, local live manikin listing, sessions, and exports should still work.
+
+### Troubleshooting
+
+- If the backend does not start, check that nothing else is already using port 18080.
+- If MQTT does not connect, check whether port 1883 is already in use or blocked by firewall rules.
+- Before running `pnpm tauri:build`, close any running LocalHub app instances or Mosquitto processes so the bundled broker DLLs are not locked by another process.
+- If the dashboard opens but manikins do not appear, confirm the manikin is publishing `resq/manikins/{deviceId}/status` and `resq/manikins/{deviceId}/heartbeat` topics.
+- If the packaged app reports a backend or broker failure, open the log paths shown in the Home screen and inspect the `hub-api.log` and `mosquitto.log` files.
+- If LAN access URLs are wrong, refresh the network info in the LocalHub app and verify the instructor machine has a usable IPv4 address.
+
+### Release Notes
+
+- The LocalHub desktop app bundles the backend JAR, Java runtime, and Mosquitto broker resources for Windows use.
+- Docker is not required at runtime.
+- Cloud sync is optional and should not block local live operation.
+
+---
+
 ## License
 
 License to be decided.

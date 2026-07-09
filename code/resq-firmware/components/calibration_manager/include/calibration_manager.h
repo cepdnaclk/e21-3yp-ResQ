@@ -102,7 +102,8 @@ esp_err_t calibration_manager_retry_last(network_config_t *network_config);
 
 esp_err_t calibration_manager_publish_progress_event(calibration_reason_id_t reason_id,
 													 resq_state_t state,
-													 calibration_action_id_t action_id);
+													 calibration_action_id_t action_id,
+													 int progress_id);
 
 /**
  * @brief Publish a calibration result event to `events/calibration`.

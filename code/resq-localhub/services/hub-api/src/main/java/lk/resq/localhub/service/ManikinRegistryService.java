@@ -33,12 +33,26 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
-            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
-            state.ip = firstText(payload, "ip", "ipAddress", state.ip);
-            state.fw = firstText(payload, "fw", "firmware", state.fw);
-            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id", "deviceId", "device_id");
+            state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "status", "firmwareState", "firmware_state"));
+            state.ip = firstTextWithFallback(payload, state.ip, "ip", "ipAddress", "ip_address");
+            state.fw = firstTextWithFallback(payload, state.fw, "fw", "firmware", "firmwareVersion", "firmware_version");
+            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive", "session_active");
+            state.calibrated = firstBoolean(payload, state.calibrated, "calibrated");
+            state.readyForSession = firstBoolean(payload, state.readyForSession, "readyForSession", "ready_for_session", "ready");
+            state.profileId = firstTextWithFallback(payload, state.profileId, "profileId", "profile_id");
+            updatePressureModeFields(state, payload);
             indexSession(state);
+        });
+    }
+
+    public void seedFromRegistration(String deviceId, lk.resq.localhub.model.DeviceRegistrationRequest request) {
+        upsert(deviceId, state -> {
+            state.lastSeen = Instant.now();
+            state.online = true;
+            state.state = "ONLINE";
+            state.fw = firstText(request == null ? null : request.firmwareVersion(), state.fw);
         });
     }
 
@@ -46,14 +60,17 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
-            state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
-            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = canonicalFirmwareState(firstText(payload, "state", "status", state.state));
-            state.ip = firstText(payload, "ip", "ipAddress", state.ip);
-            state.fw = firstText(payload, "fw", "firmware", state.fw);
+            state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
+            state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "status", "firmwareState", "firmware_state"));
+            state.ip = firstTextWithFallback(payload, state.ip, "ip", "ipAddress", "ip_address");
+            state.fw = firstTextWithFallback(payload, state.fw, "fw", "firmware", "firmwareVersion", "firmware_version");
             state.rssi = firstInt(payload, "rssi", state.rssi);
             state.battery = firstInt(payload, "battery", state.battery);
-            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive", "session_active");
+            state.calibrated = firstBoolean(payload, state.calibrated, "calibrated");
+            state.readyForSession = firstBoolean(payload, state.readyForSession, "readyForSession", "ready_for_session", "ready");
+            updatePressureModeFields(state, payload);
             indexSession(state);
         });
     }
@@ -62,14 +79,14 @@ public class ManikinRegistryService {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
             state.online = true;
-            state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
-            state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
-            state.state = canonicalFirmwareState(firstText(payload, "state", "debugState", state.state));
-            state.ip = firstText(payload, "ip", "ipAddress", state.ip);
-            state.fw = firstText(payload, "fw", "firmware", state.fw);
+            state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
+            state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "debugState", "firmwareState", "firmware_state"));
+            state.ip = firstTextWithFallback(payload, state.ip, "ip", "ipAddress", "ip_address");
+            state.fw = firstTextWithFallback(payload, state.fw, "fw", "firmware", "firmwareVersion", "firmware_version");
             state.rssi = firstInt(payload, "rssi", state.rssi);
             state.battery = firstInt(payload, "battery", state.battery);
-            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive");
+            state.sessionActive = firstBoolean(payload, state.sessionActive, "sessionActive", "session_active");
             indexSession(state);
         });
     }
@@ -80,6 +97,7 @@ public class ManikinRegistryService {
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
+            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "firmwareState", "firmware_state"));
             state.seq = firstLong(payload, state.seq, "seq");
             Double payloadDepthMm = firstDouble(payload, null, "depthMm", "depth_mm");
             Double payloadDepthProgress = firstDouble(payload, null, "depthProgress", "depth_progress");
@@ -112,8 +130,14 @@ public class ManikinRegistryService {
                 state.pressureBalancePct = payloadPressureBalancePct;
                 state.pressureSkewed = payloadPressureBalancePct < 88.0;
             }
+            updatePressureModeFields(state, payload);
+            state.depthSource = firstTextWithFallback(payload, state.depthSource, "depthSource", "depth_source", "sourceMode", "source_mode");
 
             state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
+            Object debugRaw = jsonValue(payload.get("debugRaw"));
+            if (debugRaw == null && isSensorStreamTelemetry(payload)) {
+                debugRaw = jsonValue(payload);
+            }
             state.latestMetric = new LiveMetricPayload(
                     firstText(payload, "deviceId", "device_id", state.deviceId),
                     state.manikinId,
@@ -140,8 +164,8 @@ public class ManikinRegistryService {
                     firstText(payload, "handPlacement", "hand_placement", null),
                     jsonValue(payload.get("flags")),
                     state.pressureBalancePct,
-                    firstText(payload, "sourceMode", "source_mode", null),
-                    jsonValue(payload.get("debugRaw"))
+                    firstTextWithFallback(payload, state.depthSource, "sourceMode", "source_mode", "depthSource", "depth_source"),
+                    debugRaw
             );
             indexSession(state);
         });
@@ -163,15 +187,48 @@ public class ManikinRegistryService {
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type");
+            state.firmwareState = firstTextWithFallback(payload, state.firmwareState, "state", "firmwareState", "firmware_state");
+            state.calibrationProgressId = firstInt(payload, "progress_id", state.calibrationProgressId);
+            state.calibrationProgressId = firstInt(payload, "progressId", state.calibrationProgressId);
+            state.calibrationReasonId = normalizedReasonId(firstScalarAsText(payload, state.calibrationReasonId, "reason_id", "reasonId"));
+            state.calibrationActionId = firstInt(payload, "action_id", state.calibrationActionId);
+            state.calibrationActionId = firstInt(payload, "actionId", state.calibrationActionId);
+            state.calibrationResult = firstTextWithFallback(payload, state.calibrationResult, "result", "calibrationResult", "calibration_result");
+            state.profileId = firstTextWithFallback(payload, state.profileId, "profileId", "profile_id");
+            updatePressureModeFields(state, payload);
+            if (state.calibrationReasonId != null && !"00000".equals(state.calibrationReasonId)) {
+                state.warnings = appendWarning(state.warnings, state.calibrationReasonId);
+            }
             String result = firstText(payload, "result", "calibrationResult", "calibration_result", "state");
             if (result != null) {
                 String normalized = result.toLowerCase(Locale.ROOT);
                 state.state = switch (normalized) {
-                    case "pass", "passed", "ready", "ok" -> "READY_FOR_SESSION";
-                    case "fail", "failed", "error" -> "CALIBRATION_FAIL";
+                    case "pass", "passed", "pass_with_warnings", "ready", "ok" -> {
+                        state.calibrated = true;
+                        state.readyForSession = true;
+                        state.calibrationState = "READY";
+                        yield "READY_FOR_SESSION";
+                    }
+                    case "fail", "failed", "error" -> {
+                        state.calibrated = false;
+                        state.readyForSession = false;
+                        state.calibrationState = "FAILED";
+                        yield "CALIBRATION_FAIL";
+                    }
                     case "cancel", "cancelled", "canceled" -> "CALIBRATION_CANCELLED";
-                    default -> result;
+                    default -> canonicalFirmwareState(result);
                 };
+            } else if (state.firmwareState != null) {
+                state.state = canonicalFirmwareState(state.firmwareState);
+            }
+            if ("STARTED".equalsIgnoreCase(state.calibrationResult) || "CALIBRATING".equalsIgnoreCase(state.firmwareState)) {
+                state.calibrationState = "CALIBRATING";
+                state.readyForSession = false;
+            }
+            if ("CALIBRATION_CANCELLED".equals(state.state)) {
+                state.calibrated = false;
+                state.readyForSession = false;
+                state.calibrationState = "CANCELLED";
             }
             state.sessionActive = false;
             indexSession(state);
@@ -236,8 +293,9 @@ public class ManikinRegistryService {
     }
 
     private void upsert(String deviceId, Consumer<MutableManikinState> updater) {
-        registry.compute(deviceId, (key, existing) -> {
-            MutableManikinState state = existing != null ? existing : new MutableManikinState(deviceId);
+        String normalizedDeviceId = normalizeDeviceId(deviceId);
+        registry.compute(normalizedDeviceId, (key, existing) -> {
+            MutableManikinState state = existing != null ? existing : new MutableManikinState(normalizedDeviceId);
             updater.accept(state);
             return state;
         });
@@ -313,10 +371,31 @@ public class ManikinRegistryService {
                 state.latestForce2,
                 state.pressureBalancePct,
                 state.pressureSkewed,
+                state.firmwareState,
+                state.calibrated,
+                state.readyForSession,
+                state.calibrationState,
+                state.calibrationProgressId,
+                state.calibrationReasonId,
+                state.calibrationActionId,
+                state.calibrationProgressId,
+                state.calibrationReasonId,
+                state.calibrationActionId,
+                state.calibrationResult,
+                state.profileId,
+                state.pressureMode,
+                state.pressureDegraded,
+                state.usingLastStablePressure,
+                state.pressureValid,
+                state.hallValid,
+                state.depthSource,
+                state.warnings,
                 null,
                 null,
                 null,
                 null,
+                state.latestMetric != null ? state.latestMetric.depthProgress() : null,
+                state.latestMetric != null ? state.latestMetric.compressionCount() : null,
                 state.latestMetric,
                 state.seq,
                 connectionState(state, stale, offline),
@@ -392,6 +471,22 @@ public class ManikinRegistryService {
         copy.latestForce2 = source.latestForce2;
         copy.pressureBalancePct = source.pressureBalancePct;
         copy.pressureSkewed = source.pressureSkewed;
+        copy.firmwareState = source.firmwareState;
+        copy.calibrated = source.calibrated;
+        copy.readyForSession = source.readyForSession;
+        copy.calibrationState = source.calibrationState;
+        copy.calibrationProgressId = source.calibrationProgressId;
+        copy.calibrationReasonId = source.calibrationReasonId;
+        copy.calibrationActionId = source.calibrationActionId;
+        copy.calibrationResult = source.calibrationResult;
+        copy.profileId = source.profileId;
+        copy.pressureMode = source.pressureMode;
+        copy.pressureDegraded = source.pressureDegraded;
+        copy.usingLastStablePressure = source.usingLastStablePressure;
+        copy.pressureValid = source.pressureValid;
+        copy.hallValid = source.hallValid;
+        copy.depthSource = source.depthSource;
+        copy.warnings = source.warnings;
         copy.latestMetric = source.latestMetric;
         return copy;
     }
@@ -411,6 +506,51 @@ public class ManikinRegistryService {
             return "CONNECTING";
         }
         return "BACKEND_SSE_FALLBACK";
+    }
+
+    private static String firstTextWithFallback(JsonNode payload, String fallback, String... keys) {
+        if (payload == null) {
+            return fallback;
+        }
+
+        for (String key : keys) {
+            String value = text(payload, key);
+            if (value != null) {
+                return value;
+            }
+        }
+
+        return fallback;
+    }
+
+    private static void updatePressureModeFields(MutableManikinState state, JsonNode payload) {
+        state.pressureMode = firstTextWithFallback(payload, state.pressureMode, "pressureMode", "pressure_mode");
+        state.pressureDegraded = firstBoolean(payload, state.pressureDegraded, "pressureDegraded", "pressure_degraded");
+        state.usingLastStablePressure = firstBoolean(payload, state.usingLastStablePressure, "usingLastStablePressure", "using_last_stable_pressure");
+        state.pressureValid = firstBoolean(payload, state.pressureValid, "pressureValid", "pressure_valid");
+        state.hallValid = firstBoolean(payload, state.hallValid, "hallValid", "hall_valid");
+        String warnings = firstScalarAsText(payload, null, "warnings", "warning");
+        if (warnings != null) {
+            state.warnings = appendWarning(state.warnings, warnings);
+        }
+    }
+
+    private static boolean isSensorStreamTelemetry(JsonNode payload) {
+        String telemetryMode = firstTextWithFallback(payload, null, "telemetry_mode", "telemetryMode");
+        return telemetryMode != null && "SENSOR_STREAM".equalsIgnoreCase(telemetryMode);
+    }
+
+    private static String appendWarning(String existing, String warning) {
+        if (warning == null || warning.isBlank()) {
+            return existing;
+        }
+        if (existing == null || existing.isBlank()) {
+            return warning.trim();
+        }
+        if (existing.contains(warning.trim())) {
+            return existing;
+        }
+        return existing + "," + warning.trim();
     }
 
     private static String firstText(JsonNode payload, String firstKey, String secondKey, String fallback) {
@@ -444,6 +584,15 @@ public class ManikinRegistryService {
         }
 
         return fallback;
+    }
+
+    private static String firstText(String value, String fallback) {
+        if (value == null) {
+            return fallback;
+        }
+
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? fallback : trimmed;
     }
 
     private static String firstScalarAsText(JsonNode payload, String fallback, String... keys) {
@@ -585,6 +734,60 @@ public class ManikinRegistryService {
         };
     }
 
+    private static String normalizedReasonId(String value) {
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        if (trimmed.chars().allMatch(Character::isDigit)) {
+            int numeric = Integer.parseInt(trimmed);
+            return switch (numeric) {
+                case 0 -> "00000";
+                case 100 -> "08101";
+                case 101 -> "08102";
+                case 102 -> "08103";
+                case 200 -> "08401";
+                case 201 -> "08402";
+                case 202 -> "08403";
+                case 203 -> "08404";
+                case 204 -> "08405";
+                case 205 -> "08406";
+                case 206 -> "08407";
+                case 207 -> "08408";
+                case 208 -> "08409";
+                case 209 -> "08410";
+                case 210 -> "08418";
+                case 211 -> "08412";
+                case 212 -> "08413";
+                case 213 -> "08414";
+                case 214 -> "08415";
+                case 215 -> "08416";
+                case 216 -> "08417";
+                case 217 -> "08411";
+                case 300 -> "08301";
+                case 400 -> "08501";
+                case 401 -> "08502";
+                case 900 -> "08701";
+                default -> String.format(Locale.ROOT, "%05d", numeric);
+            };
+        }
+
+        return trimmed;
+    }
+
+    private static String normalizeDeviceId(String deviceId) {
+        String normalized = deviceId == null ? "" : deviceId.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("deviceId must not be blank");
+        }
+        return normalized;
+    }
+
     private static class MutableManikinState {
         private final String deviceId;
         private boolean online;
@@ -608,6 +811,22 @@ public class ManikinRegistryService {
         private Long latestForce2;
         private Double pressureBalancePct;
         private Boolean pressureSkewed;
+        private String firmwareState;
+        private Boolean calibrated;
+        private Boolean readyForSession;
+        private String calibrationState;
+        private Integer calibrationProgressId;
+        private String calibrationReasonId;
+        private Integer calibrationActionId;
+        private String calibrationResult;
+        private String profileId;
+        private String pressureMode;
+        private Boolean pressureDegraded;
+        private Boolean usingLastStablePressure;
+        private Boolean pressureValid;
+        private Boolean hallValid;
+        private String depthSource;
+        private String warnings;
         private LiveMetricPayload latestMetric;
 
         private MutableManikinState(String deviceId) {

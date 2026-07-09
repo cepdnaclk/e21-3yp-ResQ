@@ -4,13 +4,15 @@ import { subscribeToSessionLive } from "../../api/liveEventsClient";
 import type { SessionLiveView } from "../../types/live";
 import type { CompletedSession } from "../../types/session";
 import LoadingState from "../../components/ui/LoadingState";
-import { CoachingCue } from "../../components/cpr/CoachingCue";
 import { SessionTimer } from "../../components/cpr/SessionTimer";
 import { MetricCard } from "../../components/cpr/MetricCard";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import { getCompressionCue, formatDuration } from "../../utils/userFriendlyLabels";
 import { useAuth } from "../../auth/AuthContext";
+import { normalizeTelemetry } from "../../utils/telemetryNormalization";
+import LiveCprGraph from "../../components/cpr/LiveCprGraph";
+import LiveCoachingBanner from "../../components/cpr/LiveCoachingBanner";
 
 type TraineeLiveSessionPageProps = {
   sessionId: string;
@@ -60,7 +62,7 @@ export function TraineeLiveSessionPage({
           },
           () => {
             if (!stopped) {
-              setSession((prev) => prev ? { ...prev, active: false } : null);
+              setSession((prev) => (prev ? { ...prev, active: false } : null));
               subscription?.stop();
             }
           },
@@ -103,7 +105,7 @@ export function TraineeLiveSessionPage({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-8 text-white">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
         <LoadingState message="Connecting to training session monitor..." />
       </div>
     );
@@ -111,7 +113,7 @@ export function TraineeLiveSessionPage({
 
   if (session && !session.active && !completedSession) {
     return (
-      <div className="min-h-screen bg-gradient-to-tr from-slate-100 via-teal-50/20 to-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
         <LoadingState message="Processing session completion summary..." />
       </div>
     );
@@ -123,80 +125,95 @@ export function TraineeLiveSessionPage({
     const isExcellent = score >= 85;
     const isGood = score >= 70 && score < 85;
     const scoreClass = isExcellent
-      ? "bg-emerald-50 text-emerald-800 border-emerald-100"
+      ? "bg-emerald-50 text-emerald-600 border-emerald-200"
       : isGood
-      ? "bg-amber-50 text-amber-800 border-amber-100"
-      : "bg-rose-50 text-rose-800 border-rose-100";
+      ? "bg-amber-50 text-amber-600 border-amber-200"
+      : "bg-rose-50 text-rose-600 border-rose-200";
 
     const hasDepthProgress = summary.avgDepthProgress !== null && summary.avgDepthProgress !== undefined;
     const hasRecoilPct = summary.recoilPct !== null && summary.recoilPct !== undefined;
 
     return (
-      <div className="min-h-screen bg-gradient-to-tr from-slate-100 via-teal-50/20 to-slate-50 text-slate-800 flex flex-col justify-between p-8 font-sans select-none animate-fadeIn">
+      <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col justify-between p-6 sm:p-8 font-sans select-none animate-fadeIn">
         {/* Top Header */}
-        <header className="flex justify-between items-center border-b border-slate-200/80 pb-5 shrink-0">
+        <header className="flex justify-between items-center border-b border-slate-200 pb-5 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center p-1.5 shrink-0">
-              <img src="/resq-logo-dark-512.png" alt="ResQ Logo" className="w-full h-full object-contain brightness-0 invert" />
+            <div className="w-8 h-8 rounded-lg bg-teal-650 flex items-center justify-center p-1.5 shrink-0">
+              <img
+                src="/resq-logo-dark-512.png"
+                alt="ResQ Logo"
+                className="w-full h-full object-contain brightness-0 invert"
+              />
             </div>
             <div>
               <h1 className="text-lg font-black tracking-tight text-slate-900 leading-tight">ResQ Practice Portal</h1>
-              <p className="text-[10px] text-teal-600 font-extrabold uppercase tracking-wider mt-0.5">Session Completed</p>
+              <p className="text-[10px] text-teal-600 font-extrabold uppercase tracking-wider mt-0.5">
+                Session Completed
+              </p>
             </div>
           </div>
         </header>
 
         {/* Main Completion Card */}
         <main className="flex-1 flex flex-col items-center justify-center my-8 max-w-xl w-full mx-auto">
-          <Card className="p-8 text-center space-y-6 border border-slate-100 w-full shadow-2xl animate-scaleUp bg-white rounded-[32px]">
+          <div className="p-8 text-center space-y-6 border border-slate-200 w-full shadow-sm bg-white rounded-3xl">
             <div className="space-y-2">
-              <span className="text-[10px] font-extrabold bg-teal-50 text-teal-700 px-3 py-1.5 rounded-full uppercase tracking-wider inline-block border border-teal-100">
+              <span className="text-[10px] font-extrabold bg-teal-50 text-teal-700 px-3 py-1.5 rounded-full uppercase tracking-wider inline-block border border-teal-200">
                 Practice Finished
               </span>
-              <h2 className="text-2xl font-black text-slate-800 tracking-tight leading-tight">Session completed</h2>
+              <h2 className="text-2xl font-black text-slate-950 tracking-tight leading-tight">
+                Session completed
+              </h2>
             </div>
 
             {/* Score circle */}
             <div className="flex justify-center">
-              <div className={`w-32 h-32 rounded-full border-4 flex flex-col items-center justify-center bg-white shadow-md ${scoreClass}`}>
+              <div
+                className={`w-32 h-32 rounded-full border flex flex-col items-center justify-center shadow-sm ${scoreClass}`}
+              >
                 <span className="text-4xl font-black">{score}%</span>
-                <span className="text-[9px] font-extrabold uppercase tracking-wider opacity-60">Score</span>
+                <span className="text-[9px] font-extrabold uppercase tracking-wider opacity-85">Score</span>
               </div>
             </div>
 
             {/* Metrics list */}
             <div className="grid grid-cols-2 gap-4 text-left pt-2">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100/50">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60">
                 <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Duration</span>
-                <span className="text-sm text-slate-700 font-bold">{formatDuration(summary.durationSeconds)}</span>
+                <span className="text-sm text-slate-800 font-bold">{formatDuration(summary.durationSeconds)}</span>
               </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100/50">
-                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Compressions</span>
-                <span className="text-sm text-slate-700 font-bold">
-                  {summary.totalCompressions} <span className="text-xs text-slate-400 font-semibold">({summary.validCompressions} valid)</span>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60">
+                <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                  Compressions
+                </span>
+                <span className="text-sm text-slate-800 font-bold">
+                  {summary.totalCompressions}{" "}
+                  <span className="text-xs text-slate-500 font-semibold">({summary.validCompressions} valid)</span>
                 </span>
               </div>
-              
+
               {hasDepthProgress && (
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100/50">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Good Depth</span>
-                  <span className="text-sm text-slate-700 font-bold font-mono">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60">
+                  <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                    Good Depth
+                  </span>
+                  <span className="text-sm text-slate-800 font-bold font-mono">
                     {Math.round(summary.avgDepthProgress! * 100)}%
                   </span>
                 </div>
               )}
-              
+
               {hasRecoilPct && (
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100/50">
-                  <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Recoil Accuracy</span>
-                  <span className="text-sm text-slate-700 font-bold font-mono">
-                    {Math.round(summary.recoilPct!)}%
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60">
+                  <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                    Recoil Accuracy
                   </span>
+                  <span className="text-sm text-slate-800 font-bold font-mono">{Math.round(summary.recoilPct!)}%</span>
                 </div>
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-50">
+            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
               <Button
                 type="button"
                 variant="secondary"
@@ -209,15 +226,15 @@ export function TraineeLiveSessionPage({
                 type="button"
                 variant="primary"
                 onClick={() => window.location.assign(`/sessions/${sessionId}`)}
-                className="flex-1 font-bold text-xs py-3 rounded-xl text-white shadow-md shadow-teal-500/10"
+                className="flex-1 font-bold text-xs py-3 rounded-xl text-white shadow-sm"
               >
                 View Session Summary
               </Button>
             </div>
-          </Card>
+          </div>
         </main>
 
-        <footer className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-4 border-t border-slate-200/80 shrink-0">
+        <footer className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-4 border-t border-slate-200 shrink-0">
           ResQ CPR Monitor • Connected to LocalHub host
         </footer>
       </div>
@@ -226,162 +243,162 @@ export function TraineeLiveSessionPage({
 
   if (error || !session) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white font-sans">
-        <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-10 rounded-3xl text-center space-y-4">
-          <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-400 font-bold">
+      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-8 text-slate-800">
+        <div className="w-full max-w-md bg-white border border-slate-200 p-10 rounded-3xl text-center space-y-4 shadow-sm">
+          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-500 font-bold">
             !
           </div>
-          <h3 className="text-lg font-bold">Session Closed</h3>
-          <p className="text-sm text-slate-400">{error || "The training session has ended."}</p>
+          <h3 className="text-lg font-bold text-slate-900">Session Closed</h3>
+          <p className="text-sm text-slate-500">{error || "The training session has ended."}</p>
         </div>
       </div>
     );
   }
 
-  const rawCue = getCompressionCue(
-    session.latestMetric,
-    session.latestFlags,
-    session.connectionState,
-    session.active
-  );
+  const normalized = normalizeTelemetry(session);
 
-  // Normalize cue text for trainee based on design copy
-  let cue = rawCue;
-  if (cue === "Waiting for signal…") {
-    if (session.connectionState === "STALE" || session.connectionState === "OFFLINE" || session.connectionState === "ERROR") {
-      cue = "Reconnecting…";
-    }
-  } else if (cue === "Release fully between compressions") {
-    cue = "Release fully";
-  } else if (cue === "Good compressions — keep it up!") {
-    cue = "Good compressions";
-  } else if (cue === "Keep going — avoid pauses") {
-    cue = "Keep going";
-  }
-
-  const recoilOkCount = session.latestMetric?.recoilOkCount || 0;
-  const incompleteRecoilCount = session.latestMetric?.incompleteRecoilCount || 0;
-  const recoilTotal = recoilOkCount + incompleteRecoilCount;
-  const derivedRecoilPct = recoilTotal > 0 ? (recoilOkCount / recoilTotal) * 100 : null;
-
-  // Profile parsing (Correction 5)
+  // Profile parsing
   const profile = session.scenario && session.scenario.toLowerCase().includes("pediatric") ? "pediatric" : "adult";
   const depthTargetStr = profile === "pediatric" ? "40–50 mm" : "50–60 mm";
 
   // Parse flags
   const flags = new Set(
-    (Array.isArray(session.latestFlags) ? session.latestFlags : (session.latestFlags || "").split(","))
-      .map((f) => f.trim().toUpperCase())
+    (Array.isArray(normalized.flags) ? normalized.flags : (normalized.flags || "").split(",")).map((f) =>
+      f.trim().toUpperCase()
+    )
   );
 
   // Depth Card Values
-  let depthVal = "Waiting";
+  let depthVal = "—";
   let depthTone: "good" | "warning" | "danger" | "neutral" = "neutral";
-  if (session.latestDepthMm !== null && session.latestDepthMm !== undefined && session.latestDepthMm > 0) {
+  let depthStatus = "Waiting";
+
+  if (normalized.depthMm !== null && normalized.depthMm !== undefined && normalized.depthMm > 0) {
+    depthVal = `${normalized.depthMm.toFixed(1)}`;
     if (flags.has("DEPTH_OK")) {
-      depthVal = "Good";
+      depthStatus = "Good";
       depthTone = "good";
     } else if (flags.has("DEPTH_LOW")) {
-      depthVal = "Too shallow";
+      depthStatus = "Too shallow";
       depthTone = "danger";
     } else if (flags.has("DEPTH_HIGH")) {
-      depthVal = "Too deep";
+      depthStatus = "Too deep";
       depthTone = "warning";
     } else {
-      // Numerical fallback
       const minDepth = profile === "pediatric" ? 40 : 50;
       const maxDepth = profile === "pediatric" ? 50 : 60;
-      if (session.latestDepthMm < minDepth) {
-        depthVal = "Too shallow";
+      if (normalized.depthMm < minDepth) {
+        depthStatus = "Too shallow";
         depthTone = "danger";
-      } else if (session.latestDepthMm > maxDepth) {
-        depthVal = "Too deep";
+      } else if (normalized.depthMm > maxDepth) {
+        depthStatus = "Too deep";
         depthTone = "warning";
       } else {
-        depthVal = "Good";
+        depthStatus = "Good";
         depthTone = "good";
       }
     }
   }
 
   // Rate Card Values
-  let rateVal = "Waiting";
+  let rateVal = "—";
   let rateTone: "good" | "warning" | "danger" | "neutral" = "neutral";
-  if (session.latestRateCpm !== null && session.latestRateCpm !== undefined && session.latestRateCpm > 0) {
+  let rateStatus = "Waiting";
+
+  if (normalized.rateCpm !== null && normalized.rateCpm !== undefined && normalized.rateCpm > 0) {
+    rateVal = `${Math.round(normalized.rateCpm)}`;
     if (flags.has("RATE_OK")) {
-      rateVal = "Good rhythm";
+      rateStatus = "Good";
       rateTone = "good";
     } else if (flags.has("RATE_SLOW")) {
-      rateVal = "Speed up";
+      rateStatus = "Too slow";
       rateTone = "danger";
     } else if (flags.has("RATE_FAST")) {
-      rateVal = "Slow down";
+      rateStatus = "Too fast";
       rateTone = "warning";
     } else {
-      // Numerical fallback
-      if (session.latestRateCpm < 100) {
-        rateVal = "Speed up";
+      if (normalized.rateCpm < 100) {
+        rateStatus = "Too slow";
         rateTone = "danger";
-      } else if (session.latestRateCpm > 120) {
-        rateVal = "Slow down";
+      } else if (normalized.rateCpm > 120) {
+        rateStatus = "Too fast";
         rateTone = "warning";
       } else {
-        rateVal = "Good rhythm";
+        rateStatus = "Good";
         rateTone = "good";
       }
     }
   }
 
-  // Recoil Card Values (Correction 4)
-  let recoilVal = "Waiting";
+  // Recoil Card Values
+  let recoilVal = "—";
   let recoilTone: "good" | "warning" | "danger" | "neutral" = "neutral";
-  if (session.latestMetric && session.latestMetric.compressionCount !== null && session.latestMetric.compressionCount !== undefined && session.latestMetric.compressionCount > 0) {
-    const isRecoilOk = session.latestMetric.recoilOk !== false && !flags.has("RECOIL_INCOMPLETE") && !flags.has("INCOMPLETE_RECOIL");
-    if (isRecoilOk) {
-      recoilVal = "Good";
+  let recoilStatus = "Waiting";
+
+  if (normalized.hasRecoilCounts && normalized.recoilTotal === 0) {
+    recoilVal = "Waiting for completed recoil data";
+    recoilTone = "neutral";
+    recoilStatus = "Waiting";
+  } else if (normalized.recoilPct !== null) {
+    recoilVal = `${Math.round(normalized.recoilPct)}`;
+    if (normalized.recoilPct >= 90) {
+      recoilStatus = "Good";
       recoilTone = "good";
     } else {
-      recoilVal = "Release fully";
+      recoilStatus = "Release fully";
       recoilTone = "danger";
     }
   }
 
   // Hands Card Values
-  let handsVal = "Waiting";
+  let handsVal = "—";
+  let handsUnit = undefined;
   let handsTone: "good" | "warning" | "danger" | "neutral" = "neutral";
-  if (session.latestMetric && session.latestMetric.compressionCount !== null && session.latestMetric.compressionCount !== undefined && session.latestMetric.compressionCount > 0) {
-    const hasPlacementWarn = flags.has("HAND_PLACEMENT_WARNING") || session.pressureSkewed === true;
-    if (hasPlacementWarn) {
-      handsVal = "Check position";
-      handsTone = "warning";
-    } else {
+  let handsStatus = "Waiting";
+
+  const cleanPlacement = (normalized.handPlacement || "").trim().toUpperCase();
+  if (cleanPlacement) {
+    handsStatus = cleanPlacement === "CENTER" ? "Good" : "Check Position";
+    if (cleanPlacement === "CENTER") {
       handsVal = "Centered";
       handsTone = "good";
+    } else if (cleanPlacement === "LEFT") {
+      handsVal = "Left leaning";
+      handsTone = "danger";
+    } else if (cleanPlacement === "RIGHT") {
+      handsVal = "Right leaning";
+      handsTone = "danger";
+    } else if (cleanPlacement === "NO_CONTACT") {
+      handsVal = "No Contact";
+      handsTone = "neutral";
     }
+
+    if (session.pressureBalancePct !== null) {
+      handsUnit = `(${Math.round(session.pressureBalancePct)}% balance)`;
+    }
+  } else if (session.pressureBalancePct !== null) {
+    handsUnit = `(${Math.round(session.pressureBalancePct)}% balance)`;
+    handsTone = session.pressureSkewed ? "danger" : "good";
+    handsVal = session.pressureSkewed ? "Left leaning" : "Centered";
+    handsStatus = session.pressureSkewed ? "Check Position" : "Good";
   }
 
-  // Coaching cue tone mapping
-  function getTraineeCueTone(cueMsg: string): "good" | "warning" | "danger" | "neutral" | "muted" {
-    const msg = cueMsg.toLowerCase();
-    if (msg.includes("good") || msg.includes("centered") || msg.includes("rhythm") || msg.includes("keep it up")) return "good";
-    if (msg.includes("deeper") || msg.includes("release fully") || msg.includes("recoil")) return "danger";
-    if (msg.includes("position") || msg.includes("speed up") || msg.includes("slow down") || msg.includes("lighter") || msg.includes("avoid pauses") || msg.includes("keep going")) return "warning";
-    return "muted";
-  }
-
-  const resolvedCueTone = getTraineeCueTone(cue);
   const compressionCount = session.latestMetric?.compressionCount ?? 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-tr from-slate-100 via-teal-50/20 to-slate-50 text-slate-800 flex flex-col justify-between p-8 font-sans select-none animate-fadeIn">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col justify-between p-6 sm:p-8 font-sans select-none animate-fadeIn">
       {/* Top Header */}
-      <header className="flex justify-between items-center border-b border-slate-200/80 pb-5">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-5 gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center p-1.5 shrink-0">
-            <img src="/resq-logo-dark-512.png" alt="ResQ Logo" className="w-full h-full object-contain brightness-0 invert" />
+          <div className="w-8 h-8 rounded-lg bg-teal-650 flex items-center justify-center p-1.5 shrink-0">
+            <img
+              src="/resq-logo-dark-512.png"
+              alt="ResQ Logo"
+              className="w-full h-full object-contain brightness-0 invert"
+            />
           </div>
           <div>
-            <h1 className="text-lg font-black tracking-tight text-slate-900 leading-tight">ResQ Live Practice</h1>
+            <h1 className="text-lg font-black tracking-tight text-slate-900 leading-none">ResQ Live Practice</h1>
             <p className="text-[10px] text-teal-600 font-extrabold uppercase tracking-wider mt-0.5">
               {session.scenario || "Standard CPR Training"}
             </p>
@@ -390,26 +407,30 @@ export function TraineeLiveSessionPage({
 
         <div className="flex items-center gap-5">
           {/* Timer & Compressions Badges */}
-          <div className="flex items-center gap-3 bg-white border border-slate-200/80 rounded-2xl px-5 py-2 shadow-sm">
+          <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-5 py-2 shadow-sm">
             <SessionTimer startedAt={session.startedAt} active={session.active} />
             <div className="w-px h-8 bg-slate-200" />
             <div className="flex flex-col items-center py-1">
-              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Compressions</span>
-              <span className="text-xl font-mono font-extrabold text-slate-800 tracking-tight">{compressionCount}</span>
+              <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                Compressions
+              </span>
+              <span className="text-xl font-mono font-extrabold text-slate-800 tracking-tight">
+                {compressionCount}
+              </span>
             </div>
           </div>
 
           {currentUser && (
             <div className="flex items-center gap-3">
               <span className="text-xs text-slate-500 font-semibold">
-                Signed in as <strong className="text-slate-700">{currentUser.displayName}</strong>
+                Signed in as <strong className="text-slate-900">{currentUser.displayName}</strong>
               </span>
               <button
                 type="button"
                 onClick={() => {
                   logout().finally(() => window.location.assign("/login"));
                 }}
-                className="bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all duration-200 border border-slate-200/80 cursor-pointer shadow-sm"
+                className="bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all duration-200 border border-slate-200 cursor-pointer shadow-sm"
               >
                 Sign out
               </button>
@@ -419,14 +440,19 @@ export function TraineeLiveSessionPage({
       </header>
 
       {/* Main split display: side metrics + center dial */}
-      <main className="flex-1 flex flex-col items-center justify-center my-10 max-w-5xl mx-auto w-full gap-10">
-        
+      <main className="flex-1 flex flex-col items-center justify-center my-6 sm:my-8 max-w-5xl mx-auto w-full gap-6 sm:gap-8">
         {/* Large Central Coaching Cue Card */}
         <div className="w-full max-w-3xl animate-scaleUp">
-          <CoachingCue
-            message={cue}
-            tone={resolvedCueTone}
-            size="2xl"
+          <LiveCoachingBanner
+            coachingCue={session.latestMetric ? "Active" : "Waiting"}
+            depthMm={normalized.depthMm}
+            rateCpm={normalized.rateCpm}
+            recoilPct={normalized.recoilPct}
+            flags={normalized.flags}
+            handPlacement={normalized.handPlacement}
+            connectionState={session.connectionState}
+            sessionActive={session.active}
+            compressionCount={compressionCount}
           />
         </div>
 
@@ -435,15 +461,22 @@ export function TraineeLiveSessionPage({
           <MetricCard
             label="Depth"
             value={depthVal}
-            unit={session.latestDepthMm ? `(${session.latestDepthMm.toFixed(0)} mm)` : undefined}
+            unit={depthVal !== "—" ? "mm" : undefined}
+            status={depthStatus}
             tone={depthTone}
             target={depthTargetStr}
             large={true}
+            subtitle={
+              normalized.isDerivedDepth
+                ? "Depth derived from firmware depth_progress when raw mm is not supplied."
+                : undefined
+            }
           />
           <MetricCard
             label="Rate"
             value={rateVal}
-            unit={session.latestRateCpm ? `(${Math.round(session.latestRateCpm)}/min)` : undefined}
+            unit={rateVal !== "—" ? "/ min" : undefined}
+            status={rateStatus}
             tone={rateTone}
             target="100–120 / min"
             large={true}
@@ -451,7 +484,8 @@ export function TraineeLiveSessionPage({
           <MetricCard
             label="Recoil"
             value={recoilVal}
-            unit={derivedRecoilPct !== null ? `(${Math.round(derivedRecoilPct)}%)` : undefined}
+            unit={recoilVal.length <= 4 && normalized.recoilPct !== null ? "%" : undefined}
+            status={recoilStatus}
             tone={recoilTone}
             target="≥ 90% Recoil"
             large={true}
@@ -459,15 +493,22 @@ export function TraineeLiveSessionPage({
           <MetricCard
             label="Hands"
             value={handsVal}
+            unit={handsUnit}
+            status={handsStatus}
             tone={handsTone}
             target="Centered"
             large={true}
           />
         </div>
+
+        {/* Live CPR Graph */}
+        <div className="w-full max-w-5xl">
+          <LiveCprGraph session={session} />
+        </div>
       </main>
 
       {/* Footer */}
-      <footer className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-4 border-t border-slate-200/80">
+      <footer className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-4 border-t border-slate-200">
         ResQ Live Telemetry Guide • Visible from distance
       </footer>
     </div>

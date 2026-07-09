@@ -24,6 +24,10 @@ static calibration_config_t valid_calibration(void)
         .pressure_contact_threshold = 300,
         .pressure_valid_threshold = 1000,
         .pressure_balance_allowed_pct = 25,
+        .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
+        .pressure_valid = true,
+        .hall_valid = true,
+        .full_depth_mm = 50.0f,
         .calibrated_at_ms = 1000,
         .calibrated = true,
     };
@@ -53,6 +57,15 @@ TEST_CASE("Calibration defaults are safe and explicit", "[config]")
     calibration_config_set_defaults(&config);
     TEST_ASSERT_FALSE(config.calibrated);
     TEST_ASSERT_EQUAL(25, config.pressure_balance_allowed_pct);
+    TEST_ASSERT_EQUAL(CALIBRATION_PRESSURE_OPTIONAL, config.pressure_mode);
+    TEST_ASSERT_TRUE(config.pressure_valid);
+    TEST_ASSERT_FALSE(config.pressure_degraded);
+    TEST_ASSERT_FALSE(config.using_last_stable_pressure);
+    TEST_ASSERT_FALSE(config.hall_valid);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, config.pressure_0_kpa_per_count);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, config.pressure_1_kpa_per_count);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, config.pressure_2_kpa_per_count);
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, config.full_depth_mm);
     TEST_ASSERT_EQUAL(60, config.calibration_sample_count);
     TEST_ASSERT_EQUAL(2000, config.calibration_window_ms);
 }
@@ -88,7 +101,14 @@ TEST_CASE("Calibration validation covers every threshold boundary", "[config]")
     ASSERT_INVALID_FIELD(pressure_valid_threshold, 300);
     ASSERT_INVALID_FIELD(pressure_balance_allowed_pct, 4);
     ASSERT_INVALID_FIELD(pressure_balance_allowed_pct, 61);
+    ASSERT_INVALID_FIELD(full_depth_mm, 0.0f);
     ASSERT_INVALID_FIELD(calibrated_at_ms, 0);
+
+    config = valid_calibration();
+    config.pressure_0_kpa_per_count = 0.0f;
+    config.pressure_1_kpa_per_count = 0.0f;
+    config.pressure_2_kpa_per_count = 0.0f;
+    TEST_ASSERT_TRUE(calibration_config_validate(&config));
 }
 
 TEST_CASE("All firmware states have stable string names", "[config][fsm]")

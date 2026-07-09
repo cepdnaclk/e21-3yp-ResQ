@@ -9,6 +9,8 @@ import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
+import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
+import lk.resq.localhub.service.CalibrationNotReadyException;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.SyncQueueRepository;
@@ -143,7 +145,7 @@ class ActiveSessionServiceTest {
         service.recordTelemetry("M01", firmwareTelemetry);
 
         var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
-        assertThat(liveView.latestDepthMm()).isNull();
+        assertThat(liveView.latestDepthMm()).isEqualTo(39.0);
         assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
         assertThat(liveView.latestMetric()).isNotNull();
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.78);
@@ -154,7 +156,7 @@ class ActiveSessionServiceTest {
         assertThat(completed.summary().sampleCount()).isEqualTo(1);
         assertThat(completed.summary().totalCompressions()).isEqualTo(1);
         assertThat(completed.summary().validCompressions()).isEqualTo(1);
-        assertThat(completed.summary().avgDepthMm()).isEqualTo(0.0);
+        assertThat(completed.summary().avgDepthMm()).isEqualTo(39.0);
         assertThat(completed.summary().avgDepthProgress()).isEqualTo(0.78);
         assertThat(completed.summary().avgRateCpm()).isEqualTo(111.0);
         assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
@@ -341,6 +343,160 @@ class ActiveSessionServiceTest {
         assertThat(session.active()).isTrue();
     }
 
+    @Test
+    void sessionStartBlockedWhenReadinessUnknown() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        // M03 starts with UNKNOWN state by default since we haven't configured it
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M03",
+                null,
+                null,
+                null,
+                "Guest",
+                "Blocked unknown",
+                null
+        ))).isInstanceOf(CalibrationNotReadyException.class)
+                .hasMessageContaining("Run calibration before starting a CPR session.");
+    }
+
+    @Test
+    void sessionStartBlockedWhenReadinessFailed() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        // Simulate a FAIL calibration event
+        fixture.readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
+                "M01",
+                4002,
+                "reply-1",
+                "ACK",
+                12,
+                "FAIL",
+                "00000",
+                0,
+                "CALIBRATION_FAIL",
+                100L,
+                Instant.now()
+        ));
+
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Blocked failed",
+                null
+        ))).isInstanceOf(CalibrationNotReadyException.class)
+                .hasMessageContaining("Run calibration before starting a CPR session.");
+    }
+
+    @Test
+    void sessionStartBlockedWhenReadinessCalibrating() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        // Simulate a calibrating state (eventId 4001, progress 2)
+        fixture.readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
+                "M01",
+                4001,
+                "reply-1",
+                "ACK",
+                2,
+                null,
+                "00000",
+                0,
+                "CALIBRATING",
+                100L,
+                Instant.now()
+        ));
+
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Blocked calibrating",
+                null
+        ))).isInstanceOf(CalibrationNotReadyException.class)
+                .hasMessageContaining("Run calibration before starting a CPR session.");
+    }
+
+    @Test
+    void sessionStartAllowedWhenReadinessReady() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        // M01 is pre-configured as READY in fixture setup
+
+        SessionStartResponse session = fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                "Guest",
+                "Allowed check",
+                null
+        ));
+
+        assertThat(session.deviceId()).isEqualTo("M01");
+        assertThat(session.active()).isTrue();
+    }
+
+    @Test
+    void noMqttSessionStartPublishedWhenCalibrationNotReady() throws Exception {
+        CapturingMqttCommandPublisherService commandPublisher = new CapturingMqttCommandPublisherService();
+        LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
+        LiveStreamService liveStreamService = new NoopLiveStreamService();
+        TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+        FirmwarePersistenceRepository firmwareRepository = new FirmwarePersistenceRepository(
+                Path.of("target", "active-session-firmware-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        firmwareRepository.initialize();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+          Path.of("target", "active-session-profile-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
+                commandPublisher,
+                firmwareRepository,
+          profileService,
+                registry
+        );
+        SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
+          Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        syncQueueRepository.initialize();
+        SyncQueueService syncQueueService = new SyncQueueService(
+                syncQueueRepository,
+                objectMapper,
+                new CloudSessionSummaryPayloadMapper()
+        );
+        DeviceReadinessService readinessService = new DeviceReadinessService();
+
+        ActiveSessionService service = new ActiveSessionService(
+                registry,
+                commandPublisher,
+                sessionRepository,
+                liveStreamService,
+                traineeRecordsRepository,
+                firmwareCalibrationService,
+                syncQueueService,
+                null,
+                new RateEstimatorRegistry(),
+                readinessService
+        );
+
+        assertThatThrownBy(() -> service.startSession(new SessionStartRequest(
+                "M03",
+                null,
+                null,
+                null,
+                "Guest",
+                "MQTT Blocked check",
+                null
+        ))).isInstanceOf(CalibrationNotReadyException.class);
+
+        assertThat(commandPublisher.publishStartCount).isEqualTo(0);
+    }
+
     private ActiveSessionService newService() throws Exception {
         return newServiceFixture().service;
     }
@@ -375,16 +531,48 @@ class ActiveSessionServiceTest {
                 objectMapper,
                 new CloudSessionSummaryPayloadMapper()
         );
+        DeviceReadinessService readinessService = new DeviceReadinessService();
+        // Pre-configure M01 and M02 as READY
+        readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
+                "M01",
+                4002,
+                "reply-m01",
+                "ACK",
+                11,
+                "PASS",
+                "00000",
+                0,
+                "READY_FOR_SESSION",
+                100L,
+                Instant.now()
+        ));
+        readinessService.handleCalibrationEvent("M02", new CalibrationMqttEvent(
+                "M02",
+                4002,
+                "reply-m02",
+                "ACK",
+                11,
+                "PASS",
+                "00000",
+                0,
+                "READY_FOR_SESSION",
+                100L,
+                Instant.now()
+        ));
+
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-          firmwareCalibrationService,
-          syncQueueService
+                firmwareCalibrationService,
+                syncQueueService,
+                null,
+                new RateEstimatorRegistry(),
+                readinessService
         );
-        return new ServiceFixture(service, registry, firmwareRepository);
+        return new ServiceFixture(service, registry, firmwareRepository, readinessService);
     }
 
     private JsonNode telemetry(String deviceId, String sessionId, long seq, double depthMm, double rateCpm) throws Exception {
@@ -466,7 +654,21 @@ class ActiveSessionServiceTest {
     private record ServiceFixture(
             ActiveSessionService service,
             ManikinRegistryService registry,
-            FirmwarePersistenceRepository repository
+            FirmwarePersistenceRepository repository,
+            DeviceReadinessService readinessService
     ) {
+    }
+
+    private static final class CapturingMqttCommandPublisherService extends MqttCommandPublisherService {
+        private int publishStartCount = 0;
+
+        private CapturingMqttCommandPublisherService() {
+            super(new ObjectMapper(), "tcp://127.0.0.1:1", "test");
+        }
+
+        @Override
+        public void publishSessionStart(SessionStartCommandPayload payload) {
+            publishStartCount++;
+        }
     }
 }

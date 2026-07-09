@@ -16,5 +16,6 @@ idf_component_register(
         freertos
         mqtt_manager
         runtime_helpers
+        sensor_conversion
         esp_timer
 )

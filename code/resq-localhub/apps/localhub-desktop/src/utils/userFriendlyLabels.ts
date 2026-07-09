@@ -14,6 +14,7 @@ import type { LiveMetricPayload } from "../types/live";
 // ─────────────────────────────────────────────
 
 const DEVICE_STATE_LABELS: Record<string, string> = {
+  ONLINE: "Online",
   READY_FOR_SESSION: "Ready",
   SESSION_ACTIVE: "Session running",
   CALIBRATION_FAIL: "Readiness check failed",
@@ -26,6 +27,7 @@ const DEVICE_STATE_LABELS: Record<string, string> = {
 };
 
 const DEVICE_STATE_TONES: Record<string, "success" | "info" | "warning" | "danger" | "muted"> = {
+  ONLINE: "success",
   READY_FOR_SESSION: "success",
   SESSION_ACTIVE: "info",
   CALIBRATION_FAIL: "warning",

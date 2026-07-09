@@ -25,6 +25,8 @@ import java.util.Optional;
 public class CalibrationProfileRepository {
 
     private static final int LEGACY_DEFAULT_HALL_DELTA = 13500;
+    private static final int LEGACY_DEFAULT_REF_PRESSURE = 20100;
+    private static final int LEGACY_DEFAULT_BLADDER_PRESSURE = 15000;
 
     private final Path databasePath;
     private final String jdbcUrl;
@@ -66,9 +68,9 @@ public class CalibrationProfileRepository {
                             "adult-basic",
                             "Adult Basic",
                             CalibrationConstraints.DEFAULT_HALL_DELTA,
-                            20100,
-                            15000,
-                            15000,
+                            CalibrationConstraints.DEFAULT_REF_PRESSURE,
+                            CalibrationConstraints.DEFAULT_BLADDER_1_PRESSURE,
+                            CalibrationConstraints.DEFAULT_BLADDER_2_PRESSURE,
                             "Default adult CPR calibration profile",
                             true,
                             true,
@@ -77,7 +79,7 @@ public class CalibrationProfileRepository {
                     ));
                 }
 
-                migrateLegacyDefaultHallDelta(connection);
+                migrateLegacyDefaultProfileScale(connection);
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize calibration profile store at " + databasePath, error);
@@ -255,17 +257,29 @@ public class CalibrationProfileRepository {
         }
     }
 
-    private void migrateLegacyDefaultHallDelta(Connection connection) throws SQLException {
+    private void migrateLegacyDefaultProfileScale(Connection connection) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 UPDATE calibration_profiles
                 SET hall_delta = ?,
+                    ref_pressure = ?,
+                    bladder_1_pressure = ?,
+                    bladder_2_pressure = ?,
                     updated_at = ?
                 WHERE profile_id = 'adult-basic'
                   AND hall_delta = ?
+                  AND ref_pressure = ?
+                  AND bladder_1_pressure = ?
+                  AND bladder_2_pressure = ?
                 """)) {
             statement.setInt(1, CalibrationConstraints.DEFAULT_HALL_DELTA);
-            statement.setString(2, Instant.now().toString());
-            statement.setInt(3, LEGACY_DEFAULT_HALL_DELTA);
+            statement.setInt(2, CalibrationConstraints.DEFAULT_REF_PRESSURE);
+            statement.setInt(3, CalibrationConstraints.DEFAULT_BLADDER_1_PRESSURE);
+            statement.setInt(4, CalibrationConstraints.DEFAULT_BLADDER_2_PRESSURE);
+            statement.setString(5, Instant.now().toString());
+            statement.setInt(6, LEGACY_DEFAULT_HALL_DELTA);
+            statement.setInt(7, LEGACY_DEFAULT_REF_PRESSURE);
+            statement.setInt(8, LEGACY_DEFAULT_BLADDER_PRESSURE);
+            statement.setInt(9, LEGACY_DEFAULT_BLADDER_PRESSURE);
             statement.executeUpdate();
         }
     }

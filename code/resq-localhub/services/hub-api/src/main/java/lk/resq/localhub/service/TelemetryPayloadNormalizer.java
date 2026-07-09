@@ -46,7 +46,13 @@ final class TelemetryPayloadNormalizer {
 
         Double depthMm = firstDouble(payload, "depthMm", "depth_mm");
         Double depthProgress = firstDouble(payload, "depthProgress", "depth_progress");
-        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "mode"));
+        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "depthSource", "depth_source", "mode"));
+
+        Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
+
+        Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
+        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
+        Double pauseS = firstDouble(payload, "pauseS", "pause_s");
         if (depthMm == null) {
             depthMm = firstDouble(payload, "current_delta", "currentDelta");
             if (depthMm != null) {
@@ -54,14 +60,12 @@ final class TelemetryPayloadNormalizer {
                 if (sourceMode == null || "real".equals(sourceMode)) {
                     sourceMode = "simulator";
                 }
+            } else if (depthProgress != null) {
+                depthMm = depthProgress * 50.0;
+                warnings.add("derived depthMm = depthProgress * 50.0 because depthMm is missing");
             }
         }
 
-        Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
-
-        Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
-        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
-        Double pauseS = firstDouble(payload, "pauseS", "pause_s");
         Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions", "totalCompressions");
         Integer validCompressionCount = firstInt(payload, "validCompressionCount", "valid_compression_count");
         Integer recoilOkCount = firstInt(payload, "recoilOkCount", "recoil_ok_count");
@@ -184,7 +188,7 @@ final class TelemetryPayloadNormalizer {
         }
         String normalized = value.toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "real", "simulator", "calibration", "debug" -> normalized;
+            case "real", "simulator", "calibration", "debug", "hall" -> normalized;
             default -> "debug";
         };
     }
@@ -207,11 +211,23 @@ final class TelemetryPayloadNormalizer {
     private static boolean looksLikeFirmwareTelemetry(JsonNode payload) {
         return payload.has("depth_progress")
                 || payload.has("depthProgress")
+                || payload.has("depth_mm")
+                || payload.has("depthMm")
                 || payload.has("depth_ok")
                 || payload.has("valid_compression_count")
                 || payload.has("quality_flags")
                 || payload.has("hand_placement")
-                || payload.has("pressure_balance_pct");
+                || payload.has("pressure_balance_pct")
+                || payload.has("pressure_0_kpa")
+                || payload.has("pressure_0_kpa_valid")
+                || payload.has("pressure_1_kpa")
+                || payload.has("pressure_1_kpa_valid")
+                || payload.has("pressure_2_kpa")
+                || payload.has("pressure_2_kpa_valid")
+                || payload.has("hall_mm")
+                || payload.has("pressure_kpa_valid")
+                || payload.has("hall_mm_valid")
+                || payload.has("telemetry_mode");
     }
 
     private static String firstText(JsonNode payload, String... keys) {

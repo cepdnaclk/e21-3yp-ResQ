@@ -18,6 +18,8 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
+import lk.resq.localhub.service.DeviceReadinessService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -61,6 +63,20 @@ class CourseSessionStartTest {
         syncQueueRepository.initialize();
         SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, mapper, new CloudSessionSummaryPayloadMapper());
 
+        DeviceReadinessService readinessService = new DeviceReadinessService();
+        readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
+                "M01",
+                4002,
+                "reply-m01",
+                "ACK",
+                11,
+                "PASS",
+                "00000",
+                0,
+                "READY_FOR_SESSION",
+                100L,
+                Instant.now()
+        ));
         sessionService = new ActiveSessionService(
                 registry,
                 publisher,
@@ -69,7 +85,9 @@ class CourseSessionStartTest {
                 new TraineeRecordsRepository(),
                 calibrationService,
                 syncQueueService,
-                rosterRepository
+                rosterRepository,
+                new lk.resq.localhub.service.RateEstimatorRegistry(),
+                readinessService
         );
 
         authService = new TestAuthService(authRepository, rosterRepository, mapper);

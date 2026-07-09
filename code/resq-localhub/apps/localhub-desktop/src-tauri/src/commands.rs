@@ -1,6 +1,9 @@
 use local_ip_address::list_afinet_netifas;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +18,13 @@ pub struct AppInfo {
 pub struct NetworkInfo {
     hostname: String,
     primary_ipv4: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvisioningConfig {
+    wifi_ssid: String,
+    wifi_password: String,
 }
 
 #[tauri::command]
@@ -128,14 +138,23 @@ pub struct DashboardUrls {
     trainee_url: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceLogPaths {
+    log_dir: String,
+    backend_log_path: String,
+    broker_log_path: String,
+}
+
 #[tauri::command]
-pub fn get_provisioning_data() -> Result<ProvisioningData, String> {
+pub fn get_provisioning_data(app: AppHandle) -> Result<ProvisioningData, String> {
     let backend_host = get_network_info()?
         .primary_ipv4
         .ok_or("Failed to detect LAN IP")?;
 
-    let wifi_ssid = "ResQ-Hub".to_string();
-    let wifi_password = "password123".to_string();
+    let config = load_provisioning_config(&app)?;
+    let wifi_ssid = config.wifi_ssid;
+    let wifi_password = config.wifi_password;
     let backend_base_url = format!("http://{}:18080", backend_host);
     let esp_setup_base_url = "http://192.168.4.1".to_string();
     let esp_provision_path = "/".to_string();
@@ -186,8 +205,52 @@ pub fn detect_primary_ipv4() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+pub fn get_service_log_paths(app: tauri::AppHandle) -> Result<ServiceLogPaths, String> {
+    let log_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
+        .join("logs");
+
+    std::fs::create_dir_all(&log_dir)
+        .map_err(|error| format!("Failed to create log directory at {}: {error}", log_dir.display()))?;
+
+    let backend_log_path = log_dir.join("hub-api.log");
+    let broker_log_path = log_dir.join("mosquitto.log");
+
+    Ok(ServiceLogPaths {
+        log_dir: path_to_string(log_dir),
+        backend_log_path: path_to_string(backend_log_path),
+        broker_log_path: path_to_string(broker_log_path),
+    })
+}
+
+#[tauri::command]
 pub fn refresh_pairing_token() -> Result<String, String> {
     fetch_pairing_token()
+}
+
+#[tauri::command]
+pub fn save_provisioning_config(
+    app: AppHandle,
+    wifi_ssid: String,
+    wifi_password: String,
+) -> Result<ProvisioningConfig, String> {
+    let config = ProvisioningConfig {
+        wifi_ssid: wifi_ssid.trim().to_string(),
+        wifi_password,
+    };
+
+    validate_provisioning_config(&config)?;
+
+    let path = provisioning_config_path(&app)?;
+    let raw = serde_json::to_string_pretty(&config)
+        .map_err(|error| format!("Failed to serialize provisioning config: {error}"))?;
+
+    fs::write(&path, raw)
+        .map_err(|error| format!("Failed to save provisioning config at {}: {error}", path.display()))?;
+
+    Ok(config)
 }
 
 fn fetch_pairing_token() -> Result<String, String> {
@@ -206,19 +269,79 @@ fn fetch_pairing_token() -> Result<String, String> {
                 Err(e) => Err(format!("Failed to parse response: {}", e)),
             }
         }
-        Err(_e) => {
-            // Fallback for development only: generate a mock token when backend is unavailable.
-            // In release builds we should return an error so problems are visible.
-            if cfg!(debug_assertions) {
+        Err(error) => {
+            if cfg!(debug_assertions) && std::env::var_os("RESQ_ALLOW_DEV_PAIRING_TOKEN").is_some() {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let timestamp = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                Ok(format!("dev-token-{}", timestamp))
-            } else {
-                Err("Failed to fetch pairing token from backend".to_string())
+                return Ok(format!("dev-token-{}", timestamp));
             }
+
+            Err(format!(
+                "Unable to request a pairing token because the LocalHub backend is unavailable: {error}"
+            ))
         }
     }
+}
+
+fn path_to_string(path: PathBuf) -> String {
+    path.display().to_string()
+}
+
+fn provisioning_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let config_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("Failed to resolve application data directory: {error}"))?;
+
+    fs::create_dir_all(&config_dir).map_err(|error| {
+        format!(
+            "Failed to create application data directory at {}: {error}",
+            config_dir.display()
+        )
+    })?;
+
+    Ok(config_dir.join("provisioning-config.json"))
+}
+
+fn load_provisioning_config(app: &AppHandle) -> Result<ProvisioningConfig, String> {
+    let path = provisioning_config_path(app)?;
+
+    if path.exists() {
+        let raw = fs::read_to_string(&path)
+            .map_err(|error| format!("Failed to read provisioning config: {error}"))?;
+
+        let config: ProvisioningConfig = serde_json::from_str(&raw)
+            .map_err(|error| format!("Failed to parse provisioning config: {error}"))?;
+
+        validate_provisioning_config(&config)?;
+        return Ok(config);
+    }
+
+    // Development-only fallback through environment variables.
+    // Do not hardcode a password in release builds.
+    let wifi_ssid = std::env::var("RESQ_PROVISION_WIFI_SSID").unwrap_or_default();
+    let wifi_password = std::env::var("RESQ_PROVISION_WIFI_PASSWORD").unwrap_or_default();
+
+    let config = ProvisioningConfig {
+        wifi_ssid,
+        wifi_password,
+    };
+
+    validate_provisioning_config(&config)?;
+    Ok(config)
+}
+
+fn validate_provisioning_config(config: &ProvisioningConfig) -> Result<(), String> {
+    if config.wifi_ssid.trim().is_empty() {
+        return Err("Provisioning Wi-Fi SSID is not configured".to_string());
+    }
+
+    if config.wifi_password.trim().is_empty() {
+        return Err("Provisioning Wi-Fi password is not configured".to_string());
+    }
+
+    Ok(())
 }

@@ -19,6 +19,7 @@
 #include "status_indicator.h"
 #include "wifi_manager.h"
 #include "esp_timer.h"
+#include "telemetry_publisher.h"
 
 static const char *TAG = "calibration_fail_mgr";
 static bool s_initialized = false;
@@ -73,7 +74,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
         calibration_manager_publish_progress_event(reason_id,
                                RESQ_STATE_CALIBRATION_FAIL,
-                               action_id);
+                               action_id,
+                               12);
     }
 
     while (true) {
@@ -119,7 +121,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(reason,
                                                            RESQ_STATE_CALIBRATION_FAIL,
-                                                           action);
+                                                           action,
+                                                           12);
             }
 
             if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
@@ -160,7 +163,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
         if (!wifi_manager_is_connected()) {
             calibration_manager_publish_progress_event(CAL_REASON_WIFI_DISCONNECTED_DURING_CALIBRATION,
                                                        RESQ_STATE_CALIBRATION_FAIL,
-                                                       CAL_ACTION_BUTTON_1_CONTINUE_BUTTON_2_IDLE);
+                                                       CAL_ACTION_BUTTON_1_CONTINUE_BUTTON_2_IDLE,
+                                                       12);
             return RESQ_STATE_ERROR;
         }
 
@@ -188,6 +192,15 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                                                                 "unknown",
                                                                 "NACK",
                                                                 "invalid_command_topic");
+            continue;
+        }
+
+        if (strcmp(suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+            telemetry_publisher_handle_sensor_stream_command(network_config,
+                                                             RESQ_STATE_CALIBRATION_FAIL,
+                                                             calibration_config,
+                                                             &command,
+                                                             true);
             continue;
         }
 
@@ -282,7 +295,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(parse_reason,
                                                            RESQ_STATE_CALIBRATION_FAIL,
-                                                           CAL_ACTION_SEND_VALID_PAYLOAD);
+                                                           CAL_ACTION_SEND_VALID_PAYLOAD,
+                                                           0);
 
                 continue;
             }
@@ -297,7 +311,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_ALREADY_RUNNING,
                                        RESQ_STATE_CALIBRATING,
-                                       CAL_ACTION_WAIT_OR_CANCEL);
+                                       CAL_ACTION_WAIT_OR_CANCEL,
+                                       0);
                 continue;
             }
 
@@ -305,6 +320,17 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
             calibration_manager_drop_temporary_values();
 
             parsed.calibrated = false;
+
+            esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+            if (stream_stop_err != ESP_OK) {
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    RESQ_STATE_CALIBRATION_FAIL,
+                                                                    &command,
+                                                                    "cmd/calibration/start",
+                                                                    "NACK",
+                                                                    "07102");
+                continue;
+            }
 
             esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
                                                                                       RESQ_STATE_CALIBRATION_FAIL,
@@ -340,7 +366,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE,
                                                            RESQ_STATE_CALIBRATION_FAIL,
-                                                           CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE);
+                                                           CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE,
+                                                           12);
                 continue;
             }
 

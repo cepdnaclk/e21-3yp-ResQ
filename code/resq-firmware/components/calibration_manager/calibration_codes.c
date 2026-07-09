@@ -130,6 +130,12 @@ static const calibration_reason_entry_t REASON_TABLE[] = {
         CAL_ACTION_CHECK_SENSOR_AND_RETRY
     },
     {
+        CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
+        "PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE",
+        "Pressure sensor saturated or unusable; continuing with last stable pressure state and Hall sensor",
+        CAL_ACTION_NONE
+    },
+    {
         CAL_REASON_NVS_SAVE_FAILED,
         "NVS_SAVE_FAILED",
         "Calibration values were captured but could not be saved to NVS",

@@ -82,19 +82,27 @@ export type FirmwareDeviceDiagnosticsResponse = {
 
 export type CalibrationProfileRequest = {
   name: string;
-  depthTargetMm?: number | null;
-  rateTargetCpm?: number | null;
-  notes?: string | null;
+  hallDelta: number;
+  refPressure: number;
+  bladder1Pressure: number;
+  bladder2Pressure: number;
+  description?: string | null;
+  active?: boolean | null;
+  defaultProfile?: boolean | null;
 };
 
 export type CalibrationProfileResponse = {
   profileId: string;
   name: string;
-  depthTargetMm: number | null;
-  rateTargetCpm: number | null;
-  notes: string | null;
-  isDefault: boolean;
+  hallDelta: number;
+  refPressure: number;
+  bladder1Pressure: number;
+  bladder2Pressure: number;
+  description: string | null;
+  active: boolean;
+  defaultProfile: boolean;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type FirmwareCalibrationStartRequest = {

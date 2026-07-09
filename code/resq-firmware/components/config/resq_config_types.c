@@ -31,6 +31,15 @@ void calibration_config_set_defaults(calibration_config_t *config)
     config->calibrated = false;
     config->hall_direction = 0;
     config->pressure_balance_allowed_pct = 25; /* default 25% */
+    config->pressure_mode = CALIBRATION_PRESSURE_OPTIONAL;
+    config->pressure_degraded = false;
+    config->using_last_stable_pressure = false;
+    config->pressure_valid = true;
+    config->hall_valid = false;
+    config->pressure_0_kpa_per_count = 0.0f;
+    config->pressure_1_kpa_per_count = 0.0f;
+    config->pressure_2_kpa_per_count = 0.0f;
+    config->full_depth_mm = 50.0f;
     config->calibration_sample_count = 60;
     config->calibration_window_ms = 2000;
     config->calibrated_at_ms = 0;
@@ -118,23 +127,30 @@ bool calibration_config_validate(calibration_config_t *config)
         valid = false;
     }
 
-    if (config->bladder_1_full_press <= 0 || config->bladder_2_full_press <= 0) {
+    bool pressure_required = config->pressure_mode == CALIBRATION_PRESSURE_REQUIRED;
+    bool pressure_usable = pressure_required || config->pressure_valid;
+
+    if (pressure_usable && (config->bladder_1_full_press <= 0 || config->bladder_2_full_press <= 0)) {
         valid = false;
     }
 
-    if (config->pressure_1_range_raw <= MIN_PRESSURE_RANGE || config->pressure_2_range_raw <= MIN_PRESSURE_RANGE) {
+    if (pressure_usable && (config->pressure_1_range_raw <= MIN_PRESSURE_RANGE || config->pressure_2_range_raw <= MIN_PRESSURE_RANGE)) {
         valid = false;
     }
 
-    if (config->pressure_contact_threshold <= 0) {
+    if (pressure_usable && config->pressure_contact_threshold <= 0) {
         valid = false;
     }
 
-    if (config->pressure_valid_threshold <= config->pressure_contact_threshold) {
+    if (pressure_usable && config->pressure_valid_threshold <= config->pressure_contact_threshold) {
         valid = false;
     }
 
     if (config->pressure_balance_allowed_pct < 5 || config->pressure_balance_allowed_pct > 60) {
+        valid = false;
+    }
+
+    if (config->full_depth_mm <= 0.0f) {
         valid = false;
     }
 

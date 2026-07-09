@@ -4,6 +4,7 @@ import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.SessionLiveView;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.LiveStreamService;
+import lk.resq.localhub.service.CalibrationStreamService;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ForbiddenException;
@@ -27,17 +28,20 @@ public class LiveStreamController {
     private final ManikinRegistryService manikinRegistryService;
     private final ActiveSessionService activeSessionService;
     private final AuthService authService;
+    private final CalibrationStreamService calibrationStreamService;
 
     public LiveStreamController(
             LiveStreamService liveStreamService,
             ManikinRegistryService manikinRegistryService,
             ActiveSessionService activeSessionService,
-            AuthService authService
+            AuthService authService,
+            CalibrationStreamService calibrationStreamService
     ) {
         this.liveStreamService = liveStreamService;
         this.manikinRegistryService = manikinRegistryService;
         this.activeSessionService = activeSessionService;
         this.authService = authService;
+        this.calibrationStreamService = calibrationStreamService;
     }
 
     @GetMapping(path = "/manikins/live", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -54,6 +58,21 @@ public class LiveStreamController {
             authService.maybeAuth(request).ifPresentOrElse(
                     user -> authService.audit(user.id(), "ACCESS_DENIED", "stream", "manikins_live", Map.of()),
                     () -> authService.audit(null, "ACCESS_DENIED", "stream", "manikins_live", Map.of())
+            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+    }
+
+    @GetMapping(path = "/manikins/{deviceId}/calibration", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> streamCalibration(HttpServletRequest request, @PathVariable String deviceId) {
+        try {
+            authService.requireRole(request, UserRole.ADMIN, UserRole.INSTRUCTOR);
+            SseEmitter emitter = calibrationStreamService.subscribe(deviceId);
+            return ResponseEntity.ok(emitter);
+        } catch (ForbiddenException e) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "stream", "calibration_live", Map.of("deviceId", deviceId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "stream", "calibration_live", Map.of("deviceId", deviceId))
             );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }

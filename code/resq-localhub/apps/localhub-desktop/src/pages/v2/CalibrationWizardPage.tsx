@@ -1,0 +1,940 @@
+import { useEffect, useState, useRef } from "react";
+import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
+import { connectCalibrationStream } from "../../api/liveEventsClient";
+import type { DeviceReadinessState, CalibrationState, CalibrationStreamEvent, CalibrationEvidence } from "../../types/manikin";
+import Card, { CardHeader } from "../../components/ui/Card";
+import Button from "../../components/ui/Button";
+import StatusBadge from "../../components/ui/StatusBadge";
+import { getDeviceStateTone } from "../../utils/userFriendlyLabels";
+
+type CalibrationWizardPageProps = {
+  deviceId: string;
+  onBack: () => void;
+};
+
+// Form values type
+type FormValues = {
+  hall_delta: string;
+  ref_pressure: string;
+  bladder_1_pressure: string;
+  bladder_2_pressure: string;
+  profile_id: string;
+  sample_interval_ms: string;
+  calibration_window_ms: string;
+};
+
+// Stepper steps definition
+const STEPS = [
+  { name: "Start", ids: [1] },
+  { name: "Ref Pressure", ids: [2, 3] },
+  { name: "Bladder 1", ids: [4, 5] },
+  { name: "Bladder 2", ids: [6, 7] },
+  { name: "Baseline", ids: [8] },
+  { name: "Full Compression", ids: [9, 10] },
+  { name: "Save / Result", ids: [11, 12, 13] },
+];
+
+export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationWizardPageProps) {
+  // Form states with defaults
+  const [form, setForm] = useState<FormValues>({
+    hall_delta: "13500",
+    ref_pressure: "20100",
+    bladder_1_pressure: "15000",
+    bladder_2_pressure: "15000",
+    profile_id: "adult-basic",
+    sample_interval_ms: "20",
+    calibration_window_ms: "3000",
+  });
+
+  const [formErrors, setFormErrors] = useState<Partial<Record<keyof FormValues, string>>>({});
+  
+  // Calibration execution states
+  const [readiness, setReadiness] = useState<DeviceReadinessState | null>(null);
+  const [loadingReadiness, setLoadingReadiness] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  // Historical evidence states
+  const [latestEvidence, setLatestEvidence] = useState<CalibrationEvidence | null>(null);
+  const [loadingEvidence, setLoadingEvidence] = useState(true);
+
+  // Latest SSE Event details for the event details panel
+  const [latestEvent, setLatestEvent] = useState<CalibrationStreamEvent | null>(null);
+
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const fetchEvidence = async () => {
+    try {
+      setLoadingEvidence(true);
+      const res = await getLatestCalibrationEvidence(deviceId);
+      setLatestEvidence(res);
+    } catch (err) {
+      console.warn("Failed to fetch latest calibration evidence:", err);
+    } finally {
+      setLoadingEvidence(false);
+    }
+  };
+
+  // Fetch initial readiness and connect SSE stream
+  useEffect(() => {
+    let active = true;
+
+    async function init() {
+      try {
+        setLoadingReadiness(true);
+        setApiError(null);
+        const res = await getDeviceReadiness(deviceId);
+        if (active) {
+          setReadiness(res);
+        }
+      } catch (err) {
+        if (active) {
+          setApiError(err instanceof Error ? err.message : "Failed to load device readiness.");
+        }
+      } finally {
+        if (active) {
+          setLoadingReadiness(false);
+        }
+      }
+    }
+
+    init();
+    fetchEvidence();
+
+    // Setup SSE connection
+    try {
+      eventSourceRef.current = connectCalibrationStream(deviceId, {
+        onSnapshot: (event) => {
+          if (!active) return;
+          setLatestEvent(event);
+          setStreamError(null);
+          if (event.readiness) {
+            setReadiness(event.readiness);
+          } else {
+            // Populate readiness fields from event directly if backend nested object is absent
+            setReadiness((prev) => ({
+              deviceId: event.deviceId,
+              calibrationState: event.calibrationState,
+              firmwareState: event.firmwareState,
+              currentProgressId: event.progressId,
+              lastReasonId: event.reasonId,
+              lastActionId: event.actionId,
+              lastResult: event.result,
+              lastReplyId: event.replyId,
+              readyForSession: event.readyForSession,
+              lastUpdatedAt: event.receivedAt || new Date().toISOString(),
+            }));
+          }
+        },
+        onUpdate: (event) => {
+          if (!active) return;
+          setLatestEvent(event);
+          setStreamError(null);
+          if (event.readiness) {
+            setReadiness(event.readiness);
+          } else {
+            setReadiness((prev) => ({
+              deviceId: event.deviceId,
+              calibrationState: event.calibrationState,
+              firmwareState: event.firmwareState,
+              currentProgressId: event.progressId,
+              lastReasonId: event.reasonId,
+              lastActionId: event.actionId,
+              lastResult: event.result,
+              lastReplyId: event.replyId,
+              readyForSession: event.readyForSession,
+              lastUpdatedAt: event.receivedAt || new Date().toISOString(),
+            }));
+          }
+        },
+        onFinal: (event) => {
+          if (!active) return;
+          setLatestEvent(event);
+          setStreamError(null);
+          setIsSubmitting(false);
+          setIsCancelling(false);
+          fetchEvidence();
+          if (event.readiness) {
+            setReadiness(event.readiness);
+          } else {
+            setReadiness((prev) => ({
+              deviceId: event.deviceId,
+              calibrationState: event.calibrationState,
+              firmwareState: event.firmwareState,
+              currentProgressId: event.progressId,
+              lastReasonId: event.reasonId,
+              lastActionId: event.actionId,
+              lastResult: event.result,
+              lastReplyId: event.replyId,
+              readyForSession: event.readyForSession,
+              lastUpdatedAt: event.receivedAt || new Date().toISOString(),
+            }));
+          }
+        },
+        onError: () => {
+          if (!active) return;
+          // Preserve latest known state, show warning only
+          setStreamError("Live calibration stream disconnected. Reconnecting or refresh may be needed.");
+        },
+      });
+    } catch (err) {
+      setStreamError("Failed to establish live stream connection.");
+    }
+
+    return () => {
+      active = false;
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, [deviceId]);
+
+  // Form field change handler
+  const handleInputChange = (field: keyof FormValues, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (formErrors[field]) {
+      setFormErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  // Validation
+  const validateForm = (): boolean => {
+    const errors: Partial<Record<keyof FormValues, string>> = {};
+    
+    const hall = Number(form.hall_delta);
+    if (isNaN(hall) || hall <= 0) {
+      errors.hall_delta = "Hall Delta must be greater than 0";
+    }
+
+    const ref = Number(form.ref_pressure);
+    if (isNaN(ref) || ref <= 0) {
+      errors.ref_pressure = "Reference Pressure must be greater than 0";
+    }
+
+    const b1 = Number(form.bladder_1_pressure);
+    if (isNaN(b1) || b1 <= 0) {
+      errors.bladder_1_pressure = "Bladder 1 Pressure must be greater than 0";
+    }
+
+    const b2 = Number(form.bladder_2_pressure);
+    if (isNaN(b2) || b2 <= 0) {
+      errors.bladder_2_pressure = "Bladder 2 Pressure must be greater than 0";
+    }
+
+    if (form.sample_interval_ms) {
+      const interval = Number(form.sample_interval_ms);
+      if (isNaN(interval) || interval <= 0) {
+        errors.sample_interval_ms = "Sample interval must be greater than 0";
+      }
+    }
+
+    if (form.calibration_window_ms) {
+      const win = Number(form.calibration_window_ms);
+      if (isNaN(win) || win <= 0) {
+        errors.calibration_window_ms = "Calibration window must be greater than 0";
+      }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Start calibration triggering
+  const handleStartCalibration = async () => {
+    if (!validateForm()) return;
+
+    setIsSubmitting(true);
+    setApiError(null);
+
+    // Transit state to STARTING locally to show immediate response
+    setReadiness((prev) => ({
+      deviceId,
+      calibrationState: "STARTING",
+      currentProgressId: 1,
+      readyForSession: false,
+    }));
+
+    try {
+      const reqPayload = {
+        hall_delta: Number(form.hall_delta),
+        ref_pressure: Number(form.ref_pressure),
+        bladder_1_pressure: Number(form.bladder_1_pressure),
+        bladder_2_pressure: Number(form.bladder_2_pressure),
+        profile_id: form.profile_id || undefined,
+        sample_interval_ms: form.sample_interval_ms ? Number(form.sample_interval_ms) : undefined,
+        calibration_window_ms: form.calibration_window_ms ? Number(form.calibration_window_ms) : undefined,
+      };
+
+      await startCalibration(deviceId, reqPayload);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Failed to start calibration.");
+      setIsSubmitting(false);
+      // Revert status
+      setReadiness((prev) => (prev?.calibrationState === "STARTING" ? null : prev));
+    }
+  };
+
+  // Cancel calibration triggering
+  const handleCancelCalibration = async () => {
+    setIsCancelling(true);
+    setApiError(null);
+
+    try {
+      await cancelCalibration(deviceId);
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : "Failed to cancel calibration.");
+      setIsCancelling(false);
+    }
+  };
+
+  const calState: CalibrationState = readiness?.calibrationState ?? "UNKNOWN";
+  const progressId = readiness?.currentProgressId ?? 0;
+  
+  // Status check variables
+  const isRunning = calState === "STARTING" || calState === "CALIBRATING";
+  const isSuccess = readiness?.readyForSession === true || calState === "READY";
+  const isFailure = calState === "FAILED" || progressId === 12;
+  const isInterrupted = calState === "INTERRUPTED" || progressId === 13;
+  const isCancelled = calState === "CANCELLED";
+
+  // Determine current active stepper step
+  let activeStep = 0;
+  if (isRunning || isSuccess || isFailure || isInterrupted || isCancelled) {
+    if (progressId === 1) activeStep = 0;
+    else if (progressId === 2 || progressId === 3) activeStep = 1;
+    else if (progressId === 4 || progressId === 5) activeStep = 2;
+    else if (progressId === 6 || progressId === 7) activeStep = 3;
+    else if (progressId === 8) activeStep = 4;
+    else if (progressId === 9 || progressId === 10) activeStep = 5;
+    else if (progressId >= 11) activeStep = 6;
+  }
+
+  // Mapped Progress Instructions
+  const getProgressInstructions = (pid: number) => {
+    if (isSuccess) {
+      return {
+        title: "Calibration saved",
+        text: "Calibration values were saved successfully.",
+      };
+    }
+    if (isFailure) {
+      return {
+        title: "Calibration failed",
+        text: "Calibration failed. Check the reason and follow the suggested action.",
+      };
+    }
+    if (isInterrupted) {
+      return {
+        title: "Calibration interrupted",
+        text: "Calibration was interrupted. Check Wi-Fi/MQTT connection and retry.",
+      };
+    }
+    if (isCancelled) {
+      return {
+        title: "Calibration cancelled",
+        text: "Calibration was cancelled.",
+      };
+    }
+
+    if (isRunning && (pid === 0 || pid === null || pid === undefined)) {
+      return {
+        title: readiness?.firmwareState ? `State: ${readiness.firmwareState}` : "Calibration Running",
+        text: "Waiting for firmware progress details...",
+      };
+    }
+
+    switch (pid) {
+      case 1:
+        return {
+          title: "Calibration started",
+          text: "Keep the manikin stable. The firmware is preparing the calibration sequence.",
+        };
+      case 2:
+        return {
+          title: "Reference pressure",
+          text: "Apply the required reference pressure to the reference chamber and hold it steady.",
+        };
+      case 3:
+        return {
+          title: "Reference pressure accepted",
+          text: "Reference pressure matched. Keep the setup stable and continue.",
+        };
+      case 4:
+        return {
+          title: "Bladder 1 pressure",
+          text: "Apply or adjust pressure for bladder 1 until the firmware accepts the target.",
+        };
+      case 5:
+        return {
+          title: "Bladder 1 accepted",
+          text: "Bladder 1 pressure matched. Continue to the next pressure step.",
+        };
+      case 6:
+        return {
+          title: "Bladder 2 pressure",
+          text: "Apply or adjust pressure for bladder 2 until the firmware accepts the target.",
+        };
+      case 7:
+        return {
+          title: "Bladder 2 accepted",
+          text: "Bladder 2 pressure matched. Keep the manikin released.",
+        };
+      case 8:
+        return {
+          title: "Baseline captured",
+          text: "Hall baseline captured. Ensure the chest is fully released.",
+        };
+      case 9:
+        return {
+          title: "Full compression",
+          text: "Press and hold full compression until the firmware captures the full press.",
+        };
+      case 10:
+        return {
+          title: "Full press captured",
+          text: "Full compression captured. Release the chest and wait.",
+        };
+      case 11:
+        return {
+          title: "Calibration saved",
+          text: "Calibration values were saved successfully.",
+        };
+      case 12:
+        return {
+          title: "Calibration failed",
+          text: "Calibration failed. Check the reason and follow the suggested action.",
+        };
+      case 13:
+        return {
+          title: "Calibration interrupted",
+          text: "Calibration was interrupted. Check Wi-Fi/MQTT connection and retry.",
+        };
+      default:
+        return {
+          title: "Calibration not running",
+          text: "Start calibration when the manikin is connected and idle.",
+        };
+    }
+  };
+
+  // Mapped Actions
+  const getActionMessage = (aid?: number | null) => {
+    if (aid === null || aid === undefined) {
+      return "No suggested action received.";
+    }
+    switch (aid) {
+      case 0: return "No action required.";
+      case 1: return "Send a valid calibration payload.";
+      case 2: return "Wait for the current step to complete or cancel calibration.";
+      case 3: return "Retry calibration or return to idle.";
+      case 4: return "Check the sensor connection and retry.";
+      case 5: return "Continue or retry after checking the connection.";
+      case 6: return "Return to idle and drop temporary calibration values.";
+      case 7: return "Stay in the current state.";
+      case 8: return "Device moved to error state.";
+      case 9: return "Clear configuration and provision again.";
+      case 10: return "Restart firmware.";
+      case 11: return "Stop session and return ready.";
+      case 12: return "Move to turn off.";
+      case 13: return "Device is in error; use system recovery.";
+      default: return "Unknown action code.";
+    }
+  };
+
+  const instruction = getProgressInstructions(progressId);
+  const actionMsg = getActionMessage(readiness?.lastActionId);
+
+  return (
+    <div className="space-y-6 max-w-6xl mx-auto pb-12">
+      {/* Warning Stream Error */}
+      {streamError && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-pulse">
+          <span className="font-semibold">{streamError}</span>
+        </div>
+      )}
+
+      {/* Warning API Error */}
+      {apiError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-xl font-semibold shadow-sm">
+          {apiError}
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-5">
+        <div className="space-y-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight leading-none">
+              Calibration / Pre-Check
+            </h1>
+            <div className="flex gap-2">
+              <StatusBadge tone={getDeviceStateTone(calState)} label={calState} />
+              {readiness?.firmwareState && (
+                <StatusBadge tone="info" label={`FW: ${readiness.firmwareState}`} />
+              )}
+            </div>
+          </div>
+          <p className="text-sm text-slate-400 font-normal">
+            Device ID: <strong className="font-mono text-slate-600">{deviceId}</strong>
+          </p>
+        </div>
+        <Button type="button" variant="secondary" onClick={onBack}>
+          Back to Dashboard
+        </Button>
+      </div>
+
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Left: Stepper */}
+        <div className="lg:col-span-1 bg-white p-5 border border-slate-100 rounded-2xl shadow-sm h-fit">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-5">
+            Calibration Steps
+          </h3>
+          <div className="relative border-l border-slate-100 ml-3 space-y-6">
+            {STEPS.map((step, idx) => {
+              const isStepCompleted = idx < activeStep;
+              const isStepActive = idx === activeStep && isRunning;
+              
+              let badgeColor = "bg-slate-100 text-slate-400 border-slate-200";
+              if (isStepCompleted) badgeColor = "bg-teal-50 text-teal-600 border-teal-200";
+              else if (isStepActive) badgeColor = "bg-blue-50 text-blue-600 border-blue-200 animate-pulse";
+
+              return (
+                <div key={idx} className="relative pl-6">
+                  {/* Step bullet dot */}
+                  <span className={`absolute -left-3.5 top-0.5 w-7 h-7 rounded-full border flex items-center justify-center text-xs font-bold ${badgeColor}`}>
+                    {isStepCompleted ? "✓" : idx + 1}
+                  </span>
+                  <div className="flex flex-col">
+                    <span className={`text-xs font-bold ${isStepActive ? "text-blue-600" : isStepCompleted ? "text-slate-800" : "text-slate-400"}`}>
+                      {step.name}
+                    </span>
+                    {isStepActive && (
+                      <span className="text-[10px] text-blue-400 font-medium">Running...</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Center: Interactive Form and State Info */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Active Instructions Card */}
+          <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+              Current Instructions
+            </h4>
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight">
+                  {instruction.title}
+                </h2>
+                <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                  {instruction.text}
+                </p>
+              </div>
+
+              {/* Action Banner */}
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">
+                  Suggested Action
+                </span>
+                <span className="text-xs text-slate-600 font-semibold">{actionMsg}</span>
+              </div>
+            </div>
+          </Card>
+
+          {/* Form / Actions Panel */}
+          <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+              Calibration Options & Configuration
+            </h4>
+
+            {isSuccess ? (
+              <div className="py-6 text-center space-y-4">
+                <div className="w-12 h-12 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full flex items-center justify-center mx-auto text-xl font-extrabold shadow-sm animate-bounce">
+                  ✓
+                </div>
+                <h3 className="text-lg font-bold text-slate-800">Calibration Complete</h3>
+                <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                  Calibration complete. Device is ready for session.
+                </p>
+                <div className="flex gap-3 justify-center pt-4">
+                  <Button type="button" variant="primary" onClick={onBack}>
+                    Start Session
+                  </Button>
+                </div>
+              </div>
+            ) : isCancelling ? (
+              <div className="py-6 text-center space-y-3">
+                <span className="block text-sm text-slate-500 font-medium">
+                  Cancelling calibration…
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {/* Inputs Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="hall_delta" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Hall Delta (test value)
+                    </label>
+                    <input
+                      id="hall_delta"
+                      type="text"
+                      disabled={isRunning}
+                      value={form.hall_delta}
+                      onChange={(e) => handleInputChange("hall_delta", e.target.value)}
+                      className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                        formErrors.hall_delta ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
+                      }`}
+                    />
+                    {formErrors.hall_delta && (
+                      <span className="text-[10px] font-semibold text-rose-500 mt-1 block">
+                        {formErrors.hall_delta}
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="ref_pressure" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Reference Pressure (test value)
+                    </label>
+                    <input
+                      id="ref_pressure"
+                      type="text"
+                      disabled={isRunning}
+                      value={form.ref_pressure}
+                      onChange={(e) => handleInputChange("ref_pressure", e.target.value)}
+                      className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                        formErrors.ref_pressure ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
+                      }`}
+                    />
+                    {formErrors.ref_pressure && (
+                      <span className="text-[10px] font-semibold text-rose-500 mt-1 block">
+                        {formErrors.ref_pressure}
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="bladder_1_pressure" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Bladder 1 Pressure (test value)
+                    </label>
+                    <input
+                      id="bladder_1_pressure"
+                      type="text"
+                      disabled={isRunning}
+                      value={form.bladder_1_pressure}
+                      onChange={(e) => handleInputChange("bladder_1_pressure", e.target.value)}
+                      className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                        formErrors.bladder_1_pressure ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
+                      }`}
+                    />
+                    {formErrors.bladder_1_pressure && (
+                      <span className="text-[10px] font-semibold text-rose-500 mt-1 block">
+                        {formErrors.bladder_1_pressure}
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="bladder_2_pressure" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Bladder 2 Pressure (test value)
+                    </label>
+                    <input
+                      id="bladder_2_pressure"
+                      type="text"
+                      disabled={isRunning}
+                      value={form.bladder_2_pressure}
+                      onChange={(e) => handleInputChange("bladder_2_pressure", e.target.value)}
+                      className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                        formErrors.bladder_2_pressure ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
+                      }`}
+                    />
+                    {formErrors.bladder_2_pressure && (
+                      <span className="text-[10px] font-semibold text-rose-500 mt-1 block">
+                        {formErrors.bladder_2_pressure}
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <label htmlFor="profile_id" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Profile ID (test value)
+                    </label>
+                    <input
+                      id="profile_id"
+                      type="text"
+                      disabled={isRunning}
+                      value={form.profile_id}
+                      onChange={(e) => handleInputChange("profile_id", e.target.value)}
+                      className="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="sample_interval_ms" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Sample Interval ms (test value)
+                    </label>
+                    <input
+                      id="sample_interval_ms"
+                      type="text"
+                      disabled={isRunning}
+                      value={form.sample_interval_ms}
+                      onChange={(e) => handleInputChange("sample_interval_ms", e.target.value)}
+                      className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                        formErrors.sample_interval_ms ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
+                      }`}
+                    />
+                    {formErrors.sample_interval_ms && (
+                      <span className="text-[10px] font-semibold text-rose-500 mt-1 block">
+                        {formErrors.sample_interval_ms}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="col-span-2">
+                    <label htmlFor="calibration_window_ms" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Calibration Window ms (test value)
+                    </label>
+                    <input
+                      id="calibration_window_ms"
+                      type="text"
+                      disabled={isRunning}
+                      value={form.calibration_window_ms}
+                      onChange={(e) => handleInputChange("calibration_window_ms", e.target.value)}
+                      className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                        formErrors.calibration_window_ms ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
+                      }`}
+                    />
+                    {formErrors.calibration_window_ms && (
+                      <span className="text-[10px] font-semibold text-rose-500 mt-1 block">
+                        {formErrors.calibration_window_ms}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Form Buttons */}
+                <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                  {isRunning ? (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={handleCancelCalibration}
+                    >
+                      Cancel Calibration
+                    </Button>
+                  ) : (
+                    <>
+                      {(isFailure || isInterrupted || isCancelled) && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={handleStartCalibration}
+                          loading={isSubmitting}
+                        >
+                          Retry Calibration
+                        </Button>
+                      )}
+                      {!isFailure && !isInterrupted && !isCancelled && (
+                        <Button
+                          type="button"
+                          variant="primary"
+                          onClick={handleStartCalibration}
+                          loading={isSubmitting}
+                        >
+                          Start Calibration
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Right: Device Readiness & Event details */}
+        <div className="lg:col-span-1 space-y-6">
+          <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-5">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+              Device Readiness State
+            </h3>
+            {loadingReadiness && !readiness ? (
+              <p className="text-xs text-slate-400">Loading readiness info...</p>
+            ) : (
+              <div className="space-y-4 text-xs font-medium text-slate-500">
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Calibration State:</span>
+                  <strong className="text-slate-800">{readiness?.calibrationState || "UNKNOWN"}</strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Firmware State:</span>
+                  <strong className="text-slate-800">{readiness?.firmwareState || "N/A"}</strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Progress ID:</span>
+                  <strong className="text-slate-800">{readiness?.currentProgressId ?? "N/A"}</strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Last Reason ID:</span>
+                  <strong className="text-slate-800">{readiness?.lastReasonId || "N/A"}</strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Ready For Session:</span>
+                  <strong className={readiness?.readyForSession ? "text-emerald-600 font-bold" : "text-amber-600 font-bold"}>
+                    {readiness?.readyForSession ? "TRUE" : "FALSE"}
+                  </strong>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span>Last Reply ID:</span>
+                  <strong className="text-slate-800 font-mono">{readiness?.lastReplyId || "N/A"}</strong>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* Reason Warning Banner */}
+          {readiness?.lastReasonId && readiness.lastReasonId !== "00000" && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-4 shadow-sm space-y-2">
+              <span className="block text-[10px] font-bold text-amber-500 uppercase tracking-wider">
+                Warning / Alert
+              </span>
+              <p className="text-xs font-bold">
+                Reason ID: {readiness.lastReasonId}
+              </p>
+              <p className="text-xs font-medium">
+                {actionMsg}
+              </p>
+            </div>
+          )}
+
+          <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-5">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+              Live Stream Details
+            </h3>
+            {latestEvent ? (
+              <div className="space-y-4 text-xs font-medium text-slate-500">
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Event ID:</span>
+                  <strong className="text-slate-800">{latestEvent.eventId ?? "N/A"}</strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Event Type:</span>
+                  <strong className="text-slate-800 font-mono">{latestEvent.type}</strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Result status:</span>
+                  <strong className="text-slate-800">{latestEvent.result || latestEvent.status || "N/A"}</strong>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span>Received at:</span>
+                  <span className="text-slate-800 font-normal">
+                    {latestEvent.receivedAt ? new Date(latestEvent.receivedAt).toLocaleTimeString() : "N/A"}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">Waiting for live SSE events...</p>
+            )}
+                  </Card>
+        </div>
+      </div>
+
+      {/* Historical Calibration Evidence Card */}
+      <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6 mt-6">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-bold text-slate-800 tracking-tight">
+              Historical Calibration Evidence
+            </h3>
+            <p className="text-[11px] text-slate-400">
+              Audit log of the last recorded calibration attempt. This is historical evidence only — a fresh calibration must succeed before a session can start.
+            </p>
+          </div>
+          {latestEvidence && (
+            <StatusBadge
+              tone={latestEvidence.finalResult === "PASS" ? "success" : latestEvidence.finalResult === "RUNNING" ? "info" : "danger"}
+              label={latestEvidence.finalResult || "UNKNOWN"}
+            />
+          )}
+        </div>
+        {loadingEvidence ? (
+          <p className="text-xs text-slate-400">Loading historical evidence...</p>
+        ) : latestEvidence ? (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-xs text-slate-500 font-medium">
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Attempt ID:</span>
+                <strong className="text-slate-800 font-mono">#{latestEvidence.id}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Request ID:</span>
+                <strong className="text-slate-800 font-mono">{latestEvidence.requestId}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Operator:</span>
+                <strong className="text-slate-800">{latestEvidence.createdByUsername || "system"}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Started At:</span>
+                <strong className="text-slate-800">{latestEvidence.startedAt ? new Date(latestEvidence.startedAt).toLocaleString() : "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Completed At:</span>
+                <strong className="text-slate-800">{latestEvidence.completedAt ? new Date(latestEvidence.completedAt).toLocaleString() : "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Last Updated:</span>
+                <strong className="text-slate-800">{latestEvidence.updatedAt ? new Date(latestEvidence.updatedAt).toLocaleTimeString() : "N/A"}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Profile ID:</span>
+                <strong className="text-slate-800">{latestEvidence.profileId || "default"}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Hall Delta:</span>
+                <strong className="text-slate-800">{latestEvidence.hallDelta ?? "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Ref Pressure:</span>
+                <strong className="text-slate-800">{latestEvidence.refPressure ?? "N/A"}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Bladder 1 Pressure:</span>
+                <strong className="text-slate-800">{latestEvidence.bladder1Pressure ?? "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-50">
+                <span>Bladder 2 Pressure:</span>
+                <strong className="text-slate-800">{latestEvidence.bladder2Pressure ?? "N/A"}</strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>Ready At Completion:</span>
+                <strong className={latestEvidence.readyForSessionAtCompletion ? "text-emerald-600 font-bold" : "text-slate-400"}>
+                  {latestEvidence.readyForSessionAtCompletion ? "YES" : "NO"}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 italic">No historical calibration evidence found for this device.</p>
+        )}
+      </Card>
+    </div>
+  );
+}
