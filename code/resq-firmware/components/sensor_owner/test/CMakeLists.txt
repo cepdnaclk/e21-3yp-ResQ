@@ -1,12 +1,12 @@
 idf_component_register(
     SRCS
-        "test_telemetry_payload.c"
+        "test_sensor_owner.c"
 
     INCLUDE_DIRS
         "."
 
     REQUIRES
         unity
-        telemetry_publisher
-        sensor_conversion
+        sensor_owner
+        freertos
 )

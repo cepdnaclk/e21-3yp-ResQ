@@ -132,6 +132,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                          "BUTTON_2 short press: return to paired idle duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
 
+                telemetry_publisher_stop_sensor_stream();
                 calibration_manager_drop_temporary_values();
 
                 runtime_helpers_publish_command_result(network_config,
@@ -150,6 +151,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                          "BUTTON_1 long press in CALIBRATION_FAIL: TURN_OFF duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
 
+                telemetry_publisher_stop_sensor_stream();
                 return RESQ_STATE_TURN_OFF;
             }
 
@@ -161,6 +163,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
         }
 
         if (!wifi_manager_is_connected()) {
+            telemetry_publisher_stop_sensor_stream();
             calibration_manager_publish_progress_event(CAL_REASON_WIFI_DISCONNECTED_DURING_CALIBRATION,
                                                        RESQ_STATE_CALIBRATION_FAIL,
                                                        CAL_ACTION_BUTTON_1_CONTINUE_BUTTON_2_IDLE,
@@ -169,6 +172,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
         }
 
         if (!mqtt_manager_is_connected()) {
+            telemetry_publisher_stop_sensor_stream();
             return RESQ_STATE_ERROR;
         }
 

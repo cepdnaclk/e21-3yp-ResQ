@@ -25,6 +25,7 @@
 #include "wifi_manager.h"
 #include "board_config.h"
 #include "system_button_manager.h"
+#include "sensor_owner.h"
 
 static const char *TAG = "session_active_mgr";
 
@@ -55,6 +56,8 @@ static pending_interruption_t s_pending_interruption;
 
 static void sensor_task_finish(bool failed)
 {
+    sensor_owner_release(SENSOR_OWNER_SESSION);
+
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_sensor_task_run = false;
     s_sensor_task = NULL;
@@ -150,6 +153,12 @@ static esp_err_t session_sensor_task_start(void)
         return result;
     }
 
+    esp_err_t owner_err = sensor_owner_acquire(SENSOR_OWNER_SESSION);
+    if (owner_err != ESP_OK) {
+        xSemaphoreGive(s_mutex);
+        return owner_err;
+    }
+
     xEventGroupClearBits(s_sensor_task_events,
                          SENSOR_TASK_STARTED_BIT |
                          SENSOR_TASK_STOPPED_BIT |
@@ -166,6 +175,7 @@ static esp_err_t session_sensor_task_start(void)
 
     if (ok != pdPASS) {
         s_sensor_task_run = false;
+        sensor_owner_release(SENSOR_OWNER_SESSION);
         xSemaphoreGive(s_mutex);
         xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STOPPED_BIT);
         return ESP_FAIL;
@@ -192,6 +202,7 @@ static esp_err_t session_sensor_task_start(void)
             }
             xSemaphoreGive(s_mutex);
         }
+        sensor_owner_release(SENSOR_OWNER_SESSION);
         return ESP_ERR_TIMEOUT;
     }
 
@@ -211,6 +222,7 @@ static esp_err_t session_sensor_task_stop(void)
     if (s_sensor_task == NULL) {
         s_sensor_task_run = false;
         xSemaphoreGive(s_mutex);
+        sensor_owner_release(SENSOR_OWNER_SESSION);
         return ESP_OK;
     }
 
@@ -349,6 +361,11 @@ static void remember_terminal_interruption(const char *session_id,
 
 esp_err_t session_active_manager_init(void)
 {
+    esp_err_t owner_err = sensor_owner_init();
+    if (owner_err != ESP_OK) {
+        return owner_err;
+    }
+
     if (s_mutex == NULL) {
         s_mutex = xSemaphoreCreateMutex();
         if (s_mutex == NULL) return ESP_ERR_NO_MEM;

@@ -113,3 +113,140 @@ TEST_CASE("Session telemetry payload zeros invalid Hall depth without NaN", "[te
     TEST_ASSERT_NULL(strstr(payload, "nan"));
     TEST_ASSERT_NULL(strstr(payload, "inf"));
 }
+
+TEST_CASE("Sensor stream command validation requires request id action and interval", "[telemetry]")
+{
+    bool start = false;
+    uint32_t interval_ms = 0;
+
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"action\":\"START\",\"interval_ms\":200}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"\",\"action\":\"START\",\"interval_ms\":200}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"r1\",\"interval_ms\":200}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"r1\",\"action\":\"BOUNCE\",\"interval_ms\":200}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"r1\",\"action\":\"START\"}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"r1\",\"action\":\"START\",\"interval_ms\":99}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"r1\",\"action\":\"START\",\"interval_ms\":1001}",
+                          &start,
+                          &interval_ms));
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"r1\",\"action\":\"START\",\"interval_ms\":200}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_TRUE(start);
+    TEST_ASSERT_EQUAL_UINT32(200, interval_ms);
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"r2\",\"action\":\"STOP\"}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_FALSE(start);
+}
+
+TEST_CASE("Sensor stream payload contains diagnostics fields without session scoring", "[telemetry]")
+{
+    sensor_converted_sample_t converted = {
+        .pressure_kpa = {1.0f, 2.0f, 3.0f},
+        .pressure_kpa_channel_valid = {true, true, true},
+        .pressure_kpa_valid = true,
+        .hall_mm = 24.5f,
+        .hall_progress = 0.49f,
+        .hall_mm_valid = true,
+        .pressure_saturation_mask = 0u,
+        .timestamp_ms = 124700,
+    };
+    char payload[768];
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_build_sensor_stream_payload(
+                          "M-DEV",
+                          RESQ_STATE_PAIRED_IDLE,
+                          &converted,
+                          200,
+                          payload,
+                          sizeof(payload)));
+
+    assert_contains(payload, "\"device_id\":\"M-DEV\"");
+    assert_contains(payload, "\"telemetry_mode\":\"SENSOR_STREAM\"");
+    assert_contains(payload, "\"state\":\"PAIRED_IDLE\"");
+    assert_contains(payload, "\"pressure_0_kpa\":1.000");
+    assert_contains(payload, "\"pressure_0_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_1_kpa\":2.000");
+    assert_contains(payload, "\"pressure_1_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_2_kpa\":3.000");
+    assert_contains(payload, "\"pressure_2_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_kpa_valid\":true");
+    assert_contains(payload, "\"hall_mm\":24.500");
+    assert_contains(payload, "\"hall_progress\":0.490");
+    assert_contains(payload, "\"hall_mm_valid\":true");
+    assert_contains(payload, "\"pressure_saturation_mask\":0");
+    assert_contains(payload, "\"interval_ms\":200");
+    assert_contains(payload, "\"ts_ms\":124700");
+    TEST_ASSERT_NULL(strstr(payload, "session_id"));
+    TEST_ASSERT_NULL(strstr(payload, "compression_count"));
+    TEST_ASSERT_NULL(strstr(payload, "rate_cpm"));
+    TEST_ASSERT_NULL(strstr(payload, "score"));
+}
+
+TEST_CASE("Sensor stream payload zeros saturated or invalid converted values", "[telemetry]")
+{
+    sensor_converted_sample_t converted = {
+        .pressure_kpa = {1.0f, 2.0f, 999.0f},
+        .pressure_kpa_channel_valid = {true, true, false},
+        .pressure_kpa_valid = false,
+        .hall_mm = 0.0f,
+        .hall_progress = 0.0f,
+        .hall_mm_valid = false,
+        .pressure_saturation_mask = 0x04u,
+        .timestamp_ms = 124700,
+    };
+    char payload[768];
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_build_sensor_stream_payload(
+                          "M-DEV",
+                          RESQ_STATE_READY_FOR_SESSION,
+                          &converted,
+                          100,
+                          payload,
+                          sizeof(payload)));
+
+    assert_contains(payload, "\"pressure_0_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_1_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_2_kpa\":0.000");
+    assert_contains(payload, "\"pressure_2_kpa_valid\":false");
+    assert_contains(payload, "\"pressure_kpa_valid\":false");
+    assert_contains(payload, "\"hall_mm\":0.000");
+    assert_contains(payload, "\"hall_mm_valid\":false");
+    assert_contains(payload, "\"pressure_saturation_mask\":4");
+    TEST_ASSERT_NULL(strstr(payload, "nan"));
+    TEST_ASSERT_NULL(strstr(payload, "inf"));
+}

@@ -22,6 +22,7 @@
 #include "mqtt_topics.h"
 #include "calibration_codes.h"
 #include "sensor_conversion.h"
+#include "sensor_owner.h"
 #include "cJSON.h"
 
 /* Calibration manager configuration */
@@ -2060,6 +2061,7 @@ task_exit:
 
     s_running = false;
     s_calibration_task_handle = NULL;
+    sensor_owner_release(SENSOR_OWNER_CALIBRATION);
 
     vTaskDelete(NULL);
 }
@@ -2075,6 +2077,11 @@ esp_err_t calibration_manager_init(void)
     }
 
     calibration_config_set_defaults(&s_calibration_config);
+
+    esp_err_t owner_err = sensor_owner_init();
+    if (owner_err != ESP_OK) {
+        return owner_err;
+    }
 
     /* Initialize pressure sensor 0 (shared SCK) */
     esp_err_t err = hx710_init(BOARD_HX710_SHARED_SCK,
@@ -2154,6 +2161,11 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
         return ESP_ERR_INVALID_STATE;
     }
 
+    esp_err_t owner_err = sensor_owner_acquire(SENSOR_OWNER_CALIBRATION);
+    if (owner_err != ESP_OK) {
+        return owner_err;
+    }
+
     /*
      * Host must provide these target values:
      * - ref_pressure
@@ -2168,6 +2180,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
         host_params->hall_delta > CALIBRATION_HALL_ADC_MAX_RAW) {
 
         ESP_LOGE(TAG, "Invalid host calibration parameters");
+        sensor_owner_release(SENSOR_OWNER_CALIBRATION);
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -2262,6 +2275,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     if (task_result != pdPASS) {
         s_running = false;
         s_calibration_task_handle = NULL;
+        sensor_owner_release(SENSOR_OWNER_CALIBRATION);
         return ESP_FAIL;
     }
 

@@ -17,6 +17,7 @@ idf_component_register(
         calibration_manager
         hx710
         hall_sensor
+        sensor_owner
         wifi_manager
         esp_timer
         freertos

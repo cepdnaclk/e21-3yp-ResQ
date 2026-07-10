@@ -20,6 +20,7 @@
 #include "hall_sensor.h"
 #include "hx710.h"
 #include "sensor_conversion.h"
+#include "sensor_owner.h"
 
 static TaskHandle_t s_task = NULL;
 static TaskHandle_t s_sensor_stream_task = NULL;
@@ -38,11 +39,10 @@ static calibration_config_t s_sensor_stream_calibration;
 #define TELEMETRY_TASK_START_TIMEOUT_MS 1000
 #define TELEMETRY_TASK_STOP_TIMEOUT_MS 1500
 #define SENSOR_STREAM_TASK_START_TIMEOUT_MS 1000
-#define SENSOR_STREAM_TASK_STOP_TIMEOUT_MS 1500
-#define SENSOR_STREAM_DEFAULT_INTERVAL_MS 200
-#define SENSOR_STREAM_MIN_INTERVAL_MS 50
-#define SENSOR_STREAM_MAX_INTERVAL_MS 1000
-#define SENSOR_STREAM_EVENT_ID 6100
+#define SENSOR_STREAM_TASK_STOP_TIMEOUT_MS 500
+#define SENSOR_STREAM_DEFAULT_INTERVAL_MS TELEMETRY_SENSOR_STREAM_INTERVAL_DEFAULT_MS
+#define SENSOR_STREAM_MIN_INTERVAL_MS TELEMETRY_SENSOR_STREAM_INTERVAL_MIN_MS
+#define SENSOR_STREAM_MAX_INTERVAL_MS TELEMETRY_SENSOR_STREAM_INTERVAL_MAX_MS
 #define SENSOR_STREAM_INVALID_COMMAND_REASON_ID "07101"
 #define SENSOR_STREAM_RUNTIME_REASON_ID "07102"
 
@@ -72,15 +72,10 @@ static const char *calibration_pressure_mode_to_string(calibration_pressure_mode
     }
 }
 
-static uint32_t clamp_interval_ms(uint32_t interval_ms)
+static bool sensor_stream_interval_valid(uint32_t interval_ms)
 {
-    if (interval_ms < SENSOR_STREAM_MIN_INTERVAL_MS) {
-        return SENSOR_STREAM_MIN_INTERVAL_MS;
-    }
-    if (interval_ms > SENSOR_STREAM_MAX_INTERVAL_MS) {
-        return SENSOR_STREAM_MAX_INTERVAL_MS;
-    }
-    return interval_ms;
+    return interval_ms >= SENSOR_STREAM_MIN_INTERVAL_MS &&
+           interval_ms <= SENSOR_STREAM_MAX_INTERVAL_MS;
 }
 
 static uint32_t pressure_saturation_mask_from_sample(const cpr_sensor_sample_t *sample)
@@ -127,17 +122,20 @@ static esp_err_t parse_sensor_stream_command(const char *payload, sensor_stream_
         return ESP_ERR_INVALID_ARG;
     }
 
-    char request_id[128] = {0};
-    if (resq_command_extract_request_id(payload, request_id, sizeof(request_id)) != ESP_OK) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
     cJSON *root = cJSON_Parse(payload);
     if (root == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     esp_err_t result = ESP_OK;
+    cJSON *request_id = cJSON_GetObjectItemCaseSensitive(root, "request_id");
+    if (!cJSON_IsString(request_id) ||
+        request_id->valuestring == NULL ||
+        request_id->valuestring[0] == '\0') {
+        result = ESP_ERR_NOT_FOUND;
+        goto exit;
+    }
+
     cJSON *action = cJSON_GetObjectItemCaseSensitive(root, "action");
     if (!cJSON_IsString(action) || action->valuestring == NULL || action->valuestring[0] == '\0') {
         result = ESP_ERR_INVALID_ARG;
@@ -146,16 +144,18 @@ static esp_err_t parse_sensor_stream_command(const char *payload, sensor_stream_
 
     if (strcmp(action->valuestring, "START") == 0 || strcmp(action->valuestring, "start") == 0) {
         out_command->action = SENSOR_STREAM_ACTION_START;
-        out_command->interval_ms = SENSOR_STREAM_DEFAULT_INTERVAL_MS;
         cJSON *interval = cJSON_GetObjectItemCaseSensitive(root, "interval_ms");
-        if (cJSON_IsNumber(interval)) {
-            int value = interval->valueint;
-            if (value < SENSOR_STREAM_MIN_INTERVAL_MS || value > SENSOR_STREAM_MAX_INTERVAL_MS) {
-                result = ESP_ERR_INVALID_ARG;
-                goto exit;
-            }
-            out_command->interval_ms = (uint32_t)value;
+        if (!cJSON_IsNumber(interval) || interval->valuedouble != (double)interval->valueint) {
+            result = ESP_ERR_INVALID_ARG;
+            goto exit;
         }
+        int value = interval->valueint;
+        if (value < (int)SENSOR_STREAM_MIN_INTERVAL_MS ||
+            value > (int)SENSOR_STREAM_MAX_INTERVAL_MS) {
+            result = ESP_ERR_INVALID_ARG;
+            goto exit;
+        }
+        out_command->interval_ms = (uint32_t)value;
     } else if (strcmp(action->valuestring, "STOP") == 0 || strcmp(action->valuestring, "stop") == 0) {
         out_command->action = SENSOR_STREAM_ACTION_STOP;
         out_command->interval_ms = SENSOR_STREAM_DEFAULT_INTERVAL_MS;
@@ -251,64 +251,33 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
     sensor_converted_sample_t converted = {0};
     sensor_conversion_convert(&raw, &profile, &converted);
 
-    bool pressure_0_kpa_valid = pressure_read_ok &&
-                                calibration->pressure_valid &&
-                                converted.pressure_kpa_channel_valid[0];
-    bool pressure_1_kpa_valid = pressure_read_ok &&
-                                calibration->pressure_valid &&
-                                converted.pressure_kpa_channel_valid[1];
-    bool pressure_2_kpa_valid = pressure_read_ok &&
-                                calibration->pressure_valid &&
-                                converted.pressure_kpa_channel_valid[2];
-    bool pressure_kpa_valid = pressure_0_kpa_valid &&
-                              pressure_1_kpa_valid &&
-                              pressure_2_kpa_valid;
-    bool hall_mm_valid =
-        hall_read_ok &&
-        calibration->hall_valid &&
-        converted.hall_mm_valid;
+    if (!pressure_read_ok || !calibration->pressure_valid) {
+        converted.pressure_kpa[0] = 0.0f;
+        converted.pressure_kpa[1] = 0.0f;
+        converted.pressure_kpa[2] = 0.0f;
+        converted.pressure_kpa_channel_valid[0] = false;
+        converted.pressure_kpa_channel_valid[1] = false;
+        converted.pressure_kpa_channel_valid[2] = false;
+        converted.pressure_kpa_valid = false;
+        converted.pressure_saturation_mask = 0u;
+    }
+
+    if (!hall_read_ok || !calibration->hall_valid) {
+        converted.hall_mm = 0.0f;
+        converted.hall_progress = 0.0f;
+        converted.hall_mm_valid = false;
+    }
 
     char payload[1152];
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"event_id\":%d,"
-                           "\"device_id\":\"%s\","
-                           "\"telemetry_mode\":\"SENSOR_STREAM\","
-                           "\"state\":\"%s\","
-                           "\"pressure_0_kpa\":%.3f,"
-                           "\"pressure_0_kpa_valid\":%s,"
-                           "\"pressure_1_kpa\":%.3f,"
-                           "\"pressure_1_kpa_valid\":%s,"
-                           "\"pressure_2_kpa\":%.3f,"
-                           "\"pressure_2_kpa_valid\":%s,"
-                           "\"hall_mm\":%.3f,"
-                           "\"hall_progress\":%.3f,"
-                           "\"pressure_kpa_valid\":%s,"
-                           "\"hall_mm_valid\":%s,"
-                           "\"pressure_saturation_mask\":%u,"
-                           "\"interval_ms\":%" PRIu32 ","
-                           "\"ts_ms\":%lld"
-                           "}",
-                           SENSOR_STREAM_EVENT_ID,
-                           runtime_helpers_get_device_id(NULL),
-                           resq_state_to_string(state),
-                           pressure_0_kpa_valid ? converted.pressure_kpa[0] : 0.0f,
-                           pressure_0_kpa_valid ? "true" : "false",
-                           pressure_1_kpa_valid ? converted.pressure_kpa[1] : 0.0f,
-                           pressure_1_kpa_valid ? "true" : "false",
-                           pressure_2_kpa_valid ? converted.pressure_kpa[2] : 0.0f,
-                           pressure_2_kpa_valid ? "true" : "false",
-                           hall_mm_valid ? converted.hall_mm : 0.0f,
-                           hall_mm_valid ? converted.hall_progress : 0.0f,
-                           pressure_kpa_valid ? "true" : "false",
-                           hall_mm_valid ? "true" : "false",
-                           (unsigned int)(pressure_read_ok ? converted.pressure_saturation_mask : 0),
-                           interval_ms,
-                           (long long)sample->ts_ms);
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        return ESP_ERR_INVALID_SIZE;
+    esp_err_t build_err = telemetry_publisher_build_sensor_stream_payload(
+        runtime_helpers_get_device_id(NULL),
+        state,
+        &converted,
+        interval_ms,
+        payload,
+        sizeof(payload));
+    if (build_err != ESP_OK) {
+        return build_err;
     }
 
     if (!mqtt_manager_is_connected()) {
@@ -330,6 +299,10 @@ static void sensor_stream_task(void *arg)
     TickType_t last_wake = xTaskGetTickCount();
 
     while (s_sensor_stream_running) {
+        if (!mqtt_manager_is_connected()) {
+            break;
+        }
+
         uint32_t interval_ms = SENSOR_STREAM_DEFAULT_INTERVAL_MS;
         resq_state_t state = RESQ_STATE_PAIRED_IDLE;
         calibration_config_t calibration = {0};
@@ -348,6 +321,8 @@ static void sensor_stream_task(void *arg)
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(interval_ms));
     }
 
+    sensor_owner_release(SENSOR_OWNER_MANUAL_STREAM);
+
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_sensor_stream_running = false;
     s_sensor_stream_task = NULL;
@@ -355,6 +330,84 @@ static void sensor_stream_task(void *arg)
 
     xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_STOPPED_BIT);
     vTaskDelete(NULL);
+}
+
+esp_err_t telemetry_publisher_validate_sensor_stream_command(const char *payload,
+                                                             bool *out_start,
+                                                             uint32_t *out_interval_ms)
+{
+    if (out_start == NULL || out_interval_ms == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    sensor_stream_command_t command = {0};
+    esp_err_t err = parse_sensor_stream_command(payload, &command);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    *out_start = command.action == SENSOR_STREAM_ACTION_START;
+    *out_interval_ms = command.interval_ms;
+    return ESP_OK;
+}
+
+esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
+                                                          resq_state_t state,
+                                                          const sensor_converted_sample_t *converted,
+                                                          uint32_t interval_ms,
+                                                          char *out_payload,
+                                                          size_t out_payload_len)
+{
+    if (converted == NULL || out_payload == NULL || out_payload_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    bool pressure_0_valid = converted->pressure_kpa_channel_valid[0];
+    bool pressure_1_valid = converted->pressure_kpa_channel_valid[1];
+    bool pressure_2_valid = converted->pressure_kpa_channel_valid[2];
+    bool hall_valid = converted->hall_mm_valid;
+
+    int written = snprintf(out_payload,
+                           out_payload_len,
+                           "{"
+                           "\"device_id\":\"%s\","
+                           "\"telemetry_mode\":\"SENSOR_STREAM\","
+                           "\"state\":\"%s\","
+                           "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_0_kpa_valid\":%s,"
+                           "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_1_kpa_valid\":%s,"
+                           "\"pressure_2_kpa\":%.3f,"
+                           "\"pressure_2_kpa_valid\":%s,"
+                           "\"pressure_kpa_valid\":%s,"
+                           "\"hall_mm\":%.3f,"
+                           "\"hall_progress\":%.3f,"
+                           "\"hall_mm_valid\":%s,"
+                           "\"pressure_saturation_mask\":%u,"
+                           "\"interval_ms\":%" PRIu32 ","
+                           "\"ts_ms\":%lld"
+                           "}",
+                           device_id ? device_id : "",
+                           resq_state_to_string(state),
+                           pressure_0_valid ? converted->pressure_kpa[0] : 0.0f,
+                           pressure_0_valid ? "true" : "false",
+                           pressure_1_valid ? converted->pressure_kpa[1] : 0.0f,
+                           pressure_1_valid ? "true" : "false",
+                           pressure_2_valid ? converted->pressure_kpa[2] : 0.0f,
+                           pressure_2_valid ? "true" : "false",
+                           converted->pressure_kpa_valid ? "true" : "false",
+                           hall_valid ? converted->hall_mm : 0.0f,
+                           hall_valid ? converted->hall_progress : 0.0f,
+                           hall_valid ? "true" : "false",
+                           (unsigned int)converted->pressure_saturation_mask,
+                           interval_ms,
+                           (long long)converted->timestamp_ms);
+
+    if (written <= 0 || written >= (int)out_payload_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    return ESP_OK;
 }
 
 esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t *snap,
@@ -495,6 +548,10 @@ esp_err_t telemetry_publisher_init(void)
         s_mutex = xSemaphoreCreateMutex();
         if (s_mutex == NULL) return ESP_ERR_NO_MEM;
     }
+    esp_err_t owner_err = sensor_owner_init();
+    if (owner_err != ESP_OK) {
+        return owner_err;
+    }
 
     if (s_task_events == NULL) {
         s_task_events = xEventGroupCreate();
@@ -612,21 +669,34 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
         return ESP_ERR_INVALID_STATE;
     }
 
-    interval_ms = clamp_interval_ms(interval_ms == 0 ? SENSOR_STREAM_DEFAULT_INTERVAL_MS : interval_ms);
+    if (!sensor_stream_interval_valid(interval_ms)) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
 
-    s_sensor_stream_interval_ms = interval_ms;
-    s_sensor_stream_state = state;
-    memcpy(&s_sensor_stream_calibration, calibration_config, sizeof(s_sensor_stream_calibration));
-
     if (s_sensor_stream_task != NULL) {
         esp_err_t result = s_sensor_stream_running ? ESP_OK : ESP_ERR_INVALID_STATE;
+        if (result == ESP_OK) {
+            s_sensor_stream_interval_ms = interval_ms;
+            s_sensor_stream_state = state;
+            memcpy(&s_sensor_stream_calibration, calibration_config, sizeof(s_sensor_stream_calibration));
+        }
         xSemaphoreGive(s_mutex);
         return result;
     }
+
+    esp_err_t owner_err = sensor_owner_acquire(SENSOR_OWNER_MANUAL_STREAM);
+    if (owner_err != ESP_OK) {
+        xSemaphoreGive(s_mutex);
+        return owner_err;
+    }
+
+    s_sensor_stream_interval_ms = interval_ms;
+    s_sensor_stream_state = state;
+    memcpy(&s_sensor_stream_calibration, calibration_config, sizeof(s_sensor_stream_calibration));
 
     xEventGroupClearBits(s_task_events,
                          SENSOR_STREAM_TASK_STARTED_BIT | SENSOR_STREAM_TASK_STOPPED_BIT);
@@ -640,6 +710,7 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
     if (ok != pdPASS) {
         s_sensor_stream_running = false;
         s_sensor_stream_task = NULL;
+        sensor_owner_release(SENSOR_OWNER_MANUAL_STREAM);
         xSemaphoreGive(s_mutex);
         xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_STOPPED_BIT);
         return ESP_FAIL;
@@ -675,6 +746,7 @@ esp_err_t telemetry_publisher_stop_sensor_stream(void)
     if (s_sensor_stream_task == NULL) {
         s_sensor_stream_running = false;
         xSemaphoreGive(s_mutex);
+        sensor_owner_release(SENSOR_OWNER_MANUAL_STREAM);
         return ESP_OK;
     }
 

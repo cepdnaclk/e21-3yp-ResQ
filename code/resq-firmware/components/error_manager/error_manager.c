@@ -16,6 +16,7 @@
 #include "system_button_manager.h"
 #include "config_store.h"
 #include "mqtt_manager.h"
+#include "mqtt_topics.h"
 #include "runtime_helpers.h"
 #include "status_indicator.h"
 #include "telemetry_publisher.h"
@@ -299,6 +300,16 @@ resq_state_t error_manager_run(network_config_t *network_config,
                                                                             "NACK",
                                                                             "debug_not_available_in_error_state");
                     }
+                    continue;
+                }
+
+                if (strcmp(suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+                    runtime_helpers_publish_command_result_from_command(network_config,
+                                                                        RESQ_STATE_ERROR,
+                                                                        &command,
+                                                                        suffix,
+                                                                        "NACK",
+                                                                        "device_in_error");
                     continue;
                 }
 

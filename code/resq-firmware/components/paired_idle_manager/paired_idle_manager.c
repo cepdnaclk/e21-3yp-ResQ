@@ -144,11 +144,13 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         system_button_action_t action = system_button_manager_poll(visible_state);
         if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
             ESP_LOGW(TAG, "System button requested TURN_OFF in paired idle");
+            telemetry_publisher_stop_sensor_stream();
             return RESQ_STATE_TURN_OFF;
         }
 
         if (action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
             ESP_LOGW(TAG, "System button requested FACTORY_RESET in paired idle");
+            telemetry_publisher_stop_sensor_stream();
             return RESQ_STATE_RESETTING;
         }
         visible_state = calibration_config->calibrated
@@ -156,11 +158,13 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
             : RESQ_STATE_PAIRED_IDLE;
 
         if (!wifi_manager_is_connected()) {
+            telemetry_publisher_stop_sensor_stream();
             error_manager_set_error(FW_ERROR_WIFI_DISCONNECTED_UNRECOVERABLE);
             return RESQ_STATE_ERROR;
         }
 
         if (!mqtt_manager_is_connected()) {
+            telemetry_publisher_stop_sensor_stream();
             error_manager_set_error(FW_ERROR_MQTT_DISCONNECTED_UNRECOVERABLE);
             return RESQ_STATE_ERROR;
         }

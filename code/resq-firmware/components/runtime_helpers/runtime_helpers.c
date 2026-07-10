@@ -14,6 +14,7 @@
 #include "hx710.h"
 #include "hall_sensor.h"
 #include "sensor_conversion.h"
+#include "sensor_owner.h"
 #include "esp_timer.h"
 
 static const char *TAG = "runtime_helpers";
@@ -408,6 +409,10 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
 {
     if (network_config == NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+
+    if (sensor_owner_is(SENSOR_OWNER_MANUAL_STREAM)) {
+        return ESP_ERR_INVALID_STATE;
     }
 
     int32_t pressure_0_raw = 0;

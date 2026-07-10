@@ -17,5 +17,6 @@ idf_component_register(
         mqtt_manager
         runtime_helpers
         sensor_conversion
+        sensor_owner
         esp_timer
 )

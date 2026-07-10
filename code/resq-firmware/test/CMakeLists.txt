@@ -11,6 +11,7 @@ set(TEST_COMPONENTS
     "session_manager"
     "cpr_metrics"
     "sensor_conversion"
+    "sensor_owner"
     "telemetry_publisher"
     CACHE STRING "ResQ components under test"
     FORCE
