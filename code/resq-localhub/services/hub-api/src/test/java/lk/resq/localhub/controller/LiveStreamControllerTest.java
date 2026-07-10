@@ -13,6 +13,7 @@ import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.LiveStreamService;
 import lk.resq.localhub.service.LocalAuthRepository;
 import lk.resq.localhub.service.ManikinRegistryService;
+import lk.resq.localhub.service.SensorStreamService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -30,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LiveStreamControllerTest {
 
     private CalibrationStreamService calibrationStreamService;
+    private SensorStreamService sensorStreamService;
     private AllowingAuthService authService;
     private LiveStreamController controller;
 
@@ -42,6 +44,7 @@ class LiveStreamControllerTest {
         ActiveSessionService sessionService = new DummyActiveSessionService();
         DeviceReadinessService readinessService = new DeviceReadinessService();
         calibrationStreamService = new CalibrationStreamService(readinessService);
+        sensorStreamService = new SensorStreamService();
         
         authService = new AllowingAuthService(objectMapper);
         controller = new LiveStreamController(
@@ -49,7 +52,8 @@ class LiveStreamControllerTest {
                 registryService,
                 sessionService,
                 authService,
-                calibrationStreamService
+                calibrationStreamService,
+                sensorStreamService
         );
     }
 
@@ -67,6 +71,15 @@ class LiveStreamControllerTest {
         ResponseEntity<SseEmitter> response = controller.streamCalibration(null, "M01");
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    void streamSensorStreamReturnsOkAndSseEmitter() {
+        ResponseEntity<SseEmitter> response = controller.streamSensorStream(null, "M01");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(sensorStreamService.subscriberCount("M01")).isEqualTo(1);
     }
 
     @Test
@@ -88,7 +101,8 @@ class LiveStreamControllerTest {
                 registryService,
                 new DummyActiveSessionService(),
                 authService,
-                calibrationStreamService
+                calibrationStreamService,
+                sensorStreamService
         );
 
         ResponseEntity<SseEmitter> response = liveController.streamManikinsLive(null);

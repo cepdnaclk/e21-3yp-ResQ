@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionLiveView;
+import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -171,6 +172,15 @@ public class ManikinRegistryService {
         });
     }
 
+    public void updateFromSensorStream(String deviceId, SensorStreamSnapshot snapshot) {
+        upsert(deviceId, state -> {
+            state.lastSeen = snapshot.receivedAt();
+            state.online = true;
+            state.state = canonicalFirmwareState(snapshot.state());
+            state.latestSensorStream = snapshot;
+        });
+    }
+
     public void updateFromEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
             state.lastSeen = Instant.now();
@@ -290,6 +300,14 @@ public class ManikinRegistryService {
         }
 
         return Optional.of(toSessionLiveView(state, sessionId));
+    }
+
+    public Optional<SensorStreamSnapshot> getLatestSensorStream(String deviceId) {
+        MutableManikinState state = registry.get(deviceId);
+        if (state == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(state.latestSensorStream);
     }
 
     private void upsert(String deviceId, Consumer<MutableManikinState> updater) {
@@ -488,6 +506,7 @@ public class ManikinRegistryService {
         copy.depthSource = source.depthSource;
         copy.warnings = source.warnings;
         copy.latestMetric = source.latestMetric;
+        copy.latestSensorStream = source.latestSensorStream;
         return copy;
     }
 
@@ -828,6 +847,7 @@ public class ManikinRegistryService {
         private String depthSource;
         private String warnings;
         private LiveMetricPayload latestMetric;
+        private SensorStreamSnapshot latestSensorStream;
 
         private MutableManikinState(String deviceId) {
             this.deviceId = deviceId;

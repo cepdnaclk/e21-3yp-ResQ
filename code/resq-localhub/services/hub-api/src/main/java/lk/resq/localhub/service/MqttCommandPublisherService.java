@@ -39,6 +39,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MqttCommandPublisherService {
 
     private static final Logger logger = LoggerFactory.getLogger(MqttCommandPublisherService.class);
+    public static final int SENSOR_STREAM_MIN_INTERVAL_MS = SensorStreamService.SENSOR_STREAM_MIN_INTERVAL_MS;
+    public static final int SENSOR_STREAM_DEFAULT_INTERVAL_MS = SensorStreamService.SENSOR_STREAM_DEFAULT_INTERVAL_MS;
+    public static final int SENSOR_STREAM_MAX_INTERVAL_MS = SensorStreamService.SENSOR_STREAM_MAX_INTERVAL_MS;
 
     private final ObjectMapper objectMapper;
     private final String brokerUrl;
@@ -265,8 +268,9 @@ public class MqttCommandPublisherService {
 
         Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.TELEMETRY_CONTROL, null);
         payload.put("action", normalizedAction);
-        if ("START".equals(normalizedAction) && intervalMs != null) {
-            payload.put("interval_ms", Math.max(50, Math.min(1000, intervalMs)));
+        if ("START".equals(normalizedAction)) {
+            SensorStreamService.validateIntervalMs(intervalMs);
+            payload.put("interval_ms", intervalMs);
         }
 
         return publishFirmwareCommand(

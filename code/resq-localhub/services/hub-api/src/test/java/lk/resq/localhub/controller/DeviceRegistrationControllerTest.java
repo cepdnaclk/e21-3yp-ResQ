@@ -7,7 +7,6 @@ import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
 import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttSubscriberService;
-import lk.resq.localhub.service.ManikinRegistryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
@@ -127,7 +126,7 @@ class DeviceRegistrationControllerTest {
 
         return new Fixture(
                 new DeviceRegistrationController(registrationService),
-                new HubHealthController(serviceInfoService, mqttProvider),
+                new HubHealthController(serviceInfoService, mqttProvider, registry),
                 registry
         );
     }

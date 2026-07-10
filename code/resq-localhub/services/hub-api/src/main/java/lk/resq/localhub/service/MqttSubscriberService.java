@@ -10,6 +10,7 @@ import lk.resq.localhub.model.firmware.FirmwareEventRecord;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
 import lk.resq.localhub.model.firmware.CalibrationEventLog;
 import lk.resq.localhub.model.firmware.CalibrationEvidence;
+import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttClient;
@@ -71,6 +72,7 @@ public class MqttSubscriberService {
     private final DeviceReadinessService deviceReadinessService;
     private final CalibrationStreamService calibrationStreamService;
     private final CalibrationPersistenceRepository calibrationPersistenceRepository;
+    private final SensorStreamService sensorStreamService;
 
     private final String brokerUrl;
     private final String clientId;
@@ -95,6 +97,7 @@ public class MqttSubscriberService {
             DeviceReadinessService deviceReadinessService,
             CalibrationStreamService calibrationStreamService,
             CalibrationPersistenceRepository calibrationPersistenceRepository,
+            SensorStreamService sensorStreamService,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
@@ -109,10 +112,44 @@ public class MqttSubscriberService {
         this.deviceReadinessService = deviceReadinessService;
         this.calibrationStreamService = calibrationStreamService;
         this.calibrationPersistenceRepository = calibrationPersistenceRepository;
+        this.sensorStreamService = sensorStreamService == null ? new SensorStreamService() : sensorStreamService;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
         this.password = password;
+    }
+
+    public MqttSubscriberService(
+            ObjectMapper objectMapper,
+            ManikinRegistryService manikinRegistryService,
+            ActiveSessionService activeSessionService,
+            LiveStreamService liveStreamService,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService,
+            CalibrationStreamService calibrationStreamService,
+            CalibrationPersistenceRepository calibrationPersistenceRepository,
+            String brokerUrl,
+            String clientId,
+            String username,
+            String password
+    ) {
+        this(
+                objectMapper,
+                manikinRegistryService,
+                activeSessionService,
+                liveStreamService,
+                firmwarePersistenceRepository,
+                rateEstimatorRegistry,
+                deviceReadinessService,
+                calibrationStreamService,
+                calibrationPersistenceRepository,
+                new SensorStreamService(),
+                brokerUrl,
+                clientId,
+                username,
+                password
+        );
     }
 
     public MqttSubscriberService(
@@ -138,6 +175,7 @@ public class MqttSubscriberService {
                 deviceReadinessService,
                 calibrationStreamService,
                 null,
+                new SensorStreamService(),
                 brokerUrl,
                 clientId,
                 username,
@@ -167,6 +205,7 @@ public class MqttSubscriberService {
                 deviceReadinessService,
                 calibrationStreamService,
                 null,
+                new SensorStreamService(),
                 brokerUrl,
                 clientId,
                 username,
@@ -328,9 +367,18 @@ public class MqttSubscriberService {
                 }
                 case "telemetry" -> {
                     if (isSensorStreamTelemetry(payload)) {
-                        manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, payload);
+                        SensorStreamSnapshot snapshot = sensorStreamService.parseSnapshot(parsedTopic.deviceId, payload, Instant.now());
+                        manikinRegistryService.updateFromSensorStream(parsedTopic.deviceId, snapshot);
+                        sensorStreamService.recordSnapshot(snapshot);
                         publishInstructorLiveSnapshot();
                         logger.info("Processed SENSOR_STREAM telemetry for {}", parsedTopic.deviceId);
+                        return;
+                    }
+
+                    String telemetryMode = firstText(payload, "telemetry_mode", "telemetryMode");
+                    if (telemetryMode != null) {
+                        rejectedTelemetryCount.incrementAndGet();
+                        logger.warn("Rejected unsupported telemetry_mode {} for device {}", telemetryMode, parsedTopic.deviceId);
                         return;
                     }
 

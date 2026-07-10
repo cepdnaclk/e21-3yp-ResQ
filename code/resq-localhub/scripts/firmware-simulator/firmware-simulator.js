@@ -12,6 +12,7 @@ const EVENT_IDS = {
   CALIBRATION_COMMAND_RESULT: 4000,
   CALIBRATION_PROGRESS: 4001,
   CALIBRATION_FINAL_RESULT: 4002,
+  TELEMETRY_COMMAND_RESULT: 6100,
   FIRMWARE_ERROR: 5000,
 };
 
@@ -74,8 +75,11 @@ class FirmwareSimulator {
     this.currentSessionId = options.sessionId;
     this.lastErrorId = options.simulateError ? "06201" : "00000";
     this.telemetryCount = 0;
+    this.manualTelemetryCount = 0;
     this.heartbeatTimer = null;
     this.telemetryTimer = null;
+    this.manualTelemetryTimer = null;
+    this.manualTelemetryIntervalMs = 200;
     this.calibrationTimers = [];
     this.startedAt = Date.now();
   }
@@ -141,6 +145,9 @@ class FirmwareSimulator {
       case "session/stop":
         this.handleSessionStop(payload);
         break;
+      case "telemetry":
+        this.handleTelemetryControl(payload);
+        break;
       case "debug":
         this.handleDebug(payload);
         break;
@@ -167,6 +174,7 @@ class FirmwareSimulator {
   handleCalibrationStart(payload) {
     this.clearCalibrationTimers();
     this.stopTelemetry();
+    this.stopManualTelemetry();
     this.sessionActive = false;
     this.state = "CALIBRATING";
     this.calibrated = false;
@@ -266,6 +274,7 @@ class FirmwareSimulator {
   }
 
   handleSessionStart(payload) {
+    this.stopManualTelemetry();
     this.currentSessionId = stringOr(payload.session_id, this.options.sessionId);
     this.sessionActive = true;
     this.state = "SESSION_ACTIVE";
@@ -321,6 +330,45 @@ class FirmwareSimulator {
     });
   }
 
+  handleTelemetryControl(payload) {
+    const action = String(payload.action || "").trim().toUpperCase();
+    if (action === "START") {
+      const intervalMs = Number(payload.interval_ms);
+      if (!Number.isInteger(intervalMs) || intervalMs < 100 || intervalMs > 1000) {
+        this.publishTelemetryControlResult(payload.request_id, "NACK", "08101");
+        return;
+      }
+      if (this.sessionActive || this.state === "CALIBRATING") {
+        this.publishTelemetryControlResult(payload.request_id, "NACK", "06301");
+        return;
+      }
+      this.manualTelemetryIntervalMs = intervalMs;
+      this.startManualTelemetry();
+      this.publishTelemetryControlResult(payload.request_id, "ACK", "00000");
+      return;
+    }
+
+    if (action === "STOP") {
+      this.stopManualTelemetry();
+      this.publishTelemetryControlResult(payload.request_id, "ACK", "00000");
+      return;
+    }
+
+    this.publishTelemetryControlResult(payload.request_id, "NACK", "08102");
+  }
+
+  publishTelemetryControlResult(replyId, status, reasonId) {
+    this.publishEvent("events", {
+      event_id: EVENT_IDS.TELEMETRY_COMMAND_RESULT,
+      reply_id: replyId,
+      status,
+      state: this.state,
+      reason_id: reasonId,
+      action_id: status === "ACK" ? ACTION_IDS.NO_ACTION_REQUIRED : ACTION_IDS.CHECK_SENSOR_AND_RETRY,
+      ts_ms: this.tsMs(),
+    });
+  }
+
   interruptSession(replyId) {
     if (!this.sessionActive) {
       return;
@@ -361,7 +409,7 @@ class FirmwareSimulator {
       mqtt_connected: true,
       backend_registered: true,
       session_active: this.sessionActive,
-      sensor_running: this.sessionActive,
+      sensor_running: this.sessionActive || Boolean(this.manualTelemetryTimer),
       session_id: this.sessionActive ? this.currentSessionId : "",
       calibrated: this.calibrated,
       uptime_ms: this.tsMs(),
@@ -389,6 +437,32 @@ class FirmwareSimulator {
       hand_placement: "CENTER",
       pressure_balance_pct: 92 + wobble * 3,
       flags: "DEPTH_OK,RATE_OK,RECOIL_OK",
+      ts_ms: this.tsMs(),
+    });
+  }
+
+  publishSensorStream() {
+    if (!this.manualTelemetryTimer) {
+      return;
+    }
+    this.manualTelemetryCount += 1;
+    const wobble = Math.sin(this.manualTelemetryCount / 4);
+    this.publish("telemetry", {
+      device_id: this.options.deviceId,
+      telemetry_mode: "SENSOR_STREAM",
+      state: this.state,
+      pressure_0_kpa: Number((0.8 + wobble * 0.12).toFixed(3)),
+      pressure_0_kpa_valid: true,
+      pressure_1_kpa: Number((1.4 + wobble * 0.08).toFixed(3)),
+      pressure_1_kpa_valid: this.manualTelemetryCount % 13 !== 0,
+      pressure_2_kpa: Number((1.35 - wobble * 0.06).toFixed(3)),
+      pressure_2_kpa_valid: true,
+      pressure_kpa_valid: this.manualTelemetryCount % 13 !== 0,
+      hall_mm: Number((12.5 + wobble * 2.5).toFixed(2)),
+      hall_progress: Number(clamp(0.42 + wobble * 0.08, 0, 1).toFixed(3)),
+      hall_mm_valid: true,
+      pressure_saturation_mask: this.manualTelemetryCount % 17 === 0 ? 2 : 0,
+      interval_ms: this.manualTelemetryIntervalMs,
       ts_ms: this.tsMs(),
     });
   }
@@ -452,6 +526,20 @@ class FirmwareSimulator {
     this.telemetryTimer = null;
   }
 
+  startManualTelemetry() {
+    this.stopManualTelemetry();
+    this.state = this.calibrated ? "READY_FOR_SESSION" : "PAIRED_IDLE";
+    this.manualTelemetryTimer = setInterval(() => this.publishSensorStream(), this.manualTelemetryIntervalMs);
+    this.publishSensorStream();
+    this.publishStatus(false);
+  }
+
+  stopManualTelemetry() {
+    clearInterval(this.manualTelemetryTimer);
+    this.manualTelemetryTimer = null;
+    this.publishStatus(false);
+  }
+
   clearCalibrationTimers() {
     this.calibrationTimers.forEach(clearTimeout);
     this.calibrationTimers = [];
@@ -468,6 +556,7 @@ class FirmwareSimulator {
   stop(code) {
     this.clearCalibrationTimers();
     this.stopTelemetry();
+    this.stopManualTelemetry();
     clearInterval(this.heartbeatTimer);
     if (this.client) {
       this.client.end(true, () => process.exit(code));

@@ -293,11 +293,16 @@ class MqttSubscriberServiceTest {
               "telemetry_mode": "SENSOR_STREAM",
               "state": "PAIRED_IDLE",
               "pressure_0_kpa": 0.82,
+              "pressure_0_kpa_valid": true,
               "pressure_1_kpa": 1.44,
+              "pressure_1_kpa_valid": false,
               "pressure_2_kpa": 1.39,
+              "pressure_2_kpa_valid": true,
               "hall_mm": 12.6,
+              "hall_progress": 0.42,
               "pressure_kpa_valid": true,
               "hall_mm_valid": true,
+              "pressure_saturation_mask": 2,
               "interval_ms": 200,
               "ts_ms": 124700
             }
@@ -306,10 +311,40 @@ class MqttSubscriberServiceTest {
         ManikinLiveSummary liveSummary = fixture.registry().getLiveSummary("M01").orElseThrow();
         assertThat(liveSummary.online()).isTrue();
         assertThat(liveSummary.state()).isEqualTo("PAIRED_IDLE");
-        assertThat(liveSummary.latestMetric()).isNotNull();
-        assertThat(liveSummary.latestMetric().debugRaw()).isNotNull();
+        assertThat(liveSummary.latestMetric()).isNull();
+        assertThat(fixture.registry().getLatestSensorStream("M01")).isPresent();
+        assertThat(fixture.registry().getLatestSensorStream("M01").orElseThrow().pressure1KpaValid()).isFalse();
+        assertThat(fixture.registry().getLatestSensorStream("M01").orElseThrow().pressureSaturationMask()).isEqualTo(2);
         assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow().latestMetric()).isNull();
         assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).isNotEmpty();
+    }
+
+    @Test
+    void rejectsUnsupportedTelemetryModeBeforeSessionFallback() throws Exception {
+        ServiceFixture fixture = newFixture(newRepository());
+        var session = fixture.activeSessionService().startSession(new SessionStartRequest(
+                "M01",
+                "trainee-1",
+                null,
+                null,
+                null,
+                "smoke-test",
+                null
+        ));
+
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+            {
+              "device_id": "M01",
+              "telemetry_mode": "MANUAL_DIAGNOSTIC",
+              "depth_progress": 0.9,
+              "rate_cpm": 130,
+              "compression_count": 99,
+              "ts_ms": 125000
+            }
+            """));
+
+        assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow().latestMetric()).isNull();
+        assertThat(fixture.registry().getLatestSensorStream("M01")).isEmpty();
     }
 
     @Test

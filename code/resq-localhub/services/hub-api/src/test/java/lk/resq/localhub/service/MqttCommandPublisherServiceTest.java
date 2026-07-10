@@ -70,24 +70,53 @@ class MqttCommandPublisherServiceTest {
     }
 
     @Test
-    void publishesTelemetryControlCommandWithClampedInterval() {
+    void publishesTelemetryControlStartCommandWithValidatedInterval() {
         FirmwarePersistenceRepository repository = newRepository();
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository, false);
 
         MqttCommandPublisherService.FirmwareCommandPublishResult result =
-                publisher.publishTelemetryControl("M01", "start", 25);
+                publisher.publishTelemetryControl("M01", "start", 200);
 
         assertThat(result.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
         assertThat(result.requestId()).isEqualTo("req-151-0001");
         assertThat(result.payload()).containsEntry("request_id", "req-151-0001");
         assertThat(result.payload()).containsEntry("action", "START");
-        assertThat(result.payload()).containsEntry("interval_ms", 50);
+        assertThat(result.payload()).containsEntry("interval_ms", 200);
         assertThat(publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.TELEMETRY_CONTROL);
 
         FirmwareCommandRequestRecord stored = repository.findCommandByRequestId("req-151-0001").orElseThrow();
         assertThat(stored.status()).isEqualTo("PUBLISHED");
         assertThat(stored.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
         assertThat(stored.commandTypeId()).isEqualTo(FirmwareCommandTypeId.TELEMETRY_CONTROL.value());
+    }
+
+    @Test
+    void rejectsTelemetryControlStartWithoutValidInterval() {
+        FirmwarePersistenceRepository repository = newRepository();
+        CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository, false);
+
+        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("interval_ms is required");
+        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", 99))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("between 100 and 1000");
+        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", 1001))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("between 100 and 1000");
+    }
+
+    @Test
+    void publishesTelemetryControlStopWithoutIntervalOrSessionFields() {
+        FirmwarePersistenceRepository repository = newRepository();
+        CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository, false);
+
+        MqttCommandPublisherService.FirmwareCommandPublishResult result =
+                publisher.publishTelemetryControl("M01", "stop", 200);
+
+        assertThat(result.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+        assertThat(result.payload()).containsEntry("action", "STOP");
+        assertThat(result.payload()).doesNotContainKeys("interval_ms", "session_id", "sessionId");
     }
 
     private static final class CapturingPublisher extends MqttCommandPublisherService {
