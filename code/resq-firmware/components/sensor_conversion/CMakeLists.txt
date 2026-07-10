@@ -6,5 +6,5 @@ idf_component_register(
         "include"
 
     REQUIRES
-        config
+        esp_common
 )

@@ -1,105 +1,260 @@
 #include "unity.h"
 
+#include <limits.h>
+#include <math.h>
+
 #include "sensor_conversion.h"
 
-static calibration_config_t conversion_config(void)
+static sensor_raw_sample_t make_raw_sample(void)
 {
-    calibration_config_t config = {0};
-    calibration_config_set_defaults(&config);
-    config.pressure_0_baseline = 1000;
-    config.pressure_1_baseline = 2000;
-    config.pressure_2_baseline = 3000;
-    config.pressure_0_kpa_per_count = 0.10f;
-    config.pressure_1_kpa_per_count = 0.20f;
-    config.pressure_2_kpa_per_count = 0.30f;
-    config.hall_baseline = 1000;
-    config.hall_range_raw = 500;
-    config.hall_direction = 1;
-    config.full_depth_mm = 50.0f;
-    return config;
-}
-
-TEST_CASE("pressure_to_kpa converts positive and negative deltas", "[sensor_conversion]")
-{
-    float kpa = 0.0f;
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_pressure_to_kpa(1250, 1000, 0.01f, &kpa));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.5f, kpa);
-
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_pressure_to_kpa(750, 1000, 0.01f, &kpa));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.5f, kpa);
-}
-
-TEST_CASE("pressure_to_kpa rejects zero scale and saturated raw", "[sensor_conversion]")
-{
-    float kpa = 1.0f;
-    TEST_ASSERT_NOT_EQUAL(ESP_OK, sensor_conversion_pressure_to_kpa(1250, 1000, 0.0f, &kpa));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, kpa);
-
-    TEST_ASSERT_TRUE(sensor_conversion_pressure_raw_is_saturated(8300000));
-    TEST_ASSERT_TRUE(sensor_conversion_pressure_raw_is_saturated(8300001));
-    TEST_ASSERT_NOT_EQUAL(ESP_OK, sensor_conversion_pressure_to_kpa(8300000, 1000, 0.01f, &kpa));
-}
-
-TEST_CASE("hall_to_mm converts and clamps with direction", "[sensor_conversion]")
-{
-    float mm = 0.0f;
-    float progress = 0.0f;
-    int32_t delta = 0;
-
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_hall_to_mm(1250, 1000, 500, 1, 50.0f, &mm, &progress, &delta));
-    TEST_ASSERT_EQUAL(250, delta);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, progress);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 25.0f, mm);
-
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_hall_to_mm(750, 1000, 500, -1, 50.0f, &mm, &progress, &delta));
-    TEST_ASSERT_EQUAL(250, delta);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 25.0f, mm);
-
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_hall_to_mm(2000, 1000, 500, 1, 50.0f, &mm, &progress, &delta));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, progress);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, mm);
-
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_hall_to_mm(900, 1000, 500, 1, 50.0f, &mm, &progress, &delta));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, progress);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, mm);
-}
-
-TEST_CASE("convert_sample returns converted values and validity flags", "[sensor_conversion]")
-{
-    calibration_config_t config = conversion_config();
     sensor_raw_sample_t raw = {
-        .pressure_0_raw = 1010,
-        .pressure_1_raw = 2020,
-        .pressure_2_raw = 3030,
+        .pressure_raw = {1100, 2100, 3100},
+        .pressure_read_valid = {true, true, true},
         .hall_raw = 1250,
-        .ts_ms = 1234,
+        .hall_read_valid = true,
+        .pressure_saturation_mask = 0u,
+        .timestamp_ms = 123456789,
     };
-    sensor_converted_sample_t converted = {0};
+    return raw;
+}
 
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_convert_sample(&raw, &config, &converted));
-    TEST_ASSERT_TRUE(converted.pressure_kpa_valid);
-    TEST_ASSERT_TRUE(converted.hall_mm_valid);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, converted.pressure_0_kpa);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 4.0f, converted.pressure_1_kpa);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 9.0f, converted.pressure_2_kpa);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 25.0f, converted.hall_mm);
+static sensor_conversion_profile_t make_profile(void)
+{
+    sensor_conversion_profile_t profile = {
+        .pressure_baseline_raw = {1000, 2000, 3000},
+        .pressure_baseline_valid = {true, true, true},
+        .pressure_kpa_per_count = {0.01f, 0.02f, 0.03f},
+        .hall_baseline_raw = 1000,
+        .hall_baseline_valid = true,
+        .hall_range_raw = 500,
+        .hall_direction = 1,
+        .full_depth_mm = 50.0f,
+        .required_pressure_mask = SENSOR_CONVERSION_PRESSURE_DEFAULT_REQUIRED_MASK,
+    };
+    return profile;
+}
 
-    config.pressure_1_kpa_per_count = 0.0f;
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_convert_sample(&raw, &config, &converted));
-    TEST_ASSERT_FALSE(converted.pressure_1_kpa_valid);
-    TEST_ASSERT_FALSE(converted.pressure_kpa_valid);
-    TEST_ASSERT_TRUE(converted.hall_mm_valid);
+static sensor_converted_sample_t convert_ok(sensor_raw_sample_t *raw,
+                                            sensor_conversion_profile_t *profile)
+{
+    sensor_converted_sample_t out = {0};
+    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_convert(raw, profile, &out));
+    return out;
+}
 
-    config = conversion_config();
-    raw.quality_flags = SENSOR_CONVERSION_QUALITY_PRESSURE_READ_FAILED;
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_convert_sample(&raw, &config, &converted));
-    TEST_ASSERT_FALSE(converted.pressure_0_kpa_valid);
-    TEST_ASSERT_FALSE(converted.pressure_1_kpa_valid);
-    TEST_ASSERT_FALSE(converted.pressure_2_kpa_valid);
-    TEST_ASSERT_TRUE(converted.hall_mm_valid);
+TEST_CASE("pressure conversion uses absolute raw difference", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
 
-    raw.quality_flags = SENSOR_CONVERSION_QUALITY_HALL_READ_FAILED;
-    TEST_ASSERT_EQUAL(ESP_OK, sensor_conversion_convert_sample(&raw, &config, &converted));
-    TEST_ASSERT_TRUE(converted.pressure_kpa_valid);
-    TEST_ASSERT_FALSE(converted.hall_mm_valid);
+    raw.pressure_raw[0] = 1100;
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, out.pressure_kpa[0]);
+
+    raw.pressure_raw[0] = 900;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, out.pressure_kpa[0]);
+}
+
+TEST_CASE("pressure conversion applies independent coefficients", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, out.pressure_kpa[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f, out.pressure_kpa[1]);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 3.0f, out.pressure_kpa[2]);
+}
+
+TEST_CASE("pressure channels fail independently for reads and saturation", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+
+    raw.pressure_read_valid[1] = false;
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[0]);
+    TEST_ASSERT_FALSE(out.pressure_kpa_channel_valid[1]);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[2]);
+    TEST_ASSERT_EQUAL(0x05u, out.pressure_valid_mask);
+    TEST_ASSERT_FALSE(out.pressure_kpa_valid);
+
+    raw = make_raw_sample();
+    raw.pressure_saturation_mask = 0x04u;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[0]);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[1]);
+    TEST_ASSERT_FALSE(out.pressure_kpa_channel_valid[2]);
+    TEST_ASSERT_EQUAL(0x04u, out.pressure_saturation_mask);
+}
+
+TEST_CASE("invalid pressure profile fields invalidate only that channel", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+
+    profile.pressure_kpa_per_count[1] = 0.0f;
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.pressure_kpa_channel_valid[1]);
+
+    profile = make_profile();
+    profile.pressure_kpa_per_count[1] = -0.01f;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.pressure_kpa_channel_valid[1]);
+
+    profile = make_profile();
+    profile.pressure_kpa_per_count[1] = NAN;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.pressure_kpa_channel_valid[1]);
+
+    profile = make_profile();
+    profile.pressure_kpa_per_count[1] = INFINITY;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.pressure_kpa_channel_valid[1]);
+
+    profile = make_profile();
+    profile.pressure_baseline_valid[1] = false;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[0]);
+    TEST_ASSERT_FALSE(out.pressure_kpa_channel_valid[1]);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[2]);
+}
+
+TEST_CASE("required pressure mask controls aggregate validity", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+
+    raw.pressure_read_valid[2] = false;
+    profile.required_pressure_mask = 0x07u;
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.pressure_kpa_valid);
+    TEST_ASSERT_FALSE(out.sample_pressure_kpa_valid);
+
+    profile.required_pressure_mask = 0x03u;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.pressure_kpa_valid);
+    TEST_ASSERT_TRUE(out.sample_pressure_kpa_valid);
+
+    profile.required_pressure_mask = 0u;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.pressure_kpa_valid);
+    TEST_ASSERT_EQUAL(0x07u, sensor_conversion_normalize_pressure_mask(0u));
+}
+
+TEST_CASE("hall conversion handles direction and clamping", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.hall_mm_valid);
+    TEST_ASSERT_EQUAL(250, out.hall_delta_raw);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, out.hall_progress);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 25.0f, out.hall_mm);
+
+    raw.hall_raw = 750;
+    profile.hall_direction = -1;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_EQUAL(250, out.hall_delta_raw);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, out.hall_progress);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 25.0f, out.hall_mm);
+
+    raw.hall_raw = 900;
+    profile.hall_direction = 1;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.hall_mm_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, out.hall_progress);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, out.hall_mm);
+
+    raw.hall_raw = 2000;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.hall_mm_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, out.hall_progress);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, out.hall_mm);
+}
+
+TEST_CASE("invalid hall input or profile clears hall outputs", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+
+    raw.hall_read_valid = false;
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.hall_profile_valid);
+    TEST_ASSERT_FALSE(out.hall_mm_valid);
+    TEST_ASSERT_FALSE(out.sample_hall_mm_valid);
+    TEST_ASSERT_EQUAL(0, out.hall_delta_raw);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, out.hall_progress);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, out.hall_mm);
+
+    raw = make_raw_sample();
+    profile.hall_range_raw = 0;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.hall_profile_valid);
+    TEST_ASSERT_FALSE(out.hall_mm_valid);
+
+    profile = make_profile();
+    profile.hall_direction = 0;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.hall_profile_valid);
+
+    profile.hall_direction = 2;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.hall_profile_valid);
+}
+
+TEST_CASE("invalid full depth invalidates hall profile", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+
+    profile.full_depth_mm = 0.0f;
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.hall_profile_valid);
+
+    profile.full_depth_mm = -1.0f;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.hall_profile_valid);
+
+    profile.full_depth_mm = NAN;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.hall_profile_valid);
+
+    profile.full_depth_mm = INFINITY;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_FALSE(out.hall_profile_valid);
+}
+
+TEST_CASE("null pointers return explicit errors", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+    sensor_converted_sample_t out = {0};
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensor_conversion_convert(NULL, &profile, &out));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensor_conversion_convert(&raw, NULL, &out));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, sensor_conversion_convert(&raw, &profile, NULL));
+}
+
+TEST_CASE("extreme integer values avoid overflow and propagate timestamp", "[sensor_conversion]")
+{
+    sensor_raw_sample_t raw = make_raw_sample();
+    sensor_conversion_profile_t profile = make_profile();
+    raw.pressure_raw[0] = INT32_MIN;
+    profile.pressure_baseline_raw[0] = INT32_MAX;
+    profile.pressure_kpa_per_count[0] = 0.000001f;
+    raw.hall_raw = INT32_MAX;
+    profile.hall_baseline_raw = INT32_MIN;
+    profile.hall_direction = 1;
+    raw.timestamp_ms = 9876543210LL;
+
+    sensor_converted_sample_t out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.pressure_kpa_channel_valid[0]);
+    TEST_ASSERT_TRUE(isfinite(out.pressure_kpa[0]));
+    TEST_ASSERT_FALSE(out.hall_mm_valid);
+    TEST_ASSERT_EQUAL(9876543210LL, out.timestamp_ms);
 }

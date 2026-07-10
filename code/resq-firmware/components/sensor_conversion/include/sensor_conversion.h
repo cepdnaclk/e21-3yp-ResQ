@@ -5,67 +5,95 @@
 #include <stdint.h>
 
 #include "esp_err.h"
-#include "resq_config_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/**
+ * @brief Pure sensor conversion helpers for ResQ pressure and Hall samples.
+ *
+ * Formulas:
+ * - pressure_kpa = abs(pressure_raw - pressure_baseline_raw) * pressure_kpa_per_count
+ * - hall_delta_raw = (hall_raw - hall_baseline_raw) * hall_direction
+ * - hall_progress = clamp(hall_delta_raw / hall_range_raw, 0.0, 1.0)
+ * - hall_mm = hall_progress * full_depth_mm
+ *
+ * The module owns conversion and validity only. It does not read hardware, use
+ * NVS, publish MQTT, allocate memory, create RTOS objects, or inspect runtime
+ * state. Invalid numeric outputs are initialized to 0.0f/0 and flagged invalid.
+ *
+ * required_pressure_mask selects which pressure channels are needed for the
+ * aggregate pressure_kpa_valid flag. A zero mask defaults to all three channels.
+ * Bits outside SENSOR_CONVERSION_PRESSURE_SUPPORTED_MASK are ignored.
+ *
+ * pressure_saturation_mask is copied from the raw sample. A set bit invalidates
+ * only that pressure channel; other channels can still be converted.
+ */
+
+#define SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT 3U
+#define SENSOR_CONVERSION_PRESSURE_SUPPORTED_MASK 0x07u
+#define SENSOR_CONVERSION_PRESSURE_DEFAULT_REQUIRED_MASK \
+    SENSOR_CONVERSION_PRESSURE_SUPPORTED_MASK
 #define SENSOR_CONVERSION_PRESSURE_SATURATION_RAW 8300000
-#define SENSOR_CONVERSION_QUALITY_PRESSURE_READ_FAILED (1u << 0)
-#define SENSOR_CONVERSION_QUALITY_HALL_READ_FAILED     (1u << 1)
 
 typedef struct {
-    int32_t pressure_0_raw;
-    int32_t pressure_1_raw;
-    int32_t pressure_2_raw;
+    int32_t pressure_raw[SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT];
+    bool pressure_read_valid[SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT];
+
     int32_t hall_raw;
-    int64_t ts_ms;
-    uint32_t quality_flags;
+    bool hall_read_valid;
+
+    uint32_t pressure_saturation_mask;
+    int64_t timestamp_ms;
 } sensor_raw_sample_t;
 
 typedef struct {
-    float pressure_0_kpa;
-    float pressure_1_kpa;
-    float pressure_2_kpa;
+    int32_t pressure_baseline_raw[SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT];
+    bool pressure_baseline_valid[SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT];
 
-    bool pressure_0_kpa_valid;
-    bool pressure_1_kpa_valid;
-    bool pressure_2_kpa_valid;
+    float pressure_kpa_per_count[SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT];
+
+    int32_t hall_baseline_raw;
+    bool hall_baseline_valid;
+
+    int32_t hall_range_raw;
+    int8_t hall_direction;
+
+    float full_depth_mm;
+
+    uint32_t required_pressure_mask;
+} sensor_conversion_profile_t;
+
+typedef struct {
+    float pressure_kpa[SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT];
+    bool pressure_kpa_channel_valid[SENSOR_CONVERSION_PRESSURE_CHANNEL_COUNT];
+
+    uint32_t pressure_valid_mask;
+    uint32_t pressure_saturation_mask;
+
+    bool pressure_profile_valid;
     bool pressure_kpa_valid;
+    bool sample_pressure_kpa_valid;
 
-    float hall_mm;
-    float hall_progress;
     int32_t hall_delta_raw;
+    float hall_progress;
+    float hall_mm;
+
+    bool hall_profile_valid;
     bool hall_mm_valid;
+    bool sample_hall_mm_valid;
 
-    bool pressure_saturated;
-    uint8_t pressure_saturation_mask;
-
-    int64_t ts_ms;
+    int64_t timestamp_ms;
 } sensor_converted_sample_t;
 
-float sensor_conversion_clamp_float(float value, float min_value, float max_value);
+uint32_t sensor_conversion_normalize_pressure_mask(uint32_t required_pressure_mask);
 
 bool sensor_conversion_pressure_raw_is_saturated(int32_t raw);
 
-esp_err_t sensor_conversion_pressure_to_kpa(int32_t raw,
-                                            int32_t baseline_raw,
-                                            float kpa_per_count,
-                                            float *out_kpa);
-
-esp_err_t sensor_conversion_hall_to_mm(int32_t hall_raw,
-                                       int32_t hall_baseline_raw,
-                                       int32_t hall_range_raw,
-                                       int32_t hall_direction,
-                                       float full_depth_mm,
-                                       float *out_hall_mm,
-                                       float *out_progress,
-                                       int32_t *out_delta_raw);
-
-esp_err_t sensor_conversion_convert_sample(const sensor_raw_sample_t *raw,
-                                           const calibration_config_t *calibration,
-                                           sensor_converted_sample_t *out);
+esp_err_t sensor_conversion_convert(const sensor_raw_sample_t *raw,
+                                    const sensor_conversion_profile_t *profile,
+                                    sensor_converted_sample_t *out);
 
 #ifdef __cplusplus
 }

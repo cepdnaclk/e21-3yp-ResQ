@@ -10,7 +10,9 @@ set(TEST_COMPONENTS
     "runtime_helpers"
     "session_manager"
     "cpr_metrics"
+    "sensor_conversion"
     CACHE STRING "ResQ components under test"
+    FORCE
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

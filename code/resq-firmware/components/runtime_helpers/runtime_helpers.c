@@ -43,6 +43,46 @@ static int64_t runtime_helpers_now_ms(void)
     return esp_timer_get_time() / 1000;
 }
 
+static uint32_t runtime_helpers_pressure_saturation_mask(int32_t p0,
+                                                         int32_t p1,
+                                                         int32_t p2)
+{
+    uint32_t mask = 0u;
+    if (sensor_conversion_pressure_raw_is_saturated(p0)) mask |= 0x01u;
+    if (sensor_conversion_pressure_raw_is_saturated(p1)) mask |= 0x02u;
+    if (sensor_conversion_pressure_raw_is_saturated(p2)) mask |= 0x04u;
+    return mask;
+}
+
+static sensor_conversion_profile_t runtime_helpers_conversion_profile(
+    const calibration_config_t *calibration)
+{
+    sensor_conversion_profile_t profile = {
+        .pressure_baseline_raw = {
+            calibration->pressure_0_baseline,
+            calibration->pressure_1_baseline,
+            calibration->pressure_2_baseline,
+        },
+        .pressure_baseline_valid = {
+            calibration->pressure_0_baseline != 0,
+            calibration->pressure_1_baseline != 0,
+            calibration->pressure_2_baseline != 0,
+        },
+        .pressure_kpa_per_count = {
+            calibration->pressure_0_kpa_per_count,
+            calibration->pressure_1_kpa_per_count,
+            calibration->pressure_2_kpa_per_count,
+        },
+        .hall_baseline_raw = calibration->hall_baseline,
+        .hall_baseline_valid = calibration->hall_baseline > 0,
+        .hall_range_raw = calibration->hall_range_raw,
+        .hall_direction = (int8_t)calibration->hall_direction,
+        .full_depth_mm = calibration->full_depth_mm,
+        .required_pressure_mask = SENSOR_CONVERSION_PRESSURE_DEFAULT_REQUIRED_MASK,
+    };
+    return profile;
+}
+
 static esp_err_t copy_request_id_if_fits(const char *value, char *out, size_t out_len)
 {
     if (strlen(value) >= out_len) {
@@ -327,25 +367,33 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
     esp_err_t config_err = config_store_load_calibration(&calibration);
 
     sensor_raw_sample_t raw = {
-        .pressure_0_raw = pressure_0_raw,
-        .pressure_1_raw = pressure_1_raw,
-        .pressure_2_raw = pressure_2_raw,
+        .pressure_raw = {
+            pressure_0_raw,
+            pressure_1_raw,
+            pressure_2_raw,
+        },
+        .pressure_read_valid = {true, true, true},
         .hall_raw = hall_raw,
-        .ts_ms = esp_timer_get_time() / 1000,
-        .quality_flags = 0,
+        .hall_read_valid = true,
+        .pressure_saturation_mask = runtime_helpers_pressure_saturation_mask(
+            pressure_0_raw,
+            pressure_1_raw,
+            pressure_2_raw),
+        .timestamp_ms = esp_timer_get_time() / 1000,
     };
+    sensor_conversion_profile_t profile = runtime_helpers_conversion_profile(&calibration);
     sensor_converted_sample_t converted = {0};
     bool converted_ok = config_err == ESP_OK &&
-                        sensor_conversion_convert_sample(&raw, &calibration, &converted) == ESP_OK;
+                        sensor_conversion_convert(&raw, &profile, &converted) == ESP_OK;
     bool pressure_0_kpa_valid = converted_ok &&
                                 calibration.pressure_valid &&
-                                converted.pressure_0_kpa_valid;
+                                converted.pressure_kpa_channel_valid[0];
     bool pressure_1_kpa_valid = converted_ok &&
                                 calibration.pressure_valid &&
-                                converted.pressure_1_kpa_valid;
+                                converted.pressure_kpa_channel_valid[1];
     bool pressure_2_kpa_valid = converted_ok &&
                                 calibration.pressure_valid &&
-                                converted.pressure_2_kpa_valid;
+                                converted.pressure_kpa_channel_valid[2];
     bool pressure_kpa_valid = pressure_0_kpa_valid &&
                               pressure_1_kpa_valid &&
                               pressure_2_kpa_valid;
@@ -381,18 +429,18 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                            (long)pressure_1_raw,
                            (long)pressure_2_raw,
                            hall_raw,
-                           pressure_0_kpa_valid ? converted.pressure_0_kpa : 0.0f,
+                           pressure_0_kpa_valid ? converted.pressure_kpa[0] : 0.0f,
                            pressure_0_kpa_valid ? "true" : "false",
-                           pressure_1_kpa_valid ? converted.pressure_1_kpa : 0.0f,
+                           pressure_1_kpa_valid ? converted.pressure_kpa[1] : 0.0f,
                            pressure_1_kpa_valid ? "true" : "false",
-                           pressure_2_kpa_valid ? converted.pressure_2_kpa : 0.0f,
+                           pressure_2_kpa_valid ? converted.pressure_kpa[2] : 0.0f,
                            pressure_2_kpa_valid ? "true" : "false",
                            hall_mm_valid ? converted.hall_mm : 0.0f,
                            hall_mm_valid ? converted.hall_progress : 0.0f,
                            pressure_kpa_valid ? "true" : "false",
                            hall_mm_valid ? "true" : "false",
                            (unsigned int)(converted_ok ? converted.pressure_saturation_mask : 0),
-                           (long long)raw.ts_ms);
+                           (long long)raw.timestamp_ms);
 
     if (written <= 0 || written >= (int)sizeof(payload)) {
         return ESP_ERR_INVALID_SIZE;
