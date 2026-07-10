@@ -18,6 +18,7 @@ import MetricTile from "../../components/ui/MetricTile";
 
 // Import CPR components
 import DeviceCard from "../../components/cpr/DeviceCard";
+import { InstructorAiAssistantPanel } from "../../components/cpr/InstructorAiAssistantPanel";
 import { isDeviceReady, isSessionActive } from "../../utils/userFriendlyLabels";
 
 type InstructorDashboardPageProps = {
@@ -213,6 +214,9 @@ export function InstructorDashboardPage({
           </div>
         )}
       </div>
+
+      {/* Instructor AI Assistant Panel */}
+      <InstructorAiAssistantPanel trainees={trainees} completedSessions={completedSessions} />
 
       {/* Start Session Modal (Inline implementation with modern overlay) */}
       {startingForDevice && (

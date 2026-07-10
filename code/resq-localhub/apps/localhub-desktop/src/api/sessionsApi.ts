@@ -105,4 +105,31 @@ export async function queryCoach(request: CprCoachQueryRequest): Promise<CprCoac
   return postJson<CprCoachQueryResponse>("/api/coach/query", request);
 }
 
+export interface CprInstructorCoachQueryRequest {
+  question: string;
+  traineeId?: string;
+  sessionId?: string;
+  fromDate?: string;
+  toDate?: string;
+}
+
+export interface CprInstructorCoachQueryResponse {
+  answer: string;
+  priorityTrainees: {
+    traineeId: string;
+    name: string;
+    lastSessionScore: number;
+    reasonForAttention: string;
+    lastSessionId: string;
+  }[];
+  commonIssues: string[];
+  suggestedInstructorActions: string[];
+  relatedSessionIds: string[];
+}
+
+export async function queryInstructorCoach(request: CprInstructorCoachQueryRequest): Promise<CprInstructorCoachQueryResponse> {
+  return postJson<CprInstructorCoachQueryResponse>("/api/instructor/coach/query", request);
+}
+
+
 
