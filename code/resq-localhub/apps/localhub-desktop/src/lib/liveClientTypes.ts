@@ -1,5 +1,6 @@
 import type { LiveConnectionState, LiveMetricPayload, LiveMetricSourceMode } from "@resq/shared";
 import { normalizeFirmwareLivePayload } from "./firmwareLiveNormalizer";
+import { hasTelemetryMode } from "./sensorStreamTypes";
 
 export type LiveClientUpdate = {
   deviceId: string;
@@ -41,6 +42,9 @@ export function isLiveUpdateForSelection(
 
 export function toLiveClientUpdate(raw: unknown): LiveClientUpdate | null {
   if (!isRecord(raw)) {
+    return null;
+  }
+  if (hasTelemetryMode(raw)) {
     return null;
   }
 
@@ -96,6 +100,9 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
   const warnings: string[] = [];
   if (!isRecord(raw)) {
     return { ok: false, reason: "payload must be an object", warnings };
+  }
+  if (hasTelemetryMode(raw)) {
+    return { ok: false, reason: "unsupported telemetry_mode for session telemetry", warnings };
   }
 
   const firmware = normalizeFirmwareLivePayload(raw);

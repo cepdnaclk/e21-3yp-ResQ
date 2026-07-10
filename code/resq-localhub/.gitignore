@@ -3,7 +3,10 @@
 logs/
 prompt_change.txt
 scripts/
-docs/
+docs/*
+!docs/telemetry-api-update/
+docs/telemetry-api-update/*
+!docs/telemetry-api-update/phase-5-frontend-sensor-stream.md
 
 # Environment files
 .env

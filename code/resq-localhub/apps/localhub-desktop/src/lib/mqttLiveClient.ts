@@ -1,5 +1,6 @@
 import mqtt, { type MqttClient } from "mqtt";
 import { toLiveClientUpdate, toLiveMetric, type LiveClientUpdate } from "./liveClientTypes";
+import { hasTelemetryMode } from "./sensorStreamTypes";
 
 export type MqttLiveClientOptions = {
   deviceId: string;
@@ -130,6 +131,9 @@ export function createMqttLiveClient(
     const payloadDeviceId = text(raw.deviceId) ?? text(raw.device_id) ?? parsedTopic.deviceId;
     const payloadSessionId = text(raw.sessionId) ?? text(raw.session_id) ?? null;
     if (payloadDeviceId !== options.deviceId) {
+      return null;
+    }
+    if (hasTelemetryMode(raw)) {
       return null;
     }
     if (options.sessionId && payloadSessionId && payloadSessionId !== options.sessionId) {

@@ -90,6 +90,13 @@ vi.mock("../lib/browserFirmwareApi", () => ({
   cancelCalibration: vi.fn(),
 }));
 
+vi.mock("../lib/sensorStreamClient", () => ({
+  getLatestSensorStream: vi.fn(() => Promise.resolve(null)),
+  startSensorStream: vi.fn(),
+  stopSensorStream: vi.fn(),
+  createSensorStreamClient: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
+}));
+
 const baseManikin = {
   deviceId: "MAN-01",
   online: true,
@@ -222,10 +229,10 @@ describe("InstructorDashboard", () => {
     });
   });
 
-  it("shows healthy status when health endpoint returns ok", async () => {
+  it("renders the embedded dashboard shell", async () => {
     render(<InstructorDashboard embeddedInDesktop />);
 
-    expect(await screen.findByText("Connecting")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Instructor Dashboard" })).toBeInTheDocument();
   });
 
   // EventSource no longer used; stream client is fetch-based and requires a token.

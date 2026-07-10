@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject, type ReactNode } from "react";
 import ReactJson from "react-json-view";
 import { type ManikinLiveSummary } from "../lib/browserManikinsApi";
 import {
@@ -7,6 +7,21 @@ import {
   type FirmwareDeviceDiagnosticsResponse,
   type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
+import {
+  createSensorStreamClient,
+  getLatestSensorStream,
+  startSensorStream,
+  stopSensorStream,
+} from "../lib/sensorStreamClient";
+import {
+  SENSOR_STREAM_DEFAULT_INTERVAL_MS,
+  SENSOR_STREAM_MAX_INTERVAL_MS,
+  SENSOR_STREAM_MIN_INTERVAL_MS,
+  validateSensorStreamInterval,
+  type SensorStreamCommandResponse,
+  type SensorStreamSnapshot,
+  type SensorStreamUiState,
+} from "../lib/sensorStreamTypes";
 
 type FirmwareDiagnosticsPanelProps = {
   deviceId: string;
@@ -198,6 +213,8 @@ export function FirmwareDiagnosticsPanel({ deviceId, readiness, liveSummary }: F
           <InfoRow label="Debug Snapshots" value={String(recentDebugSnapshots.length)} />
         </div>
 
+        <SensorStreamPanel deviceId={deviceId} />
+
         <Section title="Recent Commands & Events">
           <div className="diagnostics-log-shell">
             <div className="diagnostics-log-shell__header">
@@ -348,6 +365,300 @@ function ReadinessBlock({
       </div>
     </div>
   );
+}
+
+function SensorStreamPanel({ deviceId }: { deviceId: string }) {
+  const [intervalInput, setIntervalInput] = useState(String(SENSOR_STREAM_DEFAULT_INTERVAL_MS));
+  const [uiState, setUiState] = useState<SensorStreamUiState>("IDLE");
+  const [snapshot, setSnapshot] = useState<SensorStreamSnapshot | null>(null);
+  const [command, setCommand] = useState<SensorStreamCommandResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lastPacketAt, setLastPacketAt] = useState<number | null>(null);
+  const expectedStreamRef = useRef(false);
+  const stopTimerRef = useRef<number | null>(null);
+  const staleTimerRef = useRef<number | null>(null);
+
+  const intervalError = validateSensorStreamInterval(intervalInput);
+  const intervalMs = intervalError ? SENSOR_STREAM_DEFAULT_INTERVAL_MS : Number(intervalInput);
+  const observedStatus = observedStreamStatus(uiState);
+  const commandLabel = command ? `${command.action} command ${command.status.toLowerCase()}` : "No command sent";
+  const ageMs = lastPacketAt == null ? null : Math.max(0, Date.now() - lastPacketAt);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSnapshot(null);
+    setCommand(null);
+    setError(null);
+    setUiState("IDLE");
+    setLastPacketAt(null);
+    expectedStreamRef.current = false;
+    clearTimer(stopTimerRef);
+    clearTimer(staleTimerRef);
+
+    getLatestSensorStream(deviceId)
+      .then((latest) => {
+        if (!cancelled && latest?.latestSnapshot?.deviceId === deviceId) {
+          setSnapshot(latest.latestSnapshot);
+          setLastPacketAt(Date.now());
+        }
+      })
+      .catch((latestError) => {
+        if (!cancelled) {
+          const status = (latestError as Error & { status?: number }).status;
+          if (status !== 404) {
+            setError(latestError instanceof Error ? latestError.message : "Failed to load latest sensor snapshot.");
+          }
+        }
+      });
+
+    const client = createSensorStreamClient(deviceId, {
+      onOpen: () => {
+        if (!cancelled && expectedStreamRef.current) {
+          setUiState((current) => current === "RECONNECTING" || current === "STALE" ? "RECONNECTING" : current);
+        }
+      },
+      onSnapshot: (next) => {
+        if (cancelled || next.deviceId !== deviceId) {
+          return;
+        }
+        setSnapshot(next);
+        setLastPacketAt(Date.now());
+        if (expectedStreamRef.current) {
+          setUiState((current) => current === "STOPPING" ? current : "RUNNING");
+        }
+      },
+      onError: (streamError) => {
+        if (cancelled) {
+          return;
+        }
+        if (expectedStreamRef.current) {
+          setUiState((current) => current === "STOPPING" ? current : "RECONNECTING");
+        }
+        setError(streamError.message);
+      },
+    });
+
+    client.start();
+    return () => {
+      cancelled = true;
+      client.stop();
+      clearTimer(stopTimerRef);
+      clearTimer(staleTimerRef);
+    };
+  }, [deviceId]);
+
+  useEffect(() => {
+    clearTimer(staleTimerRef);
+    if (uiState !== "RUNNING" || lastPacketAt == null) {
+      return;
+    }
+    const threshold = Math.max(3 * (snapshot?.intervalMs ?? intervalMs), 1500);
+    staleTimerRef.current = window.setInterval(() => {
+      if (expectedStreamRef.current && Date.now() - lastPacketAt > threshold) {
+        setUiState("STALE");
+      }
+    }, 250);
+    return () => clearTimer(staleTimerRef);
+  }, [uiState, lastPacketAt, intervalMs, snapshot?.intervalMs]);
+
+  async function handleStart() {
+    const validationError = validateSensorStreamInterval(intervalInput);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    expectedStreamRef.current = true;
+    setUiState("STARTING");
+    setError(null);
+    try {
+      const response = await startSensorStream(deviceId, Number(intervalInput));
+      setCommand(response);
+    } catch (startError) {
+      expectedStreamRef.current = false;
+      setUiState("ERROR");
+      setError(startError instanceof Error ? startError.message : "Failed to publish start command.");
+    }
+  }
+
+  async function handleStop() {
+    expectedStreamRef.current = false;
+    setUiState("STOPPING");
+    setError(null);
+    try {
+      const response = await stopSensorStream(deviceId);
+      setCommand(response);
+      clearTimer(stopTimerRef);
+      stopTimerRef.current = window.setTimeout(() => {
+        setUiState("IDLE");
+      }, Math.max(3 * (snapshot?.intervalMs ?? intervalMs), 1500));
+    } catch (stopError) {
+      setUiState("ERROR");
+      setError(stopError instanceof Error ? stopError.message : "Failed to publish stop command.");
+    }
+  }
+
+  const startDisabled = Boolean(intervalError) || uiState === "STARTING" || uiState === "RUNNING" || uiState === "STOPPING";
+  const stopDisabled = !(uiState === "STARTING" || uiState === "RUNNING" || uiState === "STALE" || uiState === "RECONNECTING");
+
+  return (
+    <Section title="Live Sensor Stream">
+      <div style={sensorPanelStyle}>
+        <div style={sensorControlRowStyle}>
+          <label style={sensorInputLabelStyle} htmlFor={`sensor-interval-${deviceId}`}>
+            Interval (ms)
+            <input
+              id={`sensor-interval-${deviceId}`}
+              type="number"
+              min={SENSOR_STREAM_MIN_INTERVAL_MS}
+              max={SENSOR_STREAM_MAX_INTERVAL_MS}
+              step={1}
+              value={intervalInput}
+              onChange={(event) => setIntervalInput(event.target.value)}
+              aria-invalid={Boolean(intervalError)}
+              aria-describedby={intervalError ? `sensor-interval-error-${deviceId}` : undefined}
+              style={sensorInputStyle}
+            />
+          </label>
+          <button type="button" onClick={handleStart} disabled={startDisabled} style={buttonStyle(startDisabled)}>
+            Start Stream
+          </button>
+          <button type="button" onClick={handleStop} disabled={stopDisabled} style={buttonStyle(stopDisabled)}>
+            Stop Stream
+          </button>
+        </div>
+
+        {intervalError ? (
+          <p id={`sensor-interval-error-${deviceId}`} role="alert" style={sensorErrorStyle}>{intervalError}</p>
+        ) : null}
+        {error ? <p role="alert" style={sensorErrorStyle}>{error}</p> : null}
+
+        <div role="status" aria-live="polite" style={sensorStatusGridStyle}>
+          <InfoRow label="Selected Device" value={deviceId} />
+          <InfoRow label="Command Status" value={commandLabel} />
+          <InfoRow label="Observed Stream" value={observedStatus} />
+          <InfoRow label="Firmware State" value={snapshot?.state ?? "-"} />
+          <InfoRow label="Firmware ts_ms" value={snapshot ? String(snapshot.firmwareTimestampMs) : "-"} />
+          <InfoRow label="Received" value={snapshot ? formatWallClock(snapshot.receivedAt) : "-"} />
+          <InfoRow label="Age" value={ageMs == null ? "-" : formatAge(ageMs)} />
+          <InfoRow label="Saturation Mask" value={snapshot ? `0b${snapshot.pressureSaturationMask.toString(2).padStart(3, "0")}` : "-"} />
+        </div>
+
+        <div style={sensorStatusGridStyle}>
+          <SensorValueCard
+            label="Pressure 0"
+            value={pressureDisplay(snapshot, 0)}
+            detail={snapshot?.pressureKpaValid === false ? "Pressure data degraded" : "All required pressure channels valid"}
+          />
+          <SensorValueCard
+            label="Pressure 1"
+            value={pressureDisplay(snapshot, 1)}
+            detail={snapshot?.pressureKpaValid === false ? "Pressure data degraded" : "All required pressure channels valid"}
+          />
+          <SensorValueCard
+            label="Pressure 2"
+            value={pressureDisplay(snapshot, 2)}
+            detail={snapshot?.pressureKpaValid === false ? "Pressure data degraded" : "All required pressure channels valid"}
+          />
+          <HallCard snapshot={snapshot} />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function SensorValueCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div role="group" aria-label={label} style={sensorCardStyle}>
+      <div style={entryTitleStyle}>{label}</div>
+      <div style={sensorValueStyle}>{value}</div>
+      <div style={entryMetaStyle}>{detail}</div>
+    </div>
+  );
+}
+
+function HallCard({ snapshot }: { snapshot: SensorStreamSnapshot | null }) {
+  const valid = Boolean(snapshot?.hallMmValid);
+  const visualProgress = valid && snapshot ? Math.max(0, Math.min(100, snapshot.hallProgress * 100)) : 0;
+  return (
+    <div role="group" aria-label="Hall" style={sensorCardStyle}>
+      <div style={entryTitleStyle}>Hall</div>
+      <div style={sensorValueStyle}>{valid && snapshot ? `${snapshot.hallMm.toFixed(1)} mm` : "Unavailable"}</div>
+      <div style={entryMetaStyle}>Progress: {valid && snapshot ? `${Math.round(snapshot.hallProgress * 100)}%` : "Unavailable"}</div>
+      <div
+        role={valid ? "progressbar" : undefined}
+        aria-valuenow={valid ? Math.round(visualProgress) : undefined}
+        aria-valuemin={valid ? 0 : undefined}
+        aria-valuemax={valid ? 100 : undefined}
+        style={sensorProgressTrackStyle}
+      >
+        <div style={{ ...sensorProgressFillStyle, width: `${valid ? visualProgress : 0}%`, opacity: valid ? 1 : 0.35 }} />
+      </div>
+    </div>
+  );
+}
+
+function pressureDisplay(snapshot: SensorStreamSnapshot | null, channel: 0 | 1 | 2): string {
+  if (!snapshot) {
+    return "-";
+  }
+
+  if ((snapshot.pressureSaturationMask & (1 << channel)) !== 0) {
+    return "Saturated";
+  }
+
+  const value = channel === 0 ? snapshot.pressure0Kpa : channel === 1 ? snapshot.pressure1Kpa : snapshot.pressure2Kpa;
+  const valid = channel === 0 ? snapshot.pressure0KpaValid : channel === 1 ? snapshot.pressure1KpaValid : snapshot.pressure2KpaValid;
+  if (!valid) {
+    return "Unavailable";
+  }
+  return `${formatSensorNumber(value)} kPa`;
+}
+
+function observedStreamStatus(uiState: SensorStreamUiState): string {
+  switch (uiState) {
+    case "STARTING":
+      return "Waiting for first packet";
+    case "RUNNING":
+      return "Running";
+    case "STOPPING":
+      return "Stopping";
+    case "STALE":
+      return "Stale";
+    case "RECONNECTING":
+      return "Reconnecting";
+    case "ERROR":
+      return "Error";
+    case "IDLE":
+    default:
+      return "Stopped";
+  }
+}
+
+function formatSensorNumber(value: number): string {
+  return value.toFixed(Math.abs(value) < 10 ? 1 : 0);
+}
+
+function formatWallClock(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function formatAge(ageMs: number): string {
+  if (ageMs < 1000) {
+    return `${ageMs} ms`;
+  }
+  return `${(ageMs / 1000).toFixed(1)} s`;
+}
+
+function clearTimer(ref: MutableRefObject<number | null>) {
+  if (ref.current !== null) {
+    window.clearTimeout(ref.current);
+    ref.current = null;
+  }
 }
 
 function ReadyIcon() {
@@ -552,6 +863,84 @@ const gridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(260px, 360px) repeat(auto-fit, minmax(140px, 1fr))",
   gap: "12px",
+};
+
+const sensorPanelStyle: CSSProperties = {
+  display: "grid",
+  gap: "10px",
+  padding: "10px",
+  borderRadius: "8px",
+  border: "1px solid var(--line)",
+  background: "#ffffff",
+};
+
+const sensorControlRowStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  alignItems: "end",
+  flexWrap: "wrap",
+};
+
+const sensorInputLabelStyle: CSSProperties = {
+  display: "grid",
+  gap: "4px",
+  minWidth: "150px",
+  fontSize: "0.76rem",
+  fontWeight: 800,
+  color: "var(--text)",
+};
+
+const sensorInputStyle: CSSProperties = {
+  width: "150px",
+  minHeight: "32px",
+  padding: "6px 8px",
+  borderRadius: "6px",
+  border: "1px solid var(--line)",
+  font: "inherit",
+};
+
+const sensorErrorStyle: CSSProperties = {
+  margin: 0,
+  color: "#b91c1c",
+  fontSize: "0.82rem",
+  fontWeight: 700,
+};
+
+const sensorStatusGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  gap: "8px",
+};
+
+const sensorCardStyle: CSSProperties = {
+  minHeight: "112px",
+  padding: "10px",
+  borderRadius: "8px",
+  border: "1px solid var(--line)",
+  background: "var(--surface-strong)",
+  display: "grid",
+  gap: "6px",
+  alignContent: "start",
+};
+
+const sensorValueStyle: CSSProperties = {
+  minHeight: "28px",
+  fontSize: "1.1rem",
+  fontWeight: 800,
+  color: "var(--text)",
+};
+
+const sensorProgressTrackStyle: CSSProperties = {
+  height: "8px",
+  borderRadius: "999px",
+  background: "#e2e8f0",
+  overflow: "hidden",
+};
+
+const sensorProgressFillStyle: CSSProperties = {
+  height: "100%",
+  borderRadius: "999px",
+  background: "#0f766e",
 };
 
 const entryStyle: CSSProperties = {
