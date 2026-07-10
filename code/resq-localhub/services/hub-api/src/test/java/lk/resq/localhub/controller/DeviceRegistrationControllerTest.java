@@ -7,7 +7,6 @@ import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
 import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttSubscriberService;
-import lk.resq.localhub.service.ManikinRegistryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
@@ -95,8 +94,8 @@ class DeviceRegistrationControllerTest {
                 false,
                 false
         );
-            ManikinRegistryService registry = new ManikinRegistryService(12);
-            DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService, registry);
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+        DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService, registry);
         @SuppressWarnings("unchecked")
         ObjectProvider<MqttSubscriberService> mqttProvider = new ObjectProvider<>() {
             @Override
@@ -127,7 +126,7 @@ class DeviceRegistrationControllerTest {
 
         return new Fixture(
                 new DeviceRegistrationController(registrationService),
-                new HubHealthController(serviceInfoService, mqttProvider),
+                new HubHealthController(serviceInfoService, mqttProvider, registry),
                 registry
         );
     }
