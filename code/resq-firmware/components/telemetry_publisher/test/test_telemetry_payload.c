@@ -1,0 +1,115 @@
+#include <string.h>
+
+#include "telemetry_publisher.h"
+#include "unity.h"
+
+static void assert_contains(const char *payload, const char *field)
+{
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, field), field);
+}
+
+static cpr_metrics_snapshot_t base_snapshot(void)
+{
+    cpr_metrics_snapshot_t snap = {
+        .depth_progress = 0.92f,
+        .depth_mm = 46.0f,
+        .rate_cpm = 108.0f,
+        .pause_s = 0.25f,
+        .total_compressions = 18,
+        .valid_compressions = 15,
+        .recoil_ok_count = 14,
+        .incomplete_recoil_count = 3,
+        .depth_ok = true,
+        .pressure_balance_pct = 8.5f,
+        .pressure_balance_reliable = true,
+        .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
+        .pressure_valid = true,
+        .hall_valid = true,
+        .pressure_0_kpa = 1.0f,
+        .pressure_1_kpa = 2.0f,
+        .pressure_2_kpa = 3.0f,
+        .pressure_0_kpa_valid = true,
+        .pressure_1_kpa_valid = true,
+        .pressure_2_kpa_valid = true,
+        .pressure_kpa_valid = true,
+        .hall_mm_valid = true,
+        .pressure_saturation_mask = 0,
+        .ts_ms = 123456,
+    };
+    strcpy(snap.hand_placement, "CENTER");
+    strcpy(snap.flags, "DEPTH_OK,RATE_OK,RECOIL_OK");
+    return snap;
+}
+
+TEST_CASE("Session telemetry payload keeps legacy fields and adds converted fields", "[telemetry]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    char payload[1792];
+
+    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+                                  &snap, "M-DEV", "S-001", payload, sizeof(payload)));
+
+    assert_contains(payload, "\"event_type\":\"session_telemetry\"");
+    assert_contains(payload, "\"session_id\":\"S-001\"");
+    assert_contains(payload, "\"depth_progress\":0.920");
+    assert_contains(payload, "\"depth_ok\":true");
+    assert_contains(payload, "\"rate_cpm\":108.0");
+    assert_contains(payload, "\"compression_count\":18");
+    assert_contains(payload, "\"valid_compression_count\":15");
+    assert_contains(payload, "\"recoil_ok_count\":14");
+    assert_contains(payload, "\"incomplete_recoil_count\":3");
+    assert_contains(payload, "\"pause_s\":0.250");
+    assert_contains(payload, "\"hand_placement\":\"CENTER\"");
+    assert_contains(payload, "\"pressure_balance_pct\":8.50");
+    assert_contains(payload, "\"flags\":\"DEPTH_OK,RATE_OK,RECOIL_OK\"");
+
+    assert_contains(payload, "\"depth_mm\":46.000");
+    assert_contains(payload, "\"depth_source\":\"HALL\"");
+    assert_contains(payload, "\"pressure_0_kpa\":1.000");
+    assert_contains(payload, "\"pressure_0_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_1_kpa\":2.000");
+    assert_contains(payload, "\"pressure_1_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_2_kpa\":3.000");
+    assert_contains(payload, "\"pressure_2_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_kpa_valid\":true");
+    assert_contains(payload, "\"hall_mm_valid\":true");
+    assert_contains(payload, "\"pressure_saturation_mask\":0");
+    assert_contains(payload, "\"pressure_balance_reliable\":true");
+}
+
+TEST_CASE("Session telemetry payload reports one saturated pressure channel", "[telemetry]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    snap.pressure_2_kpa = 9.0f;
+    snap.pressure_2_kpa_valid = false;
+    snap.pressure_kpa_valid = false;
+    snap.pressure_saturation_mask = 0x04u;
+    char payload[1792];
+
+    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+                                  &snap, "M-DEV", "S-001", payload, sizeof(payload)));
+
+    assert_contains(payload, "\"pressure_0_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_1_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_2_kpa\":0.000");
+    assert_contains(payload, "\"pressure_2_kpa_valid\":false");
+    assert_contains(payload, "\"pressure_kpa_valid\":false");
+    assert_contains(payload, "\"pressure_saturation_mask\":4");
+}
+
+TEST_CASE("Session telemetry payload zeros invalid Hall depth without NaN", "[telemetry]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    snap.depth_mm = 46.0f;
+    snap.hall_mm_valid = false;
+    char payload[1792];
+
+    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+                                  &snap, "M-DEV", "S-001", payload, sizeof(payload)));
+
+    assert_contains(payload, "\"depth_progress\":0.920");
+    assert_contains(payload, "\"depth_mm\":0.000");
+    assert_contains(payload, "\"hall_mm_valid\":false");
+    TEST_ASSERT_NULL(strstr(payload, "nan"));
+    TEST_ASSERT_NULL(strstr(payload, "inf"));
+}

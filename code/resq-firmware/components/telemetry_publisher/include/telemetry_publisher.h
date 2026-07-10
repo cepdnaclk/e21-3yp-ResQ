@@ -2,8 +2,10 @@
 #define TELEMETRY_PUBLISHER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "cpr_metrics.h"
 #include "mqtt_manager.h"
 #include "resq_config_types.h"
 #include "states.h"
@@ -29,6 +31,12 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
 esp_err_t telemetry_publisher_stop_sensor_stream(void);
 
 bool telemetry_publisher_is_sensor_stream_running(void);
+
+esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t *snap,
+                                                     const char *device_id,
+                                                     const char *session_id,
+                                                     char *out_payload,
+                                                     size_t out_payload_len);
 
 esp_err_t telemetry_publisher_handle_sensor_stream_command(const network_config_t *network_config,
                                                            resq_state_t state,

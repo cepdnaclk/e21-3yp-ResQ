@@ -1,9 +1,13 @@
 #ifndef RUNTIME_HELPERS_H
 #define RUNTIME_HELPERS_H
 
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "esp_err.h"
 
 #include "resq_config_types.h"
+#include "sensor_conversion.h"
 #include "states.h"
 #include "mqtt_manager.h"
 #include "mqtt_topics.h"
@@ -86,6 +90,15 @@ esp_err_t resq_command_extract_request_id(const char *payload, char *out, size_t
  * @brief Publish a debug snapshot (raw sensor readings) to debug topic.
  */
 esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config);
+
+esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *network_config,
+                                                     const sensor_raw_sample_t *raw,
+                                                     const sensor_converted_sample_t *converted,
+                                                     bool converted_ok,
+                                                     bool pressure_enabled,
+                                                     bool hall_enabled,
+                                                     char *out_payload,
+                                                     size_t out_payload_len);
 
 #ifdef __cplusplus
 }

@@ -327,6 +327,83 @@ esp_err_t runtime_helpers_publish_command_result(const network_config_t *network
 
 
 
+esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *network_config,
+                                                     const sensor_raw_sample_t *raw,
+                                                     const sensor_converted_sample_t *converted,
+                                                     bool converted_ok,
+                                                     bool pressure_enabled,
+                                                     bool hall_enabled,
+                                                     char *out_payload,
+                                                     size_t out_payload_len)
+{
+    if (network_config == NULL || raw == NULL || converted == NULL ||
+        out_payload == NULL || out_payload_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    bool pressure_0_kpa_valid = converted_ok &&
+                                pressure_enabled &&
+                                converted->pressure_kpa_channel_valid[0];
+    bool pressure_1_kpa_valid = converted_ok &&
+                                pressure_enabled &&
+                                converted->pressure_kpa_channel_valid[1];
+    bool pressure_2_kpa_valid = converted_ok &&
+                                pressure_enabled &&
+                                converted->pressure_kpa_channel_valid[2];
+    bool pressure_kpa_valid = pressure_0_kpa_valid &&
+                              pressure_1_kpa_valid &&
+                              pressure_2_kpa_valid;
+    bool hall_mm_valid = converted_ok &&
+                         hall_enabled &&
+                         converted->hall_mm_valid;
+
+    int written = snprintf(out_payload,
+                           out_payload_len,
+                           "{"
+                           "\"device_id\":\"%s\","
+                           "\"source\":\"DIRECT_SENSOR_SNAPSHOT\","
+                           "\"pressure_0_raw\":%ld,"
+                           "\"pressure_1_raw\":%ld,"
+                           "\"pressure_2_raw\":%ld,"
+                           "\"hall_raw\":%ld,"
+                           "\"pressure_0_kpa\":%.3f,"
+                           "\"pressure_0_kpa_valid\":%s,"
+                           "\"pressure_1_kpa\":%.3f,"
+                           "\"pressure_1_kpa_valid\":%s,"
+                           "\"pressure_2_kpa\":%.3f,"
+                           "\"pressure_2_kpa_valid\":%s,"
+                           "\"hall_mm\":%.3f,"
+                           "\"hall_progress\":%.3f,"
+                           "\"pressure_kpa_valid\":%s,"
+                           "\"hall_mm_valid\":%s,"
+                           "\"pressure_saturation_mask\":%u,"
+                           "\"ts_ms\":%lld"
+                           "}",
+                           runtime_helpers_get_device_id(network_config),
+                           (long)raw->pressure_raw[0],
+                           (long)raw->pressure_raw[1],
+                           (long)raw->pressure_raw[2],
+                           (long)raw->hall_raw,
+                           pressure_0_kpa_valid ? converted->pressure_kpa[0] : 0.0f,
+                           pressure_0_kpa_valid ? "true" : "false",
+                           pressure_1_kpa_valid ? converted->pressure_kpa[1] : 0.0f,
+                           pressure_1_kpa_valid ? "true" : "false",
+                           pressure_2_kpa_valid ? converted->pressure_kpa[2] : 0.0f,
+                           pressure_2_kpa_valid ? "true" : "false",
+                           hall_mm_valid ? converted->hall_mm : 0.0f,
+                           hall_mm_valid ? converted->hall_progress : 0.0f,
+                           pressure_kpa_valid ? "true" : "false",
+                           hall_mm_valid ? "true" : "false",
+                           (unsigned int)(converted_ok ? converted->pressure_saturation_mask : 0),
+                           (long long)raw->timestamp_ms);
+
+    if (written <= 0 || written >= (int)out_payload_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config)
 {
     if (network_config == NULL) {
@@ -385,65 +462,18 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
     sensor_converted_sample_t converted = {0};
     bool converted_ok = config_err == ESP_OK &&
                         sensor_conversion_convert(&raw, &profile, &converted) == ESP_OK;
-    bool pressure_0_kpa_valid = converted_ok &&
-                                calibration.pressure_valid &&
-                                converted.pressure_kpa_channel_valid[0];
-    bool pressure_1_kpa_valid = converted_ok &&
-                                calibration.pressure_valid &&
-                                converted.pressure_kpa_channel_valid[1];
-    bool pressure_2_kpa_valid = converted_ok &&
-                                calibration.pressure_valid &&
-                                converted.pressure_kpa_channel_valid[2];
-    bool pressure_kpa_valid = pressure_0_kpa_valid &&
-                              pressure_1_kpa_valid &&
-                              pressure_2_kpa_valid;
-    bool hall_mm_valid = converted_ok &&
-                         calibration.hall_valid &&
-                         converted.hall_mm_valid;
-
     char payload[960];
-
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"device_id\":\"%s\"," 
-                           "\"pressure_0_raw\":%ld," 
-                           "\"pressure_1_raw\":%ld," 
-                           "\"pressure_2_raw\":%ld," 
-                           "\"hall_raw\":%d," 
-                           "\"pressure_0_kpa\":%.3f,"
-                           "\"pressure_0_kpa_valid\":%s,"
-                           "\"pressure_1_kpa\":%.3f,"
-                           "\"pressure_1_kpa_valid\":%s,"
-                           "\"pressure_2_kpa\":%.3f,"
-                           "\"pressure_2_kpa_valid\":%s,"
-                           "\"hall_mm\":%.3f,"
-                           "\"hall_progress\":%.3f,"
-                           "\"pressure_kpa_valid\":%s,"
-                           "\"hall_mm_valid\":%s,"
-                           "\"pressure_saturation_mask\":%u,"
-                           "\"ts_ms\":%lld"
-                           "}",
-                           runtime_helpers_get_device_id(network_config),
-                           (long)pressure_0_raw,
-                           (long)pressure_1_raw,
-                           (long)pressure_2_raw,
-                           hall_raw,
-                           pressure_0_kpa_valid ? converted.pressure_kpa[0] : 0.0f,
-                           pressure_0_kpa_valid ? "true" : "false",
-                           pressure_1_kpa_valid ? converted.pressure_kpa[1] : 0.0f,
-                           pressure_1_kpa_valid ? "true" : "false",
-                           pressure_2_kpa_valid ? converted.pressure_kpa[2] : 0.0f,
-                           pressure_2_kpa_valid ? "true" : "false",
-                           hall_mm_valid ? converted.hall_mm : 0.0f,
-                           hall_mm_valid ? converted.hall_progress : 0.0f,
-                           pressure_kpa_valid ? "true" : "false",
-                           hall_mm_valid ? "true" : "false",
-                           (unsigned int)(converted_ok ? converted.pressure_saturation_mask : 0),
-                           (long long)raw.timestamp_ms);
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        return ESP_ERR_INVALID_SIZE;
+    esp_err_t payload_err = runtime_helpers_build_direct_debug_payload(
+        network_config,
+        &raw,
+        &converted,
+        converted_ok,
+        calibration.pressure_valid,
+        calibration.hall_valid,
+        payload,
+        sizeof(payload));
+    if (payload_err != ESP_OK) {
+        return payload_err;
     }
 
     return mqtt_manager_publish_debug_json(payload);

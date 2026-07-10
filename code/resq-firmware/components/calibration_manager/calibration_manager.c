@@ -375,6 +375,7 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                            "{"
                            "\"event_id\":%d," 
                            "%s"
+                           "\"device_id\":\"%s\","
                            "\"progress_id\":%d,"
                            "\"reason_id\":\"%s\","
                            "\"state\":\"%s\"," 
@@ -401,6 +402,7 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                            "}",
                            4001,
                            reply_segment,
+                           runtime_helpers_get_device_id(&s_network_config),
                            progress_id,
                            calibration_reason_contract_id(reason_id),
                            resq_state_to_string(state),
@@ -2527,6 +2529,9 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
         event_id = 4002;
     }
     int progress_id = calibration_result_progress_id(result_to_publish);
+    bool accepted_result =
+        strcmp(result_to_publish, "PASS") == 0 ||
+        strcmp(result_to_publish, "PASS_WITH_WARNINGS") == 0;
 
     float hall_full_press_mm = 0.0f;
     float hall_full_press_progress = 0.0f;
@@ -2538,26 +2543,28 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
     sensor_conversion_profile_t hall_full_press_profile =
         calibration_conversion_profile(&s_calibration_config);
     sensor_converted_sample_t hall_full_press_converted = {0};
-    bool hall_mm_valid =
-        s_calibration_config.hall_valid &&
+    bool converted_full_press =
         sensor_conversion_convert(&hall_full_press_raw,
                                   &hall_full_press_profile,
-                                  &hall_full_press_converted) == ESP_OK &&
-        hall_full_press_converted.hall_mm_valid;
-    if (hall_mm_valid) {
+                                  &hall_full_press_converted) == ESP_OK;
+    bool pressure_kpa_valid =
+        accepted_result &&
+        s_calibration_config.pressure_valid &&
+        !s_calibration_config.pressure_degraded &&
+        converted_full_press &&
+        hall_full_press_converted.pressure_profile_valid;
+    bool hall_mm_valid =
+        accepted_result &&
+        s_calibration_config.hall_valid &&
+        converted_full_press &&
+        hall_full_press_converted.hall_profile_valid;
+    bool hall_full_press_sample_valid =
+        converted_full_press && hall_full_press_converted.hall_mm_valid;
+    if (hall_full_press_sample_valid) {
         hall_full_press_mm = hall_full_press_converted.hall_mm;
         hall_full_press_progress = hall_full_press_converted.hall_progress;
         hall_full_press_delta_raw = hall_full_press_converted.hall_delta_raw;
     }
-    bool pressure_kpa_valid =
-        s_calibration_config.pressure_valid &&
-        !s_calibration_config.pressure_degraded &&
-        s_calibration_config.pressure_0_baseline != 0 &&
-        s_calibration_config.pressure_1_baseline != 0 &&
-        s_calibration_config.pressure_2_baseline != 0 &&
-        s_calibration_config.pressure_0_kpa_per_count > 0.0f &&
-        s_calibration_config.pressure_1_kpa_per_count > 0.0f &&
-        s_calibration_config.pressure_2_kpa_per_count > 0.0f;
 
     char payload[1792];
     if (strcmp(result_to_publish, "PASS") == 0 || strcmp(result_to_publish, "PASS_WITH_WARNINGS") == 0) {
@@ -2566,6 +2573,7 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                "{"
                                "\"event_id\":%d," 
                                "\"reply_id\":\"%s\"," 
+                               "\"device_id\":\"%s\","
                                "\"status\":\"%s\"," 
                                "\"result\":\"%s\"," 
                                "\"progress_id\":%d,"
@@ -2608,6 +2616,7 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                "}",
                                event_id,
                                reply_id,
+                               runtime_helpers_get_device_id(&s_network_config),
                                status != NULL ? status : "",
                                result_to_publish,
                                progress_id,
@@ -2626,9 +2635,9 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                (int)s_calibration_config.hall_baseline,
                                (int)s_calibration_config.hall_full_press,
                                (int)s_calibration_config.hall_full_press,
-                               hall_mm_valid ? hall_full_press_mm : 0.0f,
-                               hall_mm_valid ? hall_full_press_progress : 0.0f,
-                               hall_mm_valid ? (int)hall_full_press_delta_raw : 0,
+                               hall_full_press_sample_valid ? hall_full_press_mm : 0.0f,
+                               hall_full_press_sample_valid ? hall_full_press_progress : 0.0f,
+                               hall_full_press_sample_valid ? (int)hall_full_press_delta_raw : 0,
                                (int)s_calibration_config.hall_range_raw,
                                (int)s_calibration_config.hall_start_delta,
                                (int)s_calibration_config.hall_full_delta_threshold,
@@ -2661,6 +2670,7 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                "{"
                                "\"event_id\":%d," 
                                "\"reply_id\":\"%s\"," 
+                               "\"device_id\":\"%s\","
                                "\"status\":\"%s\"," 
                                "\"result\":\"%s\"," 
                                "\"progress_id\":%d,"
@@ -2679,6 +2689,7 @@ esp_err_t calibration_manager_publish_calibration_result(const char *reply_id,
                                "}",
                                event_id,
                                reply_id,
+                               runtime_helpers_get_device_id(&s_network_config),
                                status != NULL ? status : "",
                                result_to_publish,
                                progress_id,

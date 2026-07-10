@@ -103,6 +103,7 @@ TEST_CASE("CPR metrics classifies contact imbalance and clamps depth", "[metrics
     update(2500, 2000, 1100, 1000);
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, snapshot.depth_progress);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, snapshot.depth_mm);
     TEST_ASSERT_NOT_EQUAL(0, strcmp("CENTER", snapshot.hand_placement));
     TEST_ASSERT_TRUE(snapshot.pressure_balance_pct < 50.0f);
 
@@ -176,6 +177,31 @@ TEST_CASE("CPR metrics exposes pressure kPa validity per channel", "[metrics]")
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, snapshot.pressure_0_kpa);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f, snapshot.pressure_1_kpa);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, snapshot.pressure_2_kpa);
+}
+
+TEST_CASE("CPR metrics pressure balance reliability follows balance channels", "[metrics]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    cpr_sensor_sample_t sample = {
+        .hall_raw = 1400,
+        .pressure_0_raw = 8300000,
+        .pressure_1_raw = 1600,
+        .pressure_2_raw = 1600,
+        .ts_ms = 1000,
+    };
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_update(&sample));
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+
+    TEST_ASSERT_FALSE(snapshot.pressure_0_kpa_valid);
+    TEST_ASSERT_TRUE(snapshot.pressure_1_kpa_valid);
+    TEST_ASSERT_TRUE(snapshot.pressure_2_kpa_valid);
+    TEST_ASSERT_FALSE(snapshot.pressure_kpa_valid);
+    TEST_ASSERT_TRUE(snapshot.pressure_balance_reliable);
+    TEST_ASSERT_EQUAL(0x01, snapshot.pressure_saturation_mask);
 }
 
 TEST_CASE("CPR metrics holds depth and state on missed Hall sample", "[metrics]")
