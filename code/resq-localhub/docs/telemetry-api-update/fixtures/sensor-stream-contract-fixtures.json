@@ -1,0 +1,223 @@
+{
+  "commands": {
+    "validStart": {
+      "request_id": "req-e2e-start-001",
+      "action": "START",
+      "interval_ms": 200,
+      "issued_at_ms": 1000
+    },
+    "validStop": {
+      "request_id": "req-e2e-stop-001",
+      "action": "STOP",
+      "issued_at_ms": 2000
+    },
+    "invalidIntervals": [
+      {
+        "request_id": "req-e2e-invalid-099",
+        "action": "START",
+        "interval_ms": 99,
+        "issued_at_ms": 3000
+      },
+      {
+        "request_id": "req-e2e-invalid-1001",
+        "action": "START",
+        "interval_ms": 1001,
+        "issued_at_ms": 3001
+      },
+      {
+        "request_id": "req-e2e-invalid-fractional",
+        "action": "START",
+        "interval_ms": 200.5,
+        "issued_at_ms": 3002
+      },
+      {
+        "request_id": "req-e2e-invalid-missing",
+        "action": "START",
+        "issued_at_ms": 3003
+      }
+    ]
+  },
+  "streamPackets": {
+    "valid": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 124700
+    },
+    "partialPressureValidity": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 0.0,
+      "pressure_2_kpa_valid": false,
+      "pressure_kpa_valid": false,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 124900
+    },
+    "saturatedPressureChannel": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 0.0,
+      "pressure_2_kpa_valid": false,
+      "pressure_kpa_valid": false,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 4,
+      "interval_ms": 200,
+      "ts_ms": 125100
+    },
+    "hallInvalid": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 0.0,
+      "hall_progress": 0.0,
+      "hall_mm_valid": false,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 125300
+    }
+  },
+  "malformedStreamPackets": {
+    "wrongDeviceId": {
+      "device_id": "M-OTHER",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 125500
+    },
+    "unknownTelemetryMode": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SESSION",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 125700
+    },
+    "nonBooleanValidity": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": "true",
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 125900
+    },
+    "invalidSaturationMask": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 8,
+      "interval_ms": 200,
+      "ts_ms": 126100
+    },
+    "malformedNumericValue": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": "NaN",
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 12.6,
+      "hall_progress": 0.42,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 126300
+    },
+    "missingRequiredField": {
+      "device_id": "M-E2E",
+      "telemetry_mode": "SENSOR_STREAM",
+      "state": "PAIRED_IDLE",
+      "pressure_0_kpa": 0.82,
+      "pressure_0_kpa_valid": true,
+      "pressure_1_kpa": 1.44,
+      "pressure_1_kpa_valid": true,
+      "pressure_2_kpa": 1.39,
+      "pressure_2_kpa_valid": true,
+      "pressure_kpa_valid": true,
+      "hall_mm": 12.6,
+      "hall_mm_valid": true,
+      "pressure_saturation_mask": 0,
+      "interval_ms": 200,
+      "ts_ms": 126500
+    }
+  }
+}

@@ -2,11 +2,16 @@
 *.log
 logs/
 prompt_change.txt
-scripts/
+scripts/*
+!scripts/telemetry-e2e/
+!scripts/telemetry-e2e/validate-sensor-stream.ps1
 docs/*
 !docs/telemetry-api-update/
 docs/telemetry-api-update/*
 !docs/telemetry-api-update/phase-5-frontend-sensor-stream.md
+!docs/telemetry-api-update/phase-6-end-to-end-validation.md
+!docs/telemetry-api-update/fixtures/
+!docs/telemetry-api-update/fixtures/sensor-stream-contract-fixtures.json
 
 # Environment files
 .env

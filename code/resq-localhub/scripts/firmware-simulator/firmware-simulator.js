@@ -335,7 +335,7 @@ class FirmwareSimulator {
     if (action === "START") {
       const intervalMs = Number(payload.interval_ms);
       if (!Number.isInteger(intervalMs) || intervalMs < 100 || intervalMs > 1000) {
-        this.publishTelemetryControlResult(payload.request_id, "NACK", "08101");
+        this.publishTelemetryControlResult(payload.request_id, "NACK", "07101");
         return;
       }
       if (this.sessionActive || this.state === "CALIBRATING") {
@@ -354,7 +354,7 @@ class FirmwareSimulator {
       return;
     }
 
-    this.publishTelemetryControlResult(payload.request_id, "NACK", "08102");
+    this.publishTelemetryControlResult(payload.request_id, "NACK", "07101");
   }
 
   publishTelemetryControlResult(replyId, status, reasonId) {
