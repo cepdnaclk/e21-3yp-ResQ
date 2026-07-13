@@ -152,7 +152,7 @@ class ActiveSessionServiceTest {
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.78);
         assertThat(liveView.latestMetric().depthOk()).isTrue();
         assertThat(liveView.latestMetric().compressionCount()).isEqualTo(1);
-        SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
+        SessionEndResponse completed = completeStop(service, session.sessionId());
         assertThat(completed.summary().sampleCount()).isEqualTo(1);
         assertThat(completed.summary().totalCompressions()).isEqualTo(1);
         assertThat(completed.summary().validCompressions()).isEqualTo(1);
@@ -243,7 +243,7 @@ class ActiveSessionServiceTest {
                 """.formatted(session.sessionId()));
         assertThat(service.validateTelemetryBinding("M01", telemetry).accepted()).isTrue();
         service.recordTelemetry("M01", telemetry);
-        SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
+        SessionEndResponse completed = completeStop(service, session.sessionId());
         assertThat(completed.summary().sampleCount()).isEqualTo(1);
         assertThat(completed.summary().totalCompressions()).isEqualTo(3);
         assertThat(completed.summary().validCompressions()).isEqualTo(3);
@@ -272,7 +272,19 @@ class ActiveSessionServiceTest {
         JsonNode first = telemetry("M01", session.sessionId(), 1, 52, 110);
         service.recordTelemetry("M01", first);
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 1, 53, 111)), "seq is not newer");
-        service.endSession(new SessionEndRequest(session.sessionId()));
+        var stop = service.endSession(new SessionEndRequest(session.sessionId()));
+        assertThat(stop.state()).isEqualTo(SessionLifecycleState.STOP_PENDING);
+        assertThat(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 54, 112)).accepted()).isTrue();
+        service.handleSessionStopFirmwareReply(
+                "M01",
+                2001,
+                stop.requestId(),
+                "ACK",
+                session.sessionId(),
+                "STOPPED",
+                null,
+                null
+        );
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 54, 112)), "session is not active");
     }
     @Test
@@ -622,10 +634,148 @@ class ActiveSessionServiceTest {
         assertThat(fixture.service.findSessionStart(pending.sessionId()).orElseThrow().state())
                 .isEqualTo(SessionLifecycleState.START_TIMEOUT);
     }
+
+    @Test
+    void stopReturnsPendingWithoutPersistingCompletion() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        SessionStartResponse session = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, session);
+
+        var stop = fixture.service.endSession(new SessionEndRequest(session.sessionId()));
+
+        assertThat(stop.state()).isEqualTo(SessionLifecycleState.STOP_PENDING);
+        assertThat(stop.active()).isTrue();
+        assertThat(stop.completed()).isFalse();
+        assertThat(stop.requestId()).startsWith("req-301-");
+        assertThat(fixture.commandPublisher.publishedSessionStops).singleElement()
+                .satisfies(payload -> assertThat(payload.requestId()).isEqualTo(stop.requestId()));
+        assertThat(fixture.sessionRepository.findById(session.sessionId())).isEmpty();
+    }
+
+    @Test
+    void stopAckFinalizesOnceAndMismatchesDoNotFinalize() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        SessionStartResponse session = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, session);
+        var stop = fixture.service.endSession(new SessionEndRequest(session.sessionId()));
+
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, "wrong", "ACK", session.sessionId(), "STOPPED", null, null)).isFalse();
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M02", 2001, stop.requestId(), "ACK", session.sessionId(), "STOPPED", null, null)).isFalse();
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, stop.requestId(), "ACK", "wrong-session", "STOPPED", null, null)).isFalse();
+        assertThat(fixture.sessionRepository.findById(session.sessionId())).isEmpty();
+
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, stop.requestId(), "ACK", session.sessionId(), "STOPPED", "00000", 11)).isTrue();
+        assertThat(fixture.service.findCompletedSession(session.sessionId())).isPresent();
+        assertThat(fixture.sessionRepository.saveCount).isEqualTo(1);
+        assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
+
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, stop.requestId(), "ACK", session.sessionId(), "STOPPED", "00000", 11)).isFalse();
+        assertThat(fixture.sessionRepository.saveCount).isEqualTo(1);
+        assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
+    }
+
+    @Test
+    void stopNackAndPublishFailureDoNotPersistAndAllowRetry() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        SessionStartResponse session = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, session);
+        var stop = fixture.service.endSession(new SessionEndRequest(session.sessionId()));
+
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, stop.requestId(), "NACK", session.sessionId(), "BUSY", "10201", 11)).isTrue();
+        var rejected = fixture.service.getSessionLiveView(session.sessionId()).orElseThrow();
+        assertThat(rejected.lifecycleState()).isEqualTo(SessionLifecycleState.STOP_REJECTED.name());
+        assertThat(rejected.active()).isTrue();
+        assertThat(fixture.sessionRepository.findById(session.sessionId())).isEmpty();
+
+        var retry = fixture.service.endSession(new SessionEndRequest(session.sessionId()));
+        assertThat(retry.state()).isEqualTo(SessionLifecycleState.STOP_PENDING);
+        assertThat(retry.requestId()).isNotEqualTo(stop.requestId());
+
+        ServiceFixture failedFixture = newServiceFixture();
+        SessionStartResponse failedSession = failedFixture.service.startSession(startRequest("M01"));
+        activate(failedFixture.service, failedSession);
+        failedFixture.commandPublisher.failSessionStopPublish = true;
+        var failedStop = failedFixture.service.endSession(new SessionEndRequest(failedSession.sessionId()));
+        assertThat(failedStop.state()).isEqualTo(SessionLifecycleState.STOP_REJECTED);
+        assertThat(failedStop.reason()).isEqualTo("MQTT_STOP_PUBLISH_FAILED");
+        assertThat(failedFixture.sessionRepository.findById(failedSession.sessionId())).isEmpty();
+    }
+
+    @Test
+    void stopTimeoutAndLateAckDoNotCreateNormalCompletion() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-13T00:00:00Z"));
+        ServiceFixture fixture = newServiceFixture(clock, 7_000L);
+        SessionStartResponse session = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, session);
+        var stop = fixture.service.endSession(new SessionEndRequest(session.sessionId()));
+
+        clock.advanceMillis(7_001L);
+        assertThat(fixture.service.expirePendingSessionStops()).isEqualTo(1);
+        var timedOut = fixture.service.getSessionLiveView(session.sessionId()).orElseThrow();
+        assertThat(timedOut.lifecycleState()).isEqualTo(SessionLifecycleState.STOP_TIMEOUT.name());
+        assertThat(timedOut.active()).isFalse();
+        assertThat(fixture.sessionRepository.findById(session.sessionId())).isEmpty();
+
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, stop.requestId(), "ACK", session.sessionId(), "STOPPED", null, null)).isFalse();
+        assertThat(fixture.sessionRepository.findById(session.sessionId())).isEmpty();
+    }
+
+    @Test
+    void interruptionDuringActiveOrStopPendingIsTerminalNotCompleted() throws Exception {
+        ServiceFixture activeFixture = newServiceFixture();
+        SessionStartResponse activeSession = activeFixture.service.startSession(startRequest("M01"));
+        activate(activeFixture.service, activeSession);
+        assertThat(activeFixture.service.handleSessionInterruptedFirmwareEvent("M01", 2002, activeSession.sessionId(), "SESSION_INTERRUPTED", "10201", 11)).isTrue();
+        assertThat(activeFixture.service.getSessionLiveView(activeSession.sessionId()).orElseThrow().lifecycleState())
+                .isEqualTo(SessionLifecycleState.INTERRUPTED.name());
+        assertThat(activeFixture.sessionRepository.findById(activeSession.sessionId())).isEmpty();
+
+        ServiceFixture stopFixture = newServiceFixture();
+        SessionStartResponse stopSession = stopFixture.service.startSession(startRequest("M01"));
+        activate(stopFixture.service, stopSession);
+        stopFixture.service.endSession(new SessionEndRequest(stopSession.sessionId()));
+        assertThat(stopFixture.service.handleSessionInterruptedFirmwareEvent("M01", 2002, stopSession.sessionId(), "SESSION_INTERRUPTED", "10201", 11)).isTrue();
+        assertThat(stopFixture.service.getSessionLiveView(stopSession.sessionId()).orElseThrow().lifecycleState())
+                .isEqualTo(SessionLifecycleState.INTERRUPTED.name());
+        assertThat(stopFixture.sessionRepository.findById(stopSession.sessionId())).isEmpty();
+    }
+
+    @Test
+    void telemetryIsAcceptedDuringStopPendingAndRejectedAfterCompleted() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        SessionStartResponse session = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, session);
+        var stop = fixture.service.endSession(new SessionEndRequest(session.sessionId()));
+        JsonNode finalTelemetry = telemetry("M01", session.sessionId(), 1, 51, 109);
+        assertThat(fixture.service.validateTelemetryBinding("M01", finalTelemetry).accepted()).isTrue();
+        fixture.service.recordTelemetry("M01", finalTelemetry);
+
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, stop.requestId(), "ACK", session.sessionId(), "STOPPED", null, null)).isTrue();
+        assertRejected(fixture.service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 52, 110)), "session is not active");
+        assertThat(fixture.service.findCompletedSession(session.sessionId()).orElseThrow().summary().sampleCount()).isEqualTo(1);
+    }
+
+    @Test
+    void stopConfirmationIsIsolatedAcrossDevices() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        SessionStartResponse m01 = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, m01);
+        SessionStartResponse m02 = fixture.service.startSession(new SessionStartRequest("M02", null, null, null, null, "Guest", "child-basic", "Lifecycle", null));
+        activate(fixture.service, m02);
+        var m01Stop = fixture.service.endSession(new SessionEndRequest(m01.sessionId()));
+
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M02", 2001, m01Stop.requestId(), "ACK", m02.sessionId(), "STOPPED", null, null)).isFalse();
+        assertThat(fixture.service.findCompletedSession(m01.sessionId())).isEmpty();
+        assertThat(fixture.service.findCompletedSession(m02.sessionId())).isEmpty();
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, m01Stop.requestId(), "ACK", m01.sessionId(), "STOPPED", null, null)).isTrue();
+        assertThat(fixture.service.findCompletedSession(m01.sessionId())).isPresent();
+        assertThat(fixture.service.findActiveSessionForDevice("M02")).isPresent();
+    }
+
     @Test
     void noMqttSessionStartPublishedWhenCalibrationNotReady() throws Exception {
         CapturingMqttCommandPublisherService commandPublisher = new CapturingMqttCommandPublisherService();
-        LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
+        InMemoryLocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
         ManikinRegistryService registry = new ManikinRegistryService(12);
@@ -689,7 +839,7 @@ class ActiveSessionServiceTest {
 
     private ServiceFixture newServiceFixture(Clock clock, long startAckTimeoutMs) throws Exception {
         NoopMqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService();
-        LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
+        InMemoryLocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
         ManikinRegistryService registry = new ManikinRegistryService(12);
@@ -761,7 +911,7 @@ class ActiveSessionServiceTest {
                 startAckTimeoutMs,
                 clock
         );
-        return new ServiceFixture(service, registry, firmwareRepository, readinessService, commandPublisher);
+        return new ServiceFixture(service, registry, firmwareRepository, readinessService, commandPublisher, sessionRepository, syncQueueRepository);
     }
 
     private static SessionStartRequest startRequest(String deviceId) {
@@ -808,12 +958,32 @@ class ActiveSessionServiceTest {
         assertThat(service.findSessionStart(session.sessionId()).orElseThrow().state())
                 .isEqualTo(SessionLifecycleState.ACTIVE);
     }
+
+    private SessionEndResponse completeStop(ActiveSessionService service, String sessionId) {
+        var stop = service.endSession(new SessionEndRequest(sessionId));
+        assertThat(stop.state()).isEqualTo(SessionLifecycleState.STOP_PENDING);
+        assertThat(stop.completed()).isFalse();
+        assertThat(service.handleSessionStopFirmwareReply(
+                stop.deviceId(),
+                2001,
+                stop.requestId(),
+                "ACK",
+                sessionId,
+                "STOPPED",
+                null,
+                null
+        )).isTrue();
+        return service.findCompletedSession(sessionId).orElseThrow();
+    }
+
     private void assertRejected(ActiveSessionService.TelemetryValidationResult result, String reasonFragment) {
         assertThat(result.accepted()).isFalse();
         assertThat(result.reason()).contains(reasonFragment);
     }
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {
         private final List<SessionStartCommandPayload> publishedSessionStarts = new java.util.ArrayList<>();
+        private final List<SessionStopCommandPayload> publishedSessionStops = new java.util.ArrayList<>();
+        private boolean failSessionStopPublish;
 
         private NoopMqttCommandPublisherService() {
             super(new ObjectMapper(), "tcp://127.0.0.1:1", "test");
@@ -824,16 +994,22 @@ class ActiveSessionServiceTest {
         }
         @Override
         public void publishSessionStop(SessionStopCommandPayload payload) {
+            if (failSessionStopPublish) {
+                throw new IllegalStateException("forced stop publish failure");
+            }
+            publishedSessionStops.add(payload);
         }
     }
     private static final class InMemoryLocalSessionRepository extends LocalSessionRepository {
         private SessionEndResponse lastSaved;
+        private int saveCount;
         private InMemoryLocalSessionRepository() {
             super("target/active-session-service-test.sqlite");
         }
         @Override
         public synchronized void save(SessionEndResponse session) {
             lastSaved = session;
+            saveCount++;
         }
         @Override
         public synchronized Optional<SessionEndResponse> findById(String sessionId) {
@@ -854,7 +1030,9 @@ class ActiveSessionServiceTest {
             ManikinRegistryService registry,
             FirmwarePersistenceRepository repository,
             DeviceReadinessService readinessService,
-            NoopMqttCommandPublisherService commandPublisher
+            NoopMqttCommandPublisherService commandPublisher,
+            InMemoryLocalSessionRepository sessionRepository,
+            SyncQueueRepository syncQueueRepository
     ) {
     }
     private static final class CapturingMqttCommandPublisherService extends MqttCommandPublisherService {

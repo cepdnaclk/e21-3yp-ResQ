@@ -70,6 +70,7 @@ export type ManikinLiveSummary = {
   activeTraineeId: string | null;
   activeSessionStartedAt: string | null;
   activeSessionScenario: string | null;
+  activeSessionLifecycleState?: import("./session").SessionLifecycleState | null;
 
   latestMetric: import("./live").LiveMetricPayload | null;
   seq: number | null;

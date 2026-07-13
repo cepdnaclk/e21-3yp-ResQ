@@ -47,6 +47,7 @@ public record ManikinLiveSummary(
         String activeTraineeId,
         Instant activeSessionStartedAt,
         String activeSessionScenario,
+        String activeSessionLifecycleState,
         Double latestDepthProgress,
         Integer latestCompressionCount,
         LiveMetricPayload latestMetric,

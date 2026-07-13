@@ -7,7 +7,7 @@ import type {
   SessionStartRequest,
   SessionStartResponse,
   SessionEndRequest,
-  SessionEndResponse,
+  SessionStopResponse,
   CompletedSession,
   SyncQueueItem,
 } from "../types/session";
@@ -19,8 +19,8 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
 }
 
 /** POST /api/sessions/end */
-export async function endSession(request: SessionEndRequest): Promise<SessionEndResponse> {
-  return postJson<SessionEndResponse>("/api/sessions/end", request);
+export async function endSession(request: SessionEndRequest): Promise<SessionStopResponse> {
+  return postJson<SessionStopResponse>("/api/sessions/end", request);
 }
 
 /** GET /api/sessions — all completed sessions (sorted by most recent first) */

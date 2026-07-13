@@ -9,6 +9,7 @@ public record ActiveSessionInfo(
         Instant startedAt,
         boolean active,
         String scenario,
-        String notes
+        String notes,
+        SessionLifecycleState lifecycleState
 ) {
 }

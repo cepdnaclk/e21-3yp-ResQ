@@ -14,6 +14,7 @@ import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.model.SessionStopResponse;
 import lk.resq.localhub.model.SessionSummary;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
@@ -45,6 +46,7 @@ public class ActiveSessionService {
     private final ConcurrentMap<String, ActiveSessionState> sessionsById = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> activeSessionIdByDeviceId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> sessionIdByStartRequestId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, String> sessionIdByStopRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Long> lastAcceptedSeqBySessionId = new ConcurrentHashMap<>();
     private final ManikinRegistryService manikinRegistryService;
     private final MqttCommandPublisherService mqttCommandPublisherService;
@@ -58,7 +60,9 @@ public class ActiveSessionService {
     private final DeviceReadinessService deviceReadinessService;
     private final Clock clock;
     private final long startAckTimeoutMs;
+    private final long stopAckTimeoutMs;
     private final AtomicLong sessionStartRequestSequence = new AtomicLong(0L);
+    private final AtomicLong sessionStopRequestSequence = new AtomicLong(0L);
 
     @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
@@ -72,11 +76,42 @@ public class ActiveSessionService {
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
             DeviceReadinessService deviceReadinessService,
-            @Value("${resq.session.start-ack-timeout-ms:7000}") long startAckTimeoutMs
+            @Value("${resq.session.start-ack-timeout-ms:7000}") long startAckTimeoutMs,
+            @Value("${resq.session.stop-ack-timeout-ms:7000}") long stopAckTimeoutMs
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
-                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, Clock.systemUTC());
+                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, Clock.systemUTC());
+    }
+
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository,
+            RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService,
+            long startAckTimeoutMs,
+            long stopAckTimeoutMs,
+            Clock clock
+    ) {
+        this.manikinRegistryService = manikinRegistryService;
+        this.mqttCommandPublisherService = mqttCommandPublisherService;
+        this.localSessionRepository = localSessionRepository;
+        this.liveStreamService = liveStreamService;
+        this.traineeRecordsRepository = traineeRecordsRepository;
+        this.firmwareCalibrationService = firmwareCalibrationService;
+        this.syncQueueService = syncQueueService;
+        this.rosterRepository = rosterRepository;
+        this.rateEstimatorRegistry = rateEstimatorRegistry;
+        this.deviceReadinessService = deviceReadinessService;
+        this.startAckTimeoutMs = startAckTimeoutMs > 0 ? startAckTimeoutMs : 7000L;
+        this.stopAckTimeoutMs = stopAckTimeoutMs > 0 ? stopAckTimeoutMs : 7000L;
+        this.clock = clock != null ? clock : Clock.systemUTC();
     }
 
     public ActiveSessionService(
@@ -93,18 +128,9 @@ public class ActiveSessionService {
             long startAckTimeoutMs,
             Clock clock
     ) {
-        this.manikinRegistryService = manikinRegistryService;
-        this.mqttCommandPublisherService = mqttCommandPublisherService;
-        this.localSessionRepository = localSessionRepository;
-        this.liveStreamService = liveStreamService;
-        this.traineeRecordsRepository = traineeRecordsRepository;
-        this.firmwareCalibrationService = firmwareCalibrationService;
-        this.syncQueueService = syncQueueService;
-        this.rosterRepository = rosterRepository;
-        this.rateEstimatorRegistry = rateEstimatorRegistry;
-        this.deviceReadinessService = deviceReadinessService;
-        this.startAckTimeoutMs = startAckTimeoutMs > 0 ? startAckTimeoutMs : 7000L;
-        this.clock = clock != null ? clock : Clock.systemUTC();
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
+                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, 7000L, clock);
     }
 
     public ActiveSessionService(
@@ -121,7 +147,7 @@ public class ActiveSessionService {
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
-                rateEstimatorRegistry, deviceReadinessService, 7000L, Clock.systemUTC());
+                rateEstimatorRegistry, deviceReadinessService, 7000L, 7000L, Clock.systemUTC());
     }
 
     // Overload for backward compatibility / tests
@@ -379,57 +405,46 @@ public class ActiveSessionService {
         }
     }
 
-    public synchronized SessionEndResponse endSession(SessionEndRequest request) {
+    public synchronized SessionStopResponse endSession(SessionEndRequest request) {
         String sessionId = normalize(request.sessionId());
         if (sessionId == null) {
             throw new IllegalArgumentException("sessionId is required");
         }
 
         ActiveSessionState state = sessionsById.get(sessionId);
-        if (state == null || state.lifecycleState != SessionLifecycleState.ACTIVE || !state.active) {
+        if (state == null || !(state.lifecycleState == SessionLifecycleState.ACTIVE || state.lifecycleState == SessionLifecycleState.STOP_REJECTED) || !state.active) {
             throw new NoSuchElementException("Session " + sessionId + " was not found or is already ended");
         }
 
-        rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
-        state.active = false;
-        state.endedAt = Instant.now();
-        activeSessionIdByDeviceId.remove(state.deviceId, sessionId);
+        Instant now = now();
+        String requestId = nextSessionStopRequestId();
+        state.lifecycleState = SessionLifecycleState.STOP_PENDING;
+        state.active = true;
+        state.stopRequestId = requestId;
+        state.stopRequestedAt = now;
+        state.stopDeadline = now.plusMillis(stopAckTimeoutMs);
+        state.updatedAt = now;
+        state.rejectionReason = null;
+        state.firmwareReasonId = null;
+        state.firmwareActionId = null;
+        activeSessionIdByDeviceId.put(state.deviceId, sessionId);
+        sessionIdByStopRequestId.put(requestId, sessionId);
+        publishLifecycleUpdate(state);
 
         try {
             mqttCommandPublisherService.publishSessionStop(new SessionStopCommandPayload(
                     state.sessionId,
                     state.deviceId,
-                    state.endedAt
+                    now,
+                    requestId
             ));
         } catch (RuntimeException error) {
-            state.active = true;
-            state.endedAt = null;
-            activeSessionIdByDeviceId.put(state.deviceId, sessionId);
-            logger.warn("Rolled back session end for {} on device {} because the stop command could not be published", sessionId, state.deviceId, error);
-            throw new MqttCommandPublishException("Failed to publish session stop command for device " + state.deviceId, error);
+            rejectStop(state, "MQTT_STOP_PUBLISH_FAILED", null, null);
+            logger.warn("Rejected pending stop for session {} on device {} because the stop command could not be published", sessionId, state.deviceId, error);
+            return toStopResponse(state);
         }
-
-        SessionSummary summary = state.accumulator.toSummary(
-                state.sessionId,
-                state.deviceId,
-                state.traineeId,
-                state.startedAt,
-                state.endedAt
-        );
-        SessionEndResponse response = toCompletedResponse(state, summary);
-
-        localSessionRepository.save(response);
-        try {
-            syncQueueService.enqueueSessionSummary(response);
-            logger.info("Queued session {} for later cloud sync", state.sessionId);
-        } catch (RuntimeException error) {
-            logger.warn("Saved completed session {} locally but failed to queue it for cloud sync", state.sessionId, error);
-        }
-        lastAcceptedSeqBySessionId.remove(state.sessionId);
-        liveStreamService.publishSessionLive(state.sessionId, null);
-        publishInstructorLiveSnapshot();
-        logger.info("Ended session {} for device {}", sessionId, state.deviceId);
-        return response;
+        logger.info("Created STOP_PENDING session {} for device {} request {}", sessionId, state.deviceId, requestId);
+        return toStopResponse(state);
     }
 
     public synchronized boolean handleSessionStartFirmwareReply(
@@ -505,6 +520,128 @@ public class ActiveSessionService {
         return false;
     }
 
+    public synchronized boolean handleSessionStopFirmwareReply(
+            String deviceId,
+            Integer eventId,
+            String replyId,
+            String status,
+            String sessionId,
+            String reason,
+            String reasonId,
+            Integer actionId
+    ) {
+        String normalizedReplyId = normalize(replyId);
+        if (normalizedReplyId == null) {
+            return false;
+        }
+
+        String correlatedSessionId = sessionIdByStopRequestId.get(normalizedReplyId);
+        if (correlatedSessionId == null) {
+            return false;
+        }
+
+        ActiveSessionState state = sessionsById.get(correlatedSessionId);
+        if (state == null) {
+            return false;
+        }
+
+        String normalizedDeviceId = normalize(deviceId);
+        if (normalizedDeviceId == null || !state.deviceId.equals(normalizedDeviceId)) {
+            logger.warn("Ignored session-stop reply {} for mismatched device {} expected {}", normalizedReplyId, deviceId, state.deviceId);
+            return false;
+        }
+
+        String normalizedSessionId = normalize(sessionId);
+        if (normalizedSessionId != null && !state.sessionId.equals(normalizedSessionId)) {
+            logger.warn("Ignored session-stop reply {} for mismatched session {} expected {}", normalizedReplyId, sessionId, state.sessionId);
+            return false;
+        }
+
+        String normalizedStatus = normalizeUpper(status);
+        if ("ACK".equals(normalizedStatus) && Integer.valueOf(2001).equals(eventId)) {
+            if (state.lifecycleState == SessionLifecycleState.COMPLETED) {
+                return true;
+            }
+            if (state.lifecycleState != SessionLifecycleState.STOP_PENDING) {
+                logger.info("Ignored late session-stop ACK {} for session {} in state {}", normalizedReplyId, state.sessionId, state.lifecycleState);
+                return false;
+            }
+            finalizeCompletedStop(state, reasonId, actionId);
+            logger.info("Completed session {} for device {} from firmware stop ACK {}", state.sessionId, state.deviceId, normalizedReplyId);
+            return true;
+        }
+
+        if ("NACK".equals(normalizedStatus) && isSessionStopReply(eventId, normalizedReplyId)) {
+            if (state.lifecycleState == SessionLifecycleState.STOP_REJECTED) {
+                return true;
+            }
+            if (state.lifecycleState != SessionLifecycleState.STOP_PENDING) {
+                logger.info("Ignored late session-stop NACK {} for session {} in state {}", normalizedReplyId, state.sessionId, state.lifecycleState);
+                return false;
+            }
+            rejectStop(state, firstNonBlank(reason, "FIRMWARE_STOP_NACK"), reasonId, actionId);
+            logger.info("Rejected stop for session {} on device {} from firmware NACK {}", state.sessionId, state.deviceId, normalizedReplyId);
+            return true;
+        }
+
+        return false;
+    }
+
+    public synchronized boolean handleSessionInterruptedFirmwareEvent(
+            String deviceId,
+            Integer eventId,
+            String sessionId,
+            String reason,
+            String reasonId,
+            Integer actionId
+    ) {
+        if (!Integer.valueOf(2002).equals(eventId)) {
+            return false;
+        }
+
+        String normalizedSessionId = normalize(sessionId);
+        ActiveSessionState state = normalizedSessionId == null ? null : sessionsById.get(normalizedSessionId);
+        if (state == null) {
+            String normalizedDeviceId = normalize(deviceId);
+            String activeSessionId = normalizedDeviceId == null ? null : activeSessionIdByDeviceId.get(normalizedDeviceId);
+            state = activeSessionId == null ? null : sessionsById.get(activeSessionId);
+        }
+        if (state == null) {
+            return false;
+        }
+
+        String normalizedDeviceId = normalize(deviceId);
+        if (normalizedDeviceId == null || !state.deviceId.equals(normalizedDeviceId)) {
+            logger.warn("Ignored session-interrupted event for mismatched device {} expected {}", deviceId, state.deviceId);
+            return false;
+        }
+        if (normalizedSessionId != null && !state.sessionId.equals(normalizedSessionId)) {
+            logger.warn("Ignored session-interrupted event for mismatched session {} expected {}", sessionId, state.sessionId);
+            return false;
+        }
+        if (!(state.lifecycleState == SessionLifecycleState.ACTIVE || state.lifecycleState == SessionLifecycleState.STOP_PENDING)) {
+            logger.info("Ignored session-interrupted event for session {} in state {}", state.sessionId, state.lifecycleState);
+            return false;
+        }
+
+        state.lifecycleState = SessionLifecycleState.INTERRUPTED;
+        state.active = false;
+        state.endedAt = now();
+        state.updatedAt = state.endedAt;
+        state.rejectionReason = firstNonBlank(reason, "SESSION_INTERRUPTED");
+        state.firmwareReasonId = reasonId;
+        state.firmwareActionId = actionId;
+        activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+        if (state.stopRequestId != null) {
+            sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+        }
+        rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
+        lastAcceptedSeqBySessionId.remove(state.sessionId);
+        publishLifecycleUpdate(state);
+        logger.warn("Marked session {} for device {} as INTERRUPTED", state.sessionId, state.deviceId);
+        return true;
+    }
+
     @Scheduled(fixedDelayString = "${resq.session.start-timeout-sweep-ms:1000}")
     public synchronized int expirePendingSessionStarts() {
         Instant now = now();
@@ -521,6 +658,33 @@ public class ActiveSessionService {
                 publishLifecycleUpdate(state);
                 expired++;
                 logger.warn("Session {} for device {} timed out waiting for firmware ACK", state.sessionId, state.deviceId);
+            }
+        }
+        return expired;
+    }
+
+    @Scheduled(fixedDelayString = "${resq.session.stop-timeout-sweep-ms:1000}")
+    public synchronized int expirePendingSessionStops() {
+        Instant now = now();
+        int expired = 0;
+        for (ActiveSessionState state : sessionsById.values()) {
+            if (state.lifecycleState == SessionLifecycleState.STOP_PENDING
+                    && state.stopDeadline != null
+                    && !state.stopDeadline.isAfter(now)) {
+                state.lifecycleState = SessionLifecycleState.STOP_TIMEOUT;
+                state.active = false;
+                state.endedAt = now;
+                state.updatedAt = now;
+                state.rejectionReason = "STOP_ACK_TIMEOUT";
+                activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+                if (state.stopRequestId != null) {
+                    sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+                }
+                rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
+                lastAcceptedSeqBySessionId.remove(state.sessionId);
+                publishLifecycleUpdate(state);
+                expired++;
+                logger.warn("Session {} for device {} timed out waiting for firmware stop ACK", state.sessionId, state.deviceId);
             }
         }
         return expired;
@@ -569,7 +733,7 @@ public class ActiveSessionService {
         }
 
         ActiveSessionState state = sessionsById.get(payloadSessionId);
-        if (state == null || state.lifecycleState != SessionLifecycleState.ACTIVE || !state.active) {
+        if (state == null || !acceptsSessionTelemetry(state)) {
             return TelemetryValidationResult.rejected("session is not active");
         }
 
@@ -614,7 +778,7 @@ public class ActiveSessionService {
         }
 
         ActiveSessionState state = sessionsById.get(validation.sessionId());
-        if (state == null || !state.active) {
+        if (state == null || !acceptsSessionTelemetry(state)) {
             logger.info("Rejected telemetry for device {}: session disappeared before recording", deviceId);
             return;
         }
@@ -712,7 +876,7 @@ public class ActiveSessionService {
         }
 
         ActiveSessionState state = sessionsById.get(sessionId);
-        if (state == null || state.lifecycleState != SessionLifecycleState.ACTIVE || !state.active) {
+        if (state == null || !state.active || !reservesAsActiveSession(state.lifecycleState)) {
             return Optional.empty();
         }
 
@@ -766,6 +930,7 @@ public class ActiveSessionService {
                         session.traineeId(),
                         session.startedAt(),
                         session.scenario(),
+                        session.lifecycleState() != null ? session.lifecycleState().name() : null,
                         summary.latestDepthProgress(),
                         summary.latestCompressionCount(),
                         summary.latestMetric(),
@@ -843,7 +1008,7 @@ public class ActiveSessionService {
                 summary != null && summary.stale(),
                 summary == null || summary.offline(),
                 state.lifecycleState.name(),
-                state.requestId
+                state.stopRequestId != null ? state.stopRequestId : state.requestId
         );
     }
 
@@ -911,7 +1076,8 @@ public class ActiveSessionService {
                 state.startedAt,
                 state.active,
                 state.scenario,
-                state.notes
+                state.notes,
+                state.lifecycleState
         );
     }
 
@@ -924,8 +1090,28 @@ public class ActiveSessionService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private SessionStopResponse toStopResponse(ActiveSessionState state) {
+        return new SessionStopResponse(
+                state.sessionId,
+                state.deviceId,
+                state.stopRequestId,
+                state.lifecycleState,
+                state.active,
+                state.lifecycleState == SessionLifecycleState.COMPLETED,
+                state.startedAt,
+                state.stopRequestedAt,
+                state.rejectionReason,
+                state.firmwareReasonId,
+                state.firmwareActionId
+        );
+    }
+
     private String nextSessionStartRequestId() {
         return FirmwareRequestIds.format(FirmwareCommandTypeId.SESSION_START.value(), Math.toIntExact(sessionStartRequestSequence.incrementAndGet()));
+    }
+
+    private String nextSessionStopRequestId() {
+        return FirmwareRequestIds.format(FirmwareCommandTypeId.SESSION_STOP.value(), Math.toIntExact(sessionStopRequestSequence.incrementAndGet()));
     }
 
     private Instant now() {
@@ -941,6 +1127,58 @@ public class ActiveSessionService {
                 .anyMatch(value -> value == FirmwareCommandTypeId.SESSION_START.value());
     }
 
+    private boolean isSessionStopReply(Integer eventId, String requestId) {
+        if (Integer.valueOf(2001).equals(eventId) || Integer.valueOf(1000).equals(eventId)) {
+            return true;
+        }
+        return FirmwareRequestIds.parseCommandTypeId(requestId)
+                .stream()
+                .anyMatch(value -> value == FirmwareCommandTypeId.SESSION_STOP.value());
+    }
+
+    private void finalizeCompletedStop(ActiveSessionState state, String reasonId, Integer actionId) {
+        if (state.completedPersisted) {
+            state.lifecycleState = SessionLifecycleState.COMPLETED;
+            state.active = false;
+            return;
+        }
+
+        Instant endedAt = now();
+        state.lifecycleState = SessionLifecycleState.COMPLETED;
+        state.active = false;
+        state.endedAt = endedAt;
+        state.updatedAt = endedAt;
+        state.firmwareReasonId = reasonId;
+        state.firmwareActionId = actionId;
+        activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+        if (state.stopRequestId != null) {
+            sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+        }
+        rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
+
+        SessionSummary summary = state.accumulator.toSummary(
+                state.sessionId,
+                state.deviceId,
+                state.traineeId,
+                state.startedAt,
+                state.endedAt
+        );
+        SessionEndResponse response = toCompletedResponse(state, summary);
+
+        localSessionRepository.save(response);
+        state.completedPersisted = true;
+        try {
+            syncQueueService.enqueueSessionSummary(response);
+            state.syncQueued = true;
+            logger.info("Queued session {} for later cloud sync", state.sessionId);
+        } catch (RuntimeException error) {
+            logger.warn("Saved completed session {} locally but failed to queue it for cloud sync", state.sessionId, error);
+        }
+        lastAcceptedSeqBySessionId.remove(state.sessionId);
+        liveStreamService.publishSessionLive(state.sessionId, null);
+        publishInstructorLiveSnapshot();
+    }
+
     private void rejectStart(ActiveSessionState state, String reason, String reasonId, Integer actionId) {
         state.lifecycleState = SessionLifecycleState.START_REJECTED;
         state.active = false;
@@ -950,6 +1188,30 @@ public class ActiveSessionService {
         state.firmwareActionId = actionId;
         activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
         publishLifecycleUpdate(state);
+    }
+
+    private void rejectStop(ActiveSessionState state, String reason, String reasonId, Integer actionId) {
+        state.lifecycleState = SessionLifecycleState.STOP_REJECTED;
+        state.active = true;
+        state.updatedAt = now();
+        state.rejectionReason = reason;
+        state.firmwareReasonId = reasonId;
+        state.firmwareActionId = actionId;
+        activeSessionIdByDeviceId.put(state.deviceId, state.sessionId);
+        if (state.stopRequestId != null) {
+            sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+        }
+        publishLifecycleUpdate(state);
+    }
+
+    private static boolean acceptsSessionTelemetry(ActiveSessionState state) {
+        return state.active && (state.lifecycleState == SessionLifecycleState.ACTIVE || state.lifecycleState == SessionLifecycleState.STOP_PENDING);
+    }
+
+    private static boolean reservesAsActiveSession(SessionLifecycleState state) {
+        return state == SessionLifecycleState.ACTIVE
+                || state == SessionLifecycleState.STOP_PENDING
+                || state == SessionLifecycleState.STOP_REJECTED;
     }
 
     private static String normalizeUpper(String value) {
@@ -1024,10 +1286,15 @@ public class ActiveSessionService {
         private final String requestId;
         private volatile SessionLifecycleState lifecycleState;
         private final Instant startDeadline;
+        private volatile String stopRequestId;
+        private volatile Instant stopRequestedAt;
+        private volatile Instant stopDeadline;
         private volatile Instant updatedAt;
         private volatile String rejectionReason;
         private volatile String firmwareReasonId;
         private volatile Integer firmwareActionId;
+        private volatile boolean completedPersisted;
+        private volatile boolean syncQueued;
         private volatile LiveMetricPayload latestMetric;
         private volatile Instant latestMetricReceivedAt;
 
@@ -1066,7 +1333,10 @@ public class ActiveSessionService {
         }
 
         private boolean reservesDevice() {
-            return lifecycleState == SessionLifecycleState.START_PENDING || lifecycleState == SessionLifecycleState.ACTIVE;
+            return lifecycleState == SessionLifecycleState.START_PENDING
+                    || lifecycleState == SessionLifecycleState.ACTIVE
+                    || lifecycleState == SessionLifecycleState.STOP_PENDING
+                    || lifecycleState == SessionLifecycleState.STOP_REJECTED;
         }
     }
 

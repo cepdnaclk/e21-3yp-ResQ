@@ -109,7 +109,7 @@ class SessionControllerTest {
                   "flags": "DEPTH_OK,RATE_OK"
                 }
                 """.formatted(started.sessionId())));
-        SessionEndResponse completed = fixture.service.endSession(new SessionEndRequest(started.sessionId()));
+        SessionEndResponse completed = completeStop(fixture.service, started.sessionId());
         assertThat(fixture.syncQueueRepository.findRecent(10)).hasSize(1);
         var queueItem = fixture.syncQueueRepository
                 .findByEntity(lk.resq.localhub.model.SyncEntityType.SESSION_SUMMARY, completed.sessionId())
@@ -174,7 +174,7 @@ class SessionControllerTest {
                   "flags": "DEPTH_OK,RATE_OK"
                 }
                 """.formatted(started.sessionId())));
-        return service.endSession(new SessionEndRequest(started.sessionId()));
+        return completeStop(service, started.sessionId());
     }
     @SuppressWarnings("unchecked")
     private static <T> T requireBody(Object body) {
@@ -192,6 +192,21 @@ class SessionControllerTest {
                 "00000",
                 0
         );
+    }
+
+    private static SessionEndResponse completeStop(ActiveSessionService service, String sessionId) {
+        var stop = service.endSession(new SessionEndRequest(sessionId));
+        service.handleSessionStopFirmwareReply(
+                stop.deviceId(),
+                2001,
+                stop.requestId(),
+                "ACK",
+                sessionId,
+                "STOPPED",
+                "00000",
+                0
+        );
+        return service.findCompletedSession(sessionId).orElseThrow();
     }
 
     private static Fixture newFixture() throws Exception {

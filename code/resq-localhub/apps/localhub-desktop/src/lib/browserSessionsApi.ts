@@ -20,6 +20,9 @@ export type SessionStartResponse = {
   profileId?: string | null;
   scenario: string | null;
   notes: string | null;
+  state?: string | null;
+  lifecycleState?: string | null;
+  requestId?: string | null;
 };
 
 export type SessionSummary = {
@@ -57,6 +60,31 @@ export type CompletedSession = {
 
 export type SessionEndRequest = {
   sessionId: string;
+};
+
+export type SessionLifecycleState =
+  | "START_PENDING"
+  | "START_REJECTED"
+  | "START_TIMEOUT"
+  | "ACTIVE"
+  | "STOP_PENDING"
+  | "COMPLETED"
+  | "STOP_REJECTED"
+  | "STOP_TIMEOUT"
+  | "INTERRUPTED";
+
+export type SessionStopResponse = {
+  sessionId: string;
+  deviceId: string;
+  requestId: string | null;
+  state: SessionLifecycleState;
+  active: boolean;
+  completed: boolean;
+  startedAt: string | null;
+  stopRequestedAt: string | null;
+  reason: string | null;
+  reasonId: string | null;
+  actionId: number | null;
 };
 
 export type SessionEndResponse = {
@@ -105,6 +133,8 @@ export type SessionLiveView = {
   latestForce2: number | null;
   pressureBalancePct: number | null;
   pressureSkewed: boolean | null;
+  lifecycleState?: SessionLifecycleState | null;
+  requestId?: string | null;
 };
 
 export type ApiErrorResponse = {
@@ -163,7 +193,7 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
   return readJsonResponse<SessionStartResponse>(response);
 }
 
-export async function endSession(request: SessionEndRequest): Promise<SessionEndResponse> {
+export async function endSession(request: SessionEndRequest): Promise<SessionStopResponse> {
   const response = await fetch(`${getSessionsBaseUrl()}/end`, {
     method: "POST",
     credentials: "include",
@@ -178,7 +208,7 @@ export async function endSession(request: SessionEndRequest): Promise<SessionEnd
     throw new Error(errorResponse?.error ?? `Failed to end session (${response.status})`);
   }
 
-  return readJsonResponse<SessionEndResponse>(response);
+  return readJsonResponse<SessionStopResponse>(response);
 }
 
 export async function fetchSessionLive(sessionId: string): Promise<SessionLiveView | null> {

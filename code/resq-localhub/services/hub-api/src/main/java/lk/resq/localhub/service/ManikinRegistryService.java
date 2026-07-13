@@ -434,6 +434,7 @@ public class ManikinRegistryService {
                 null,
                 null,
                 null,
+                null,
                 state.latestMetric != null ? state.latestMetric.depthProgress() : null,
                 state.latestMetric != null ? state.latestMetric.compressionCount() : null,
                 state.latestMetric,

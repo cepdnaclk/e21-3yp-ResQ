@@ -46,6 +46,7 @@ export type ManikinLiveSummary = {
   activeTraineeId: string | null;
   activeSessionStartedAt: string | null;
   activeSessionScenario: string | null;
+  activeSessionLifecycleState?: string | null;
 };
 
 export type ManikinInventoryStatus = "paired" | "pending" | "online" | "offline" | "stale" | "unknown";
@@ -154,6 +155,7 @@ function normalizeLiveSummary(value: unknown): ManikinLiveSummary | null {
     activeTraineeId: asString(record.activeTraineeId),
     activeSessionStartedAt: asString(record.activeSessionStartedAt),
     activeSessionScenario: asString(record.activeSessionScenario),
+    activeSessionLifecycleState: asString(record.activeSessionLifecycleState),
   };
 }
 

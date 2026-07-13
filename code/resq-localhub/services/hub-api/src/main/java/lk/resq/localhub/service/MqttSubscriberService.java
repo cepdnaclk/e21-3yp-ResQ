@@ -458,7 +458,10 @@ public class MqttSubscriberService {
                     logger.info("Processed MQTT debug message for {}", parsedTopic.deviceId);
                 }
                 case "events" -> {
+                    DeviceReadinessState readiness = deviceReadinessService.handleStatus(parsedTopic.deviceId, payload);
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
+                    deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
+                    calibrationStreamService.publishReadinessSnapshot(parsedTopic.deviceId, readiness);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT event message for {}", parsedTopic.deviceId);
@@ -591,8 +594,19 @@ public class MqttSubscriberService {
             }
         }
 
+        if ("events".equals(parsedTopic.messageType)) {
+            activeSessionService.handleSessionInterruptedFirmwareEvent(
+                    parsedTopic.deviceId,
+                    eventId,
+                    sessionId,
+                    reason != null ? reason : firmwareState,
+                    reasonId,
+                    actionId
+            );
+        }
+
         if ("events".equals(parsedTopic.messageType) && replyId != null) {
-            activeSessionService.handleSessionStartFirmwareReply(
+            boolean handledStart = activeSessionService.handleSessionStartFirmwareReply(
                     parsedTopic.deviceId,
                     eventId,
                     replyId,
@@ -602,6 +616,18 @@ public class MqttSubscriberService {
                     reasonId,
                     actionId
             );
+            if (!handledStart) {
+                activeSessionService.handleSessionStopFirmwareReply(
+                        parsedTopic.deviceId,
+                        eventId,
+                        replyId,
+                        status,
+                        sessionId,
+                        reason != null ? reason : firmwareState,
+                        reasonId,
+                        actionId
+                );
+            }
         }
     }
 

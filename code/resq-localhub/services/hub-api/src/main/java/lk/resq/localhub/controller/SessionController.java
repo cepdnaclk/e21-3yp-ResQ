@@ -6,6 +6,7 @@ import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
+import lk.resq.localhub.model.SessionStopResponse;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
@@ -88,7 +89,7 @@ public class SessionController {
     public ResponseEntity<?> endSession(HttpServletRequest request, @RequestBody SessionEndRequest requestBody) {
         try {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
-            SessionEndResponse response = activeSessionService.endSession(requestBody);
+            SessionStopResponse response = activeSessionService.endSession(requestBody);
             authService.audit(actor.id(), "SESSION_ENDED", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException error) {

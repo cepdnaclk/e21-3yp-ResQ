@@ -15,6 +15,23 @@ type InstructorLiveSessionPageProps = {
   onSessionEnded: (sessionId: string) => void;
 };
 
+function getStopStatusText(lifecycleState: SessionLiveView["lifecycleState"] | null | undefined) {
+  switch (lifecycleState) {
+    case "STOP_PENDING":
+      return "Stopping session. Waiting for firmware confirmation.";
+    case "STOP_REJECTED":
+      return "Stop rejected by firmware. You can retry ending the session.";
+    case "STOP_TIMEOUT":
+      return "Stop confirmation timed out. The session is closed locally.";
+    case "INTERRUPTED":
+      return "Session interrupted by firmware. Partial live state is preserved.";
+    case "COMPLETED":
+      return "Session completed.";
+    default:
+      return null;
+  }
+}
+
 export function InstructorLiveSessionPage({
   sessionId,
   onSessionEnded,
@@ -23,6 +40,7 @@ export function InstructorLiveSessionPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
+  const [stopMessage, setStopMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let subscription: { stop: () => void } | null = null;
@@ -46,7 +64,13 @@ export function InstructorLiveSessionPage({
           sessionId,
           initial.deviceId,
           (update) => {
-            if (!stopped) setSession(update);
+            if (!stopped) {
+              setSession(update);
+              setStopMessage(getStopStatusText(update.lifecycleState));
+              if (update.lifecycleState !== "STOP_PENDING") {
+                setEnding(false);
+              }
+            }
           },
           () => {
             if (!stopped) onSessionEnded(sessionId);
@@ -74,8 +98,21 @@ export function InstructorLiveSessionPage({
   async function handleEndSession() {
     setEnding(true);
     try {
-      await endSession({ sessionId });
-      onSessionEnded(sessionId);
+      const response = await endSession({ sessionId });
+      setStopMessage(getStopStatusText(response.state));
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              active: response.active,
+              lifecycleState: response.state,
+              requestId: response.requestId,
+            }
+          : current,
+      );
+      if (response.state !== "STOP_PENDING") {
+        setEnding(false);
+      }
     } catch (err) {
       alert("Failed to end the session. Please try again.");
       setEnding(false);
@@ -108,6 +145,12 @@ export function InstructorLiveSessionPage({
   }
 
   const normalized = normalizeTelemetry(session);
+  const lifecycleState = session.lifecycleState ?? null;
+  const stopStatusText = stopMessage ?? getStopStatusText(lifecycleState);
+  const canEndSession =
+    lifecycleState !== "STOP_PENDING" &&
+    lifecycleState !== "STOP_TIMEOUT" &&
+    lifecycleState !== "INTERRUPTED";
 
   const profile = session.scenario && session.scenario.toLowerCase().includes("pediatric") ? "pediatric" : "adult";
   const depthTargetStr = profile === "pediatric" ? "40–50 mm" : "50–60 mm";
@@ -211,6 +254,9 @@ export function InstructorLiveSessionPage({
           <h1 className="text-2xl font-black tracking-tight text-slate-900 leading-none">
             Live CPR Training
           </h1>
+          {stopStatusText ? (
+            <p className="text-xs font-bold text-amber-700">{stopStatusText}</p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-[9px] font-extrabold bg-emerald-50 text-emerald-600 border border-emerald-200 px-3 py-1 rounded-full uppercase tracking-wider block">
               ● Live
@@ -232,9 +278,10 @@ export function InstructorLiveSessionPage({
             variant="danger"
             loading={ending}
             onClick={handleEndSession}
+            disabled={ending || !canEndSession}
             className="shadow-sm font-bold px-6 py-2.5 text-xs rounded-xl"
           >
-            End Session
+            {ending || lifecycleState === "STOP_PENDING" ? "Stopping..." : "End Session"}
           </Button>
         </div>
       </div>

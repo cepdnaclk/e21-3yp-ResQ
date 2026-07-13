@@ -832,6 +832,7 @@ export default function InstructorDashboard({
           active: true,
           scenario: manikin.activeSessionScenario,
           notes: null,
+          lifecycleState: manikin.activeSessionLifecycleState,
         }
       : null;
 
@@ -956,16 +957,33 @@ export default function InstructorDashboard({
 
     try {
       const response = await endSession({ sessionId });
-      setLatestEndedSession(response);
-      setSessionCache((current) => {
-        const next = { ...current };
-        delete next[deviceId];
-        return next;
-      });
-      setRecentSessions((current) => [response, ...current.filter((session) => session.sessionId !== response.sessionId)]);
+      setSessionCache((current) => ({
+        ...current,
+        [deviceId]: {
+          ...(current[deviceId] ?? {
+            sessionId,
+            deviceId,
+            traineeId: null,
+            startedAt: response.startedAt ?? new Date().toISOString(),
+            active: response.active,
+            scenario: null,
+            notes: null,
+          }),
+          active: response.active,
+          lifecycleState: response.state,
+          requestId: response.requestId,
+        },
+      }));
       setSessionMessageByDevice((current) => ({
         ...current,
-        [deviceId]: `Ended session ${sessionId}`,
+        [deviceId]:
+          response.state === "STOP_REJECTED"
+            ? `Stop rejected for session ${sessionId}. Retry is available.`
+            : response.state === "STOP_TIMEOUT"
+              ? `Stop confirmation timed out for session ${sessionId}.`
+              : response.state === "INTERRUPTED"
+                ? `Session ${sessionId} was interrupted by firmware.`
+                : `Stopping session ${sessionId}. Waiting for firmware confirmation.`,
       }));
     } catch (error) {
       setSessionMessageByDevice((current) => ({
@@ -1676,6 +1694,8 @@ export default function InstructorDashboard({
               {manikins.map((manikin) => {
                 const activeSession = getEffectiveSession(manikin.deviceId, manikin);
                 const active = Boolean(activeSession?.sessionId);
+                const activeLifecycleState = activeSession?.lifecycleState ?? manikin.activeSessionLifecycleState ?? null;
+                const stopPending = activeLifecycleState === "STOP_PENDING";
                 const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
                 const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
                 const calibrationAction = calibrationActionByDevice[manikin.deviceId] ?? "idle";
@@ -1895,18 +1915,18 @@ export default function InstructorDashboard({
                           <button
                             type="button"
                             onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
-                            disabled={actionState !== "idle"}
+                            disabled={actionState !== "idle" || stopPending}
                             style={{
                               padding: "8px 12px",
                               borderRadius: "6px",
                               border: "1px solid #991b1b",
-                              background: actionState !== "idle" ? "#e2e8f0" : "#991b1b",
-                              color: actionState !== "idle" ? "#64748b" : "#ffffff",
-                              cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                              background: actionState !== "idle" || stopPending ? "#e2e8f0" : "#991b1b",
+                              color: actionState !== "idle" || stopPending ? "#64748b" : "#ffffff",
+                              cursor: actionState !== "idle" || stopPending ? "not-allowed" : "pointer",
                               fontWeight: 600,
                             }}
                           >
-                            End Session
+                            {stopPending ? "Stopping..." : "End Session"}
                           </button>
                         )
                       ) : (

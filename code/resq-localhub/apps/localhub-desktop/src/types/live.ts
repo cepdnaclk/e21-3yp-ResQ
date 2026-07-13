@@ -59,4 +59,6 @@ export type SessionLiveView = {
   connectionState: string | null;
   stale: boolean;
   offline: boolean;
+  lifecycleState?: import("./session").SessionLifecycleState | null;
+  requestId?: string | null;
 };

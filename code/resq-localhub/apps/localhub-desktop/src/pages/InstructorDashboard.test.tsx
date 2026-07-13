@@ -207,26 +207,15 @@ describe("InstructorDashboard", () => {
     vi.mocked(endSession).mockResolvedValue({
       sessionId: "sess-001",
       deviceId: "MAN-01",
-      traineeId: "trainee-man-01",
+      requestId: "req-301-0001",
+      state: "STOP_PENDING",
+      active: true,
       startedAt: new Date(Date.now() - 15000).toISOString(),
-      ended: true,
-      endedAt: new Date().toISOString(),
-      scenario: null,
-      notes: null,
-      summary: {
-        sessionId: "sess-001",
-        deviceId: "MAN-01",
-        traineeId: "trainee-man-01",
-        startedAt: new Date(Date.now() - 15000).toISOString(),
-        endedAt: new Date().toISOString(),
-        durationSeconds: 15,
-        avgDepthMm: 55,
-        avgRateCpm: 110,
-        recoilPct: 98,
-        pausesCount: 0,
-        score: 95,
-        latestFlags: null,
-      },
+      stopRequestedAt: new Date().toISOString(),
+      completed: false,
+      reason: null,
+      reasonId: null,
+      actionId: null,
     });
   });
 
@@ -341,26 +330,15 @@ describe("InstructorDashboard", () => {
     vi.mocked(endSession).mockResolvedValue({
       sessionId: "sess-active-1",
       deviceId: "MAN-01",
-      traineeId: "trainee-123",
+      requestId: "req-301-0002",
+      state: "STOP_PENDING",
+      active: true,
       startedAt: new Date(Date.now() - 30000).toISOString(),
-      ended: true,
-      endedAt: new Date().toISOString(),
-      scenario: null,
-      notes: null,
-      summary: {
-        sessionId: "sess-active-1",
-        deviceId: "MAN-01",
-        traineeId: "trainee-123",
-        startedAt: new Date(Date.now() - 30000).toISOString(),
-        endedAt: new Date().toISOString(),
-        durationSeconds: 30,
-        avgDepthMm: 56,
-        avgRateCpm: 112,
-        recoilPct: 97,
-        pausesCount: 1,
-        score: 93,
-        latestFlags: null,
-      },
+      stopRequestedAt: new Date().toISOString(),
+      completed: false,
+      reason: null,
+      reasonId: null,
+      actionId: null,
     });
 
     render(<InstructorDashboard embeddedInDesktop />);
@@ -372,6 +350,6 @@ describe("InstructorDashboard", () => {
       expect(endSession).toHaveBeenCalledWith({ sessionId: "sess-active-1" });
     });
 
-    expect(await screen.findByText(/Ended session sess-active-1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Stopping session sess-active-1/i)).toBeInTheDocument();
   });
 });

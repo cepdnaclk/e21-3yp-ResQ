@@ -4,6 +4,7 @@ import { subscribeToManikinsLive } from "../../api/liveEventsClient";
 import { fetchTrainees } from "../../api/traineesApi";
 import { endSession } from "../../api/sessionsApi";
 import type { ManikinLiveSummary } from "../../types/manikin";
+import type { SessionLifecycleState } from "../../types/session";
 import type { TraineeRecord } from "../../types/trainee";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
@@ -43,6 +44,9 @@ function ElapsedTime({ startedAt }: { startedAt: string | null }) {
 }
 
 function getSessionStatus(m: ManikinLiveSummary) {
+  if (m.activeSessionLifecycleState === "STOP_PENDING") return "Stopping";
+  if (m.activeSessionLifecycleState === "STOP_REJECTED") return "Stop Rejected";
+
   const isStale = m.connectionState === "STALE" || m.connectionState === "OFFLINE" || m.connectionState === "ERROR" || !m.online || m.offline;
   if (isStale) return "Reconnecting/Stale";
 
@@ -67,6 +71,7 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
   const [trainees, setTrainees] = useState<TraineeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [endingSessionId, setEndingSessionId] = useState<string | null>(null);
+  const [stopStateBySessionId, setStopStateBySessionId] = useState<Record<string, SessionLifecycleState>>({});
 
   // Fetch initial list
   async function loadData() {
@@ -136,7 +141,8 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
 
     setEndingSessionId(sessionId);
     try {
-      await endSession({ sessionId });
+      const response = await endSession({ sessionId });
+      setStopStateBySessionId((current) => ({ ...current, [sessionId]: response.state }));
       // Reload list instantly
       const updated = await fetchLiveManikins();
       setManikins(updated);
@@ -218,7 +224,14 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
                 const depthOk = depth >= 50 && depth <= 60;
                 const rateOk = rate >= 100 && rate <= 120;
 
-                const status = getSessionStatus(m);
+                const lifecycleState = m.activeSessionId
+                  ? stopStateBySessionId[m.activeSessionId] ?? m.activeSessionLifecycleState
+                  : null;
+                const status = lifecycleState === "STOP_PENDING"
+                  ? "Stopping"
+                  : lifecycleState === "STOP_REJECTED"
+                    ? "Stop Rejected"
+                    : getSessionStatus(m);
                 let badgeClass = "";
                 let badgeLabel = status;
                 
@@ -229,6 +242,12 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
                 } else if (status === "Reconnecting/Stale") {
                   badgeClass = "bg-rose-50 text-rose-700 border-rose-100";
                   badgeLabel = "Reconnecting";
+                } else if (status === "Stopping") {
+                  badgeClass = "bg-sky-50 text-sky-700 border-sky-100";
+                  badgeLabel = "Stopping";
+                } else if (status === "Stop Rejected") {
+                  badgeClass = "bg-rose-50 text-rose-700 border-rose-100";
+                  badgeLabel = "Stop rejected";
                 } else { // Waiting for signal
                   badgeClass = "bg-slate-50 text-slate-600 border-slate-200";
                   badgeLabel = "Waiting for signal";
@@ -341,9 +360,9 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
                         size="sm"
                         className="flex-1 font-bold bg-white text-xs py-2"
                         onClick={() => m.activeSessionId && handleEndSession(m.activeSessionId)}
-                        disabled={endingSessionId === m.activeSessionId}
+                        disabled={endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING"}
                       >
-                        {endingSessionId === m.activeSessionId ? "Ending..." : "End Session"}
+                        {endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING" ? "Stopping..." : "End Session"}
                       </Button>
                       <Button
                         type="button"

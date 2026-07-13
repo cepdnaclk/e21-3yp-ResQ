@@ -255,7 +255,11 @@ public class MqttCommandPublisherService {
     }
 
     public FirmwareCommandPublishResult publishSessionStopCommand(String deviceId, String sessionId, Instant endedAt) {
-        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_STOP, endedAt);
+        return publishSessionStopCommand(deviceId, sessionId, endedAt, null);
+    }
+
+    public FirmwareCommandPublishResult publishSessionStopCommand(String deviceId, String sessionId, Instant endedAt, String requestId) {
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_STOP, endedAt, requestId);
         payload.put("session_id", sessionId);
         return publishFirmwareCommand(
                 FirmwareTopics.sessionStopCommandTopic(deviceId),
@@ -329,7 +333,7 @@ public class MqttCommandPublisherService {
     }
 
     public void publishSessionStop(SessionStopCommandPayload payload) {
-        publishSessionStopCommand(payload.deviceId(), payload.sessionId(), payload.endedAt());
+        publishSessionStopCommand(payload.deviceId(), payload.sessionId(), payload.endedAt(), payload.requestId());
     }
 
     protected void ensureConnected() {

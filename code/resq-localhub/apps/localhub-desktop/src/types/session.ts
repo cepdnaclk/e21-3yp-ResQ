@@ -22,10 +22,38 @@ export type SessionStartResponse = {
   profileId?: string | null;
   scenario: string | null;
   notes: string | null;
+  state?: string | null;
+  lifecycleState?: string | null;
+  requestId?: string | null;
 };
 
 export type SessionEndRequest = {
   sessionId: string;
+};
+
+export type SessionLifecycleState =
+  | "START_PENDING"
+  | "START_REJECTED"
+  | "START_TIMEOUT"
+  | "ACTIVE"
+  | "STOP_PENDING"
+  | "COMPLETED"
+  | "STOP_REJECTED"
+  | "STOP_TIMEOUT"
+  | "INTERRUPTED";
+
+export type SessionStopResponse = {
+  sessionId: string;
+  deviceId: string;
+  requestId: string | null;
+  state: SessionLifecycleState;
+  active: boolean;
+  completed: boolean;
+  startedAt: string | null;
+  stopRequestedAt: string | null;
+  reason: string | null;
+  reasonId: string | null;
+  actionId: number | null;
 };
 
 export type SessionSummary = {
