@@ -36,7 +36,9 @@ public record SessionLiveView(
         boolean stale,
         boolean offline,
         String lifecycleState,
-        String requestId
+        String requestId,
+        String recoveryStatus,
+        String recoveryReason
 ) {
     public SessionLiveView(
             String sessionId,
@@ -74,6 +76,6 @@ public record SessionLiveView(
         this(sessionId, deviceId, manikinId, traineeId, active, startedAt, null, scenario, notes, lastSeen, state, online,
                 ip, fw, rssi, battery, sessionActive, latestDepthMm, latestRateCpm, latestRecoilOk, latestPauseS,
                 latestFlags, lastEventType, latestForce1, latestForce2, pressureBalancePct, pressureSkewed,
-                latestMetric, seq, connectionState, stale, offline, active ? "ACTIVE" : null, null);
+                latestMetric, seq, connectionState, stale, offline, active ? "ACTIVE" : null, null, "NONE", null);
     }
 }

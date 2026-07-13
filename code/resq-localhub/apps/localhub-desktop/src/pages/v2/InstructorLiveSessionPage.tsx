@@ -146,8 +146,19 @@ export function InstructorLiveSessionPage({
 
   const normalized = normalizeTelemetry(session);
   const lifecycleState = session.lifecycleState ?? null;
+  const recoveryStatus = session.recoveryStatus ?? "NONE";
   const stopStatusText = stopMessage ?? getStopStatusText(lifecycleState);
+  const recoveryStatusText =
+    recoveryStatus === "PENDING"
+      ? "Recovering session state..."
+      : recoveryStatus === "CONFLICT"
+        ? "Firmware session conflict requires attention."
+        : recoveryStatus === "TIMED_OUT"
+          ? "Recovery timed out. Session state is unconfirmed."
+          : null;
   const canEndSession =
+    recoveryStatus !== "PENDING" &&
+    recoveryStatus !== "CONFLICT" &&
     lifecycleState !== "STOP_PENDING" &&
     lifecycleState !== "STOP_TIMEOUT" &&
     lifecycleState !== "INTERRUPTED";
@@ -256,6 +267,9 @@ export function InstructorLiveSessionPage({
           </h1>
           {stopStatusText ? (
             <p className="text-xs font-bold text-amber-700">{stopStatusText}</p>
+          ) : null}
+          {recoveryStatusText ? (
+            <p className="text-xs font-bold text-sky-700">{recoveryStatusText}</p>
           ) : null}
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-[9px] font-extrabold bg-emerald-50 text-emerald-600 border border-emerald-200 px-3 py-1 rounded-full uppercase tracking-wider block">

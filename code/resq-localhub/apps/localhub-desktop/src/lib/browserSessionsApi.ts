@@ -9,6 +9,14 @@ export type SessionStartRequest = {
   notes?: string | null;
 };
 
+export type SessionRecoveryStatus =
+  | "NONE"
+  | "PENDING"
+  | "CONFIRMED"
+  | "CONFLICT"
+  | "TIMED_OUT"
+  | "FAILED";
+
 export type SessionStartResponse = {
   sessionId: string;
   deviceId: string;
@@ -23,6 +31,7 @@ export type SessionStartResponse = {
   state?: string | null;
   lifecycleState?: string | null;
   requestId?: string | null;
+  recoveryStatus?: SessionRecoveryStatus | null;
 };
 
 export type SessionSummary = {
@@ -85,6 +94,7 @@ export type SessionStopResponse = {
   reason: string | null;
   reasonId: string | null;
   actionId: number | null;
+  recoveryStatus?: SessionRecoveryStatus | null;
 };
 
 export type SessionEndResponse = {
@@ -135,6 +145,8 @@ export type SessionLiveView = {
   pressureSkewed: boolean | null;
   lifecycleState?: SessionLifecycleState | null;
   requestId?: string | null;
+  recoveryStatus?: SessionRecoveryStatus | null;
+  recoveryReason?: string | null;
 };
 
 export type ApiErrorResponse = {

@@ -61,4 +61,6 @@ export type SessionLiveView = {
   offline: boolean;
   lifecycleState?: import("./session").SessionLifecycleState | null;
   requestId?: string | null;
+  recoveryStatus?: import("./session").SessionRecoveryStatus | null;
+  recoveryReason?: string | null;
 };

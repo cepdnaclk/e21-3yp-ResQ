@@ -14,7 +14,8 @@ public record SessionStartResponse(
         String courseId,
         String instructorId,
         String requestId,
-        SessionLifecycleState state
+        SessionLifecycleState state,
+        SessionRecoveryStatus recoveryStatus
 ) {
     public SessionStartResponse(
             String sessionId,
@@ -28,7 +29,7 @@ public record SessionStartResponse(
             String instructorId
     ) {
         this(sessionId, deviceId, traineeId, startedAt, active, null, scenario, notes, courseId, instructorId, null,
-                active ? SessionLifecycleState.ACTIVE : null);
+                active ? SessionLifecycleState.ACTIVE : null, SessionRecoveryStatus.NONE);
     }
 
     public SessionStartResponse(

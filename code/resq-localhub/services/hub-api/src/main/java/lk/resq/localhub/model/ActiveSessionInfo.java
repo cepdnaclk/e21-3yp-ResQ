@@ -10,6 +10,7 @@ public record ActiveSessionInfo(
         boolean active,
         String scenario,
         String notes,
-        SessionLifecycleState lifecycleState
+        SessionLifecycleState lifecycleState,
+        SessionRecoveryStatus recoveryStatus
 ) {
 }

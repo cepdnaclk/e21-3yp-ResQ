@@ -403,6 +403,7 @@ public class MqttSubscriberService {
                     DeviceReadinessState readiness = deviceReadinessService.handleStatus(parsedTopic.deviceId, payload);
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
+                    reconcileRecoveredSessionForDevice(parsedTopic.deviceId);
                     calibrationStreamService.publishReadinessSnapshot(parsedTopic.deviceId, readiness);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
@@ -412,6 +413,7 @@ public class MqttSubscriberService {
                     DeviceReadinessState readiness = deviceReadinessService.handleHeartbeat(parsedTopic.deviceId, payload);
                     manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
+                    reconcileRecoveredSessionForDevice(parsedTopic.deviceId);
                     calibrationStreamService.publishReadinessSnapshot(parsedTopic.deviceId, readiness);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
@@ -507,6 +509,7 @@ public class MqttSubscriberService {
                     DeviceReadinessState readiness = deviceReadinessService.handleStatus(parsedTopic.deviceId, payload);
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
+                    reconcileRecoveredSessionForDevice(parsedTopic.deviceId);
                     calibrationStreamService.publishReadinessSnapshot(parsedTopic.deviceId, readiness);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
@@ -518,6 +521,7 @@ public class MqttSubscriberService {
                     if (calEvent != null) {
                         DeviceReadinessState readiness = deviceReadinessService.handleCalibrationEvent(parsedTopic.deviceId, calEvent);
                         deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
+                        reconcileRecoveredSessionForDevice(parsedTopic.deviceId);
                         calibrationStreamService.publishCalibrationUpdate(parsedTopic.deviceId, calEvent, readiness);
                         try {
                             if (calibrationPersistenceRepository != null) {
@@ -872,7 +876,7 @@ public class MqttSubscriberService {
     private void publishInstructorLiveSnapshot() {
         liveStreamService.publishInstructorLive(
                 manikinRegistryService.getLiveSummaries().stream()
-                        .map(activeSessionService::decorateLiveSummary)
+                        .map(summary -> activeSessionService == null ? summary : activeSessionService.decorateLiveSummary(summary))
                         .toList()
         );
     }
@@ -886,6 +890,12 @@ public class MqttSubscriberService {
         activeSessionService.findActiveSessionForDevice(deviceId)
                 .flatMap(info -> activeSessionService.getSessionLiveView(info.sessionId()))
                 .ifPresent(view -> liveStreamService.publishSessionLive(view.sessionId(), view));
+    }
+
+    private void reconcileRecoveredSessionForDevice(String deviceId) {
+        if (activeSessionService != null) {
+            activeSessionService.reconcileDeviceRuntimeState(deviceId);
+        }
     }
 
     private void publishSessionLiveForPayload(JsonNode payload) {

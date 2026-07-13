@@ -13,6 +13,7 @@ public record SessionStopResponse(
         Instant stopRequestedAt,
         String reason,
         String reasonId,
-        Integer actionId
+        Integer actionId,
+        SessionRecoveryStatus recoveryStatus
 ) {
 }

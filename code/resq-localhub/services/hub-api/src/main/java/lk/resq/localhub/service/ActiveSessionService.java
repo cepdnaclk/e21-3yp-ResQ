@@ -1,11 +1,15 @@
 package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lk.resq.localhub.model.DurableSessionRuntimeRecord;
 import lk.resq.localhub.model.ActiveSessionInfo;
 import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
+import lk.resq.localhub.model.SessionRecoveryStatus;
+import lk.resq.localhub.model.SyncEntityType;
 import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionLifecycleState;
@@ -17,6 +21,7 @@ import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.model.SessionStopResponse;
 import lk.resq.localhub.model.SessionSummary;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
+import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import lk.resq.localhub.model.firmware.FirmwareRequestIds;
 import org.slf4j.Logger;
@@ -36,6 +41,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import jakarta.annotation.PostConstruct;
 
 @Service
 public class ActiveSessionService {
@@ -61,6 +67,12 @@ public class ActiveSessionService {
     private final long startAckTimeoutMs;
     private final long stopAckTimeoutMs;
     private final CommandRequestIdGenerator requestIdGenerator;
+    private final SessionRuntimeRepository sessionRuntimeRepository;
+    private final FirmwarePersistenceRepository firmwarePersistenceRepository;
+    private final ObjectMapper objectMapper;
+    private final long recoveryGraceMs;
+    private final long runtimeCheckpointMs;
+    private final int runtimeCheckpointSamples;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
@@ -76,12 +88,19 @@ public class ActiveSessionService {
             DeviceReadinessService deviceReadinessService,
             @Value("${resq.session.start-ack-timeout-ms:7000}") long startAckTimeoutMs,
             @Value("${resq.session.stop-ack-timeout-ms:7000}") long stopAckTimeoutMs,
-            CommandRequestIdGenerator requestIdGenerator
+            @Value("${resq.session.recovery-grace-ms:15000}") long recoveryGraceMs,
+            @Value("${resq.session.runtime-checkpoint-ms:1000}") long runtimeCheckpointMs,
+            @Value("${resq.session.runtime-checkpoint-samples:25}") int runtimeCheckpointSamples,
+            CommandRequestIdGenerator requestIdGenerator,
+            SessionRuntimeRepository sessionRuntimeRepository,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            ObjectMapper objectMapper
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, Clock.systemUTC(),
-                requestIdGenerator);
+                requestIdGenerator, sessionRuntimeRepository, firmwarePersistenceRepository, objectMapper,
+                recoveryGraceMs, runtimeCheckpointMs, runtimeCheckpointSamples);
     }
 
     public ActiveSessionService(
@@ -102,7 +121,7 @@ public class ActiveSessionService {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, clock,
-                new CommandRequestIdGenerator());
+                new CommandRequestIdGenerator(), null, null, null, 15000L, 1000L, 25);
     }
 
     public ActiveSessionService(
@@ -121,6 +140,34 @@ public class ActiveSessionService {
             Clock clock,
             CommandRequestIdGenerator requestIdGenerator
     ) {
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
+                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, clock,
+                requestIdGenerator, null, null, null, 15000L, 1000L, 25);
+    }
+
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository,
+            RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService,
+            long startAckTimeoutMs,
+            long stopAckTimeoutMs,
+            Clock clock,
+            CommandRequestIdGenerator requestIdGenerator,
+            SessionRuntimeRepository sessionRuntimeRepository,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            ObjectMapper objectMapper,
+            long recoveryGraceMs,
+            long runtimeCheckpointMs,
+            int runtimeCheckpointSamples
+    ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.localSessionRepository = localSessionRepository;
@@ -135,6 +182,12 @@ public class ActiveSessionService {
         this.stopAckTimeoutMs = stopAckTimeoutMs > 0 ? stopAckTimeoutMs : 7000L;
         this.clock = clock != null ? clock : Clock.systemUTC();
         this.requestIdGenerator = requestIdGenerator == null ? new CommandRequestIdGenerator() : requestIdGenerator;
+        this.sessionRuntimeRepository = sessionRuntimeRepository;
+        this.firmwarePersistenceRepository = firmwarePersistenceRepository;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.recoveryGraceMs = recoveryGraceMs > 0 ? recoveryGraceMs : 15000L;
+        this.runtimeCheckpointMs = runtimeCheckpointMs > 0 ? runtimeCheckpointMs : 1000L;
+        this.runtimeCheckpointSamples = runtimeCheckpointSamples > 0 ? runtimeCheckpointSamples : 25;
     }
 
     public ActiveSessionService(
@@ -201,6 +254,332 @@ public class ActiveSessionService {
 
     public RateEstimatorRegistry getRateEstimatorRegistry() {
         return this.rateEstimatorRegistry;
+    }
+
+    @PostConstruct
+    public synchronized void recoverDurableSessions() {
+        if (sessionRuntimeRepository == null) {
+            return;
+        }
+
+        Instant now = now();
+        for (DurableSessionRuntimeRecord record : sessionRuntimeRepository.findRecoverable()) {
+            try {
+                ActiveSessionState state = toRecoveredState(record, now);
+                ActiveSessionState existingForDevice = null;
+                String existingSessionId = activeSessionIdByDeviceId.get(state.deviceId);
+                if (existingSessionId != null) {
+                    existingForDevice = sessionsById.get(existingSessionId);
+                }
+
+                if (state.reservesDevice() && existingForDevice != null && existingForDevice.reservesDevice()) {
+                    state.lifecycleState = SessionLifecycleState.INTERRUPTED;
+                    state.active = false;
+                    state.endedAt = now;
+                    state.updatedAt = now;
+                    state.recoveryStatus = SessionRecoveryStatus.CONFLICT;
+                    state.recoveryReason = "DUPLICATE_DEVICE_RESERVATION_AFTER_RESTART";
+                    persistRuntimeState(state, true);
+                    logger.warn("Marked recovered session {} interrupted because device {} was already reserved by {}",
+                            state.sessionId, state.deviceId, existingForDevice.sessionId);
+                    continue;
+                }
+
+                sessionsById.put(state.sessionId, state);
+                if (state.reservesDevice()) {
+                    activeSessionIdByDeviceId.put(state.deviceId, state.sessionId);
+                }
+                if (state.requestId != null && state.lifecycleState == SessionLifecycleState.START_PENDING) {
+                    sessionIdByStartRequestId.put(state.requestId, state.sessionId);
+                }
+                if (state.stopRequestId != null && state.lifecycleState == SessionLifecycleState.STOP_PENDING) {
+                    sessionIdByStopRequestId.put(state.stopRequestId, state.sessionId);
+                }
+                if (record.lastAcceptedTelemetrySeq() != null) {
+                    lastAcceptedSeqBySessionId.put(state.sessionId, record.lastAcceptedTelemetrySeq());
+                }
+
+                reconcilePersistedCompletion(state);
+                reconcilePersistedFirmwareReply(state);
+                persistRuntimeState(state, true);
+                publishLifecycleUpdate(state);
+            } catch (RuntimeException error) {
+                logger.warn("Skipped corrupt durable session runtime record {}", record.sessionId(), error);
+            }
+        }
+
+        sessionsById.values().stream()
+                .map(state -> state.deviceId)
+                .distinct()
+                .forEach(this::reconcileDeviceRuntimeState);
+    }
+
+    public synchronized void reconcileDeviceRuntimeState(String deviceId) {
+        String normalizedDeviceId = normalize(deviceId);
+        if (normalizedDeviceId == null) {
+            return;
+        }
+
+        DeviceRuntimeState runtimeState = deviceReadinessService.findRuntimeState(normalizedDeviceId).orElse(null);
+        if (runtimeState == null) {
+            return;
+        }
+
+        for (ActiveSessionState state : sessionsById.values()) {
+            if (!normalizedDeviceId.equals(state.deviceId) || state.recoveryStatus != SessionRecoveryStatus.PENDING) {
+                continue;
+            }
+            reconcileRecoveredStateWithRuntime(state, runtimeState);
+        }
+    }
+
+    @Scheduled(fixedDelayString = "${resq.session.recovery-sweep-ms:1000}")
+    public synchronized int expireRecoveryGrace() {
+        Instant now = now();
+        int expired = 0;
+        for (ActiveSessionState state : sessionsById.values()) {
+            if (state.recoveryStatus != SessionRecoveryStatus.PENDING
+                    || state.recoveryDeadline == null
+                    || state.recoveryDeadline.isAfter(now)) {
+                continue;
+            }
+
+            if (state.lifecycleState == SessionLifecycleState.ACTIVE || state.lifecycleState == SessionLifecycleState.STOP_REJECTED) {
+                interruptRecoveredSession(state, SessionRecoveryStatus.TIMED_OUT, "RECOVERY_GRACE_TIMEOUT");
+                expired++;
+            } else if (state.lifecycleState == SessionLifecycleState.STOP_PENDING) {
+                timeoutStop(state, "STOP_CONFIRMATION_LOST_DURING_RESTART", SessionRecoveryStatus.TIMED_OUT);
+                expired++;
+            } else if (state.lifecycleState == SessionLifecycleState.START_PENDING) {
+                timeoutStart(state, "START_RECOVERY_GRACE_TIMEOUT", SessionRecoveryStatus.TIMED_OUT);
+                expired++;
+            }
+        }
+        return expired;
+    }
+
+    private ActiveSessionState toRecoveredState(DurableSessionRuntimeRecord record, Instant recoveredAt) {
+        ActiveSessionState state = new ActiveSessionState(
+                record.sessionId(),
+                record.deviceId(),
+                record.traineeId(),
+                record.startedAt(),
+                record.active(),
+                record.profileId(),
+                record.scenario(),
+                record.notes(),
+                record.endedAt(),
+                record.courseId(),
+                record.instructorId(),
+                record.startRequestId(),
+                record.lifecycleState(),
+                record.startDeadline()
+        );
+        state.stopRequestId = record.stopRequestId();
+        state.stopRequestedAt = record.stopRequestedAt();
+        state.stopDeadline = record.stopDeadline();
+        state.updatedAt = record.updatedAt() != null ? record.updatedAt() : record.startedAt();
+        state.rejectionReason = record.rejectionReason();
+        state.firmwareReasonId = record.firmwareReasonId();
+        state.firmwareActionId = record.firmwareActionId();
+        state.completedPersisted = record.completedPersisted();
+        state.syncQueued = record.syncQueued();
+        state.accumulator.restore(deserializeAccumulator(record.accumulatorSnapshotJson(), record.sessionId()));
+        state.lastRuntimeCheckpointAt = recoveredAt;
+        state.samplesAtLastRuntimeCheckpoint = state.accumulator.sampleCount();
+
+        if (state.reservesDevice()) {
+            state.recoveryStatus = SessionRecoveryStatus.PENDING;
+            state.recoveryStartedAt = recoveredAt;
+            state.recoveryDeadline = recoveredAt.plusMillis(recoveryGraceMs);
+            state.recoveryReason = "RECOVERING_SESSION_STATE";
+        } else {
+            state.recoveryStatus = record.recoveryStatus() != null ? record.recoveryStatus() : SessionRecoveryStatus.NONE;
+            state.recoveryStartedAt = record.recoveryStartedAt();
+            state.recoveryDeadline = record.recoveryDeadline();
+            state.recoveryReason = record.recoveryReason();
+        }
+        return state;
+    }
+
+    private void reconcilePersistedCompletion(ActiveSessionState state) {
+        localSessionRepository.findById(state.sessionId).ifPresent(existing -> {
+            state.lifecycleState = SessionLifecycleState.COMPLETED;
+            state.active = false;
+            state.endedAt = existing.endedAt();
+            state.updatedAt = existing.endedAt();
+            state.completedPersisted = true;
+            state.syncQueued = syncQueueService.findSessionSummary(state.sessionId).isPresent();
+            state.recoveryStatus = SessionRecoveryStatus.NONE;
+            activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+            if (state.stopRequestId != null) {
+                sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+            }
+        });
+    }
+
+    private void reconcilePersistedFirmwareReply(ActiveSessionState state) {
+        if (firmwarePersistenceRepository == null) {
+            return;
+        }
+        if (state.lifecycleState == SessionLifecycleState.START_PENDING && state.requestId != null) {
+            Optional<FirmwareCommandRequestRecord> command = firmwarePersistenceRepository.findCommandByRequestId(state.requestId);
+            if (command.isEmpty() || command.get().publishedAt() == null && !"ACK".equals(command.get().status()) && !"NACK".equals(command.get().status()) && !"FINAL".equals(command.get().status())) {
+                rejectStart(state, "START_NOT_PUBLISHED_BEFORE_RESTART", null, null);
+                return;
+            }
+            FirmwareCommandRequestRecord record = command.get();
+            if (isAck(record, 2000)) {
+                handleSessionStartFirmwareReply(state.deviceId, record.replyEventId(), state.requestId, "ACK", state.sessionId, null, record.reasonId(), record.actionId());
+            } else if (isNack(record)) {
+                handleSessionStartFirmwareReply(state.deviceId, record.replyEventId(), state.requestId, "NACK", state.sessionId, "FIRMWARE_NACK", record.reasonId(), record.actionId());
+            }
+        }
+
+        if (state.lifecycleState == SessionLifecycleState.STOP_PENDING && state.stopRequestId != null) {
+            Optional<FirmwareCommandRequestRecord> command = firmwarePersistenceRepository.findCommandByRequestId(state.stopRequestId);
+            if (command.isEmpty()) {
+                return;
+            }
+            FirmwareCommandRequestRecord record = command.get();
+            if (isAck(record, 2001)) {
+                handleSessionStopFirmwareReply(state.deviceId, record.replyEventId(), state.stopRequestId, "ACK", state.sessionId, null, record.reasonId(), record.actionId());
+            } else if (isNack(record)) {
+                handleSessionStopFirmwareReply(state.deviceId, record.replyEventId(), state.stopRequestId, "NACK", state.sessionId, "FIRMWARE_STOP_NACK", record.reasonId(), record.actionId());
+            }
+        }
+    }
+
+    private void reconcileRecoveredStateWithRuntime(ActiveSessionState state, DeviceRuntimeState runtimeState) {
+        String firmwareState = normalizeUpper(runtimeState.firmwareState());
+        String firmwareSessionId = normalize(runtimeState.sessionId());
+        boolean reportsMatchingSession = runtimeState.sessionActive() && state.sessionId.equals(firmwareSessionId);
+        boolean reportsDifferentSession = runtimeState.sessionActive() && firmwareSessionId != null && !state.sessionId.equals(firmwareSessionId);
+
+        if (state.lifecycleState == SessionLifecycleState.START_PENDING) {
+            if (reportsMatchingSession) {
+                confirmRecoveredActive(state, "RETAINED_SESSION_ACTIVE_MATCH");
+            } else if (reportsDifferentSession) {
+                conflictRecoveredSession(state, "FIRMWARE_SESSION_ID_CONFLICT");
+            } else if ("READY_FOR_SESSION".equals(firmwareState)) {
+                if (state.startDeadline != null && !state.startDeadline.isAfter(now())) {
+                    timeoutStart(state, "START_ACK_TIMEOUT_AFTER_RESTART", SessionRecoveryStatus.TIMED_OUT);
+                }
+            } else if ("PAIRED_IDLE".equals(firmwareState) || "CALIBRATION_FAIL".equals(firmwareState)) {
+                rejectStart(state, "FIRMWARE_NOT_IN_SESSION_AFTER_RESTART", runtimeState.lastReasonId(), runtimeState.lastActionId());
+            }
+            return;
+        }
+
+        if (state.lifecycleState == SessionLifecycleState.ACTIVE) {
+            if (reportsMatchingSession) {
+                confirmRecoveredActive(state, "RETAINED_SESSION_ACTIVE_MATCH");
+            } else if (reportsDifferentSession) {
+                interruptRecoveredSession(state, SessionRecoveryStatus.CONFLICT, "FIRMWARE_SESSION_ID_CONFLICT");
+            } else if ("READY_FOR_SESSION".equals(firmwareState) || "PAIRED_IDLE".equals(firmwareState)) {
+                interruptRecoveredSession(state, SessionRecoveryStatus.CONFLICT, "FIRMWARE_SESSION_NOT_ACTIVE_AFTER_RESTART");
+            }
+            return;
+        }
+
+        if (state.lifecycleState == SessionLifecycleState.STOP_PENDING) {
+            if (reportsDifferentSession) {
+                interruptRecoveredSession(state, SessionRecoveryStatus.CONFLICT, "FIRMWARE_SESSION_ID_CONFLICT");
+            } else if (!runtimeState.sessionActive() && "READY_FOR_SESSION".equals(firmwareState)) {
+                timeoutStop(state, "STOP_CONFIRMATION_LOST_DURING_RESTART", SessionRecoveryStatus.TIMED_OUT);
+            }
+            return;
+        }
+
+        if (state.lifecycleState == SessionLifecycleState.STOP_REJECTED) {
+            if (reportsMatchingSession) {
+                state.recoveryStatus = SessionRecoveryStatus.CONFIRMED;
+                state.recoveryReason = "RETAINED_SESSION_ACTIVE_MATCH";
+                state.recoveryDeadline = null;
+                persistRuntimeState(state, true);
+                publishLifecycleUpdate(state);
+            } else if (!runtimeState.sessionActive() && ("READY_FOR_SESSION".equals(firmwareState) || "PAIRED_IDLE".equals(firmwareState))) {
+                interruptRecoveredSession(state, SessionRecoveryStatus.CONFLICT, "STOP_REJECTED_SESSION_NOT_ACTIVE_AFTER_RESTART");
+            }
+        }
+    }
+
+    private void confirmRecoveredActive(ActiveSessionState state, String reason) {
+        state.lifecycleState = SessionLifecycleState.ACTIVE;
+        state.active = true;
+        state.updatedAt = now();
+        state.recoveryStatus = SessionRecoveryStatus.CONFIRMED;
+        state.recoveryReason = reason;
+        state.recoveryDeadline = null;
+        activeSessionIdByDeviceId.put(state.deviceId, state.sessionId);
+        persistRuntimeState(state, true);
+        publishLifecycleUpdate(state);
+    }
+
+    private void conflictRecoveredSession(ActiveSessionState state, String reason) {
+        state.recoveryStatus = SessionRecoveryStatus.CONFLICT;
+        state.recoveryReason = reason;
+        state.updatedAt = now();
+        persistRuntimeState(state, true);
+        publishLifecycleUpdate(state);
+    }
+
+    private void interruptRecoveredSession(ActiveSessionState state, SessionRecoveryStatus recoveryStatus, String reason) {
+        state.lifecycleState = SessionLifecycleState.INTERRUPTED;
+        state.active = false;
+        state.endedAt = now();
+        state.updatedAt = state.endedAt;
+        state.rejectionReason = reason;
+        state.recoveryStatus = recoveryStatus;
+        state.recoveryReason = reason;
+        activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+        if (state.stopRequestId != null) {
+            sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+        }
+        lastAcceptedSeqBySessionId.remove(state.sessionId);
+        rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
+        persistRuntimeState(state, true);
+        publishLifecycleUpdate(state);
+    }
+
+    private void timeoutStart(ActiveSessionState state, String reason, SessionRecoveryStatus recoveryStatus) {
+        state.lifecycleState = SessionLifecycleState.START_TIMEOUT;
+        state.active = false;
+        state.updatedAt = now();
+        state.rejectionReason = reason;
+        state.recoveryStatus = recoveryStatus;
+        state.recoveryReason = reason;
+        activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+        persistRuntimeState(state, true);
+        publishLifecycleUpdate(state);
+    }
+
+    private void timeoutStop(ActiveSessionState state, String reason, SessionRecoveryStatus recoveryStatus) {
+        state.lifecycleState = SessionLifecycleState.STOP_TIMEOUT;
+        state.active = false;
+        state.endedAt = now();
+        state.updatedAt = state.endedAt;
+        state.rejectionReason = reason;
+        state.recoveryStatus = recoveryStatus;
+        state.recoveryReason = reason;
+        activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+        if (state.stopRequestId != null) {
+            sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+        }
+        lastAcceptedSeqBySessionId.remove(state.sessionId);
+        rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
+        persistRuntimeState(state, true);
+        publishLifecycleUpdate(state);
+    }
+
+    private static boolean isAck(FirmwareCommandRequestRecord record, int eventId) {
+        return record != null
+                && ("ACK".equalsIgnoreCase(record.status()) || "FINAL".equalsIgnoreCase(record.status()))
+                && Integer.valueOf(eventId).equals(record.replyEventId());
+    }
+
+    private static boolean isNack(FirmwareCommandRequestRecord record) {
+        return record != null && "NACK".equalsIgnoreCase(record.status());
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request) {
@@ -359,6 +738,7 @@ public class ActiveSessionService {
                 now.plusMillis(startAckTimeoutMs)
         );
 
+        persistRuntimeState(state, true);
         sessionsById.put(sessionId, state);
         activeSessionIdByDeviceId.put(deviceId, sessionId);
         sessionIdByStartRequestId.put(requestId, sessionId);
@@ -450,6 +830,7 @@ public class ActiveSessionService {
         state.rejectionReason = null;
         state.firmwareReasonId = null;
         state.firmwareActionId = null;
+        persistRuntimeState(state, true);
         activeSessionIdByDeviceId.put(state.deviceId, sessionId);
         sessionIdByStopRequestId.put(requestId, sessionId);
         publishLifecycleUpdate(state);
@@ -522,6 +903,8 @@ public class ActiveSessionService {
             state.rejectionReason = null;
             state.firmwareReasonId = reasonId;
             state.firmwareActionId = actionId;
+            state.recoveryStatus = SessionRecoveryStatus.CONFIRMED;
+            persistRuntimeState(state, true);
             publishLifecycleUpdate(state);
             logger.info("Activated session {} for device {} from firmware ACK {}", state.sessionId, state.deviceId, normalizedReplyId);
             return true;
@@ -647,22 +1030,24 @@ public class ActiveSessionService {
             return false;
         }
 
-        state.lifecycleState = SessionLifecycleState.INTERRUPTED;
-        state.active = false;
-        state.endedAt = now();
-        state.updatedAt = state.endedAt;
-        state.rejectionReason = firstNonBlank(reason, "SESSION_INTERRUPTED");
-        state.firmwareReasonId = reasonId;
-        state.firmwareActionId = actionId;
-        activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
-        if (state.stopRequestId != null) {
-            sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
-        }
-        rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
-        lastAcceptedSeqBySessionId.remove(state.sessionId);
-        publishLifecycleUpdate(state);
-        logger.warn("Marked session {} for device {} as INTERRUPTED", state.sessionId, state.deviceId);
-        return true;
+            state.lifecycleState = SessionLifecycleState.INTERRUPTED;
+            state.active = false;
+            state.endedAt = now();
+            state.updatedAt = state.endedAt;
+            state.rejectionReason = firstNonBlank(reason, "SESSION_INTERRUPTED");
+            state.firmwareReasonId = reasonId;
+            state.firmwareActionId = actionId;
+            state.recoveryStatus = SessionRecoveryStatus.NONE;
+            activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+            if (state.stopRequestId != null) {
+                sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
+            }
+            rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
+            lastAcceptedSeqBySessionId.remove(state.sessionId);
+            persistRuntimeState(state, true);
+            publishLifecycleUpdate(state);
+            logger.warn("Marked session {} for device {} as INTERRUPTED", state.sessionId, state.deviceId);
+            return true;
     }
 
     @Scheduled(fixedDelayString = "${resq.session.start-timeout-sweep-ms:1000}")
@@ -677,7 +1062,9 @@ public class ActiveSessionService {
                 state.active = false;
                 state.updatedAt = now;
                 state.rejectionReason = "START_ACK_TIMEOUT";
+                state.recoveryStatus = SessionRecoveryStatus.NONE;
                 activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+                persistRuntimeState(state, true);
                 publishLifecycleUpdate(state);
                 expired++;
                 logger.warn("Session {} for device {} timed out waiting for firmware ACK", state.sessionId, state.deviceId);
@@ -699,12 +1086,14 @@ public class ActiveSessionService {
                 state.endedAt = now;
                 state.updatedAt = now;
                 state.rejectionReason = "STOP_ACK_TIMEOUT";
+                state.recoveryStatus = SessionRecoveryStatus.NONE;
                 activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
                 if (state.stopRequestId != null) {
                     sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
                 }
                 rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
                 lastAcceptedSeqBySessionId.remove(state.sessionId);
+                persistRuntimeState(state, true);
                 publishLifecycleUpdate(state);
                 expired++;
                 logger.warn("Session {} for device {} timed out waiting for firmware stop ACK", state.sessionId, state.deviceId);
@@ -824,6 +1213,10 @@ public class ActiveSessionService {
         }
         state.latestMetric = metric;
         state.latestMetricReceivedAt = Instant.now();
+        state.updatedAt = now();
+        if (shouldCheckpoint(state)) {
+            persistRuntimeState(state, false);
+        }
         getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         logger.debug(
             "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, depthProgress={}, rateCpm={}, recoilOk={}, pauseS={})",
@@ -1031,7 +1424,9 @@ public class ActiveSessionService {
                 summary != null && summary.stale(),
                 summary == null || summary.offline(),
                 state.lifecycleState.name(),
-                state.stopRequestId != null ? state.stopRequestId : state.requestId
+                state.stopRequestId != null ? state.stopRequestId : state.requestId,
+                state.recoveryStatus.name(),
+                state.recoveryReason
         );
     }
 
@@ -1058,6 +1453,89 @@ public class ActiveSessionService {
         liveStreamService.publishSessionLive(state.sessionId, toSessionLiveView(state));
     }
 
+    private void persistRuntimeState(ActiveSessionState state, boolean forceSnapshot) {
+        if (sessionRuntimeRepository == null || state == null) {
+            return;
+        }
+
+        String snapshotJson = null;
+        if (forceSnapshot || shouldCheckpoint(state)) {
+            snapshotJson = serializeAccumulator(state.accumulator);
+            state.lastRuntimeCheckpointAt = now();
+            state.samplesAtLastRuntimeCheckpoint = state.accumulator.sampleCount();
+        } else {
+            snapshotJson = sessionRuntimeRepository.findBySessionId(state.sessionId)
+                    .map(DurableSessionRuntimeRecord::accumulatorSnapshotJson)
+                    .orElse(null);
+        }
+
+        DurableSessionRuntimeRecord record = new DurableSessionRuntimeRecord(
+                state.sessionId,
+                state.deviceId,
+                state.traineeId,
+                state.profileId,
+                state.scenario,
+                state.notes,
+                state.courseId,
+                state.instructorId,
+                state.lifecycleState,
+                state.active,
+                state.startedAt,
+                state.updatedAt != null ? state.updatedAt : state.startedAt,
+                state.endedAt,
+                state.requestId,
+                state.startedAt,
+                state.startDeadline,
+                state.stopRequestId,
+                state.stopRequestedAt,
+                state.stopDeadline,
+                state.rejectionReason,
+                state.firmwareReasonId,
+                state.firmwareActionId,
+                lastAcceptedSeqBySessionId.get(state.sessionId),
+                snapshotJson,
+                state.completedPersisted,
+                state.syncQueued,
+                state.recoveryStatus,
+                state.recoveryStartedAt,
+                state.recoveryDeadline,
+                state.recoveryReason
+        );
+        sessionRuntimeRepository.upsert(record);
+    }
+
+    private boolean shouldCheckpoint(ActiveSessionState state) {
+        int sampleCount = state.accumulator.sampleCount();
+        if (sampleCount <= 0) {
+            return false;
+        }
+        if (sampleCount - state.samplesAtLastRuntimeCheckpoint >= runtimeCheckpointSamples) {
+            return true;
+        }
+        return state.lastRuntimeCheckpointAt == null
+                || !state.lastRuntimeCheckpointAt.plusMillis(runtimeCheckpointMs).isAfter(now());
+    }
+
+    private String serializeAccumulator(SessionTelemetryAccumulator accumulator) {
+        try {
+            return objectMapper.writeValueAsString(accumulator.snapshot());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException error) {
+            throw new IllegalStateException("Failed to serialize session telemetry accumulator", error);
+        }
+    }
+
+    private AccumulatorSnapshot deserializeAccumulator(String json, String sessionId) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, AccumulatorSnapshot.class);
+        } catch (Exception error) {
+            logger.warn("Ignoring corrupt telemetry accumulator snapshot for recovered session {}: {}", sessionId, error.getMessage());
+            return null;
+        }
+    }
+
     private SessionStartResponse toStartResponse(ActiveSessionState state) {
         return new SessionStartResponse(
                 state.sessionId,
@@ -1071,7 +1549,8 @@ public class ActiveSessionService {
                 state.courseId,
                 state.instructorId,
                 state.requestId,
-                state.lifecycleState
+                state.lifecycleState,
+                state.recoveryStatus
         );
     }
 
@@ -1100,7 +1579,8 @@ public class ActiveSessionService {
                 state.active,
                 state.scenario,
                 state.notes,
-                state.lifecycleState
+                state.lifecycleState,
+                state.recoveryStatus
         );
     }
 
@@ -1125,7 +1605,8 @@ public class ActiveSessionService {
                 state.stopRequestedAt,
                 state.rejectionReason,
                 state.firmwareReasonId,
-                state.firmwareActionId
+                state.firmwareActionId,
+                state.recoveryStatus
         );
     }
 
@@ -1152,9 +1633,14 @@ public class ActiveSessionService {
     }
 
     private void finalizeCompletedStop(ActiveSessionState state, String reasonId, Integer actionId) {
-        if (state.completedPersisted) {
+        Optional<SessionEndResponse> existingCompletion = localSessionRepository.findById(state.sessionId);
+        if (state.completedPersisted || existingCompletion.isPresent()) {
             state.lifecycleState = SessionLifecycleState.COMPLETED;
             state.active = false;
+            state.completedPersisted = true;
+            state.syncQueued = syncQueueService.findSessionSummary(state.sessionId).isPresent();
+            state.recoveryStatus = SessionRecoveryStatus.NONE;
+            persistRuntimeState(state, true);
             return;
         }
 
@@ -1165,6 +1651,7 @@ public class ActiveSessionService {
         state.updatedAt = endedAt;
         state.firmwareReasonId = reasonId;
         state.firmwareActionId = actionId;
+        state.recoveryStatus = SessionRecoveryStatus.NONE;
         activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
         if (state.stopRequestId != null) {
             sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
@@ -1183,13 +1670,16 @@ public class ActiveSessionService {
         localSessionRepository.save(response);
         state.completedPersisted = true;
         try {
-            syncQueueService.enqueueSessionSummary(response);
+            if (syncQueueService.findSessionSummary(state.sessionId).isEmpty()) {
+                syncQueueService.enqueueSessionSummary(response);
+            }
             state.syncQueued = true;
             logger.info("Queued session {} for later cloud sync", state.sessionId);
         } catch (RuntimeException error) {
             logger.warn("Saved completed session {} locally but failed to queue it for cloud sync", state.sessionId, error);
         }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
+        persistRuntimeState(state, true);
         liveStreamService.publishSessionLive(state.sessionId, null);
         publishInstructorLiveSnapshot();
     }
@@ -1201,7 +1691,9 @@ public class ActiveSessionService {
         state.rejectionReason = reason;
         state.firmwareReasonId = reasonId;
         state.firmwareActionId = actionId;
+        state.recoveryStatus = SessionRecoveryStatus.NONE;
         activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+        persistRuntimeState(state, true);
         publishLifecycleUpdate(state);
     }
 
@@ -1212,15 +1704,20 @@ public class ActiveSessionService {
         state.rejectionReason = reason;
         state.firmwareReasonId = reasonId;
         state.firmwareActionId = actionId;
+        state.recoveryStatus = SessionRecoveryStatus.NONE;
         activeSessionIdByDeviceId.put(state.deviceId, state.sessionId);
         if (state.stopRequestId != null) {
             sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
         }
+        persistRuntimeState(state, true);
         publishLifecycleUpdate(state);
     }
 
     private static boolean acceptsSessionTelemetry(ActiveSessionState state) {
-        return state.active && (state.lifecycleState == SessionLifecycleState.ACTIVE || state.lifecycleState == SessionLifecycleState.STOP_PENDING);
+        return state.active
+                && state.recoveryStatus != SessionRecoveryStatus.PENDING
+                && state.recoveryStatus != SessionRecoveryStatus.CONFLICT
+                && (state.lifecycleState == SessionLifecycleState.ACTIVE || state.lifecycleState == SessionLifecycleState.STOP_PENDING);
     }
 
     private static boolean reservesAsActiveSession(SessionLifecycleState state) {
@@ -1312,6 +1809,12 @@ public class ActiveSessionService {
         private volatile boolean syncQueued;
         private volatile LiveMetricPayload latestMetric;
         private volatile Instant latestMetricReceivedAt;
+        private volatile SessionRecoveryStatus recoveryStatus = SessionRecoveryStatus.NONE;
+        private volatile Instant recoveryStartedAt;
+        private volatile Instant recoveryDeadline;
+        private volatile String recoveryReason;
+        private volatile Instant lastRuntimeCheckpointAt;
+        private volatile int samplesAtLastRuntimeCheckpoint;
 
         private ActiveSessionState(
                 String sessionId,
@@ -1368,6 +1871,28 @@ public class ActiveSessionService {
         private static TelemetryValidationResult rejected(String reason) {
             return new TelemetryValidationResult(false, reason, null, null);
         }
+    }
+
+    private record AccumulatorSnapshot(
+            int sampleCount,
+            int totalCompressions,
+            int validCompressions,
+            int depthSampleCount,
+            int depthProgressSampleCount,
+            int rateSampleCount,
+            double depthSumMm,
+            double depthProgressSum,
+            double rateSumCpm,
+            int recoilTrueCount,
+            int recoilFalseCount,
+            int pausesCount,
+            Double lastDepthMm,
+            Double lastDepthProgress,
+            Double lastRateCpm,
+            Boolean lastRecoilOk,
+            Double lastPauseS,
+            String latestFlags
+    ) {
     }
 
     private static final class SessionTelemetryAccumulator {
@@ -1482,6 +2007,53 @@ public class ActiveSessionService {
 
         private int sampleCount() {
             return sampleCount;
+        }
+
+        private AccumulatorSnapshot snapshot() {
+            return new AccumulatorSnapshot(
+                    sampleCount,
+                    totalCompressions,
+                    validCompressions,
+                    depthSampleCount,
+                    depthProgressSampleCount,
+                    rateSampleCount,
+                    depthSumMm,
+                    depthProgressSum,
+                    rateSumCpm,
+                    recoilTrueCount,
+                    recoilFalseCount,
+                    pausesCount,
+                    lastDepthMm,
+                    lastDepthProgress,
+                    lastRateCpm,
+                    lastRecoilOk,
+                    lastPauseS,
+                    latestFlags
+            );
+        }
+
+        private void restore(AccumulatorSnapshot snapshot) {
+            if (snapshot == null) {
+                return;
+            }
+            sampleCount = snapshot.sampleCount();
+            totalCompressions = snapshot.totalCompressions();
+            validCompressions = snapshot.validCompressions();
+            depthSampleCount = snapshot.depthSampleCount();
+            depthProgressSampleCount = snapshot.depthProgressSampleCount();
+            rateSampleCount = snapshot.rateSampleCount();
+            depthSumMm = snapshot.depthSumMm();
+            depthProgressSum = snapshot.depthProgressSum();
+            rateSumCpm = snapshot.rateSumCpm();
+            recoilTrueCount = snapshot.recoilTrueCount();
+            recoilFalseCount = snapshot.recoilFalseCount();
+            pausesCount = snapshot.pausesCount();
+            lastDepthMm = snapshot.lastDepthMm();
+            lastDepthProgress = snapshot.lastDepthProgress();
+            lastRateCpm = snapshot.lastRateCpm();
+            lastRecoilOk = snapshot.lastRecoilOk();
+            lastPauseS = snapshot.lastPauseS();
+            latestFlags = snapshot.latestFlags();
         }
 
         private SessionSummary toSummary(String sessionId, String deviceId, String traineeId, Instant startedAt, Instant endedAt) {

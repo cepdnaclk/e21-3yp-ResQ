@@ -91,6 +91,10 @@ public class SyncQueueService {
         return syncQueueRepository.findById(id);
     }
 
+    public java.util.Optional<SyncQueueItem> findSessionSummary(String sessionId) {
+        return syncQueueRepository.findByEntity(SyncEntityType.SESSION_SUMMARY, sessionId);
+    }
+
     public boolean requeueItem(String id) {
         return syncQueueRepository.requeue(id);
     }
