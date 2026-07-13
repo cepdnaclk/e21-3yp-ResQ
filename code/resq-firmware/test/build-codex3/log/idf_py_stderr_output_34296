@@ -1,0 +1,19 @@
+Command: cmake -G Ninja -B D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test\build-codex3 -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Users\ganat\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 -DCCACHE_ENABLE=False D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test
+Configuration Report                                                           
+ ───────────────────────────────────────────────────────────────────────────── 
+   Parser Version: 1                                                           
+   Verbosity: default                                                          
+   Defaults policy: sdkconfig                                                  
+   Status: Finished with notifications                                         
+                                                                               
+  Disabled Symbols/Choices With User-Set Value                                 
+   ─────────────────────────────────────────────────────────────────────────   
+    * IDF_TARGET (defined at C:/esp/v6.0/esp-idf/Kconfig:68) with user-set     
+    value esp32c3 from                                                         
+    C:\Users\ganat\AppData\Local\Temp\kconfgen_tmpifkvv49h                     
+    * PARTITION_TABLE_FILENAME (defined at                                     
+    C:/esp/v6.0/esp-idf/components/partition_table/Kconfig.projbuild:137)      
+    with user-set value partitions.csv from                                    
+    C:\Users\ganat\AppData\Local\Temp\kconfgen_tmpifkvv49h                     
+   ─────────────────────────────────────────────────────────────────────────   
+ ───────────────────────────────────────────────────────────────────────────── 

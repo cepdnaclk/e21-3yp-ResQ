@@ -15,12 +15,12 @@ extern "C" {
  * saved inside the config structures and NVS.
  * ========================================================= */
 
-#define RESQ_WIFI_SSID_MAX_LEN        32
-#define RESQ_WIFI_PASS_MAX_LEN        64
+#define RESQ_WIFI_SSID_MAX_LEN 32
+#define RESQ_WIFI_PASS_MAX_LEN 64
 #define RESQ_BACKEND_BASE_URL_MAX_LEN 128
-#define RESQ_MQTT_HOST_MAX_LEN        64
-#define RESQ_DEVICE_MAC_MAX_LEN       18
-#define RESQ_DEVICE_ID_MAX_LEN        32
+#define RESQ_MQTT_HOST_MAX_LEN 64
+#define RESQ_DEVICE_MAC_MAX_LEN 18
+#define RESQ_DEVICE_ID_MAX_LEN 32
 
 /* =========================================================
  * Network configuration
@@ -36,22 +36,21 @@ extern "C" {
  * 6. BOOT later loads this config from NVS.
  * ========================================================= */
 
-typedef struct
-{
-    char wifi_ssid[RESQ_WIFI_SSID_MAX_LEN];
-    char wifi_pass[RESQ_WIFI_PASS_MAX_LEN];
+typedef struct {
+  char wifi_ssid[RESQ_WIFI_SSID_MAX_LEN];
+  char wifi_pass[RESQ_WIFI_PASS_MAX_LEN];
 
-    char backend_base_url[RESQ_BACKEND_BASE_URL_MAX_LEN];
+  char backend_base_url[RESQ_BACKEND_BASE_URL_MAX_LEN];
 
-    bool provisioned;
+  bool provisioned;
 
 } network_config_t;
 
 typedef enum {
-    CALIBRATION_PRESSURE_REQUIRED = 0,
-    CALIBRATION_PRESSURE_OPTIONAL = 1,
-    CALIBRATION_HALL_ONLY = 2,
-    CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE = 3
+  CALIBRATION_PRESSURE_REQUIRED = 0,
+  CALIBRATION_PRESSURE_OPTIONAL = 1,
+  CALIBRATION_HALL_ONLY = 2,
+  CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE = 3
 } calibration_pressure_mode_t;
 
 /* =========================================================
@@ -68,66 +67,65 @@ typedef enum {
  * 6. Firmware validates this structure and saves it to NVS.
  * ========================================================= */
 
-typedef struct
-{
-    int32_t hall_baseline;          // measured by firmware at rest position
-    int32_t hall_delta;             // received from LocalHub
-    int32_t hall_full_press;        // calculated by firmware: hall_baseline - hall_delta
+typedef struct {
+  int32_t hall_baseline;   // measured by firmware at rest position
+  int32_t hall_delta;      // averaged ADC counts parsed from LocalHub
+  int32_t hall_full_press; // calculated by firmware: hall_baseline - hall_delta
 
-    int32_t ref_pressure;           // received from LocalHub, checked using sensor 0
+  int32_t ref_pressure; // received from LocalHub, checked using sensor 0
 
-    int32_t bladder_1_pressure;     // received from LocalHub
-    int32_t bladder_2_pressure;     // received from LocalHub
+  int32_t bladder_1_pressure; // received from LocalHub
+  int32_t bladder_2_pressure; // received from LocalHub
 
-    int32_t bladder_1_full_press;   // measured by firmware at full compression
-    int32_t bladder_2_full_press;   // measured by firmware at full compression
+  int32_t bladder_1_full_press; // measured by firmware at full compression
+  int32_t bladder_2_full_press; // measured by firmware at full compression
 
-    bool calibrated;                // becomes true if all values are valid and present
+  bool calibrated; // becomes true if all values are valid and present
 
-    /* New adaptive calibration fields (preserve above fields for backwards
-     * compatibility). These values are derived from sampled statistics during
-     * calibration and used at runtime for adaptive thresholds. */
-    char profile_id[32];
+  /* New adaptive calibration fields (preserve above fields for backwards
+   * compatibility). These values are derived from sampled statistics during
+   * calibration and used at runtime for adaptive thresholds. */
+  char profile_id[32];
 
-    int32_t hall_noise_raw;
-    int32_t hall_direction; /* +1 or -1 */
-    int32_t hall_range_raw;
-    int32_t hall_start_delta;
-    int32_t hall_full_delta_threshold;
-    int32_t hall_recoil_delta;
-    int32_t hall_tolerance_raw;
+  int32_t hall_noise_raw;
+  int32_t hall_direction; /* +1 or -1 */
+  int32_t hall_range_raw;
+  int32_t hall_start_delta;
+  int32_t hall_full_delta_threshold;
+  int32_t hall_recoil_delta;
+  int32_t hall_tolerance_raw;
 
-    int32_t pressure_0_baseline;
-    int32_t pressure_1_baseline;
-    int32_t pressure_2_baseline;
+  int32_t pressure_0_baseline;
+  int32_t pressure_1_baseline;
+  int32_t pressure_2_baseline;
 
-    float pressure_0_kpa_per_count;
-    float pressure_1_kpa_per_count;
-    float pressure_2_kpa_per_count;
+  float pressure_0_kpa_per_count;
+  float pressure_1_kpa_per_count;
+  float pressure_2_kpa_per_count;
 
-    int32_t pressure_0_noise_raw;
-    int32_t pressure_1_noise_raw;
-    int32_t pressure_2_noise_raw;
+  int32_t pressure_0_noise_raw;
+  int32_t pressure_1_noise_raw;
+  int32_t pressure_2_noise_raw;
 
-    int32_t pressure_1_range_raw;
-    int32_t pressure_2_range_raw;
+  int32_t pressure_1_range_raw;
+  int32_t pressure_2_range_raw;
 
-    int32_t pressure_contact_threshold;
-    int32_t pressure_valid_threshold;
-    int32_t pressure_balance_allowed_pct;
+  int32_t pressure_contact_threshold;
+  int32_t pressure_valid_threshold;
+  int32_t pressure_balance_allowed_pct;
 
-    calibration_pressure_mode_t pressure_mode;
-    bool pressure_degraded;
-    bool using_last_stable_pressure;
-    bool pressure_valid;
-    bool hall_valid;
+  calibration_pressure_mode_t pressure_mode;
+  bool pressure_degraded;
+  bool using_last_stable_pressure;
+  bool pressure_valid;
+  bool hall_valid;
 
-    float full_depth_mm;
+  float full_depth_mm;
 
-    int32_t calibration_sample_count;
-    int32_t calibration_window_ms;
+  int32_t calibration_sample_count;
+  int32_t calibration_window_ms;
 
-    int64_t calibrated_at_ms;
+  int64_t calibrated_at_ms;
 
 } calibration_config_t;
 
@@ -165,6 +163,18 @@ bool network_config_validate(network_config_t *config);
  *   config->calibrated = false
  */
 bool calibration_config_validate(calibration_config_t *config);
+
+/**
+ * @brief Return true when a requested runtime profile can use the
+ * calibration.
+ *
+ * Empty calibration profile IDs mean the calibration is
+ * profile-agnostic. A
+ * non-empty calibration profile requires a non-empty
+ * exact profile match.
+ */
+bool calibration_profile_matches(const calibration_config_t *config,
+                                 const char *profile_id);
 
 #ifdef __cplusplus
 }

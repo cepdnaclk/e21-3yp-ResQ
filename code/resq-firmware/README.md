@@ -276,6 +276,31 @@ Commands use a non-empty `request_id`. Legacy `command_id` is accepted in a
 small number of parsing paths for compatibility, but new clients should send
 `request_id`.
 
+The firmware subscribes to `cmd/#` at QoS 1. ESP-MQTT DATA fragments are
+reassembled by `total_data_len` and `current_data_offset`; payloads larger than
+the bounded command buffer are rejected rather than truncated.
+
+`cmd/calibration/start` stores `hall_delta` internally as
+`hall_delta_adc_counts`: the absolute Hall movement from the captured baseline
+in averaged raw ADC counts. New clients should send the averaged value directly,
+for example `"hall_delta":675`. If a client sends an accumulated value, it must
+also send the sample count, either as `"hall_delta_sum":13500,
+"hall_delta_sample_count":20` or the compatible `"hall_delta":13500,
+"hall_delta_sample_count":20` form. The firmware converts that explicit sum to
+`675` once at parse time. Values outside the raw or declared accumulated range
+are NACKed and are never clamped.
+
+The optional `pressure_mode` field accepts `REQUIRED`, `OPTIONAL`, or
+`HALL_ONLY` (or the matching numeric enum values 0, 1, and 2). Required mode
+needs positive reference and bladder pressure targets. Optional mode attempts
+pressure validation when usable targets and sensors are available, then falls
+back to Hall-only data if pressure is saturated or unavailable. Hall-only mode
+skips all pressure target waits.
+
+`cmd/session/start` must use the same `profile_id` as the saved calibration
+profile when a calibration profile is present. A mismatch returns a NACK before
+session resources are acquired.
+
 There is no MQTT turn-off command. TURN_OFF is owned by BUTTON_1 long press.
 The `cmd/system/*` commands are ERROR-state recovery controls, not general
 commands for healthy idle states.
