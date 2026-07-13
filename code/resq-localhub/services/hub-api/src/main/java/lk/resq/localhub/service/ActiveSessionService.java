@@ -15,6 +15,7 @@ import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.model.SessionSummary;
+import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import lk.resq.localhub.model.firmware.FirmwareRequestIds;
 import org.slf4j.Logger;
@@ -159,7 +160,7 @@ public class ActiveSessionService {
             throw new IllegalArgumentException("deviceId is required");
         }
 
-        validateStartAvailability(deviceId);
+        String profileId = validateStartAvailability(deviceId, request.profileId());
 
         rateEstimatorRegistry.clearForDevice(deviceId);
         String traineeId = resolveTraineeId(request);
@@ -167,6 +168,7 @@ public class ActiveSessionService {
         return createPendingStart(
                 deviceId,
                 traineeId,
+                profileId,
                 normalize(request.scenario()),
                 normalize(request.notes()),
                 request.courseId(),
@@ -180,7 +182,7 @@ public class ActiveSessionService {
             throw new IllegalArgumentException("deviceId is required");
         }
 
-        validateStartAvailability(deviceId);
+        String profileId = validateStartAvailability(deviceId, request.profileId());
 
         if (actor == null) {
             throw new UnauthorizedException("Authentication is required.");
@@ -225,6 +227,7 @@ public class ActiveSessionService {
         return createPendingStart(
                 deviceId,
                 traineeId,
+                profileId,
                 normalize(request.scenario()),
                 normalize(request.notes()),
                 courseId,
@@ -232,7 +235,12 @@ public class ActiveSessionService {
         );
     }
 
-    private void validateStartAvailability(String deviceId) {
+    private String validateStartAvailability(String deviceId, String requestedProfileId) {
+        String profileId = normalize(requestedProfileId);
+        if (profileId == null) {
+            throw new IllegalArgumentException("profileId is required");
+        }
+
         String existingSessionId = activeSessionIdByDeviceId.get(deviceId);
         if (existingSessionId != null) {
             ActiveSessionState existing = sessionsById.get(existingSessionId);
@@ -245,15 +253,38 @@ public class ActiveSessionService {
             throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
         }
 
+        DeviceRuntimeState runtimeState = deviceReadinessService.findRuntimeState(deviceId).orElse(null);
+        String calibratedProfileId = normalize(runtimeState == null ? null : runtimeState.calibrationProfileId());
+        if (calibratedProfileId == null) {
+            throw new CalibrationProfileValidationException(
+                    "CALIBRATION_PROFILE_UNKNOWN",
+                    deviceId,
+                    profileId,
+                    null,
+                    "Cannot verify the calibrated profile for device " + deviceId + ". Run calibration before starting a session."
+            );
+        }
+        if (!calibratedProfileId.equals(profileId)) {
+            throw new CalibrationProfileValidationException(
+                    "CALIBRATION_PROFILE_MISMATCH",
+                    deviceId,
+                    profileId,
+                    calibratedProfileId,
+                    "Requested profile " + profileId + " does not match calibrated profile " + calibratedProfileId + " for device " + deviceId + "."
+            );
+        }
+
         firmwareCalibrationService.sessionStartBlockReason(deviceId)
                 .ifPresent(reason -> {
                     throw new IllegalStateException(reason);
                 });
+        return profileId;
     }
 
     private SessionStartResponse createPendingStart(
             String deviceId,
             String traineeId,
+            String profileId,
             String scenario,
             String notes,
             String courseId,
@@ -268,6 +299,7 @@ public class ActiveSessionService {
                 traineeId,
                 now,
                 false,
+                profileId,
                 scenario,
                 notes,
                 null,
@@ -289,6 +321,7 @@ public class ActiveSessionService {
                     deviceId,
                     state.traineeId,
                     now,
+                    state.profileId,
                     state.scenario,
                     requestId
             ));
@@ -781,6 +814,7 @@ public class ActiveSessionService {
                 state.traineeId,
                 state.active,
                 state.startedAt,
+                state.profileId,
                 state.scenario,
                 state.notes,
                 state.latestMetricReceivedAt != null
@@ -843,6 +877,7 @@ public class ActiveSessionService {
                 state.traineeId,
                 state.startedAt,
                 state.active,
+                state.profileId,
                 state.scenario,
                 state.notes,
                 state.courseId,
@@ -978,6 +1013,7 @@ public class ActiveSessionService {
         private final String deviceId;
         private final String traineeId;
         private final Instant startedAt;
+        private final String profileId;
         private final String scenario;
         private final String notes;
         private final SessionTelemetryAccumulator accumulator;
@@ -1001,6 +1037,7 @@ public class ActiveSessionService {
                 String traineeId,
                 Instant startedAt,
                 boolean active,
+                String profileId,
                 String scenario,
                 String notes,
                 Instant endedAt,
@@ -1015,6 +1052,7 @@ public class ActiveSessionService {
             this.traineeId = traineeId;
             this.startedAt = startedAt;
             this.active = active;
+            this.profileId = profileId;
             this.scenario = scenario;
             this.notes = notes;
             this.endedAt = endedAt;

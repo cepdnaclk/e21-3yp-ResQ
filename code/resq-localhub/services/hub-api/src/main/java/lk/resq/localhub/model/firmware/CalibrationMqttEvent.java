@@ -112,21 +112,51 @@ public record CalibrationMqttEvent(
                 firmwareState,
                 tsMs,
                 receivedAt,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
                 null
+        );
+    }
+
+    public CalibrationMqttEvent(
+            String deviceId,
+            Integer eventId,
+            String replyId,
+            String status,
+            Integer progressId,
+            String result,
+            String reasonId,
+            Integer actionId,
+            String firmwareState,
+            Long tsMs,
+            Instant receivedAt,
+            String profileId
+    ) {
+        this(
+                deviceId,
+                eventId,
+                replyId,
+                status,
+                progressId,
+                result,
+                reasonId,
+                actionId,
+                firmwareState,
+                tsMs,
+                receivedAt,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                profileId
         );
     }
 }

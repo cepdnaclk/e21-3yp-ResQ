@@ -8,6 +8,7 @@ public record SessionStartResponse(
         String traineeId,
         Instant startedAt,
         boolean active,
+        String profileId,
         String scenario,
         String notes,
         String courseId,
@@ -26,7 +27,7 @@ public record SessionStartResponse(
             String courseId,
             String instructorId
     ) {
-        this(sessionId, deviceId, traineeId, startedAt, active, scenario, notes, courseId, instructorId, null,
+        this(sessionId, deviceId, traineeId, startedAt, active, null, scenario, notes, courseId, instructorId, null,
                 active ? SessionLifecycleState.ACTIVE : null);
     }
 

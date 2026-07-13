@@ -9,6 +9,7 @@ public record SessionLiveView(
         String traineeId,
         boolean active,
         Instant startedAt,
+        String profileId,
         String scenario,
         String notes,
         Instant lastSeen,
@@ -70,7 +71,7 @@ public record SessionLiveView(
             boolean stale,
             boolean offline
     ) {
-        this(sessionId, deviceId, manikinId, traineeId, active, startedAt, scenario, notes, lastSeen, state, online,
+        this(sessionId, deviceId, manikinId, traineeId, active, startedAt, null, scenario, notes, lastSeen, state, online,
                 ip, fw, rssi, battery, sessionActive, latestDepthMm, latestRateCpm, latestRecoilOk, latestPauseS,
                 latestFlags, lastEventType, latestForce1, latestForce2, pressureBalancePct, pressureSkewed,
                 latestMetric, seq, connectionState, stale, offline, active ? "ACTIVE" : null, null);

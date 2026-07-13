@@ -99,6 +99,7 @@ vi.mock("../lib/sensorStreamClient", () => ({
 
 const baseManikin = {
   deviceId: "MAN-01",
+  profileId: "adult-basic",
   online: true,
   lastSeen: new Date().toISOString(),
   state: "ready",
@@ -254,6 +255,7 @@ describe("InstructorDashboard", () => {
         deviceId: "MAN-01",
         courseId: "course-101",
         traineeId: "trainee-man-01",
+        profileId: "adult-basic",
         scenario: null,
         notes: null,
       });

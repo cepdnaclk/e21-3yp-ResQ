@@ -151,12 +151,20 @@ export function InstructorDashboardPage({
 
     setStartLoading(true);
     setStartError(null);
+    const selectedDevice = manikins.find((m) => m.deviceId === startingForDevice);
+    const profileId = selectedDevice?.profileId ?? null;
+    if (!profileId) {
+      setStartError("Calibrated profile is unavailable. Run calibration before starting.");
+      setStartLoading(false);
+      return;
+    }
 
     try {
       const res = await startSession({
         deviceId: startingForDevice,
         courseId: selectedCourseId,
         traineeId: selectedTraineeId,
+        profileId,
         scenario: selectedScenario,
         notes: notes,
       });
@@ -173,6 +181,9 @@ export function InstructorDashboardPage({
   }
 
   const isModalDeviceReady = startingForDevice ? (readinessByDeviceId[startingForDevice]?.readyForSession === true) : false;
+  const modalProfileId = startingForDevice
+    ? manikins.find((m) => m.deviceId === startingForDevice)?.profileId ?? null
+    : null;
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -322,6 +333,15 @@ export function InstructorDashboardPage({
 
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Calibration Profile
+                </label>
+                <div className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50">
+                  {modalProfileId ?? "Unavailable"}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                   Scenario
                 </label>
                 <input
@@ -352,7 +372,7 @@ export function InstructorDashboardPage({
 
               {!isModalDeviceReady && (
                 <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 leading-normal text-center">
-                  Run calibration before starting a CPR session.
+                  {modalProfileId ? "Run calibration before starting a CPR session." : "Run calibration before starting a CPR session so the profile is available."}
                 </div>
               )}
 
@@ -367,7 +387,7 @@ export function InstructorDashboardPage({
                 <Button
                   type="submit"
                   loading={startLoading}
-                  disabled={startLoading || !isModalDeviceReady}
+                  disabled={startLoading || !isModalDeviceReady || !modalProfileId}
                 >
                   Start Live Session
                 </Button>

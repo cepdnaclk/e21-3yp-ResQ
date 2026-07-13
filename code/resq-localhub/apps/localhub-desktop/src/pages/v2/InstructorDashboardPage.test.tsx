@@ -34,6 +34,7 @@ vi.mock("../../api/liveEventsClient", () => ({
 
 const mockManikin = {
   deviceId: "MAN-01",
+  profileId: "adult-basic",
   online: true,
   lastSeen: new Date().toISOString(),
   state: "READY_FOR_SESSION",

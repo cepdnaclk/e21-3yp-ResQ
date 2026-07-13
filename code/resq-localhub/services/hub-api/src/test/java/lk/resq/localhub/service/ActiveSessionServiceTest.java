@@ -1,5 +1,4 @@
 package lk.resq.localhub.service;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionEndRequest;
@@ -25,14 +24,10 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 class ActiveSessionServiceTest {
-
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-
     @Test
     void validatesTelemetryAgainstActiveSessionAndDeviceBinding() throws Exception {
         ActiveSessionService service = newService();
@@ -41,7 +36,9 @@ class ActiveSessionServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Validation smoke",
                 null
         ));
@@ -52,7 +49,6 @@ class ActiveSessionServiceTest {
         assertThat(accepted.accepted()).isTrue();
         assertThat(accepted.sessionId()).isEqualTo(session.sessionId());
         assertThat(accepted.deviceId()).isEqualTo("M01");
-
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", "S-WRONG", 1, 52, 110)), "session is not active");
         assertRejected(service.validateTelemetryBinding("M02", valid), "payload deviceId does not match MQTT topic deviceId");
         assertThat(service.validateTelemetryBinding("M01", telemetryWithoutSession("M01")).accepted()).isTrue();
@@ -66,7 +62,6 @@ class ActiveSessionServiceTest {
                 }
                 """.formatted(session.sessionId()))), "required metric-first fields");
     }
-
     @Test
     void acceptsNormalizedMetricFirstAndLegacyRawTelemetry() throws Exception {
         ActiveSessionService service = newService();
@@ -75,7 +70,9 @@ class ActiveSessionServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Compatibility smoke",
                 null
         ));
@@ -101,7 +98,6 @@ class ActiveSessionServiceTest {
                 """.formatted(session.sessionId()));
         assertThat(service.validateTelemetryBinding("M01", metricFirst).accepted()).isTrue();
         service.recordTelemetry("M01", metricFirst);
-
         JsonNode legacyRaw = objectMapper.readTree("""
                 {
                   "device_id": "M01",
@@ -117,7 +113,6 @@ class ActiveSessionServiceTest {
                 """.formatted(session.sessionId()));
         assertThat(service.validateTelemetryBinding("M01", legacyRaw).accepted()).isTrue();
     }
-
     @Test
     void countsFirmwareTelemetryWithDepthProgressWithoutTreatingItAsMillimeters() throws Exception {
         ActiveSessionService service = newService();
@@ -126,7 +121,9 @@ class ActiveSessionServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Depth progress smoke",
                 null
         ));
@@ -146,10 +143,8 @@ class ActiveSessionServiceTest {
                   "flags": "DEPTH_OK,RATE_OK,RECOIL_OK"
                 }
                 """.formatted(session.sessionId()));
-
         assertThat(service.validateTelemetryBinding("M01", firmwareTelemetry).accepted()).isTrue();
         service.recordTelemetry("M01", firmwareTelemetry);
-
         var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
         assertThat(liveView.latestDepthMm()).isEqualTo(39.0);
         assertThat(liveView.latestRateCpm()).isEqualTo(111.0);
@@ -157,7 +152,6 @@ class ActiveSessionServiceTest {
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.78);
         assertThat(liveView.latestMetric().depthOk()).isTrue();
         assertThat(liveView.latestMetric().compressionCount()).isEqualTo(1);
-
         SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
         assertThat(completed.summary().sampleCount()).isEqualTo(1);
         assertThat(completed.summary().totalCompressions()).isEqualTo(1);
@@ -169,7 +163,6 @@ class ActiveSessionServiceTest {
         assertThat(completed.summary().incompleteRecoilCount()).isEqualTo(0);
         assertThat(completed.summary().latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
     }
-
     @Test
     void replacesSessionLiveMetricOnEveryAcceptedTelemetryUpdate() throws Exception {
         ActiveSessionService service = newService();
@@ -178,7 +171,9 @@ class ActiveSessionServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Live update smoke",
                 null
         ));
@@ -210,7 +205,6 @@ class ActiveSessionServiceTest {
                   "pressure_balance_pct": 73.5
                 }
                 """.formatted(session.sessionId())));
-
         var liveView = service.getSessionLiveView(session.sessionId()).orElseThrow();
         assertThat(liveView.latestMetric().tsMs()).isEqualTo(200L);
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(1.0);
@@ -219,7 +213,6 @@ class ActiveSessionServiceTest {
         assertThat(liveView.latestMetric().pressureBalancePct()).isEqualTo(73.5);
         assertThat(liveView.pressureBalancePct()).isEqualTo(73.5);
     }
-
     @Test
     void countsDepthMillimetersAndDepthProgressIndependently() throws Exception {
         ActiveSessionService service = newService();
@@ -228,7 +221,9 @@ class ActiveSessionServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Depth smoke",
                 null
         ));
@@ -246,10 +241,8 @@ class ActiveSessionServiceTest {
                   "flags": "DEPTH_OK"
                 }
                 """.formatted(session.sessionId()));
-
         assertThat(service.validateTelemetryBinding("M01", telemetry).accepted()).isTrue();
         service.recordTelemetry("M01", telemetry);
-
         SessionEndResponse completed = service.endSession(new SessionEndRequest(session.sessionId()));
         assertThat(completed.summary().sampleCount()).isEqualTo(1);
         assertThat(completed.summary().totalCompressions()).isEqualTo(3);
@@ -260,7 +253,6 @@ class ActiveSessionServiceTest {
         assertThat(completed.summary().recoilOkCount()).isEqualTo(1);
         assertThat(completed.summary().incompleteRecoilCount()).isEqualTo(0);
     }
-
     @Test
     void rejectsEndedSessionAndNonIncreasingSeq() throws Exception {
         ActiveSessionService service = newService();
@@ -269,7 +261,9 @@ class ActiveSessionServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Validation smoke",
                 null
         ));
@@ -277,13 +271,10 @@ class ActiveSessionServiceTest {
 
         JsonNode first = telemetry("M01", session.sessionId(), 1, 52, 110);
         service.recordTelemetry("M01", first);
-
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 1, 53, 111)), "seq is not newer");
-
         service.endSession(new SessionEndRequest(session.sessionId()));
         assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 54, 112)), "session is not active");
     }
-
     @Test
     void blocksSessionStartForKnownNotReadyFirmwareDevice() throws Exception {
         ServiceFixture fixture = newServiceFixture();
@@ -295,19 +286,19 @@ class ActiveSessionServiceTest {
                   "calibrated": false
                 }
                 """));
-
         assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
                 "M01",
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Blocked readiness",
                 null
         ))).isInstanceOf(CalibrationNotReadyException.class)
                 .hasMessageContaining("Run calibration before starting a CPR session.");
     }
-
     @Test
     void allowsSessionStartWhenFirmwareIsReadyDespiteFailedCalibration() throws Exception {
         ServiceFixture fixture = newServiceFixture();
@@ -337,23 +328,90 @@ class ActiveSessionServiceTest {
                   "calibrated": true
                 }
                 """));
-
         SessionStartResponse session = fixture.service.startSession(new SessionStartRequest(
                 "M01",
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Ready firmware",
                 null
         ));
-
         assertThat(session.deviceId()).isEqualTo("M01");
         assertThat(session.active()).isFalse();
         assertThat(session.state()).isEqualTo(SessionLifecycleState.START_PENDING);
         assertThat(session.requestId()).isNotBlank();
+        assertThat(session.profileId()).isEqualTo("adult-basic");
+        assertThat(session.scenario()).isEqualTo("Ready firmware");
+        assertThat(fixture.commandPublisher.publishedSessionStarts).singleElement().satisfies(payload -> {
+            assertThat(payload.profileId()).isEqualTo("adult-basic");
+            assertThat(payload.scenario()).isEqualTo("Ready firmware");
+        });
     }
 
+    @Test
+    void profileMismatchIsRejectedBeforeReservationOrPublish() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                null,
+                "Guest",
+                "child-basic",
+                "Mismatch",
+                null
+        ))).isInstanceOf(CalibrationProfileValidationException.class)
+                .hasMessageContaining("does not match calibrated profile adult-basic");
+        assertThat(fixture.commandPublisher.publishedSessionStarts).isEmpty();
+        assertThat(fixture.service.findActiveSessionForDevice("M01")).isEmpty();
+    }
+
+    @Test
+    void missingProfileIsRejectedBeforePublish() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                null,
+                "Guest",
+                null,
+                "Missing profile",
+                null
+        ))).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("profileId is required");
+        assertThat(fixture.commandPublisher.publishedSessionStarts).isEmpty();
+    }
+
+    @Test
+    void unknownRuntimeProfileIsRejectedBeforePublish() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        fixture.readinessService.handleStatus("M03", objectMapper.readTree("""
+                {
+                  "state": "READY_FOR_SESSION",
+                  "calibrated": true,
+                  "session_active": false
+                }
+                """));
+        assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
+                "M03",
+                null,
+                null,
+                null,
+                null,
+                "Guest",
+                "adult-basic",
+                "Unknown profile",
+                null
+        ))).isInstanceOf(CalibrationProfileValidationException.class)
+                .hasMessageContaining("Cannot verify the calibrated profile");
+        assertThat(fixture.commandPublisher.publishedSessionStarts).isEmpty();
+    }
     @Test
     void sessionStartBlockedWhenReadinessUnknown() throws Exception {
         ServiceFixture fixture = newServiceFixture();
@@ -363,13 +421,14 @@ class ActiveSessionServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Blocked unknown",
                 null
         ))).isInstanceOf(CalibrationNotReadyException.class)
                 .hasMessageContaining("Run calibration before starting a CPR session.");
     }
-
     @Test
     void sessionStartBlockedWhenReadinessFailed() throws Exception {
         ServiceFixture fixture = newServiceFixture();
@@ -385,21 +444,36 @@ class ActiveSessionServiceTest {
                 0,
                 "CALIBRATION_FAIL",
                 100L,
-                Instant.now()
+                Instant.now(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "adult-basic"
         ));
-
         assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
                 "M01",
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Blocked failed",
                 null
         ))).isInstanceOf(CalibrationNotReadyException.class)
                 .hasMessageContaining("Run calibration before starting a CPR session.");
     }
-
     @Test
     void sessionStartBlockedWhenReadinessCalibrating() throws Exception {
         ServiceFixture fixture = newServiceFixture();
@@ -415,32 +489,48 @@ class ActiveSessionServiceTest {
                 0,
                 "CALIBRATING",
                 101L,
-                Instant.now()
+                Instant.now(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "child-basic"
         ));
-
         assertThatThrownBy(() -> fixture.service.startSession(new SessionStartRequest(
                 "M01",
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Blocked calibrating",
                 null
         ))).isInstanceOf(CalibrationNotReadyException.class)
                 .hasMessageContaining("Run calibration before starting a CPR session.");
     }
-
     @Test
     void sessionStartAllowedWhenReadinessReady() throws Exception {
         ServiceFixture fixture = newServiceFixture();
         // M01 is pre-configured as READY in fixture setup
-
         SessionStartResponse session = fixture.service.startSession(new SessionStartRequest(
                 "M01",
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "Allowed check",
                 null
         ));
@@ -532,7 +622,6 @@ class ActiveSessionServiceTest {
         assertThat(fixture.service.findSessionStart(pending.sessionId()).orElseThrow().state())
                 .isEqualTo(SessionLifecycleState.START_TIMEOUT);
     }
-
     @Test
     void noMqttSessionStartPublishedWhenCalibrationNotReady() throws Exception {
         CapturingMqttCommandPublisherService commandPublisher = new CapturingMqttCommandPublisherService();
@@ -565,7 +654,6 @@ class ActiveSessionServiceTest {
                 new CloudSessionSummaryPayloadMapper()
         );
         DeviceReadinessService readinessService = new DeviceReadinessService();
-
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
@@ -578,20 +666,19 @@ class ActiveSessionServiceTest {
                 new RateEstimatorRegistry(),
                 readinessService
         );
-
         assertThatThrownBy(() -> service.startSession(new SessionStartRequest(
                 "M03",
                 null,
                 null,
                 null,
+                null,
                 "Guest",
+                "adult-basic",
                 "MQTT Blocked check",
                 null
         ))).isInstanceOf(CalibrationNotReadyException.class);
-
         assertThat(commandPublisher.publishStartCount).isEqualTo(0);
     }
-
     private ActiveSessionService newService() throws Exception {
         return newServiceFixture().service;
     }
@@ -601,7 +688,7 @@ class ActiveSessionServiceTest {
     }
 
     private ServiceFixture newServiceFixture(Clock clock, long startAckTimeoutMs) throws Exception {
-        MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService();
+        NoopMqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService();
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
@@ -643,7 +730,8 @@ class ActiveSessionServiceTest {
                 0,
                 "READY_FOR_SESSION",
                 100L,
-                Instant.now()
+                Instant.now(),
+                "adult-basic"
         ));
         readinessService.handleCalibrationEvent("M02", new CalibrationMqttEvent(
                 "M02",
@@ -656,9 +744,9 @@ class ActiveSessionServiceTest {
                 0,
                 "READY_FOR_SESSION",
                 100L,
-                Instant.now()
+                Instant.now(),
+                "child-basic"
         ));
-
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
@@ -673,13 +761,12 @@ class ActiveSessionServiceTest {
                 startAckTimeoutMs,
                 clock
         );
-        return new ServiceFixture(service, registry, firmwareRepository, readinessService);
+        return new ServiceFixture(service, registry, firmwareRepository, readinessService, commandPublisher);
     }
 
     private static SessionStartRequest startRequest(String deviceId) {
-        return new SessionStartRequest(deviceId, null, null, null, "Guest", "Lifecycle", null);
+        return new SessionStartRequest(deviceId, null, null, null, null, "Guest", "adult-basic", "Lifecycle", null);
     }
-
     private JsonNode telemetry(String deviceId, String sessionId, long seq, double depthMm, double rateCpm) throws Exception {
         return objectMapper.readTree("""
                 {
@@ -696,7 +783,6 @@ class ActiveSessionServiceTest {
                 }
                 """.formatted(deviceId, sessionId, seq, depthMm, rateCpm));
     }
-
     private JsonNode telemetryWithoutSession(String deviceId) throws Exception {
         return objectMapper.readTree("""
                 {
@@ -722,70 +808,60 @@ class ActiveSessionServiceTest {
         assertThat(service.findSessionStart(session.sessionId()).orElseThrow().state())
                 .isEqualTo(SessionLifecycleState.ACTIVE);
     }
-
     private void assertRejected(ActiveSessionService.TelemetryValidationResult result, String reasonFragment) {
         assertThat(result.accepted()).isFalse();
         assertThat(result.reason()).contains(reasonFragment);
     }
-
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {
+        private final List<SessionStartCommandPayload> publishedSessionStarts = new java.util.ArrayList<>();
+
         private NoopMqttCommandPublisherService() {
             super(new ObjectMapper(), "tcp://127.0.0.1:1", "test");
         }
-
         @Override
         public void publishSessionStart(SessionStartCommandPayload payload) {
+            publishedSessionStarts.add(payload);
         }
-
         @Override
         public void publishSessionStop(SessionStopCommandPayload payload) {
         }
     }
-
     private static final class InMemoryLocalSessionRepository extends LocalSessionRepository {
         private SessionEndResponse lastSaved;
-
         private InMemoryLocalSessionRepository() {
             super("target/active-session-service-test.sqlite");
         }
-
         @Override
         public synchronized void save(SessionEndResponse session) {
             lastSaved = session;
         }
-
         @Override
         public synchronized Optional<SessionEndResponse> findById(String sessionId) {
             return lastSaved != null && lastSaved.sessionId().equals(sessionId) ? Optional.of(lastSaved) : Optional.empty();
         }
-
         @Override
         public synchronized List<SessionEndResponse> findAll() {
             return lastSaved == null ? List.of() : List.of(lastSaved);
         }
     }
-
     private static final class NoopLiveStreamService extends LiveStreamService {
         @Override
         public void publishSessionLive(String sessionId, lk.resq.localhub.model.SessionLiveView payload) {
         }
     }
-
     private record ServiceFixture(
             ActiveSessionService service,
             ManikinRegistryService registry,
             FirmwarePersistenceRepository repository,
-            DeviceReadinessService readinessService
+            DeviceReadinessService readinessService,
+            NoopMqttCommandPublisherService commandPublisher
     ) {
     }
-
     private static final class CapturingMqttCommandPublisherService extends MqttCommandPublisherService {
         private int publishStartCount = 0;
-
         private CapturingMqttCommandPublisherService() {
             super(new ObjectMapper(), "tcp://127.0.0.1:1", "test");
         }
-
         @Override
         public void publishSessionStart(SessionStartCommandPayload payload) {
             publishStartCount++;

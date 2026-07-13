@@ -4,6 +4,7 @@ import lk.resq.localhub.model.ApiErrorResponse;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.UnauthorizedException;
 import lk.resq.localhub.service.CalibrationNotReadyException;
+import lk.resq.localhub.service.CalibrationProfileValidationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -30,6 +31,17 @@ public class ApiExceptionHandler {
                 "error", "CALIBRATION_NOT_READY",
                 "message", error.getMessage(),
                 "deviceId", error.getDeviceId()
+        ));
+    }
+
+    @ExceptionHandler(CalibrationProfileValidationException.class)
+    public ResponseEntity<?> handleCalibrationProfileValidation(CalibrationProfileValidationException error) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", error.getCode(),
+                "message", error.getMessage(),
+                "deviceId", error.getDeviceId(),
+                "requestedProfileId", error.getRequestedProfileId() != null ? error.getRequestedProfileId() : "",
+                "calibratedProfileId", error.getCalibratedProfileId() != null ? error.getCalibratedProfileId() : ""
         ));
     }
 }

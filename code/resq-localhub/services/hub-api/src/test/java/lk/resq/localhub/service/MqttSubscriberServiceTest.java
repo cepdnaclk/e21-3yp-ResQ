@@ -1,5 +1,4 @@
 package lk.resq.localhub.service;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
@@ -19,25 +18,18 @@ import lk.resq.localhub.service.SyncQueueRepository;
 import lk.resq.localhub.service.SyncQueueService;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.junit.jupiter.api.Test;
-
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-
 import static org.assertj.core.api.Assertions.assertThat;
-
 class MqttSubscriberServiceTest {
-
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
-
     @Test
     void parsesCanonicalAndLegacyFirmwareTopics() throws Exception {
         MqttSubscriberService service = newService(newRepository());
-
         assertThat(service.parseTopic("resq/M01/status")).isNotNull();
         assertThat(service.parseTopic("resq/M01/status").messageType()).isEqualTo("status");
         assertThat(service.parseTopic("resq/M01/status").canonicalFirmwareTopic()).isTrue();
@@ -50,12 +42,10 @@ class MqttSubscriberServiceTest {
         assertThat(service.parseTopic("resq/manikins/M01/events/calibration").messageType()).isEqualTo("events/calibration");
         assertThat(service.parseTopic("other/M01/status")).isNull();
     }
-
     @Test
     void currentFirmwareStatusAndHeartbeatPopulateLiveRegistryAndSse() throws Exception {
         LiveRegistryFixture fixture = newLiveRegistryFixture();
         Instant beforeStatus = Instant.now();
-
         fixture.subscriber().handleMessage("resq/M-DEV/status", message("""
             {
               "event_id": 1001,
@@ -71,7 +61,6 @@ class MqttSubscriberServiceTest {
               "ts_ms": 5324
             }
             """));
-
         ManikinLiveSummary afterStatus = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
         assertThat(afterStatus.online()).isTrue();
         assertThat(afterStatus.state()).isEqualTo("PAIRED_IDLE");
@@ -79,10 +68,8 @@ class MqttSubscriberServiceTest {
         assertThat(afterStatus.lastSeen().toEpochMilli()).isGreaterThan(1_000_000_000_000L);
         assertThat(afterStatus.ip()).isEqualTo("192.168.8.161");
         assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).isNotEmpty();
-
         Instant statusLastSeen = afterStatus.lastSeen();
         Thread.sleep(2L);
-
         fixture.subscriber().handleMessage("resq/M-DEV/heartbeat", message("""
             {
               "device_id": "M-DEV",
@@ -100,7 +87,6 @@ class MqttSubscriberServiceTest {
               "ts_ms": 5824
             }
             """));
-
         ManikinLiveSummary liveSummary = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
         assertThat(liveSummary.online()).isTrue();
         assertThat(liveSummary.lastSeen()).isAfter(statusLastSeen);
@@ -114,13 +100,11 @@ class MqttSubscriberServiceTest {
                 .extracting(ManikinLiveSummary::deviceId)
                 .contains("M-DEV");
     }
-
     @Test
     void persistsEventReplyAndCalibrationSnapshots() throws Exception {
         FirmwarePersistenceRepository repository = newRepository();
         seedCommand(repository, "req-400-0001", "M01", FirmwareCommandTypeId.SYSTEM_RESET.value(), "resq/M01/cmd/system/reset");
         MqttSubscriberService service = newService(repository);
-
         service.handleMessage("resq/M01/events", message("""
             {
               "event_id": 1003,
@@ -132,19 +116,16 @@ class MqttSubscriberServiceTest {
               "ts_ms": 101
             }
             """));
-
         FirmwareCommandRequestRecord command = repository.findCommandByRequestId("req-400-0001").orElseThrow();
         assertThat(command.replyId()).isEqualTo("req-400-0001");
         assertThat(command.replyStatus()).isEqualTo("ACK");
         assertThat(command.status()).isEqualTo("ACK");
         assertThat(command.completedAt()).isNotNull();
-
         List<FirmwareEventRecord> events = repository.findRecentEvents("M01", 10);
         assertThat(events).hasSize(1);
         assertThat(events.get(0).eventId()).isEqualTo(1003);
         assertThat(events.get(0).topicFamily()).isEqualTo("events");
         assertThat(events.get(0).replyId()).isEqualTo("req-400-0001");
-
         service.handleMessage("resq/M01/events/calibration", message("""
             {
               "event_id": 4002,
@@ -159,7 +140,6 @@ class MqttSubscriberServiceTest {
               "ts_ms": 102
             }
             """));
-
         FirmwareCalibrationResultRecord calibrated = repository.findLatestCalibrationResult("M01").orElseThrow();
         assertThat(calibrated.eventId()).isEqualTo(4002);
         assertThat(calibrated.result()).isEqualTo("PASS");
@@ -167,12 +147,10 @@ class MqttSubscriberServiceTest {
         assertThat(calibrated.progressId()).isEqualTo(11);
         assertThat(calibrated.profileId()).isEqualTo("adult-training");
     }
-
     @Test
     void savesFailingCalibrationAndDebugSnapshotsAndUnknownEvents() throws Exception {
         FirmwarePersistenceRepository repository = newRepository();
         MqttSubscriberService service = newService(repository);
-
         service.handleMessage("resq/M01/events/calibration", message("""
             {
               "event_id": 4002,
@@ -186,12 +164,10 @@ class MqttSubscriberServiceTest {
               "ts_ms": 201
             }
             """));
-
         FirmwareCalibrationResultRecord calibration = repository.findLatestCalibrationResult("M01").orElseThrow();
         assertThat(calibration.result()).isEqualTo("FAIL");
         assertThat(calibration.calibrated()).isFalse();
         assertThat(calibration.reasonId()).isEqualTo("12345");
-
         service.handleMessage("resq/M01/debug", message("""
             {
               "pressure_0_raw": 101,
@@ -201,13 +177,11 @@ class MqttSubscriberServiceTest {
               "ts_ms": 301
             }
             """));
-
         List<FirmwareDebugSnapshotRecord> snapshots = repository.findDebugSnapshots("M01", 10);
         assertThat(snapshots).hasSize(1);
         assertThat(snapshots.get(0).pressure0Raw()).isEqualTo(101);
         assertThat(snapshots.get(0).hallRaw()).isEqualTo(404);
         assertThat(snapshots.get(0).requestId()).isNull();
-
         service.handleMessage("resq/M01/events", message("""
             {
               "event_id": 9999,
@@ -216,10 +190,8 @@ class MqttSubscriberServiceTest {
               "ts_ms": 401
             }
             """));
-
         assertThat(repository.findRecentEvents("M01", 10)).extracting(FirmwareEventRecord::eventId).contains(9999);
     }
-
     @Test
     void acceptsCanonicalTelemetryWithoutPayloadDeviceIdUsingTopicDeviceId() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
@@ -229,6 +201,8 @@ class MqttSubscriberServiceTest {
                 null,
                 null,
                 null,
+                null,
+                "adult-basic",
                 "smoke-test",
                 null
         ));
@@ -252,7 +226,6 @@ class MqttSubscriberServiceTest {
               "ts_ms": 100432
             }
             """.formatted(session.sessionId())));
-
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
         var liveSummary = fixture.registry().getLiveSummary("M01").orElseThrow();
         assertThat(liveSummary.online()).isTrue();
@@ -274,7 +247,6 @@ class MqttSubscriberServiceTest {
         assertThat(liveView.pressureBalancePct()).isEqualTo(92.9);
         assertThat(liveView.latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
     }
-
     @Test
     void sensorStreamTelemetryUpdatesLiveRegistryButSkipsSessionScoring() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
@@ -284,6 +256,8 @@ class MqttSubscriberServiceTest {
                 null,
                 null,
                 null,
+                null,
+                "adult-basic",
                 "smoke-test",
                 null
         ));
@@ -310,7 +284,6 @@ class MqttSubscriberServiceTest {
               "ts_ms": 124700
             }
             """));
-
         ManikinLiveSummary liveSummary = fixture.registry().getLiveSummary("M01").orElseThrow();
         assertThat(liveSummary.online()).isTrue();
         assertThat(liveSummary.state()).isEqualTo("PAIRED_IDLE");
@@ -331,6 +304,9 @@ class MqttSubscriberServiceTest {
                 null,
                 null,
                 null,
+
+                null,
+                "adult-basic",
                 "smoke-test",
                 null
         ));
@@ -350,7 +326,6 @@ class MqttSubscriberServiceTest {
         assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow().latestMetric()).isNull();
         assertThat(fixture.registry().getLatestSensorStream("M01")).isEmpty();
     }
-
     @Test
     void rejectsCanonicalTelemetryWhenPayloadDeviceIdConflictsWithTopicDeviceId() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
@@ -360,6 +335,8 @@ class MqttSubscriberServiceTest {
                 null,
                 null,
                 null,
+                null,
+                "adult-basic",
                 "smoke-test",
                 null
         ));
@@ -374,18 +351,15 @@ class MqttSubscriberServiceTest {
               "rate_cpm": 111
             }
             """.formatted(session.sessionId())));
-
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
         assertThat(liveView.latestDepthMm()).isNull();
         assertThat(liveView.latestRateCpm()).isNull();
     }
-
     @Test
     void tracksDeviceReadinessFromMqttEvents() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
         MqttSubscriberService subscriber = fixture.subscriber();
         DeviceReadinessService readinessService = fixture.readinessService();
-
         // 1. Send Event 4000 ACK
         subscriber.handleMessage("resq/M01/events/calibration", message("""
             {
@@ -400,7 +374,6 @@ class MqttSubscriberServiceTest {
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.CALIBRATING);
         assertThat(state.currentProgressId()).isEqualTo(1);
         assertThat(state.readyForSession()).isFalse();
-
         // 2. Send Event 4001 progress 2
         subscriber.handleMessage("resq/manikins/M01/events/calibration", message("""
             {
@@ -416,7 +389,6 @@ class MqttSubscriberServiceTest {
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.CALIBRATING);
         assertThat(state.currentProgressId()).isEqualTo(2);
         assertThat(state.readyForSession()).isFalse();
-
         // 3. Send Event 4002 result PASS
         subscriber.handleMessage("resq/M01/events/calibration", message("""
             {
@@ -434,13 +406,11 @@ class MqttSubscriberServiceTest {
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.READY);
         assertThat(state.readyForSession()).isTrue();
     }
-
     @Test
     void verifiesCalibrationSseBroadcasts() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
         MqttSubscriberService subscriber = fixture.subscriber();
         CapturingCalibrationStreamService streamService = fixture.calibrationStreamService();
-
         // 1. Send Event 4001 progress 2
         subscriber.handleMessage("resq/M01/events/calibration", message("""
             {
@@ -465,7 +435,6 @@ class MqttSubscriberServiceTest {
         assertThat(liveAfterProgress.progressId()).isEqualTo(2);
         assertThat(liveAfterProgress.calibrationReasonId()).isEqualTo("00000");
         assertThat(liveAfterProgress.readyForSession()).isFalse();
-
         // 2. Send Event 4002 result PASS
         subscriber.handleMessage("resq/M01/events/calibration", message("""
             {
@@ -489,11 +458,9 @@ class MqttSubscriberServiceTest {
         assertThat(liveAfterFinal.readyForSession()).isTrue();
         assertThat(liveAfterFinal.calibrationResult()).isEqualTo("PASS");
     }
-
     @Test
     void passWithWarningsPreservesPressureFallbackFieldsInLiveRegistry() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
-
         fixture.subscriber().handleMessage("resq/M01/events/calibration", message("""
             {
               "event_id": 4002,
@@ -513,12 +480,10 @@ class MqttSubscriberServiceTest {
               "ts_ms": 123456
             }
             """));
-
         DeviceReadinessState readiness = fixture.readinessService().getReadiness("M01");
         assertThat(readiness.calibrationState()).isEqualTo(CalibrationState.READY);
         assertThat(readiness.readyForSession()).isTrue();
         assertThat(readiness.lastReasonId()).isEqualTo("08411");
-
         ManikinLiveSummary live = fixture.registry().getLiveSummary("M01").orElseThrow();
         assertThat(live.calibrated()).isTrue();
         assertThat(live.readyForSession()).isTrue();
@@ -530,7 +495,6 @@ class MqttSubscriberServiceTest {
         assertThat(live.hallValid()).isTrue();
         assertThat(live.warnings()).contains("PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE");
     }
-
     @Test
     void verifiesTelemetryWithDerivedRatePressureBalanceDepthProgressAndSsePublishing() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
@@ -540,6 +504,8 @@ class MqttSubscriberServiceTest {
                 null,
                 null,
                 null,
+                null,
+                "adult-basic",
                 "smoke-test",
                 null
         ));
@@ -554,7 +520,6 @@ class MqttSubscriberServiceTest {
               "pressure_balance_pct": 91.5
             }
             """.formatted(session.sessionId())));
-
         // 2. Crosses 0.2 depth progress (start of compression 1)
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
@@ -564,7 +529,6 @@ class MqttSubscriberServiceTest {
               "pressure_balance_pct": 91.5
             }
             """.formatted(session.sessionId())));
-
         // 3. Resets back below 0.1 depth progress (rearms)
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
@@ -574,7 +538,6 @@ class MqttSubscriberServiceTest {
               "pressure_balance_pct": 91.5
             }
             """.formatted(session.sessionId())));
-
         // 4. Crosses 0.2 depth progress again (start of compression 2)
         // Interval is 1600 - 1100 = 500 ms -> rate is 60000 / 500 = 120 cpm
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
@@ -585,13 +548,11 @@ class MqttSubscriberServiceTest {
               "pressure_balance_pct": 91.5
             }
             """.formatted(session.sessionId())));
-
         // Check active session live view
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
         assertThat(liveView.pressureBalancePct()).isEqualTo(91.5);
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.25);
         assertThat(liveView.latestRateCpm()).isEqualTo(120.0);
-
         // Check captured trainee SSE outputs
         var capturedViews = fixture.liveStreamService().getSessionLiveViews();
         assertThat(capturedViews).isNotEmpty();
@@ -601,11 +562,9 @@ class MqttSubscriberServiceTest {
         assertThat(lastView.pressureBalancePct()).isEqualTo(91.5);
         assertThat(lastView.latestRateCpm()).isEqualTo(120.0);
     }
-
     private MqttSubscriberService newService(FirmwarePersistenceRepository repository) throws Exception {
         return newFixture(repository).subscriber();
     }
-
     private ServiceFixture newFixture(FirmwarePersistenceRepository repository) throws Exception {
         ManikinRegistryService registry = new ManikinRegistryService(12);
         MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService(repository);
@@ -644,7 +603,8 @@ class MqttSubscriberServiceTest {
                 0,
                 "READY_FOR_SESSION",
                 100L,
-                Instant.now()
+                Instant.now(),
+                "adult-basic"
         ));
         ActiveSessionService activeSessionService = new ActiveSessionService(
                 registry,
@@ -674,7 +634,6 @@ class MqttSubscriberServiceTest {
         );
         return new ServiceFixture(subscriber, registry, activeSessionService, liveStreamService, readinessService, calibrationStreamService);
     }
-
     private LiveRegistryFixture newLiveRegistryFixture() throws Exception {
         FirmwarePersistenceRepository repository = newRepository();
         ManikinRegistryService registry = new ManikinRegistryService(12);
@@ -746,90 +705,72 @@ class MqttSubscriberServiceTest {
             CapturingCalibrationStreamService calibrationStreamService
     ) {
     }
-
         private record LiveRegistryFixture(
             MqttSubscriberService subscriber,
             ManikinRegistryService registry,
             CapturingLiveStreamService liveStreamService
         ) {
         }
-
     private static class CapturingCalibrationStreamService extends CalibrationStreamService {
         private final List<CalibrationStreamEvent> events = new java.util.ArrayList<>();
-
         private CapturingCalibrationStreamService(DeviceReadinessService readinessService) {
             super(readinessService);
         }
-
         @Override
         public void publishCalibrationUpdate(String deviceId, CalibrationMqttEvent event, DeviceReadinessState readiness) {
             events.add(CalibrationStreamEvent.update(deviceId, event, readiness));
         }
     }
-
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {
         private NoopMqttCommandPublisherService(FirmwarePersistenceRepository repository) {
             super(new ObjectMapper(), repository, "tcp://127.0.0.1:1", "test");
         }
-
         @Override
         protected void ensureConnected() {
         }
-
         @Override
         public void publishSessionStart(lk.resq.localhub.model.SessionStartCommandPayload payload) {
         }
-
         @Override
         public void publishSessionStop(lk.resq.localhub.model.SessionStopCommandPayload payload) {
         }
     }
-
     private static final class InMemoryLocalSessionRepository extends LocalSessionRepository {
         private InMemoryLocalSessionRepository() {
             super("target/mqtt-subscriber-service-test.sqlite");
         }
-
         @Override
         public synchronized void save(lk.resq.localhub.model.SessionEndResponse session) {
         }
-
         @Override
         public synchronized Optional<lk.resq.localhub.model.SessionEndResponse> findById(String sessionId) {
             return Optional.empty();
         }
-
         @Override
         public synchronized List<lk.resq.localhub.model.SessionEndResponse> findAll() {
             return List.of();
         }
     }
-
     private static final class CapturingLiveStreamService extends LiveStreamService {
         private final List<lk.resq.localhub.model.SessionLiveView> sessionLiveViews = new java.util.ArrayList<>();
         private final List<List<ManikinLiveSummary>> instructorLiveSnapshots = new java.util.ArrayList<>();
-
         @Override
         public void publishInstructorLive(List<ManikinLiveSummary> payload) {
             instructorLiveSnapshots.add(payload);
         }
-
         @Override
         public void publishSessionLive(String sessionId, lk.resq.localhub.model.SessionLiveView payload) {
             if (payload != null) {
                 sessionLiveViews.add(payload);
             }
         }
-
         public List<lk.resq.localhub.model.SessionLiveView> getSessionLiveViews() {
             return sessionLiveViews;
         }
-
         public List<List<ManikinLiveSummary>> getInstructorLiveSnapshots() {
             return instructorLiveSnapshots;
         }
     }
-
     private static FirmwarePersistenceRepository newRepository() {
         FirmwarePersistenceRepository repository = new FirmwarePersistenceRepository(
                 Path.of("target", "firmware-subscriber-test-" + UUID.randomUUID() + ".sqlite").toString()
@@ -837,7 +778,6 @@ class MqttSubscriberServiceTest {
         repository.initialize();
         return repository;
     }
-
     private static void seedCommand(FirmwarePersistenceRepository repository, String requestId, String deviceId, int commandTypeId, String topic) {
         repository.recordCommandRequest(new FirmwareCommandRequestRecord(
                 requestId,
@@ -860,7 +800,6 @@ class MqttSubscriberServiceTest {
                 Instant.now()
         ));
     }
-
     private MqttMessage message(String json) {
         return new MqttMessage(json.getBytes(StandardCharsets.UTF_8));
     }

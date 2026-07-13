@@ -4,6 +4,7 @@ export type SessionStartRequest = {
   deviceId: string;
   courseId: string;
   traineeId: string;
+  profileId: string;
   scenario?: string | null;
   notes?: string | null;
 };
@@ -16,6 +17,7 @@ export type SessionStartResponse = {
   instructorId?: string | null;
   startedAt: string;
   active: boolean;
+  profileId?: string | null;
   scenario: string | null;
   notes: string | null;
 };
@@ -77,6 +79,7 @@ export type SessionLiveView = {
   traineeId: string | null;
   active: boolean;
   startedAt: string;
+  profileId?: string | null;
   scenario: string | null;
   notes: string | null;
   lastSeen: string | null;

@@ -150,9 +150,14 @@ export function StartSessionWizardPage() {
     // Find the latest live state of the manikin from the live list
     const liveM = manikins.find((m) => m.deviceId === selectedManikin.deviceId);
     const online = liveM?.online && !liveM?.offline && !liveM?.stale;
+    const profileId = liveM?.profileId || selectedManikin.profileId || null;
 
     if (!online) {
       setError("Cannot start training: manikin must be online.");
+      return;
+    }
+    if (!profileId) {
+      setError("Cannot start training: calibrated profile is unavailable. Run calibration before starting.");
       return;
     }
 
@@ -186,6 +191,7 @@ export function StartSessionWizardPage() {
         deviceId: selectedManikin.deviceId,
         courseId: resolvedCourseId,
         traineeId: resolvedTraineeId,
+        profileId,
         scenario: scenario,
         notes: notes,
       });
@@ -456,6 +462,12 @@ export function StartSessionWizardPage() {
                 <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Device / Manikin ID</span>
                 <span className="text-xs font-bold text-slate-800 block mt-0.5">{selectedManikin.deviceId}</span>
               </div>
+              <div className="border-t border-slate-100 pt-3">
+                <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Calibration Profile</span>
+                <span className="text-xs font-bold text-slate-800 block mt-0.5">
+                  {(manikins.find((m) => m.deviceId === selectedManikin.deviceId)?.profileId || selectedManikin.profileId) ?? "Unavailable"}
+                </span>
+              </div>
             </div>
 
             <div className="border-t border-slate-100 pt-4 space-y-4 text-xs font-semibold">
@@ -491,7 +503,8 @@ export function StartSessionWizardPage() {
             </Button>
             {(() => {
               const liveM = manikins.find((m) => m.deviceId === selectedManikin.deviceId);
-              const isLaunchEnabled = liveM ? isManikinReady(liveM) : false;
+              const calibratedProfileId = liveM?.profileId || selectedManikin.profileId || null;
+              const isLaunchEnabled = Boolean(liveM && isManikinReady(liveM) && calibratedProfileId);
               return (
                 <Button
                   type="button"

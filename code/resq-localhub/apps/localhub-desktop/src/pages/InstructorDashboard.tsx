@@ -904,6 +904,15 @@ export default function InstructorDashboard({
       return;
     }
 
+    const profileId = manikin.profileId ?? null;
+    if (!profileId) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: "Run calibration before starting so the calibrated profile is available.",
+      }));
+      return;
+    }
+
     const actionState = sessionActionByDevice[deviceId] ?? "idle";
     if (actionState !== "idle") {
       return;
@@ -917,6 +926,7 @@ export default function InstructorDashboard({
         deviceId,
         courseId: draft.courseId,
         traineeId: draft.traineeId,
+        profileId,
         scenario: manikin.activeSessionScenario ?? null,
         notes: null,
       });

@@ -322,7 +322,7 @@ public class MqttCommandPublisherService {
         publishSessionStartCommand(
                 payload.deviceId(),
                 payload.sessionId(),
-                payload.scenario(),
+                payload.profileId(),
                 payload.startedAt(),
                 payload.requestId()
         );

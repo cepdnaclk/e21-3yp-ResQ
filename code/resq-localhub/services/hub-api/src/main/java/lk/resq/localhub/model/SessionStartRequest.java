@@ -7,9 +7,23 @@ public record SessionStartRequest(
         String traineeRecordId,
         QuickTrainee quickTrainee,
         String guestLabel,
+        String profileId,
         String scenario,
         String notes
 ) {
+    public SessionStartRequest(
+            String deviceId,
+            String traineeId,
+            String courseId,
+            String traineeRecordId,
+            QuickTrainee quickTrainee,
+            String guestLabel,
+            String scenario,
+            String notes
+    ) {
+        this(deviceId, traineeId, courseId, traineeRecordId, quickTrainee, guestLabel, null, scenario, notes);
+    }
+
     public SessionStartRequest(
             String deviceId,
             String traineeId,
@@ -19,7 +33,7 @@ public record SessionStartRequest(
             String scenario,
             String notes
     ) {
-        this(deviceId, traineeId, null, traineeRecordId, quickTrainee, guestLabel, scenario, notes);
+        this(deviceId, traineeId, null, traineeRecordId, quickTrainee, guestLabel, null, scenario, notes);
     }
 
     public record QuickTrainee(

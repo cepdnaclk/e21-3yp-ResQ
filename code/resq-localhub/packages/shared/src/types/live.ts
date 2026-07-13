@@ -40,6 +40,7 @@ export type LiveSessionStatus = {
   active: boolean;
   startedAt?: string | number | null;
   endedAt?: string | number | null;
+  profileId?: string | null;
   scenario?: string | null;
   notes?: string | null;
 };

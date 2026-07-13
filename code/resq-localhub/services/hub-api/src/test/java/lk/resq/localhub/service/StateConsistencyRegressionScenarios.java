@@ -107,6 +107,8 @@ class StateConsistencyRegressionScenarios {
                 null,
                 null,
                 null,
+                null,
+                "adult-basic",
                 "assessment",
                 null
         ));
@@ -127,6 +129,8 @@ class StateConsistencyRegressionScenarios {
                 null,
                 null,
                 null,
+                null,
+                "adult-basic",
                 "assessment",
                 null
         ));
@@ -148,12 +152,15 @@ class StateConsistencyRegressionScenarios {
                 "M01",
                 "trainee-1",
                 Instant.now(),
-                "assessment"
+                "adult-basic",
+                "assessment",
+                null
         ));
 
         assertThat(publisher.lastPayload).containsEntry("session_id", "session-phase0-0001");
+        assertThat(publisher.lastPayload).containsEntry("profile_id", "adult-basic");
         assertThat(publisher.lastPayload)
-                .as("Phase 1: SessionStartCommandPayload must carry profileId separately; scenario must not become MQTT profile_id")
+                .as("Phase 3: SessionStartCommandPayload must carry profileId separately; scenario must not become MQTT profile_id")
                 .doesNotContainEntry("profile_id", "assessment");
     }
 
@@ -237,7 +244,8 @@ class StateConsistencyRegressionScenarios {
                 0,
                 "READY_FOR_SESSION",
                 124000L,
-                Instant.now()
+                Instant.now(),
+                "adult-basic"
         );
     }
 

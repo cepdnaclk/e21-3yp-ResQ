@@ -23,6 +23,7 @@ export type SessionLiveView = {
   traineeId: string | null;
   active: boolean;
   startedAt: string | null;
+  profileId?: string | null;
   scenario: string | null;
   notes: string | null;
   lastSeen: string | null;

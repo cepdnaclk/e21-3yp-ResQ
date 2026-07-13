@@ -9,6 +9,7 @@ import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CalibrationProfileValidationException;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.MqttCommandPublishException;
 import lk.resq.localhub.service.ManikinRegistryService;
@@ -56,6 +57,15 @@ public class SessionController {
                             "error", "CALIBRATION_NOT_READY",
                             "message", error.getMessage(),
                             "deviceId", error.getDeviceId()
+                    ));
+        } catch (CalibrationProfileValidationException error) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of(
+                            "error", error.getCode(),
+                            "message", error.getMessage(),
+                            "deviceId", error.getDeviceId(),
+                            "requestedProfileId", error.getRequestedProfileId() != null ? error.getRequestedProfileId() : "",
+                            "calibratedProfileId", error.getCalibratedProfileId() != null ? error.getCalibratedProfileId() : ""
                     ));
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
