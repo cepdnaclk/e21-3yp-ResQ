@@ -12,7 +12,7 @@ import lk.resq.localhub.model.firmware.CalibrationEventLog;
 import lk.resq.localhub.model.firmware.CalibrationEvidence;
 import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
-import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
@@ -30,9 +30,13 @@ import jakarta.annotation.PreDestroy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -43,24 +47,25 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MqttSubscriberService {
 
     private static final Logger logger = LoggerFactory.getLogger(MqttSubscriberService.class);
+    private static final int DUPLICATE_EVENT_CACHE_SIZE = 512;
 
     // Keep topic handling canonical in one place for this slice.
-    private static final List<String> SUBSCRIPTIONS = List.of(
-            FirmwareTopics.statusTopic("+"),
-            FirmwareTopics.heartbeatTopic("+"),
-            FirmwareTopics.telemetryTopic("+"),
-            FirmwareTopics.debugTopic("+"),
-            FirmwareTopics.eventsTopic("+"),
-            FirmwareTopics.calibrationEventsTopic("+"),
-            FirmwareTopics.errorEventsTopic("+"),
-            "resq/manikins/+/status",
-            "resq/manikins/+/heartbeat",
-            "resq/manikins/+/telemetry",
-            "resq/manikins/+/debug",
-            "resq/manikins/+/events",
-            "resq/manikins/+/events/calibration",
-            "resq/manikins/+/events/error",
-            "resq/manikins/+/live"
+    private static final List<SubscriptionSpec> SUBSCRIPTIONS = List.of(
+            new SubscriptionSpec(FirmwareTopics.statusTopic("+"), "status"),
+            new SubscriptionSpec(FirmwareTopics.heartbeatTopic("+"), "heartbeat"),
+            new SubscriptionSpec(FirmwareTopics.telemetryTopic("+"), "telemetry"),
+            new SubscriptionSpec(FirmwareTopics.debugTopic("+"), "debug"),
+            new SubscriptionSpec(FirmwareTopics.eventsTopic("+"), "events"),
+            new SubscriptionSpec(FirmwareTopics.calibrationEventsTopic("+"), "events/calibration"),
+            new SubscriptionSpec(FirmwareTopics.errorEventsTopic("+"), "events/error"),
+            new SubscriptionSpec("resq/manikins/+/status", "status"),
+            new SubscriptionSpec("resq/manikins/+/heartbeat", "heartbeat"),
+            new SubscriptionSpec("resq/manikins/+/telemetry", "telemetry"),
+            new SubscriptionSpec("resq/manikins/+/debug", "debug"),
+            new SubscriptionSpec("resq/manikins/+/events", "events"),
+            new SubscriptionSpec("resq/manikins/+/events/calibration", "events/calibration"),
+            new SubscriptionSpec("resq/manikins/+/events/error", "events/error"),
+            new SubscriptionSpec("resq/manikins/+/live", "debug")
     );
 
     private final ObjectMapper objectMapper;
@@ -78,10 +83,13 @@ public class MqttSubscriberService {
     private final String clientId;
     private final String username;
     private final String password;
+    private final MqttQosPolicy qosPolicy;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong acceptedTelemetryCount = new AtomicLong(0);
     private final AtomicLong rejectedTelemetryCount = new AtomicLong(0);
+    private final Set<String> recentCriticalEventKeys = new HashSet<>();
+    private final Queue<String> recentCriticalEventOrder = new ArrayDeque<>();
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private MqttClient mqttClient;
@@ -101,7 +109,8 @@ public class MqttSubscriberService {
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
-            @Value("${resq.mqtt.password:}") String password
+            @Value("${resq.mqtt.password:}") String password,
+            MqttQosPolicy qosPolicy
     ) {
         this.objectMapper = objectMapper;
         this.manikinRegistryService = manikinRegistryService;
@@ -117,6 +126,7 @@ public class MqttSubscriberService {
         this.clientId = clientId;
         this.username = normalize(username);
         this.password = password;
+        this.qosPolicy = qosPolicy == null ? MqttQosPolicy.defaults() : qosPolicy;
     }
 
     public MqttSubscriberService(
@@ -148,7 +158,8 @@ public class MqttSubscriberService {
                 brokerUrl,
                 clientId,
                 username,
-                password
+                password,
+                MqttQosPolicy.defaults()
         );
     }
 
@@ -179,7 +190,8 @@ public class MqttSubscriberService {
                 brokerUrl,
                 clientId,
                 username,
-                password
+                password,
+                MqttQosPolicy.defaults()
         );
     }
 
@@ -209,7 +221,8 @@ public class MqttSubscriberService {
                 brokerUrl,
                 clientId,
                 username,
-                password
+                password,
+                MqttQosPolicy.defaults()
         );
         this.firmwarePersistenceRepository.initialize();
     }
@@ -285,7 +298,18 @@ public class MqttSubscriberService {
         options.setConnectionTimeout(5);
         applyCredentials(options);
 
-        mqttClient.setCallback(new MqttCallback() {
+        mqttClient.setCallback(new MqttCallbackExtended() {
+            @Override
+            public void connectComplete(boolean reconnect, String serverURI) {
+                if (reconnect) {
+                    try {
+                        subscribeToFirmwareTopics();
+                    } catch (MqttException error) {
+                        logger.warn("MQTT subscriber failed to re-subscribe after reconnect", error);
+                    }
+                }
+            }
+
             @Override
             public void connectionLost(Throwable cause) {
                 logger.warn("MQTT connection lost", cause);
@@ -305,12 +329,29 @@ public class MqttSubscriberService {
         mqttClient.connect(options);
         logger.info("MQTT subscriber connected to {}", brokerUrl);
 
-        for (String topicFilter : SUBSCRIPTIONS) {
-            mqttClient.subscribe(topicFilter, 0);
-            logger.info("MQTT subscriber subscribed to {}", topicFilter);
-        }
+        subscribeToFirmwareTopics();
 
         logger.info("MQTT subscriber subscribed to {} topic patterns", SUBSCRIPTIONS.size());
+    }
+
+    protected void subscribeToFirmwareTopics() throws MqttException {
+        if (mqttClient == null || !mqttClient.isConnected()) {
+            throw new IllegalStateException("MQTT subscriber is not connected");
+        }
+
+        for (SubscriptionSpec subscription : SUBSCRIPTIONS) {
+            int qos = qosPolicy.qosForMessageType(subscription.messageType());
+            mqttClient.subscribe(subscription.topicFilter(), qos);
+            logger.info("MQTT subscriber subscribed to {} qos={}", subscription.topicFilter(), qos);
+        }
+    }
+
+    static int subscriptionQosForTopic(String topicFilter, MqttQosPolicy qosPolicy) {
+        return SUBSCRIPTIONS.stream()
+                .filter(subscription -> subscription.topicFilter().equals(topicFilter))
+                .findFirst()
+                .map(subscription -> qosPolicy.qosForMessageType(subscription.messageType()))
+                .orElseThrow(() -> new IllegalArgumentException("Unknown subscription topic " + topicFilter));
     }
 
     private void applyCredentials(MqttConnectOptions options) {
@@ -348,6 +389,11 @@ public class MqttSubscriberService {
         }
 
         try {
+            if (isDuplicateCriticalEvent(parsedTopic, payload)) {
+                logger.debug("Ignored duplicate MQTT {} event for device {}", parsedTopic.messageType, parsedTopic.deviceId);
+                return;
+            }
+
             if (parsedTopic.canonicalFirmwareTopic) {
                 persistCanonicalMessage(topic, parsedTopic, payload);
             }
@@ -629,6 +675,42 @@ public class MqttSubscriberService {
                 );
             }
         }
+    }
+
+    private synchronized boolean isDuplicateCriticalEvent(ParsedTopic parsedTopic, JsonNode payload) {
+        if (!parsedTopic.messageType().startsWith("events")) {
+            return false;
+        }
+
+        Integer eventId = integer(payload, "event_id", "eventId");
+        String replyId = firstText(payload, "reply_id", "replyId");
+        String requestId = firstText(payload, "request_id", "requestId");
+        Long tsMs = longValue(payload, "ts_ms", "tsMs");
+        String key = String.join("|",
+                parsedTopic.deviceId(),
+                parsedTopic.messageType(),
+                String.valueOf(eventId),
+                String.valueOf(replyId),
+                String.valueOf(requestId),
+                String.valueOf(firstText(payload, "status")),
+                String.valueOf(firstText(payload, "result")),
+                String.valueOf(integer(payload, "progress_id", "progressId")),
+                String.valueOf(firstText(payload, "session_id", "sessionId")),
+                String.valueOf(tsMs)
+        );
+
+        if (!recentCriticalEventKeys.add(key)) {
+            return true;
+        }
+
+        recentCriticalEventOrder.add(key);
+        while (recentCriticalEventOrder.size() > DUPLICATE_EVENT_CACHE_SIZE) {
+            String oldest = recentCriticalEventOrder.poll();
+            if (oldest != null) {
+                recentCriticalEventKeys.remove(oldest);
+            }
+        }
+        return false;
     }
 
     private CalibrationMqttEvent parseCalibrationMqttEvent(String deviceId, JsonNode payload) {
@@ -1093,5 +1175,8 @@ public class MqttSubscriberService {
     }
 
     record ParsedTopic(String deviceId, String messageType, boolean canonicalFirmwareTopic) {
+    }
+
+    record SubscriptionSpec(String topicFilter, String messageType) {
     }
 }

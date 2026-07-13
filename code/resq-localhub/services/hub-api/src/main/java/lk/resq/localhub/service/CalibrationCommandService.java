@@ -5,6 +5,7 @@ import lk.resq.localhub.model.firmware.CalibrationStartRequest;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.CalibrationEvidence;
+import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +22,7 @@ public class CalibrationCommandService {
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final DeviceReadinessService deviceReadinessService;
     private final ManikinRegistryService manikinRegistryService;
-    private final FirmwareRequestIdGenerator requestIdGenerator;
+    private final CommandRequestIdGenerator requestIdGenerator;
     private final CalibrationStreamService calibrationStreamService;
     private final CalibrationPersistenceRepository calibrationPersistenceRepository;
 
@@ -30,7 +31,7 @@ public class CalibrationCommandService {
             MqttCommandPublisherService mqttCommandPublisherService,
             DeviceReadinessService deviceReadinessService,
             ManikinRegistryService manikinRegistryService,
-            FirmwareRequestIdGenerator requestIdGenerator,
+            CommandRequestIdGenerator requestIdGenerator,
             CalibrationStreamService calibrationStreamService,
             CalibrationPersistenceRepository calibrationPersistenceRepository
     ) {
@@ -46,7 +47,7 @@ public class CalibrationCommandService {
             MqttCommandPublisherService mqttCommandPublisherService,
             DeviceReadinessService deviceReadinessService,
             ManikinRegistryService manikinRegistryService,
-            FirmwareRequestIdGenerator requestIdGenerator,
+            CommandRequestIdGenerator requestIdGenerator,
             CalibrationStreamService calibrationStreamService
     ) {
         this(
@@ -116,7 +117,7 @@ public class CalibrationCommandService {
             throw new IllegalArgumentException("calibration_window_ms must be positive");
         }
 
-        String requestId = requestIdGenerator.nextRequestId(200);
+        String requestId = requestIdGenerator.next(FirmwareCommandTypeId.CALIBRATION_START);
 
         // Publish to MQTT broker
         mqttCommandPublisherService.publishCalibrationStart(normalizedDeviceId, requestId, request);
@@ -179,7 +180,7 @@ public class CalibrationCommandService {
 
         ensureDeviceOnline(normalizedDeviceId);
 
-        String requestId = requestIdGenerator.nextRequestId(201);
+        String requestId = requestIdGenerator.next(FirmwareCommandTypeId.CALIBRATION_CANCEL);
 
         // Publish to MQTT broker
         mqttCommandPublisherService.publishCalibrationCancel(normalizedDeviceId, requestId);

@@ -34,7 +34,7 @@ class FirmwareCalibrationServiceTest {
         ));
 
         assertThat(response.deviceId()).isEqualTo("M01");
-        assertThat(response.requestId()).isEqualTo("req-200-0001");
+        assertThat(response.requestId()).startsWith("req-200-");
         assertThat(response.topic()).isEqualTo(FirmwareTopics.calibrationStartCommandTopic("M01"));
         assertThat(response.status()).isEqualTo("PUBLISHED");
         assertThat(fixture.publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.CALIBRATION_START);
@@ -95,7 +95,7 @@ class FirmwareCalibrationServiceTest {
         var response = fixture.service.cancelCalibration("M01");
 
         assertThat(response.deviceId()).isEqualTo("M01");
-        assertThat(response.requestId()).isEqualTo("req-201-0001");
+        assertThat(response.requestId()).startsWith("req-201-");
         assertThat(response.topic()).isEqualTo(FirmwareTopics.calibrationCancelCommandTopic("M01"));
         assertThat(response.status()).isEqualTo("PUBLISHED");
         assertThat(fixture.publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.CALIBRATION_CANCEL);

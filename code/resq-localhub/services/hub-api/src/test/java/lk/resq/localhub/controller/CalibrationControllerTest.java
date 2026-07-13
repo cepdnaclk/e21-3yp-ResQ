@@ -15,12 +15,12 @@ import lk.resq.localhub.service.DeviceReadinessService;
 import lk.resq.localhub.service.CalibrationStreamService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.CalibrationPersistenceRepository;
+import lk.resq.localhub.service.CommandRequestIdGenerator;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.LocalAuthRepository;
 import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttCommandPublisherService;
 import lk.resq.localhub.service.MqttCommandPublishException;
-import lk.resq.localhub.service.FirmwareRequestIdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -52,7 +52,7 @@ class CalibrationControllerTest {
         DummyPublisher publisher = new DummyPublisher(objectMapper, repository);
         readinessService = new DeviceReadinessService();
         ManikinRegistryService registryService = new ManikinRegistryService(12);
-        FirmwareRequestIdGenerator idGenerator = new FirmwareRequestIdGenerator();
+        CommandRequestIdGenerator idGenerator = new CommandRequestIdGenerator();
         CalibrationStreamService streamService = new CalibrationStreamService(readinessService);
 
         CalibrationPersistenceRepository calRepo = new CalibrationPersistenceRepository(
@@ -151,7 +151,7 @@ class CalibrationControllerTest {
                 MqttCommandPublisherService publisher,
                 DeviceReadinessService readinessService,
                 ManikinRegistryService registryService,
-                FirmwareRequestIdGenerator idGenerator,
+                CommandRequestIdGenerator idGenerator,
                 CalibrationStreamService streamService
         ) {
             super(publisher, readinessService, registryService, idGenerator, streamService);

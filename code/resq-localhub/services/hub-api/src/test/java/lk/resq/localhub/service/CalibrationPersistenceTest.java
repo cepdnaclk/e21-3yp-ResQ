@@ -304,7 +304,7 @@ class CalibrationPersistenceTest {
                 publisher,
                 readinessService,
                 registry,
-                new FirmwareRequestIdGenerator(),
+                new CommandRequestIdGenerator(),
                 streamService,
                 failingRepo
         );

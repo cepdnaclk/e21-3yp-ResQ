@@ -6,7 +6,6 @@ import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.model.firmware.CalibrationStartRequest;
 import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
-import lk.resq.localhub.model.firmware.FirmwareRequestIds;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
@@ -33,7 +32,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class MqttCommandPublisherService {
@@ -49,10 +47,11 @@ public class MqttCommandPublisherService {
     private final String username;
     private final String password;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
+    private final CommandRequestIdGenerator requestIdGenerator;
+    private final MqttQosPolicy qosPolicy;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
-    private final AtomicLong requestSequence = new AtomicLong(0L);
 
     private MqttClient mqttClient;
 
@@ -63,7 +62,9 @@ public class MqttCommandPublisherService {
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.command-client-id:hub-api-session-commands}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
-            @Value("${resq.mqtt.password:}") String password
+            @Value("${resq.mqtt.password:}") String password,
+            CommandRequestIdGenerator requestIdGenerator,
+            MqttQosPolicy qosPolicy
     ) {
         this.objectMapper = objectMapper;
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
@@ -71,6 +72,28 @@ public class MqttCommandPublisherService {
         this.clientId = clientId;
         this.username = normalize(username);
         this.password = password;
+        this.requestIdGenerator = requestIdGenerator == null ? new CommandRequestIdGenerator() : requestIdGenerator;
+        this.qosPolicy = qosPolicy == null ? MqttQosPolicy.defaults() : qosPolicy;
+    }
+
+    public MqttCommandPublisherService(
+            ObjectMapper objectMapper,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            String brokerUrl,
+            String clientId,
+            String username,
+            String password
+    ) {
+        this(
+                objectMapper,
+                firmwarePersistenceRepository,
+                brokerUrl,
+                clientId,
+                username,
+                password,
+                new CommandRequestIdGenerator(),
+                MqttQosPolicy.defaults()
+        );
     }
 
     public MqttCommandPublisherService(
@@ -428,12 +451,7 @@ public class MqttCommandPublisherService {
             publishToBroker(topic, json);
 
             firmwarePersistenceRepository.markCommandPublished(requestId, Instant.now());
-            logger.info(
-                    "Published MQTT {} command to {} for request {}",
-                    action,
-                    topic,
-                    requestId
-            );
+            logger.info("Published MQTT {} command to {} for request {} qos={}", action, topic, requestId, qosPolicy.commandQos());
             return new FirmwareCommandPublishResult(topic, requestId, normalizedPayload);
         } catch (Exception error) {
             if (requestId != null) {
@@ -449,13 +467,18 @@ public class MqttCommandPublisherService {
     }
 
     protected void publishToBroker(String topic, String jsonPayload) throws Exception {
+        publishToBroker(topic, jsonPayload, qosPolicy.commandQos(), false);
+    }
+
+    protected void publishToBroker(String topic, String jsonPayload, int qos, boolean retained) throws Exception {
         ensureConnected();
         if (mqttClient == null || !mqttClient.isConnected()) {
             throw new IllegalStateException("MQTT command publisher is not connected");
         }
 
         MqttMessage message = new MqttMessage(jsonPayload.getBytes(StandardCharsets.UTF_8));
-        message.setQos(0);
+        message.setQos(qos);
+        message.setRetained(retained);
         mqttClient.publish(topic, message);
     }
 
@@ -467,7 +490,7 @@ public class MqttCommandPublisherService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("request_id", requestId != null && !requestId.isBlank()
                 ? requestId.trim()
-                : FirmwareRequestIds.format(commandTypeId.value(), Math.toIntExact(requestSequence.incrementAndGet())));
+                : requestIdGenerator.next(commandTypeId));
         payload.put("issued_at_ms", (timestamp == null ? Instant.now() : timestamp).toEpochMilli());
         return payload;
     }

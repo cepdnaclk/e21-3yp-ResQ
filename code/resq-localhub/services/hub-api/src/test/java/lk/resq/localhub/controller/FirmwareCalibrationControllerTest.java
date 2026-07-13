@@ -40,7 +40,7 @@ class FirmwareCalibrationControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.ACCEPTED);
         assertThat(response.getBody()).isInstanceOf(FirmwareCalibrationCommandResponse.class);
         FirmwareCalibrationCommandResponse body = (FirmwareCalibrationCommandResponse) response.getBody();
-        assertThat(body.requestId()).isEqualTo("req-200-0001");
+        assertThat(body.requestId()).startsWith("req-200-");
         assertThat(body.topic()).isEqualTo(FirmwareTopics.calibrationStartCommandTopic("M01"));
         assertThat(fixture.publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.CALIBRATION_START);
     }
@@ -54,7 +54,7 @@ class FirmwareCalibrationControllerTest {
         assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.ACCEPTED);
         assertThat(response.getBody()).isInstanceOf(FirmwareCalibrationCommandResponse.class);
         FirmwareCalibrationCommandResponse body = (FirmwareCalibrationCommandResponse) response.getBody();
-        assertThat(body.requestId()).isEqualTo("req-201-0001");
+        assertThat(body.requestId()).startsWith("req-201-");
         assertThat(body.topic()).isEqualTo(FirmwareTopics.calibrationCancelCommandTopic("M01"));
         assertThat(fixture.publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.CALIBRATION_CANCEL);
     }

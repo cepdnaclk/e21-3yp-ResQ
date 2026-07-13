@@ -27,7 +27,7 @@ class CalibrationCommandServiceTest {
     private CapturingPublisher publisher;
     private DeviceReadinessService readinessService;
     private ManikinRegistryService registryService;
-    private FirmwareRequestIdGenerator idGenerator;
+    private CommandRequestIdGenerator idGenerator;
     private CapturingCalibrationStreamService streamService;
     private CalibrationCommandService service;
 
@@ -49,7 +49,7 @@ class CalibrationCommandServiceTest {
         publisher = new CapturingPublisher(objectMapper, repository);
         readinessService = new DeviceReadinessService();
         registryService = new ManikinRegistryService(12);
-        idGenerator = new FirmwareRequestIdGenerator();
+        idGenerator = new CommandRequestIdGenerator("a4f18d2c");
         streamService = new CapturingCalibrationStreamService(readinessService);
         service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService, calRepo);
     }
@@ -98,17 +98,17 @@ class CalibrationCommandServiceTest {
         CalibrationCommandResponse response = service.startCalibration("M01", request);
 
         assertThat(response.status()).isEqualTo("PUBLISHED");
-        assertThat(response.requestId()).isEqualTo("req-200-0001");
+        assertThat(response.requestId()).startsWith("req-200-a4f18d2c-");
 
         assertThat(publisher.lastDeviceId).isEqualTo("M01");
-        assertThat(publisher.lastRequestId).isEqualTo("req-200-0001");
+        assertThat(publisher.lastRequestId).isEqualTo(response.requestId());
         assertThat(publisher.lastStartRequest).isEqualTo(request);
 
         DeviceReadinessState state = readinessService.getReadiness("M01");
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.STARTING);
         assertThat(state.currentProgressId()).isEqualTo(1);
         assertThat(state.readyForSession()).isFalse();
-        assertThat(state.lastReplyId()).isEqualTo("req-200-0001");
+        assertThat(state.lastReplyId()).isEqualTo(response.requestId());
 
         // Verify that SSE snapshot broadcast was called
         assertThat(streamService.lastPublishedDeviceId).isEqualTo("M01");
@@ -138,10 +138,10 @@ class CalibrationCommandServiceTest {
         CalibrationCommandResponse response = service.cancelCalibration("M01");
 
         assertThat(response.status()).isEqualTo("PUBLISHED");
-        assertThat(response.requestId()).isEqualTo("req-201-0001");
+        assertThat(response.requestId()).startsWith("req-201-a4f18d2c-");
 
         assertThat(publisher.lastDeviceId).isEqualTo("M01");
-        assertThat(publisher.lastRequestId).isEqualTo("req-201-0001");
+        assertThat(publisher.lastRequestId).isEqualTo(response.requestId());
     }
 
     private void registerDevice(String deviceId) {

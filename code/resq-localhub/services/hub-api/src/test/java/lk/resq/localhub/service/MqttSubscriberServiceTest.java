@@ -12,6 +12,7 @@ import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
 import lk.resq.localhub.model.firmware.FirmwareEventRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
+import lk.resq.localhub.model.firmware.FirmwareTopics;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.SyncQueueRepository;
@@ -41,6 +42,19 @@ class MqttSubscriberServiceTest {
         assertThat(service.parseTopic("resq/manikins/M01/events").messageType()).isEqualTo("events");
         assertThat(service.parseTopic("resq/manikins/M01/events/calibration").messageType()).isEqualTo("events/calibration");
         assertThat(service.parseTopic("other/M01/status")).isNull();
+    }
+
+    @Test
+    void mapsSubscriptionsToConfiguredQos() {
+        MqttQosPolicy policy = MqttQosPolicy.defaults();
+
+        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.statusTopic("+"), policy)).isEqualTo(1);
+        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.eventsTopic("+"), policy)).isEqualTo(1);
+        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.calibrationEventsTopic("+"), policy)).isEqualTo(1);
+        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.errorEventsTopic("+"), policy)).isEqualTo(1);
+        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.telemetryTopic("+"), policy)).isEqualTo(0);
+        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.heartbeatTopic("+"), policy)).isEqualTo(0);
+        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.debugTopic("+"), policy)).isEqualTo(0);
     }
     @Test
     void currentFirmwareStatusAndHeartbeatPopulateLiveRegistryAndSse() throws Exception {
@@ -126,6 +140,18 @@ class MqttSubscriberServiceTest {
         assertThat(events.get(0).eventId()).isEqualTo(1003);
         assertThat(events.get(0).topicFamily()).isEqualTo("events");
         assertThat(events.get(0).replyId()).isEqualTo("req-400-0001");
+        service.handleMessage("resq/M01/events", message("""
+            {
+              "event_id": 1003,
+              "reply_id": "req-400-0001",
+              "status": "ACK",
+              "reason_id": "00000",
+              "action_id": 7,
+              "session_id": "S-1",
+              "ts_ms": 101
+            }
+            """));
+        assertThat(repository.findRecentEvents("M01", 10)).hasSize(1);
         service.handleMessage("resq/M01/events/calibration", message("""
             {
               "event_id": 4002,
@@ -406,6 +432,33 @@ class MqttSubscriberServiceTest {
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.READY);
         assertThat(state.readyForSession()).isTrue();
     }
+
+    @Test
+    void duplicateCalibrationFinalPassIsIgnoredAsRedelivery() throws Exception {
+        ServiceFixture fixture = newFixture(newRepository());
+        String payload = """
+            {
+              "event_id": 4002,
+              "reply_id": "req-200-a4f18d2c-000001",
+              "status": "ACK",
+              "result": "PASS",
+              "reason_id": "00000",
+              "state": "READY_FOR_SESSION",
+              "action_id": 0,
+              "ts_ms": 123456
+            }
+            """;
+
+        fixture.subscriber().handleMessage("resq/M01/events/calibration", message(payload));
+        fixture.subscriber().handleMessage("resq/M01/events/calibration", message(payload));
+
+        DeviceReadinessState readiness = fixture.readinessService().getReadiness("M01");
+        assertThat(readiness.calibrationState()).isEqualTo(CalibrationState.READY);
+        assertThat(readiness.readyForSession()).isTrue();
+        assertThat(fixture.calibrationStreamService().events).hasSize(1);
+        assertThat(fixture.registry().getLiveSummary("M01").orElseThrow().calibrationResult()).isEqualTo("PASS");
+    }
+
     @Test
     void verifiesCalibrationSseBroadcasts() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());

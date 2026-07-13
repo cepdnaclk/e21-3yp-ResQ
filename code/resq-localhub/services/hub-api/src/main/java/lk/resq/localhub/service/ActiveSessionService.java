@@ -36,7 +36,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class ActiveSessionService {
@@ -61,8 +60,7 @@ public class ActiveSessionService {
     private final Clock clock;
     private final long startAckTimeoutMs;
     private final long stopAckTimeoutMs;
-    private final AtomicLong sessionStartRequestSequence = new AtomicLong(0L);
-    private final AtomicLong sessionStopRequestSequence = new AtomicLong(0L);
+    private final CommandRequestIdGenerator requestIdGenerator;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
@@ -77,11 +75,13 @@ public class ActiveSessionService {
             RateEstimatorRegistry rateEstimatorRegistry,
             DeviceReadinessService deviceReadinessService,
             @Value("${resq.session.start-ack-timeout-ms:7000}") long startAckTimeoutMs,
-            @Value("${resq.session.stop-ack-timeout-ms:7000}") long stopAckTimeoutMs
+            @Value("${resq.session.stop-ack-timeout-ms:7000}") long stopAckTimeoutMs,
+            CommandRequestIdGenerator requestIdGenerator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
-                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, Clock.systemUTC());
+                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, Clock.systemUTC(),
+                requestIdGenerator);
     }
 
     public ActiveSessionService(
@@ -99,6 +99,28 @@ public class ActiveSessionService {
             long stopAckTimeoutMs,
             Clock clock
     ) {
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
+                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, clock,
+                new CommandRequestIdGenerator());
+    }
+
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository,
+            RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService,
+            long startAckTimeoutMs,
+            long stopAckTimeoutMs,
+            Clock clock,
+            CommandRequestIdGenerator requestIdGenerator
+    ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.localSessionRepository = localSessionRepository;
@@ -112,6 +134,7 @@ public class ActiveSessionService {
         this.startAckTimeoutMs = startAckTimeoutMs > 0 ? startAckTimeoutMs : 7000L;
         this.stopAckTimeoutMs = stopAckTimeoutMs > 0 ? stopAckTimeoutMs : 7000L;
         this.clock = clock != null ? clock : Clock.systemUTC();
+        this.requestIdGenerator = requestIdGenerator == null ? new CommandRequestIdGenerator() : requestIdGenerator;
     }
 
     public ActiveSessionService(
@@ -317,7 +340,7 @@ public class ActiveSessionService {
             String instructorId
     ) {
         String sessionId = UUID.randomUUID().toString();
-        String requestId = nextSessionStartRequestId();
+        String requestId = requestIdGenerator.next(FirmwareCommandTypeId.SESSION_START);
         Instant now = now();
         ActiveSessionState state = new ActiveSessionState(
                 sessionId,
@@ -417,7 +440,7 @@ public class ActiveSessionService {
         }
 
         Instant now = now();
-        String requestId = nextSessionStopRequestId();
+        String requestId = requestIdGenerator.next(FirmwareCommandTypeId.SESSION_STOP);
         state.lifecycleState = SessionLifecycleState.STOP_PENDING;
         state.active = true;
         state.stopRequestId = requestId;
@@ -1104,14 +1127,6 @@ public class ActiveSessionService {
                 state.firmwareReasonId,
                 state.firmwareActionId
         );
-    }
-
-    private String nextSessionStartRequestId() {
-        return FirmwareRequestIds.format(FirmwareCommandTypeId.SESSION_START.value(), Math.toIntExact(sessionStartRequestSequence.incrementAndGet()));
-    }
-
-    private String nextSessionStopRequestId() {
-        return FirmwareRequestIds.format(FirmwareCommandTypeId.SESSION_STOP.value(), Math.toIntExact(sessionStopRequestSequence.incrementAndGet()));
     }
 
     private Instant now() {

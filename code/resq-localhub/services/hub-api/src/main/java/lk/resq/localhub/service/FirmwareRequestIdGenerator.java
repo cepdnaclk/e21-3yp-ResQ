@@ -1,17 +1,23 @@
 package lk.resq.localhub.service;
 
-import lk.resq.localhub.model.firmware.FirmwareRequestIds;
+import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
 import org.springframework.stereotype.Component;
-
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class FirmwareRequestIdGenerator {
-    private final ConcurrentHashMap<Integer, AtomicLong> sequences = new ConcurrentHashMap<>();
+    private final CommandRequestIdGenerator delegate;
+
+    public FirmwareRequestIdGenerator(CommandRequestIdGenerator delegate) {
+        this.delegate = delegate;
+    }
+
+    public FirmwareRequestIdGenerator() {
+        this(new CommandRequestIdGenerator());
+    }
 
     public String nextRequestId(int commandTypeId) {
-        long seq = sequences.computeIfAbsent(commandTypeId, id -> new AtomicLong(0L)).incrementAndGet();
-        return FirmwareRequestIds.format(commandTypeId, Math.toIntExact(seq));
+        FirmwareCommandTypeId commandType = FirmwareCommandTypeId.fromValue(commandTypeId)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown firmware command type id " + commandTypeId));
+        return delegate.next(commandType);
     }
 }
