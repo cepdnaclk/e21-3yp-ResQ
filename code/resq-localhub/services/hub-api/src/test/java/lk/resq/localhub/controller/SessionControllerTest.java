@@ -110,6 +110,7 @@ class SessionControllerTest {
                 "Review smoke",
                 null
         ));
+        activate(fixture.service, started);
 
         com.fasterxml.jackson.databind.ObjectMapper mapper = new ObjectMapper();
         fixture.service.recordTelemetry("M01", mapper.readTree("""
@@ -177,6 +178,7 @@ class SessionControllerTest {
                 "Review smoke",
                 null
         ));
+        activate(service, started);
 
         com.fasterxml.jackson.databind.ObjectMapper mapper = new ObjectMapper();
         service.recordTelemetry(deviceId, mapper.readTree("""
@@ -197,6 +199,19 @@ class SessionControllerTest {
     @SuppressWarnings("unchecked")
     private static <T> T requireBody(Object body) {
         return (T) body;
+    }
+
+    private static void activate(ActiveSessionService service, SessionStartResponse started) {
+        service.handleSessionStartFirmwareReply(
+                started.deviceId(),
+                2000,
+                started.requestId(),
+                "ACK",
+                started.sessionId(),
+                null,
+                "00000",
+                0
+        );
     }
 
     private static Fixture newFixture() throws Exception {

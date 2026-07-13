@@ -233,7 +233,17 @@ public class MqttCommandPublisherService {
             String profileId,
             Instant startedAt
     ) {
-        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_START, startedAt);
+        return publishSessionStartCommand(deviceId, sessionId, profileId, startedAt, null);
+    }
+
+    public FirmwareCommandPublishResult publishSessionStartCommand(
+            String deviceId,
+            String sessionId,
+            String profileId,
+            Instant startedAt,
+            String requestId
+    ) {
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_START, startedAt, requestId);
         payload.put("session_id", sessionId);
         payload.put("profile_id", profileId);
         return publishFirmwareCommand(
@@ -313,7 +323,8 @@ public class MqttCommandPublisherService {
                 payload.deviceId(),
                 payload.sessionId(),
                 payload.scenario(),
-                payload.startedAt()
+                payload.startedAt(),
+                payload.requestId()
         );
     }
 
@@ -445,8 +456,14 @@ public class MqttCommandPublisherService {
     }
 
     private Map<String, Object> requestPayload(FirmwareCommandTypeId commandTypeId, Instant timestamp) {
+        return requestPayload(commandTypeId, timestamp, null);
+    }
+
+    private Map<String, Object> requestPayload(FirmwareCommandTypeId commandTypeId, Instant timestamp, String requestId) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("request_id", FirmwareRequestIds.format(commandTypeId.value(), Math.toIntExact(requestSequence.incrementAndGet())));
+        payload.put("request_id", requestId != null && !requestId.isBlank()
+                ? requestId.trim()
+                : FirmwareRequestIds.format(commandTypeId.value(), Math.toIntExact(requestSequence.incrementAndGet())));
         payload.put("issued_at_ms", (timestamp == null ? Instant.now() : timestamp).toEpochMilli());
         return payload;
     }

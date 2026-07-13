@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionLiveView;
+import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -269,6 +270,27 @@ public class ManikinRegistryService {
                 state.state = "PAIRED_IDLE";
             }
             state.sessionActive = false;
+        });
+    }
+
+    public void applyRuntimeState(DeviceRuntimeState runtimeState) {
+        if (runtimeState == null) {
+            return;
+        }
+
+        upsert(runtimeState.deviceId(), state -> {
+            state.lastSeen = Instant.ofEpochMilli(Math.max(1L, runtimeState.lastSeenEpochMs()));
+            state.online = true;
+            state.state = canonicalFirmwareState(runtimeState.firmwareState());
+            state.firmwareState = canonicalFirmwareState(runtimeState.firmwareState());
+            state.calibrated = runtimeState.calibrated();
+            state.readyForSession = runtimeState.readyForSession();
+            state.calibrationState = runtimeState.calibrationState();
+            state.calibrationResult = runtimeState.lastCalibrationResult();
+            state.profileId = runtimeState.calibrationProfileId();
+            state.sessionId = runtimeState.sessionId();
+            state.sessionActive = runtimeState.sessionActive();
+            indexSession(state);
         });
     }
 

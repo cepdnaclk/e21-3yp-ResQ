@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartRequest;
+import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
@@ -231,6 +232,7 @@ class MqttSubscriberServiceTest {
                 "smoke-test",
                 null
         ));
+        activate(fixture, session);
 
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
@@ -285,6 +287,7 @@ class MqttSubscriberServiceTest {
                 "smoke-test",
                 null
         ));
+        activate(fixture, session);
 
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
@@ -331,6 +334,7 @@ class MqttSubscriberServiceTest {
                 "smoke-test",
                 null
         ));
+        activate(fixture, session);
 
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
@@ -359,6 +363,7 @@ class MqttSubscriberServiceTest {
                 "smoke-test",
                 null
         ));
+        activate(fixture, session);
 
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
@@ -538,6 +543,7 @@ class MqttSubscriberServiceTest {
                 "smoke-test",
                 null
         ));
+        activate(fixture, session);
 
         // 1. Initial telemetry sample (start state)
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
@@ -716,6 +722,19 @@ class MqttSubscriberServiceTest {
                 null
         );
         return new LiveRegistryFixture(subscriber, registry, liveStreamService);
+    }
+
+    private static void activate(ServiceFixture fixture, SessionStartResponse session) {
+        fixture.activeSessionService().handleSessionStartFirmwareReply(
+                session.deviceId(),
+                2000,
+                session.requestId(),
+                "ACK",
+                session.sessionId(),
+                null,
+                "00000",
+                0
+        );
     }
 
     private record ServiceFixture(

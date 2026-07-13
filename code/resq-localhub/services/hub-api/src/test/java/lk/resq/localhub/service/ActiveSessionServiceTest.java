@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
+import lk.resq.localhub.model.SessionLifecycleState;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStartCommandPayload;
@@ -18,7 +19,9 @@ import lk.resq.localhub.service.SyncQueueService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,6 +45,7 @@ class ActiveSessionServiceTest {
                 "Validation smoke",
                 null
         ));
+        activate(service, session);
 
         JsonNode valid = telemetry("M01", session.sessionId(), 1, 52, 110);
         ActiveSessionService.TelemetryValidationResult accepted = service.validateTelemetryBinding("M01", valid);
@@ -75,6 +79,7 @@ class ActiveSessionServiceTest {
                 "Compatibility smoke",
                 null
         ));
+        activate(service, session);
 
         JsonNode metricFirst = objectMapper.readTree("""
                 {
@@ -125,6 +130,7 @@ class ActiveSessionServiceTest {
                 "Depth progress smoke",
                 null
         ));
+        activate(service, session);
 
         JsonNode firmwareTelemetry = objectMapper.readTree("""
                 {
@@ -176,6 +182,7 @@ class ActiveSessionServiceTest {
                 "Live update smoke",
                 null
         ));
+        activate(service, session);
 
         service.recordTelemetry("M01", objectMapper.readTree("""
                 {
@@ -225,6 +232,7 @@ class ActiveSessionServiceTest {
                 "Depth smoke",
                 null
         ));
+        activate(service, session);
 
         JsonNode telemetry = objectMapper.readTree("""
                 {
@@ -265,6 +273,7 @@ class ActiveSessionServiceTest {
                 "Validation smoke",
                 null
         ));
+        activate(service, session);
 
         JsonNode first = telemetry("M01", session.sessionId(), 1, 52, 110);
         service.recordTelemetry("M01", first);
@@ -278,7 +287,7 @@ class ActiveSessionServiceTest {
     @Test
     void blocksSessionStartForKnownNotReadyFirmwareDevice() throws Exception {
         ServiceFixture fixture = newServiceFixture();
-        fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+        fixture.readinessService.handleStatus("M01", objectMapper.readTree("""
                 {
                   "deviceId": "M01",
                   "state": "CALIBRATING",
@@ -295,8 +304,8 @@ class ActiveSessionServiceTest {
                 "Guest",
                 "Blocked readiness",
                 null
-        ))).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("not ready");
+        ))).isInstanceOf(CalibrationNotReadyException.class)
+                .hasMessageContaining("Run calibration before starting a CPR session.");
     }
 
     @Test
@@ -320,12 +329,12 @@ class ActiveSessionServiceTest {
                 Instant.now(),
                 "{}"
         ));
-        fixture.registry.updateFromStatus("M01", objectMapper.readTree("""
+        fixture.readinessService.handleStatus("M01", objectMapper.readTree("""
                 {
                   "deviceId": "M01",
                   "state": "READY_FOR_SESSION",
                   "session_active": false,
-                  "calibrated": false
+                  "calibrated": true
                 }
                 """));
 
@@ -340,7 +349,9 @@ class ActiveSessionServiceTest {
         ));
 
         assertThat(session.deviceId()).isEqualTo("M01");
-        assertThat(session.active()).isTrue();
+        assertThat(session.active()).isFalse();
+        assertThat(session.state()).isEqualTo(SessionLifecycleState.START_PENDING);
+        assertThat(session.requestId()).isNotBlank();
     }
 
     @Test
@@ -403,7 +414,7 @@ class ActiveSessionServiceTest {
                 "00000",
                 0,
                 "CALIBRATING",
-                100L,
+                101L,
                 Instant.now()
         ));
 
@@ -435,7 +446,91 @@ class ActiveSessionServiceTest {
         ));
 
         assertThat(session.deviceId()).isEqualTo("M01");
-        assertThat(session.active()).isTrue();
+        assertThat(session.active()).isFalse();
+        assertThat(session.state()).isEqualTo(SessionLifecycleState.START_PENDING);
+        assertThat(session.requestId()).isNotBlank();
+    }
+
+    @Test
+    void matchingFirmwareAckActivatesPendingSession() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        SessionStartResponse pending = fixture.service.startSession(startRequest("M01"));
+
+        assertThat(pending.active()).isFalse();
+        assertThat(pending.state()).isEqualTo(SessionLifecycleState.START_PENDING);
+
+        assertThat(fixture.service.handleSessionStartFirmwareReply(
+                "M01", 2000, pending.requestId(), "ACK", pending.sessionId(), null, "00000", 0
+        )).isTrue();
+
+        SessionStartResponse active = fixture.service.findSessionStart(pending.sessionId()).orElseThrow();
+        assertThat(active.active()).isTrue();
+        assertThat(active.state()).isEqualTo(SessionLifecycleState.ACTIVE);
+        assertThat(fixture.service.findActiveSessionForDevice("M01")).isPresent();
+    }
+
+    @Test
+    void nackRejectsPendingSessionAndAllowsRetry() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+        SessionStartResponse pending = fixture.service.startSession(startRequest("M01"));
+
+        assertThat(fixture.service.handleSessionStartFirmwareReply(
+                "M01", 1000, pending.requestId(), "NACK", pending.sessionId(), "PROFILE_MISMATCH", "12345", 7
+        )).isTrue();
+
+        SessionStartResponse rejected = fixture.service.findSessionStart(pending.sessionId()).orElseThrow();
+        assertThat(rejected.active()).isFalse();
+        assertThat(rejected.state()).isEqualTo(SessionLifecycleState.START_REJECTED);
+        assertThat(fixture.service.findActiveSessionForDevice("M01")).isEmpty();
+
+        SessionStartResponse retry = fixture.service.startSession(startRequest("M01"));
+        assertThat(retry.sessionId()).isNotEqualTo(pending.sessionId());
+        assertThat(retry.state()).isEqualTo(SessionLifecycleState.START_PENDING);
+    }
+
+    @Test
+    void pendingStartBlocksDuplicateUntilTimeoutThenAllowsRetry() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-13T00:00:00Z"));
+        ServiceFixture fixture = newServiceFixture(clock, 1_000L);
+        SessionStartResponse pending = fixture.service.startSession(startRequest("M01"));
+
+        assertThatThrownBy(() -> fixture.service.startSession(startRequest("M01")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("reserved session");
+
+        clock.advanceMillis(1_001L);
+        assertThat(fixture.service.expirePendingSessionStarts()).isEqualTo(1);
+        assertThat(fixture.service.findSessionStart(pending.sessionId()).orElseThrow().state())
+                .isEqualTo(SessionLifecycleState.START_TIMEOUT);
+        assertThat(fixture.service.findActiveSessionForDevice("M01")).isEmpty();
+
+        assertThat(fixture.service.startSession(startRequest("M01")).state())
+                .isEqualTo(SessionLifecycleState.START_PENDING);
+    }
+
+    @Test
+    void lateOrMismatchedRepliesDoNotActivatePendingSession() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-13T00:00:00Z"));
+        ServiceFixture fixture = newServiceFixture(clock, 1_000L);
+        SessionStartResponse pending = fixture.service.startSession(startRequest("M01"));
+
+        assertThat(fixture.service.handleSessionStartFirmwareReply(
+                "M02", 2000, pending.requestId(), "ACK", pending.sessionId(), null, "00000", 0
+        )).isFalse();
+        assertThat(fixture.service.handleSessionStartFirmwareReply(
+                "M01", 2000, "req-300-9999", "ACK", pending.sessionId(), null, "00000", 0
+        )).isFalse();
+        assertThat(fixture.service.handleSessionStartFirmwareReply(
+                "M01", 2000, pending.requestId(), "ACK", "wrong-session", null, "00000", 0
+        )).isFalse();
+
+        clock.advanceMillis(1_001L);
+        fixture.service.expirePendingSessionStarts();
+        assertThat(fixture.service.handleSessionStartFirmwareReply(
+                "M01", 2000, pending.requestId(), "ACK", pending.sessionId(), null, "00000", 0
+        )).isFalse();
+        assertThat(fixture.service.findSessionStart(pending.sessionId()).orElseThrow().state())
+                .isEqualTo(SessionLifecycleState.START_TIMEOUT);
     }
 
     @Test
@@ -502,6 +597,10 @@ class ActiveSessionServiceTest {
     }
 
     private ServiceFixture newServiceFixture() throws Exception {
+        return newServiceFixture(Clock.systemUTC(), 7000L);
+    }
+
+    private ServiceFixture newServiceFixture(Clock clock, long startAckTimeoutMs) throws Exception {
         MqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService();
         LocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
         LiveStreamService liveStreamService = new NoopLiveStreamService();
@@ -570,9 +669,15 @@ class ActiveSessionServiceTest {
                 syncQueueService,
                 null,
                 new RateEstimatorRegistry(),
-                readinessService
+                readinessService,
+                startAckTimeoutMs,
+                clock
         );
         return new ServiceFixture(service, registry, firmwareRepository, readinessService);
+    }
+
+    private static SessionStartRequest startRequest(String deviceId) {
+        return new SessionStartRequest(deviceId, null, null, null, "Guest", "Lifecycle", null);
     }
 
     private JsonNode telemetry(String deviceId, String sessionId, long seq, double depthMm, double rateCpm) throws Exception {
@@ -601,6 +706,21 @@ class ActiveSessionServiceTest {
                   "rateCpm": 110
                 }
                 """.formatted(deviceId));
+    }
+
+    private void activate(ActiveSessionService service, SessionStartResponse session) {
+        assertThat(service.handleSessionStartFirmwareReply(
+                session.deviceId(),
+                2000,
+                session.requestId(),
+                "ACK",
+                session.sessionId(),
+                null,
+                "00000",
+                0
+        )).isTrue();
+        assertThat(service.findSessionStart(session.sessionId()).orElseThrow().state())
+                .isEqualTo(SessionLifecycleState.ACTIVE);
     }
 
     private void assertRejected(ActiveSessionService.TelemetryValidationResult result, String reasonFragment) {
@@ -669,6 +789,33 @@ class ActiveSessionServiceTest {
         @Override
         public void publishSessionStart(SessionStartCommandPayload payload) {
             publishStartCount++;
+        }
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        private void advanceMillis(long millis) {
+            instant = instant.plusMillis(millis);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
         }
     }
 }

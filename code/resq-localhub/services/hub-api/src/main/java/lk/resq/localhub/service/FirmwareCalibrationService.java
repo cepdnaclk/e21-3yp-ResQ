@@ -2,17 +2,17 @@ package lk.resq.localhub.service;
 
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.firmware.CalibrationProfileResponse;
+import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationCommandResponse;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationStartRequest;
 import lk.resq.localhub.model.firmware.FirmwareReadinessResponse;
-import lk.resq.localhub.model.firmware.FirmwareState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.Locale;
 import java.util.Optional;
 
 @Service
@@ -22,8 +22,24 @@ public class FirmwareCalibrationService {
 
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
-        private final CalibrationProfileService calibrationProfileService;
+    private final CalibrationProfileService calibrationProfileService;
     private final ManikinRegistryService manikinRegistryService;
+    private final DeviceRuntimeStateService deviceRuntimeStateService;
+
+    @Autowired
+    public FirmwareCalibrationService(
+            MqttCommandPublisherService mqttCommandPublisherService,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            CalibrationProfileService calibrationProfileService,
+            ManikinRegistryService manikinRegistryService,
+            DeviceRuntimeStateService deviceRuntimeStateService
+    ) {
+        this.mqttCommandPublisherService = mqttCommandPublisherService;
+        this.firmwarePersistenceRepository = firmwarePersistenceRepository;
+        this.calibrationProfileService = calibrationProfileService;
+        this.manikinRegistryService = manikinRegistryService;
+        this.deviceRuntimeStateService = deviceRuntimeStateService;
+    }
 
     public FirmwareCalibrationService(
             MqttCommandPublisherService mqttCommandPublisherService,
@@ -31,10 +47,13 @@ public class FirmwareCalibrationService {
             CalibrationProfileService calibrationProfileService,
             ManikinRegistryService manikinRegistryService
     ) {
-        this.mqttCommandPublisherService = mqttCommandPublisherService;
-        this.firmwarePersistenceRepository = firmwarePersistenceRepository;
-        this.calibrationProfileService = calibrationProfileService;
-        this.manikinRegistryService = manikinRegistryService;
+        this(
+                mqttCommandPublisherService,
+                firmwarePersistenceRepository,
+                calibrationProfileService,
+                manikinRegistryService,
+                new DeviceRuntimeStateService()
+        );
     }
 
     public FirmwareCalibrationCommandResponse startCalibration(String deviceId, FirmwareCalibrationStartRequest request) {
@@ -100,17 +119,19 @@ public class FirmwareCalibrationService {
         String normalizedDeviceId = requireDeviceId(deviceId);
         Optional<FirmwareCalibrationResultRecord> latest = firmwarePersistenceRepository.findLatestCalibrationResult(normalizedDeviceId);
         Optional<ManikinLiveSummary> summary = manikinRegistryService.getLiveSummary(normalizedDeviceId);
+        Optional<DeviceRuntimeState> runtime = deviceRuntimeStateService.find(normalizedDeviceId);
 
-        String registryState = summary.map(ManikinLiveSummary::state).map(FirmwareCalibrationService::normalize).orElse(null);
         FirmwareCalibrationResultRecord result = latest.orElse(null);
-        String firmwareState = firstNonBlank(registryState, result == null ? null : result.firmwareState());
-        String latestResult = firstNonBlank(result == null ? null : result.result(), summary.map(ManikinLiveSummary::calibrationResult).orElse(null));
-        boolean calibrated = Boolean.TRUE.equals(result == null ? null : result.calibrated())
-                || summary.map(ManikinLiveSummary::calibrated).orElse(null) == Boolean.TRUE
-                || "PASS".equalsIgnoreCase(nullToBlank(latestResult))
-                || "PASS_WITH_WARNINGS".equalsIgnoreCase(nullToBlank(latestResult));
-        boolean readyForSession = determineReadyForSession(firmwareState, latestResult)
-                || summary.map(ManikinLiveSummary::readyForSession).orElse(null) == Boolean.TRUE;
+        DeviceRuntimeState runtimeState = runtime.orElse(null);
+        String firmwareState = runtimeState != null
+                ? runtimeState.firmwareState()
+                : summary.map(ManikinLiveSummary::state).map(FirmwareCalibrationService::normalize).orElse(null);
+        String latestResult = firstNonBlank(
+                runtimeState == null ? null : runtimeState.lastCalibrationResult(),
+                result == null ? null : result.result()
+        );
+        boolean calibrated = runtimeState != null && runtimeState.calibrated();
+        boolean readyForSession = runtimeState != null && runtimeState.readyForSession();
 
         return new FirmwareReadinessResponse(
                 normalizedDeviceId,
@@ -123,7 +144,7 @@ public class FirmwareCalibrationService {
                 result != null && result.actionId() != null ? result.actionId() : summary.map(ManikinLiveSummary::actionId).orElse(null),
                 result == null ? null : result.tsMs(),
                 result == null ? null : toIso(result.receivedAt()),
-                summary.map(ManikinLiveSummary::sessionId).orElse(null),
+                runtimeState != null ? runtimeState.sessionId() : summary.map(ManikinLiveSummary::sessionId).orElse(null),
                 latestErrorId(summary.orElse(null), result)
         );
     }
@@ -134,70 +155,20 @@ public class FirmwareCalibrationService {
             return Optional.of("deviceId is required");
         }
 
-        Optional<FirmwareCalibrationResultRecord> latest = firmwarePersistenceRepository.findLatestCalibrationResult(normalizedDeviceId);
-        Optional<ManikinLiveSummary> summary = manikinRegistryService.getLiveSummary(normalizedDeviceId);
-        String firmwareState = firstNonBlank(
-                summary.map(ManikinLiveSummary::state).orElse(null),
-                latest.map(FirmwareCalibrationResultRecord::firmwareState).orElse(null)
-        );
-        String latestResult = firstNonBlank(
-                latest.map(FirmwareCalibrationResultRecord::result).orElse(null),
-                summary.map(ManikinLiveSummary::calibrationResult).orElse(null)
-        );
-
-        if (!hasFirmwareReadinessEvidence(firmwareState, latestResult)) {
+        Optional<DeviceRuntimeState> runtime = deviceRuntimeStateService.find(normalizedDeviceId);
+        if (runtime.isEmpty()) {
             return Optional.empty();
         }
 
-        if (!determineReadyForSession(firmwareState, latestResult)) {
-            if (firmwareState != null) {
-                return Optional.of("Device " + normalizedDeviceId + " is not ready for a session (firmwareState=" + firmwareState + ")");
+        DeviceRuntimeState state = runtime.get();
+        if (!state.readyForSession()) {
+            if (state.firmwareState() != null) {
+                return Optional.of("Device " + normalizedDeviceId + " is not ready for a session (firmwareState=" + state.firmwareState() + ")");
             }
-            return Optional.of("Device " + normalizedDeviceId + " is not ready for a session (latest calibration result=" + latestResult + ")");
+            return Optional.of("Device " + normalizedDeviceId + " is not ready for a session (" + state.readinessReason() + ")");
         }
 
         return Optional.empty();
-    }
-
-    private static boolean determineReadyForSession(String firmwareState, String latestResult) {
-        String normalizedState = normalize(firmwareState);
-        String normalizedResult = normalize(latestResult);
-
-        if ("READY_FOR_SESSION".equalsIgnoreCase(nullToBlank(normalizedState))) {
-            return true;
-        }
-
-        if ("FAIL".equalsIgnoreCase(nullToBlank(normalizedResult)) || "CANCELLED".equalsIgnoreCase(nullToBlank(normalizedResult))) {
-            return false;
-        }
-
-        if (normalizedState != null) {
-            if (
-                    "CALIBRATING".equalsIgnoreCase(normalizedState) ||
-                    "CALIBRATION_FAIL".equalsIgnoreCase(normalizedState) ||
-                    "ERROR".equalsIgnoreCase(normalizedState) ||
-                    "SESSION_ACTIVE".equalsIgnoreCase(normalizedState)
-            ) {
-                return false;
-            }
-        }
-
-        return "PASS".equalsIgnoreCase(nullToBlank(normalizedResult))
-                || "PASS_WITH_WARNINGS".equalsIgnoreCase(nullToBlank(normalizedResult));
-    }
-
-    private static boolean hasFirmwareReadinessEvidence(String firmwareState, String latestResult) {
-        String normalizedState = normalize(firmwareState);
-        return normalizedState != null && isFirmwareState(normalizedState) || normalize(latestResult) != null;
-    }
-
-    private static boolean isFirmwareState(String value) {
-        try {
-            FirmwareState.valueOf(value.trim().toUpperCase(Locale.ROOT));
-            return true;
-        } catch (IllegalArgumentException error) {
-            return false;
-        }
     }
 
     private static String latestErrorId(ManikinLiveSummary summary, FirmwareCalibrationResultRecord result) {

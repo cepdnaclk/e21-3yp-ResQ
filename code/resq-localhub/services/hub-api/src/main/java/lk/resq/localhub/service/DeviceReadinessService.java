@@ -1,44 +1,47 @@
 package lk.resq.localhub.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
+import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.Locale;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
 
 @Service
 public class DeviceReadinessService {
 
     private static final Logger logger = LoggerFactory.getLogger(DeviceReadinessService.class);
 
-    private final ConcurrentHashMap<String, DeviceReadinessState> readinessMap = new ConcurrentHashMap<>();
+    private final DeviceRuntimeStateService runtimeStateService;
+
+    public DeviceReadinessService() {
+        this(new DeviceRuntimeStateService());
+    }
+
+    @Autowired
+    public DeviceReadinessService(DeviceRuntimeStateService runtimeStateService) {
+        this.runtimeStateService = runtimeStateService;
+    }
+
+    public Optional<DeviceRuntimeState> findRuntimeState(String deviceId) {
+        return runtimeStateService.find(deviceId);
+    }
 
     public DeviceReadinessState getReadiness(String deviceId) {
         if (deviceId == null) {
             return null;
         }
-        return readinessMap.computeIfAbsent(deviceId, id -> new DeviceReadinessState(
-                id,
-                CalibrationState.UNKNOWN,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                Instant.now()
-        ));
+        return toReadinessState(runtimeStateService.getOrCreate(deviceId));
     }
 
     public boolean isReadyForSession(String deviceId) {
-        DeviceReadinessState state = getReadiness(deviceId);
-        return state != null && state.readyForSession();
+        return runtimeStateService.isReadyForSession(deviceId);
     }
 
     public DeviceReadinessState markCalibrationStartRequested(String deviceId, String requestId) {
@@ -46,22 +49,23 @@ public class DeviceReadinessService {
             return null;
         }
 
-        DeviceReadinessState previous = getReadiness(deviceId);
-        DeviceReadinessState nextState = new DeviceReadinessState(
-                deviceId,
-                CalibrationState.STARTING,
-                previous.firmwareState(),
-                1,
-                previous.lastReasonId(),
-                previous.lastActionId(),
-                previous.lastResult(),
-                requestId,
-                false,
-                Instant.now()
-        );
-        readinessMap.put(deviceId, nextState);
-        logger.info("Marked readiness STARTING (requested) for deviceId={}, requestId={}", deviceId, requestId);
-        return nextState;
+        DeviceRuntimeState state = runtimeStateService.markCalibrationStartRequested(deviceId, requestId);
+        logger.info("Marked runtime readiness STARTING (requested) for deviceId={}, requestId={}", deviceId, requestId);
+        return toReadinessState(state, requestId);
+    }
+
+    public DeviceReadinessState handleStatus(String deviceId, JsonNode payload) {
+        if (deviceId == null) {
+            return null;
+        }
+        return toReadinessState(runtimeStateService.applyStatus(deviceId, payload));
+    }
+
+    public DeviceReadinessState handleHeartbeat(String deviceId, JsonNode payload) {
+        if (deviceId == null) {
+            return null;
+        }
+        return toReadinessState(runtimeStateService.applyHeartbeat(deviceId, payload));
     }
 
     public DeviceReadinessState handleCalibrationEvent(String deviceId, CalibrationMqttEvent event) {
@@ -82,89 +86,54 @@ public class DeviceReadinessService {
             return getReadiness(deviceId);
         }
 
-        DeviceReadinessState previous = getReadiness(deviceId);
-
-        // Define state update targets
-        CalibrationState calibrationState = previous.calibrationState();
-        Integer currentProgressId = previous.currentProgressId();
-        boolean readyForSession = previous.readyForSession();
-
-        String statusClean = clean(event.status());
-        String resultClean = clean(event.result());
-        String stateClean = clean(event.firmwareState());
-
-        // Process based on eventId
-        if (event.eventId() == 4000) {
-            if ("ACK".equals(statusClean)) {
-                calibrationState = "CALIBRATING".equals(stateClean) ? CalibrationState.CALIBRATING : CalibrationState.STARTING;
-                currentProgressId = 1;
-                readyForSession = false;
-            } else if ("NACK".equals(statusClean)) {
-                calibrationState = CalibrationState.FAILED;
-                readyForSession = false;
-            }
-        } else if (event.eventId() == 4001) {
-            calibrationState = CalibrationState.CALIBRATING;
-            if (event.progressId() != null) {
-                currentProgressId = event.progressId();
-                if (event.progressId() == 12) {
-                    calibrationState = CalibrationState.FAILED;
-                } else if (event.progressId() == 13) {
-                    calibrationState = CalibrationState.INTERRUPTED;
-                }
-            }
-            readyForSession = false;
-        } else if (event.eventId() == 4002) {
-            if ("PASS".equals(resultClean) || "PASS_WITH_WARNINGS".equals(resultClean)) {
-                calibrationState = CalibrationState.READY;
-                readyForSession = true;
-            } else if ("FAIL".equals(resultClean) || "NACK".equals(statusClean)) {
-                calibrationState = CalibrationState.FAILED;
-                readyForSession = false;
-            } else if ("CANCELLED".equals(resultClean) || "CANCEL".equals(resultClean)) {
-                calibrationState = CalibrationState.CANCELLED;
-                readyForSession = false;
-            }
-        }
-
-        // Handle field updates & defaults
-        String firmwareState = event.firmwareState() != null ? event.firmwareState() : previous.firmwareState();
-        
-        String lastReasonId = event.reasonId() != null ? event.reasonId() : "00000";
-        if (event.reasonId() == null && previous.lastReasonId() != null) {
-            lastReasonId = previous.lastReasonId();
-        }
-
-        Integer lastActionId = event.actionId() != null ? event.actionId() : 0;
-        if (event.actionId() == null && previous.lastActionId() != null) {
-            lastActionId = previous.lastActionId();
-        }
-
-        String lastResult = event.result() != null ? event.result() : previous.lastResult();
-        String lastReplyId = event.replyId() != null ? event.replyId() : previous.lastReplyId();
-        Instant lastUpdatedAt = event.receivedAt() != null ? event.receivedAt() : Instant.now();
-
-        DeviceReadinessState nextState = new DeviceReadinessState(
-                deviceId,
-                calibrationState,
-                firmwareState,
-                currentProgressId,
-                lastReasonId,
-                lastActionId,
-                lastResult,
-                lastReplyId,
-                readyForSession,
-                lastUpdatedAt
-        );
-
-        readinessMap.put(deviceId, nextState);
-        logger.info("Updated readiness deviceId={} calibrationState={} readyForSession={}",
-                deviceId, nextState.calibrationState(), nextState.readyForSession());
-
-        return nextState;
+        DeviceRuntimeState state = runtimeStateService.applyCalibrationEvent(deviceId, event);
+        DeviceReadinessState readiness = toReadinessState(state, event.replyId(), event.progressId(), event.reasonId(), event.actionId());
+        logger.info("Updated runtime readiness deviceId={} calibrationState={} readyForSession={}",
+                deviceId, readiness.calibrationState(), readiness.readyForSession());
+        return readiness;
     }
 
-    private String clean(String str) {
-        return str == null ? null : str.trim().toUpperCase(Locale.ROOT);
+    public static DeviceReadinessState toReadinessState(DeviceRuntimeState state) {
+        return toReadinessState(state, state == null ? null : state.lastReplyId());
+    }
+
+    private static DeviceReadinessState toReadinessState(DeviceRuntimeState state, String replyId) {
+        return toReadinessState(state, replyId, null, null, null);
+    }
+
+    private static DeviceReadinessState toReadinessState(
+            DeviceRuntimeState state,
+            String replyId,
+            Integer progressId,
+            String reasonId,
+            Integer actionId
+    ) {
+        if (state == null) {
+            return null;
+        }
+
+        return new DeviceReadinessState(
+                state.deviceId(),
+                calibrationState(state.calibrationState()),
+                state.firmwareState(),
+                progressId != null ? progressId : state.currentProgressId(),
+                reasonId != null ? reasonId : (state.lastReasonId() != null ? state.lastReasonId() : "00000"),
+                actionId != null ? actionId : (state.lastActionId() != null ? state.lastActionId() : 0),
+                state.lastCalibrationResult(),
+                replyId != null ? replyId : state.lastReplyId(),
+                state.readyForSession(),
+                state.lastSeenEpochMs() > 0 ? Instant.ofEpochMilli(state.lastSeenEpochMs()) : Instant.now()
+        );
+    }
+
+    private static CalibrationState calibrationState(String value) {
+        if (value == null || value.isBlank()) {
+            return CalibrationState.UNKNOWN;
+        }
+        try {
+            return CalibrationState.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException ignored) {
+            return CalibrationState.UNKNOWN;
+        }
     }
 }

@@ -33,6 +33,46 @@ public record SessionLiveView(
         Long seq,
         String connectionState,
         boolean stale,
-        boolean offline
+        boolean offline,
+        String lifecycleState,
+        String requestId
 ) {
+    public SessionLiveView(
+            String sessionId,
+            String deviceId,
+            String manikinId,
+            String traineeId,
+            boolean active,
+            Instant startedAt,
+            String scenario,
+            String notes,
+            Instant lastSeen,
+            String state,
+            boolean online,
+            String ip,
+            String fw,
+            Integer rssi,
+            Integer battery,
+            Boolean sessionActive,
+            Double latestDepthMm,
+            Double latestRateCpm,
+            Boolean latestRecoilOk,
+            Double latestPauseS,
+            String latestFlags,
+            String lastEventType,
+            Long latestForce1,
+            Long latestForce2,
+            Double pressureBalancePct,
+            Boolean pressureSkewed,
+            LiveMetricPayload latestMetric,
+            Long seq,
+            String connectionState,
+            boolean stale,
+            boolean offline
+    ) {
+        this(sessionId, deviceId, manikinId, traineeId, active, startedAt, scenario, notes, lastSeen, state, online,
+                ip, fw, rssi, battery, sessionActive, latestDepthMm, latestRateCpm, latestRecoilOk, latestPauseS,
+                latestFlags, lastEventType, latestForce1, latestForce2, pressureBalancePct, pressureSkewed,
+                latestMetric, seq, connectionState, stale, offline, active ? "ACTIVE" : null, null);
+    }
 }

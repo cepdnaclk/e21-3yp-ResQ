@@ -10,6 +10,16 @@ public record SessionStartCommandPayload(
         String deviceId,
         String traineeId,
         Instant startedAt,
-        String scenario
+        String scenario,
+        String requestId
 ) {
+    public SessionStartCommandPayload(
+            String sessionId,
+            String deviceId,
+            String traineeId,
+            Instant startedAt,
+            String scenario
+    ) {
+        this(sessionId, deviceId, traineeId, startedAt, scenario, null);
+    }
 }

@@ -8,18 +8,25 @@ import lk.resq.localhub.model.LiveMetricPayload;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
+import lk.resq.localhub.model.SessionLifecycleState;
 import lk.resq.localhub.model.SessionLiveView;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.model.SessionSummary;
+import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
+import lk.resq.localhub.model.firmware.FirmwareRequestIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Collection;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -27,6 +34,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class ActiveSessionService {
@@ -35,6 +43,7 @@ public class ActiveSessionService {
 
     private final ConcurrentMap<String, ActiveSessionState> sessionsById = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> activeSessionIdByDeviceId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, String> sessionIdByStartRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Long> lastAcceptedSeqBySessionId = new ConcurrentHashMap<>();
     private final ManikinRegistryService manikinRegistryService;
     private final MqttCommandPublisherService mqttCommandPublisherService;
@@ -46,6 +55,9 @@ public class ActiveSessionService {
     private final RosterCacheRepository rosterRepository;
     private final RateEstimatorRegistry rateEstimatorRegistry;
     private final DeviceReadinessService deviceReadinessService;
+    private final Clock clock;
+    private final long startAckTimeoutMs;
+    private final AtomicLong sessionStartRequestSequence = new AtomicLong(0L);
 
     @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
@@ -58,7 +70,27 @@ public class ActiveSessionService {
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
-            DeviceReadinessService deviceReadinessService
+            DeviceReadinessService deviceReadinessService,
+            @Value("${resq.session.start-ack-timeout-ms:7000}") long startAckTimeoutMs
+    ) {
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
+                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, Clock.systemUTC());
+    }
+
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository,
+            RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService,
+            long startAckTimeoutMs,
+            Clock clock
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
@@ -70,6 +102,25 @@ public class ActiveSessionService {
         this.rosterRepository = rosterRepository;
         this.rateEstimatorRegistry = rateEstimatorRegistry;
         this.deviceReadinessService = deviceReadinessService;
+        this.startAckTimeoutMs = startAckTimeoutMs > 0 ? startAckTimeoutMs : 7000L;
+        this.clock = clock != null ? clock : Clock.systemUTC();
+    }
+
+    public ActiveSessionService(
+            ManikinRegistryService manikinRegistryService,
+            MqttCommandPublisherService mqttCommandPublisherService,
+            LocalSessionRepository localSessionRepository,
+            LiveStreamService liveStreamService,
+            TraineeRecordsRepository traineeRecordsRepository,
+            FirmwareCalibrationService firmwareCalibrationService,
+            SyncQueueService syncQueueService,
+            RosterCacheRepository rosterRepository,
+            RateEstimatorRegistry rateEstimatorRegistry,
+            DeviceReadinessService deviceReadinessService
+    ) {
+        this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
+                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                rateEstimatorRegistry, deviceReadinessService, 7000L, Clock.systemUTC());
     }
 
     // Overload for backward compatibility / tests
@@ -108,61 +159,19 @@ public class ActiveSessionService {
             throw new IllegalArgumentException("deviceId is required");
         }
 
-        String existingSessionId = activeSessionIdByDeviceId.get(deviceId);
-        if (existingSessionId != null) {
-            ActiveSessionState existing = sessionsById.get(existingSessionId);
-            if (existing != null && existing.active) {
-                throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
-            }
-        }
-        if (!deviceReadinessService.isReadyForSession(deviceId)) {
-            throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
-        }
-
-        firmwareCalibrationService.sessionStartBlockReason(deviceId)
-                .ifPresent(reason -> {
-                    throw new IllegalStateException(reason);
-                });
+        validateStartAvailability(deviceId);
 
         rateEstimatorRegistry.clearForDevice(deviceId);
         String traineeId = resolveTraineeId(request);
 
-        String sessionId = UUID.randomUUID().toString();
-        Instant startedAt = Instant.now();
-        ActiveSessionState state = new ActiveSessionState(
-            sessionId,
-            deviceId,
-            traineeId,
-                startedAt,
-                true,
+        return createPendingStart(
+                deviceId,
+                traineeId,
                 normalize(request.scenario()),
                 normalize(request.notes()),
-                null,
                 request.courseId(),
                 null
         );
-
-        sessionsById.put(sessionId, state);
-        activeSessionIdByDeviceId.put(deviceId, sessionId);
-
-        try {
-            mqttCommandPublisherService.publishSessionStart(new SessionStartCommandPayload(
-                    sessionId,
-                    deviceId,
-                    state.traineeId,
-                    startedAt,
-                    state.scenario
-            ));
-            publishInstructorLiveSnapshot();
-            logger.info("Started session {} for device {}", sessionId, deviceId);
-        } catch (RuntimeException error) {
-            sessionsById.remove(sessionId, state);
-            activeSessionIdByDeviceId.remove(deviceId, sessionId);
-            logger.warn("Rolled back session {} for device {} because the start command could not be published", sessionId, deviceId, error);
-            throw new MqttCommandPublishException("Failed to publish session start command for device " + deviceId, error);
-        }
-
-        return toStartResponse(state);
     }
 
     public synchronized SessionStartResponse startSession(SessionStartRequest request, AuthUser actor) {
@@ -171,21 +180,7 @@ public class ActiveSessionService {
             throw new IllegalArgumentException("deviceId is required");
         }
 
-        String existingSessionId = activeSessionIdByDeviceId.get(deviceId);
-        if (existingSessionId != null) {
-            ActiveSessionState existing = sessionsById.get(existingSessionId);
-            if (existing != null && existing.active) {
-                throw new IllegalStateException("Device " + deviceId + " already has an active session " + existingSessionId);
-            }
-        }
-        if (!deviceReadinessService.isReadyForSession(deviceId)) {
-            throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
-        }
-
-        firmwareCalibrationService.sessionStartBlockReason(deviceId)
-                .ifPresent(reason -> {
-                    throw new IllegalStateException(reason);
-                });
+        validateStartAvailability(deviceId);
 
         if (actor == null) {
             throw new UnauthorizedException("Authentication is required.");
@@ -227,38 +222,80 @@ public class ActiveSessionService {
             }
         }
 
+        return createPendingStart(
+                deviceId,
+                traineeId,
+                normalize(request.scenario()),
+                normalize(request.notes()),
+                courseId,
+                actor.id()
+        );
+    }
+
+    private void validateStartAvailability(String deviceId) {
+        String existingSessionId = activeSessionIdByDeviceId.get(deviceId);
+        if (existingSessionId != null) {
+            ActiveSessionState existing = sessionsById.get(existingSessionId);
+            if (existing != null && existing.reservesDevice()) {
+                throw new IllegalStateException("Device " + deviceId + " already has a reserved session " + existingSessionId);
+            }
+            activeSessionIdByDeviceId.remove(deviceId, existingSessionId);
+        }
+        if (!deviceReadinessService.isReadyForSession(deviceId)) {
+            throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
+        }
+
+        firmwareCalibrationService.sessionStartBlockReason(deviceId)
+                .ifPresent(reason -> {
+                    throw new IllegalStateException(reason);
+                });
+    }
+
+    private SessionStartResponse createPendingStart(
+            String deviceId,
+            String traineeId,
+            String scenario,
+            String notes,
+            String courseId,
+            String instructorId
+    ) {
         String sessionId = UUID.randomUUID().toString();
-        Instant startedAt = Instant.now();
+        String requestId = nextSessionStartRequestId();
+        Instant now = now();
         ActiveSessionState state = new ActiveSessionState(
                 sessionId,
                 deviceId,
                 traineeId,
-                startedAt,
-                true,
-                normalize(request.scenario()),
-                normalize(request.notes()),
+                now,
+                false,
+                scenario,
+                notes,
                 null,
                 courseId,
-                actor.id()
+                instructorId,
+                requestId,
+                SessionLifecycleState.START_PENDING,
+                now.plusMillis(startAckTimeoutMs)
         );
 
         sessionsById.put(sessionId, state);
         activeSessionIdByDeviceId.put(deviceId, sessionId);
+        sessionIdByStartRequestId.put(requestId, sessionId);
+        publishLifecycleUpdate(state);
 
         try {
             mqttCommandPublisherService.publishSessionStart(new SessionStartCommandPayload(
                     sessionId,
                     deviceId,
                     state.traineeId,
-                    startedAt,
-                    state.scenario
+                    now,
+                    state.scenario,
+                    requestId
             ));
-            publishInstructorLiveSnapshot();
-            logger.info("Started session {} for device {}", sessionId, deviceId);
+            logger.info("Created START_PENDING session {} for device {} request {}", sessionId, deviceId, requestId);
         } catch (RuntimeException error) {
-            sessionsById.remove(sessionId, state);
-            activeSessionIdByDeviceId.remove(deviceId, sessionId);
-            logger.warn("Rolled back session {} for device {} because the start command could not be published", sessionId, deviceId, error);
+            rejectStart(state, "MQTT_PUBLISH_FAILED", null, null);
+            logger.warn("Rejected pending session {} for device {} because the start command could not be published", sessionId, deviceId, error);
             throw new MqttCommandPublishException("Failed to publish session start command for device " + deviceId, error);
         }
 
@@ -316,7 +353,7 @@ public class ActiveSessionService {
         }
 
         ActiveSessionState state = sessionsById.get(sessionId);
-        if (state == null || !state.active) {
+        if (state == null || state.lifecycleState != SessionLifecycleState.ACTIVE || !state.active) {
             throw new NoSuchElementException("Session " + sessionId + " was not found or is already ended");
         }
 
@@ -362,6 +399,109 @@ public class ActiveSessionService {
         return response;
     }
 
+    public synchronized boolean handleSessionStartFirmwareReply(
+            String deviceId,
+            Integer eventId,
+            String replyId,
+            String status,
+            String sessionId,
+            String reason,
+            String reasonId,
+            Integer actionId
+    ) {
+        String normalizedReplyId = normalize(replyId);
+        if (normalizedReplyId == null) {
+            return false;
+        }
+
+        String correlatedSessionId = sessionIdByStartRequestId.get(normalizedReplyId);
+        if (correlatedSessionId == null) {
+            return false;
+        }
+
+        ActiveSessionState state = sessionsById.get(correlatedSessionId);
+        if (state == null) {
+            return false;
+        }
+
+        String normalizedDeviceId = normalize(deviceId);
+        if (normalizedDeviceId == null || !state.deviceId.equals(normalizedDeviceId)) {
+            logger.warn("Ignored session-start reply {} for mismatched device {} expected {}", normalizedReplyId, deviceId, state.deviceId);
+            return false;
+        }
+
+        String normalizedSessionId = normalize(sessionId);
+        if (normalizedSessionId != null && !state.sessionId.equals(normalizedSessionId)) {
+            logger.warn("Ignored session-start reply {} for mismatched session {} expected {}", normalizedReplyId, sessionId, state.sessionId);
+            return false;
+        }
+
+        String normalizedStatus = normalizeUpper(status);
+        if ("ACK".equals(normalizedStatus) && Integer.valueOf(2000).equals(eventId)) {
+            if (state.lifecycleState == SessionLifecycleState.ACTIVE) {
+                return true;
+            }
+            if (state.lifecycleState != SessionLifecycleState.START_PENDING) {
+                logger.info("Ignored late session-start ACK {} for session {} in state {}", normalizedReplyId, state.sessionId, state.lifecycleState);
+                return false;
+            }
+            state.lifecycleState = SessionLifecycleState.ACTIVE;
+            state.active = true;
+            state.updatedAt = now();
+            state.rejectionReason = null;
+            state.firmwareReasonId = reasonId;
+            state.firmwareActionId = actionId;
+            publishLifecycleUpdate(state);
+            logger.info("Activated session {} for device {} from firmware ACK {}", state.sessionId, state.deviceId, normalizedReplyId);
+            return true;
+        }
+
+        if ("NACK".equals(normalizedStatus) && isSessionStartReply(eventId, normalizedReplyId)) {
+            if (state.lifecycleState == SessionLifecycleState.START_REJECTED) {
+                return true;
+            }
+            if (state.lifecycleState != SessionLifecycleState.START_PENDING) {
+                logger.info("Ignored late session-start NACK {} for session {} in state {}", normalizedReplyId, state.sessionId, state.lifecycleState);
+                return false;
+            }
+            rejectStart(state, firstNonBlank(reason, "FIRMWARE_NACK"), reasonId, actionId);
+            logger.info("Rejected session {} for device {} from firmware NACK {}", state.sessionId, state.deviceId, normalizedReplyId);
+            return true;
+        }
+
+        return false;
+    }
+
+    @Scheduled(fixedDelayString = "${resq.session.start-timeout-sweep-ms:1000}")
+    public synchronized int expirePendingSessionStarts() {
+        Instant now = now();
+        int expired = 0;
+        for (ActiveSessionState state : sessionsById.values()) {
+            if (state.lifecycleState == SessionLifecycleState.START_PENDING
+                    && state.startDeadline != null
+                    && !state.startDeadline.isAfter(now)) {
+                state.lifecycleState = SessionLifecycleState.START_TIMEOUT;
+                state.active = false;
+                state.updatedAt = now;
+                state.rejectionReason = "START_ACK_TIMEOUT";
+                activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+                publishLifecycleUpdate(state);
+                expired++;
+                logger.warn("Session {} for device {} timed out waiting for firmware ACK", state.sessionId, state.deviceId);
+            }
+        }
+        return expired;
+    }
+
+    public Optional<SessionStartResponse> findSessionStart(String sessionId) {
+        String normalizedSessionId = normalize(sessionId);
+        if (normalizedSessionId == null) {
+            return Optional.empty();
+        }
+        ActiveSessionState state = sessionsById.get(normalizedSessionId);
+        return state == null ? Optional.empty() : Optional.of(toStartResponse(state));
+    }
+
     public TelemetryValidationResult validateTelemetryBinding(String topicDeviceId, JsonNode payload) {
         String normalizedDeviceId = normalize(topicDeviceId);
         if (normalizedDeviceId == null) {
@@ -396,7 +536,7 @@ public class ActiveSessionService {
         }
 
         ActiveSessionState state = sessionsById.get(payloadSessionId);
-        if (state == null || !state.active) {
+        if (state == null || state.lifecycleState != SessionLifecycleState.ACTIVE || !state.active) {
             return TelemetryValidationResult.rejected("session is not active");
         }
 
@@ -539,7 +679,7 @@ public class ActiveSessionService {
         }
 
         ActiveSessionState state = sessionsById.get(sessionId);
-        if (state == null || !state.active) {
+        if (state == null || state.lifecycleState != SessionLifecycleState.ACTIVE || !state.active) {
             return Optional.empty();
         }
 
@@ -611,12 +751,15 @@ public class ActiveSessionService {
         }
 
         ActiveSessionState state = sessionsById.get(normalizedSessionId);
-        if (state == null || !state.active) {
+        if (state == null) {
             return Optional.empty();
         }
 
-        ManikinLiveSummary summary = manikinRegistryService.getLiveSummary(state.deviceId)
-                .orElse(null);
+        return Optional.of(toSessionLiveView(state));
+    }
+
+    private SessionLiveView toSessionLiveView(ActiveSessionState state) {
+        ManikinLiveSummary summary = manikinRegistryService.getLiveSummary(state.deviceId).orElse(null);
 
         LiveMetricPayload latestMetric = state.latestMetric;
         Double liveDepthMm = latestMetric != null ? latestMetric.depthMm() : state.accumulator.lastDepthMm();
@@ -631,7 +774,7 @@ public class ActiveSessionService {
                 : (summary != null ? summary.pressureBalancePct() : null);
         Boolean livePressureSkewed = summary != null ? summary.pressureSkewed() : null;
 
-        return Optional.of(new SessionLiveView(
+        return new SessionLiveView(
                 state.sessionId,
                 state.deviceId,
                 summary != null ? summary.manikinId() : null,
@@ -664,8 +807,10 @@ public class ActiveSessionService {
                 latestMetric != null ? latestMetric.seq() : null,
                 summary != null ? summary.connectionState() : "CONNECTING",
                 summary != null && summary.stale(),
-                summary == null || summary.offline()
-        ));
+                summary == null || summary.offline(),
+                state.lifecycleState.name(),
+                state.requestId
+        );
     }
 
     public void publishLiveUpdatesForStaleDevices(Collection<String> deviceIds) {
@@ -686,6 +831,11 @@ public class ActiveSessionService {
         );
     }
 
+    private void publishLifecycleUpdate(ActiveSessionState state) {
+        publishInstructorLiveSnapshot();
+        liveStreamService.publishSessionLive(state.sessionId, toSessionLiveView(state));
+    }
+
     private SessionStartResponse toStartResponse(ActiveSessionState state) {
         return new SessionStartResponse(
                 state.sessionId,
@@ -696,7 +846,9 @@ public class ActiveSessionService {
                 state.scenario,
                 state.notes,
                 state.courseId,
-                state.instructorId
+                state.instructorId,
+                state.requestId,
+                state.lifecycleState
         );
     }
 
@@ -735,6 +887,44 @@ public class ActiveSessionService {
 
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String nextSessionStartRequestId() {
+        return FirmwareRequestIds.format(FirmwareCommandTypeId.SESSION_START.value(), Math.toIntExact(sessionStartRequestSequence.incrementAndGet()));
+    }
+
+    private Instant now() {
+        return Instant.now(clock);
+    }
+
+    private boolean isSessionStartReply(Integer eventId, String requestId) {
+        if (Integer.valueOf(2000).equals(eventId)) {
+            return true;
+        }
+        return FirmwareRequestIds.parseCommandTypeId(requestId)
+                .stream()
+                .anyMatch(value -> value == FirmwareCommandTypeId.SESSION_START.value());
+    }
+
+    private void rejectStart(ActiveSessionState state, String reason, String reasonId, Integer actionId) {
+        state.lifecycleState = SessionLifecycleState.START_REJECTED;
+        state.active = false;
+        state.updatedAt = now();
+        state.rejectionReason = reason;
+        state.firmwareReasonId = reasonId;
+        state.firmwareActionId = actionId;
+        activeSessionIdByDeviceId.remove(state.deviceId, state.sessionId);
+        publishLifecycleUpdate(state);
+    }
+
+    private static String normalizeUpper(String value) {
+        String normalized = normalize(value);
+        return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private static String firstNonBlank(String first, String fallback) {
+        String normalized = normalize(first);
+        return normalized != null ? normalized : fallback;
     }
 
     private static Long firstLong(JsonNode payload, Long fallback, String... keys) {
@@ -795,6 +985,13 @@ public class ActiveSessionService {
         private Instant endedAt;
         private final String courseId;
         private final String instructorId;
+        private final String requestId;
+        private volatile SessionLifecycleState lifecycleState;
+        private final Instant startDeadline;
+        private volatile Instant updatedAt;
+        private volatile String rejectionReason;
+        private volatile String firmwareReasonId;
+        private volatile Integer firmwareActionId;
         private volatile LiveMetricPayload latestMetric;
         private volatile Instant latestMetricReceivedAt;
 
@@ -808,7 +1005,10 @@ public class ActiveSessionService {
                 String notes,
                 Instant endedAt,
                 String courseId,
-                String instructorId
+                String instructorId,
+                String requestId,
+                SessionLifecycleState lifecycleState,
+                Instant startDeadline
         ) {
             this.sessionId = sessionId;
             this.deviceId = deviceId;
@@ -821,6 +1021,14 @@ public class ActiveSessionService {
             this.accumulator = new SessionTelemetryAccumulator();
             this.courseId = courseId;
             this.instructorId = instructorId;
+            this.requestId = requestId;
+            this.lifecycleState = lifecycleState != null ? lifecycleState : (active ? SessionLifecycleState.ACTIVE : SessionLifecycleState.START_PENDING);
+            this.startDeadline = startDeadline;
+            this.updatedAt = startedAt;
+        }
+
+        private boolean reservesDevice() {
+            return lifecycleState == SessionLifecycleState.START_PENDING || lifecycleState == SessionLifecycleState.ACTIVE;
         }
     }
 

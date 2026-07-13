@@ -354,13 +354,19 @@ public class MqttSubscriberService {
 
             switch (parsedTopic.messageType) {
                 case "status" -> {
+                    DeviceReadinessState readiness = deviceReadinessService.handleStatus(parsedTopic.deviceId, payload);
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
+                    deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
+                    calibrationStreamService.publishReadinessSnapshot(parsedTopic.deviceId, readiness);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT status message for {}", parsedTopic.deviceId);
                 }
                 case "heartbeat" -> {
+                    DeviceReadinessState readiness = deviceReadinessService.handleHeartbeat(parsedTopic.deviceId, payload);
                     manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
+                    deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
+                    calibrationStreamService.publishReadinessSnapshot(parsedTopic.deviceId, readiness);
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
@@ -462,6 +468,7 @@ public class MqttSubscriberService {
                     CalibrationMqttEvent calEvent = parseCalibrationMqttEvent(parsedTopic.deviceId, payload);
                     if (calEvent != null) {
                         DeviceReadinessState readiness = deviceReadinessService.handleCalibrationEvent(parsedTopic.deviceId, calEvent);
+                        deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
                         calibrationStreamService.publishCalibrationUpdate(parsedTopic.deviceId, calEvent, readiness);
                         try {
                             if (calibrationPersistenceRepository != null) {
@@ -504,6 +511,7 @@ public class MqttSubscriberService {
         String requestId = firstText(payload, "request_id", "requestId");
         String status = firstText(payload, "status");
         String result = firstText(payload, "result");
+        String reason = firstText(payload, "reason", "message", "error");
         String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
         Integer actionId = integer(payload, "action_id", "actionId");
         Integer progressId = integer(payload, "progress_id", "progressId");
@@ -582,6 +590,19 @@ public class MqttSubscriberService {
                 logger.info("Observed firmware reply {} on {} but no matching command request was found", replyId, topic);
             }
         }
+
+        if ("events".equals(parsedTopic.messageType) && replyId != null) {
+            activeSessionService.handleSessionStartFirmwareReply(
+                    parsedTopic.deviceId,
+                    eventId,
+                    replyId,
+                    status,
+                    sessionId,
+                    reason != null ? reason : firmwareState,
+                    reasonId,
+                    actionId
+            );
+        }
     }
 
     private CalibrationMqttEvent parseCalibrationMqttEvent(String deviceId, JsonNode payload) {
@@ -592,7 +613,7 @@ public class MqttSubscriberService {
         String result = firstText(payload, "result");
         String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
         Integer actionId = integer(payload, "action_id", "actionId");
-        String firmwareState = firstText(payload, "state");
+        String firmwareState = firstText(payload, "state", "firmwareState", "firmware_state");
         Long tsMs = longValue(payload, "ts_ms", "tsMs");
         Instant receivedAt = Instant.now();
 
@@ -621,7 +642,8 @@ public class MqttSubscriberService {
                 booleanValue(payload, "sample_pressure_kpa_valid", "samplePressureKpaValid"),
                 booleanValue(payload, "sample_hall_mm_valid", "sampleHallMmValid"),
                 integer(payload, "pressure_saturation_mask", "pressureSaturationMask"),
-                doubleValue(payload, "full_depth_mm", "fullDepthMm")
+                doubleValue(payload, "full_depth_mm", "fullDepthMm"),
+                firstText(payload, "profile_id", "profileId")
         );
     }
 

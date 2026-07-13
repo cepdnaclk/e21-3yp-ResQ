@@ -102,25 +102,41 @@ class FirmwareCalibrationServiceTest {
     }
 
     @Test
-    void readinessIsTrueForReadyFirmwareOrPassingCalibration() throws Exception {
+    void readinessUsesRuntimeStateAndKeepsHistoricalResultSeparate() throws Exception {
         Fixture fixture = newFixture();
         fixture.repository.saveCalibrationResult(calibration("M01", "PASS", "PAIRED_IDLE"));
 
+        FirmwareReadinessResponse historicalOnly = fixture.service.getLatestReadiness("M01");
+        assertThat(historicalOnly.latestResult()).isEqualTo("PASS");
+        assertThat(historicalOnly.readyForSession()).isFalse();
+        assertThat(historicalOnly.calibrated()).isFalse();
+
+        fixture.runtimeStateService.applyStatus("M01", objectMapper.readTree("""
+                {
+                  "deviceId": "M01",
+                  "state": "READY_FOR_SESSION",
+                  "calibrated": true,
+                  "ts_ms": 200
+                }
+                """));
+
         FirmwareReadinessResponse passReadiness = fixture.service.getLatestReadiness("M01");
+        assertThat(passReadiness.latestResult()).isEqualTo("PASS");
         assertThat(passReadiness.readyForSession()).isTrue();
         assertThat(passReadiness.calibrated()).isTrue();
 
         fixture.repository.saveCalibrationResult(calibration("M02", "FAIL", "CALIBRATION_FAIL"));
-        fixture.registry.updateFromStatus("M02", objectMapper.readTree("""
+        fixture.runtimeStateService.applyStatus("M02", objectMapper.readTree("""
                 {
                   "deviceId": "M02",
-                  "state": "ready",
-                  "calibrated": false
+                  "state": "READY_FOR_SESSION",
+                  "calibrated": false,
+                  "ts_ms": 200
                 }
                 """));
 
         FirmwareReadinessResponse readyState = fixture.service.getLatestReadiness("M02");
-        assertThat(readyState.readyForSession()).isTrue();
+        assertThat(readyState.readyForSession()).isFalse();
         assertThat(readyState.calibrated()).isFalse();
         assertThat(readyState.firmwareState()).isEqualTo("READY_FOR_SESSION");
     }
@@ -136,14 +152,14 @@ class FirmwareCalibrationServiceTest {
         assertThat(cancelledFixture.service.getLatestReadiness("M01").readyForSession()).isFalse();
 
         Fixture calibratingFixture = newFixture();
-        calibratingFixture.registry.updateFromStatus("M01", objectMapper.readTree("""
-                {"deviceId":"M01","state":"CALIBRATING"}
+        calibratingFixture.runtimeStateService.applyStatus("M01", objectMapper.readTree("""
+                {"deviceId":"M01","state":"CALIBRATING","ts_ms":200}
                 """));
         assertThat(calibratingFixture.service.getLatestReadiness("M01").readyForSession()).isFalse();
 
         Fixture errorFixture = newFixture();
-        errorFixture.registry.updateFromStatus("M01", objectMapper.readTree("""
-                {"deviceId":"M01","state":"ERROR"}
+        errorFixture.runtimeStateService.applyStatus("M01", objectMapper.readTree("""
+                {"deviceId":"M01","state":"ERROR","ts_ms":200}
                 """));
         assertThat(errorFixture.service.getLatestReadiness("M01").readyForSession()).isFalse();
     }
@@ -161,8 +177,9 @@ class FirmwareCalibrationServiceTest {
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         ManikinRegistryService registry = new ManikinRegistryService(12);
         registry.seedFromRegistration("M01", null);
-        FirmwareCalibrationService service = new FirmwareCalibrationService(publisher, repository, profileService, registry);
-        return new Fixture(service, repository, publisher, registry, profileService);
+        DeviceRuntimeStateService runtimeStateService = new DeviceRuntimeStateService();
+        FirmwareCalibrationService service = new FirmwareCalibrationService(publisher, repository, profileService, registry, runtimeStateService);
+        return new Fixture(service, repository, publisher, registry, profileService, runtimeStateService);
     }
 
     private FirmwareCalibrationResultRecord calibration(String deviceId, String result, String state) {
@@ -220,7 +237,8 @@ class FirmwareCalibrationServiceTest {
             FirmwarePersistenceRepository repository,
             CapturingPublisher publisher,
             ManikinRegistryService registry,
-            CalibrationProfileService profileService
+            CalibrationProfileService profileService,
+            DeviceRuntimeStateService runtimeStateService
     ) {
     }
 }
