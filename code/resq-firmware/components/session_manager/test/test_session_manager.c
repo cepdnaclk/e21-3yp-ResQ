@@ -9,7 +9,11 @@ TEST_CASE("Session manager lifecycle is repeatable", "[session]")
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, session_manager_start(NULL, "adult"));
     TEST_ASSERT_EQUAL(ESP_OK, session_manager_start("s-1", "adult"));
     TEST_ASSERT_TRUE(session_manager_is_active());
-    TEST_ASSERT_EQUAL_STRING("s-1", session_manager_get_session_id());
+    char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      session_manager_get_session_id(session_id,
+                                                     sizeof(session_id)));
+    TEST_ASSERT_EQUAL_STRING("s-1", session_id);
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
                       session_manager_start("s-2", "adult"));
     TEST_ASSERT_EQUAL(ESP_OK, session_manager_get_state(&state));
@@ -42,4 +46,6 @@ TEST_CASE("Session manager validates output pointers", "[session]")
 {
     TEST_ASSERT_EQUAL(ESP_OK, session_manager_init());
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, session_manager_get_state(NULL));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      session_manager_get_session_id(NULL, 0));
 }

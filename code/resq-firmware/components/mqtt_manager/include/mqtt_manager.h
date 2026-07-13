@@ -18,6 +18,7 @@ extern "C" {
 #define MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN 160
 #define MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN 512
 #define MQTT_MANAGER_COMMAND_QUEUE_LEN 8
+#define MQTT_MANAGER_SAFETY_QUEUE_LEN 4
 
 typedef struct {
   char topic[MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN];
@@ -47,6 +48,8 @@ esp_err_t mqtt_manager_reconnect_async(void);
 mqtt_manager_reconnect_status_t mqtt_manager_get_reconnect_status(void);
 
 bool mqtt_manager_is_connected(void);
+
+uint32_t mqtt_manager_get_dropped_command_count(void);
 
 const char *mqtt_manager_get_device_id(void);
 
@@ -78,6 +81,11 @@ esp_err_t mqtt_manager_publish_debug_json(const char *json_payload);
 
 esp_err_t mqtt_manager_publish_topic_json(const char *suffix,
                                           const char *json_payload);
+
+esp_err_t mqtt_manager_cache_command_response(const char *command_topic,
+                                               const char *request_id,
+                                               const char *response_suffix,
+                                               const char *response_payload);
 
 /* Test seam for MQTT DATA reassembly. Production MQTT events call the same
  *

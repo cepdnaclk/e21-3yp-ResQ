@@ -1,6 +1,9 @@
 #include "calibration_manager.h"
 
+#include <ctype.h>
+#include <float.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -113,6 +116,47 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id);
  * helper functions
  * =========================================================
  */
+
+static bool json_number_to_i32(const cJSON *item, int32_t minimum,
+                               int32_t maximum, int32_t *out_value) {
+  if (!cJSON_IsNumber(item) || out_value == NULL ||
+      !isfinite(item->valuedouble) ||
+      trunc(item->valuedouble) != item->valuedouble ||
+      item->valuedouble < (double)minimum ||
+      item->valuedouble > (double)maximum) {
+    return false;
+  }
+  *out_value = (int32_t)item->valuedouble;
+  return true;
+}
+
+static bool json_number_to_positive_float(const cJSON *item, float maximum,
+                                          float *out_value) {
+  if (!cJSON_IsNumber(item) || out_value == NULL ||
+      !isfinite(item->valuedouble) || item->valuedouble <= 0.0 ||
+      item->valuedouble > (double)maximum) {
+    return false;
+  }
+  *out_value = (float)item->valuedouble;
+  return isfinite(*out_value);
+}
+
+static bool json_identifier_valid(const cJSON *item, size_t capacity) {
+  if (!cJSON_IsString(item) || item->valuestring == NULL) {
+    return false;
+  }
+  size_t len = strnlen(item->valuestring, capacity);
+  if (len == 0 || len >= capacity) {
+    return false;
+  }
+  for (size_t i = 0; i < len; ++i) {
+    unsigned char c = (unsigned char)item->valuestring[i];
+    if (!isalnum(c) && c != '-' && c != '_' && c != ':' && c != '.') {
+      return false;
+    }
+  }
+  return true;
+}
 
 static bool calibration_cancel_requested(void) {
   if (!s_running) {
@@ -390,8 +434,10 @@ static void calibration_update_stable_pressure(bool p0_stable, bool p1_stable,
     s_pressure_snapshot.last_stable_p2 = p2;
   }
 
-  s_pressure_snapshot.has_stable_pressure = s_pressure_snapshot.p0_stable ||
-                                            s_pressure_snapshot.p1_stable ||
+  /* A fallback pressure profile is usable only when every channel has its own
+   * measured stable value. One healthy channel must never authorize three. */
+  s_pressure_snapshot.has_stable_pressure = s_pressure_snapshot.p0_stable &&
+                                            s_pressure_snapshot.p1_stable &&
                                             s_pressure_snapshot.p2_stable;
   if (s_pressure_snapshot.has_stable_pressure) {
     s_pressure_snapshot.last_stable_ts_ms = esp_timer_get_time() / 1000;
@@ -560,8 +606,9 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
  * @brief Return absolute difference between two int32_t values.
  */
 static int32_t calibration_abs_diff(int32_t a, int32_t b) {
-  int32_t diff = a - b;
-  return diff < 0 ? -diff : diff;
+  int64_t diff = (int64_t)a - (int64_t)b;
+  if (diff < 0) diff = -diff;
+  return diff > INT32_MAX ? INT32_MAX : (int32_t)diff;
 }
 
 /**
@@ -945,7 +992,7 @@ static esp_err_t calibration_collect_full_press_stats(
 
     int32_t hv = sample.hall;
     int32_t delta =
-        calibration_abs_i32(hv - s_calibration_config.hall_baseline);
+        calibration_abs_diff(hv, s_calibration_config.hall_baseline);
     int sample_dir = hv >= s_calibration_config.hall_baseline ? 1 : -1;
     if (delta > peak_delta) {
       peak_delta = delta;
@@ -1104,8 +1151,8 @@ static void calibration_derive_adaptive_thresholds(
   s_calibration_config.bladder_2_full_press = matched_b2_full;
 
   /* hall range & direction */
-  s_calibration_config.hall_range_raw = calibration_abs_i32(
-      matched_hall_full - s_calibration_config.hall_baseline);
+  s_calibration_config.hall_range_raw = calibration_abs_diff(
+      matched_hall_full, s_calibration_config.hall_baseline);
   s_calibration_config.hall_direction =
       (matched_hall_full > s_calibration_config.hall_baseline) ? 1 : -1;
 
@@ -1140,11 +1187,11 @@ static void calibration_derive_adaptive_thresholds(
   /* pressure ranges: compute from measured baselines (not host-provided
    * expected values) */
   s_calibration_config.pressure_1_range_raw =
-      calibration_abs_i32(s_calibration_config.bladder_1_full_press -
-                          s_calibration_config.pressure_1_baseline);
+      calibration_abs_diff(s_calibration_config.bladder_1_full_press,
+                           s_calibration_config.pressure_1_baseline);
   s_calibration_config.pressure_2_range_raw =
-      calibration_abs_i32(s_calibration_config.bladder_2_full_press -
-                          s_calibration_config.pressure_2_baseline);
+      calibration_abs_diff(s_calibration_config.bladder_2_full_press,
+                           s_calibration_config.pressure_2_baseline);
 
   if (!s_calibration_config.pressure_valid) {
     s_calibration_config.pressure_1_range_raw = 0;
@@ -1347,13 +1394,19 @@ static int32_t calibration_min_i32(int32_t a, int32_t b) {
   return a <= b ? a : b;
 }
 
-static int32_t calibration_abs_i32(int32_t v) { return v < 0 ? -v : v; }
+static int32_t calibration_abs_i32(int32_t v) {
+  int64_t wide = v;
+  if (wide < 0) wide = -wide;
+  return wide > INT32_MAX ? INT32_MAX : (int32_t)wide;
+}
 
 /* Adaptive tolerance helpers (used during calibration decisions) */
 static int32_t calibration_adaptive_pressure_tolerance(int32_t target,
                                                        int32_t noise_raw) {
-  int32_t pct_tol = (abs(target) * 8) / 100;
-  int32_t noise_tol = noise_raw * 5;
+  int32_t pct_tol = (int32_t)(((int64_t)calibration_abs_i32(target) * 8) / 100);
+  int32_t noise_tol = (int32_t)(((int64_t)calibration_abs_i32(noise_raw) * 5) > INT32_MAX
+                                    ? INT32_MAX
+                                    : (int64_t)calibration_abs_i32(noise_raw) * 5);
   int32_t min_tol = 100;
   int32_t t =
       calibration_max_i32(min_tol, calibration_max_i32(pct_tol, noise_tol));
@@ -1362,8 +1415,10 @@ static int32_t calibration_adaptive_pressure_tolerance(int32_t target,
 
 static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range,
                                                    int32_t noise_raw) {
-  int32_t pct_tol = (abs(hall_range) * 5) / 100;
-  int32_t noise_tol = noise_raw * 4;
+  int32_t pct_tol = (int32_t)(((int64_t)calibration_abs_i32(hall_range) * 5) / 100);
+  int32_t noise_tol = (int32_t)(((int64_t)calibration_abs_i32(noise_raw) * 4) > INT32_MAX
+                                    ? INT32_MAX
+                                    : (int64_t)calibration_abs_i32(noise_raw) * 4);
   int32_t min_tol = 20;
   int32_t t =
       calibration_max_i32(min_tol, calibration_max_i32(pct_tol, noise_tol));
@@ -1758,7 +1813,7 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id) {
  * @brief Mark calibration as successful, save config, and update indicator.
  */
 static esp_err_t calibration_manager_save_success(void) {
-  if (!calibration_config_validate(&s_calibration_config)) {
+  if (!calibration_config_is_valid(&s_calibration_config)) {
     calibration_manager_fail(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE);
     return ESP_ERR_INVALID_STATE;
   }
@@ -1868,9 +1923,11 @@ static void calibration_manager_task(void *arg) {
     calibration_stats_init(&initial_p0_stats);
     calibration_stats_init(&initial_p1_stats);
     calibration_stats_init(&initial_p2_stats);
-    initial_p0_stats.mean = s_calibration_config.ref_pressure;
-    initial_p1_stats.mean = s_calibration_config.bladder_1_pressure;
-    initial_p2_stats.mean = s_calibration_config.bladder_2_pressure;
+    /* Host targets are intent, not sensor observations. Keep unavailable
+     * pressure samples explicit instead of fabricating measurements. */
+    initial_p0_stats.mean = 0;
+    initial_p1_stats.mean = 0;
+    initial_p2_stats.mean = 0;
   }
 
   ESP_LOGI(TAG,
@@ -2637,7 +2694,8 @@ esp_err_t calibration_manager_parse_start_payload(
     return ESP_ERR_INVALID_ARG;
   }
 
-  calibration_config_set_defaults(out_config);
+  calibration_config_t candidate;
+  calibration_config_set_defaults(&candidate);
 
   if (out_command_id != NULL && out_command_id_len > 0) {
     out_command_id[0] = '\0';
@@ -2696,13 +2754,12 @@ esp_err_t calibration_manager_parse_start_payload(
     goto exit;
   }
 
-  /* Require either request_id (preferred) or legacy command_id, and numeric
-   * fields. */
+  /* Require an identifier and exactly one Hall-delta representation. */
   bool has_hall_delta = cJSON_IsNumber(hall_delta);
   bool has_hall_delta_sum = cJSON_IsNumber(hall_delta_sum);
 
-  if ((!cJSON_IsString(command_id) || command_id->valuestring == NULL) ||
-      (!has_hall_delta && !has_hall_delta_sum)) {
+  if (!json_identifier_valid(command_id, sizeof(s_command_id)) ||
+      has_hall_delta == has_hall_delta_sum) {
     if (out_reason != NULL) {
       *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
     }
@@ -2714,22 +2771,20 @@ esp_err_t calibration_manager_parse_start_payload(
   bool hall_delta_is_sum = has_hall_delta_sum;
   int32_t hall_delta_sample_count_value = 0;
   if (hall_delta_is_sum) {
-    if (!cJSON_IsNumber(hall_delta_sample_count) ||
-        hall_delta_sample_count->valuedouble < (double)INT32_MIN ||
-        hall_delta_sample_count->valuedouble > (double)INT32_MAX) {
+    if (!json_number_to_i32(hall_delta_sample_count, 1,
+                            CALIBRATION_MAX_STATS_SAMPLES,
+                            &hall_delta_sample_count_value)) {
       if (out_reason != NULL) {
         *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
       }
       result = ESP_ERR_INVALID_ARG;
       goto exit;
     }
-    hall_delta_sample_count_value =
-        (int32_t)hall_delta_sample_count->valuedouble;
   } else if (hall_delta->valuedouble >
              (double)CALIBRATION_HALL_DELTA_MAX_ADC_COUNTS) {
-    if (!cJSON_IsNumber(hall_delta_sample_count) ||
-        hall_delta_sample_count->valuedouble < (double)INT32_MIN ||
-        hall_delta_sample_count->valuedouble > (double)INT32_MAX) {
+    if (!json_number_to_i32(hall_delta_sample_count, 1,
+                            CALIBRATION_MAX_STATS_SAMPLES,
+                            &hall_delta_sample_count_value)) {
       if (out_reason != NULL) {
         *out_reason = CAL_REASON_INVALID_HALL_DELTA;
       }
@@ -2737,16 +2792,14 @@ esp_err_t calibration_manager_parse_start_payload(
       goto exit;
     }
     hall_delta_is_sum = true;
-    hall_delta_sample_count_value =
-        (int32_t)hall_delta_sample_count->valuedouble;
   }
 
+  int32_t hall_delta_input = 0;
   int32_t hall_delta_adc_counts = 0;
-  if (hall_delta_source->valuedouble < (double)INT32_MIN ||
-      hall_delta_source->valuedouble > (double)INT32_MAX ||
+  if (!json_number_to_i32(hall_delta_source, INT32_MIN, INT32_MAX,
+                          &hall_delta_input) ||
       calibration_convert_host_hall_delta(
-          (int32_t)hall_delta_source->valuedouble,
-          hall_delta_sample_count_value, hall_delta_is_sum,
+          hall_delta_input, hall_delta_sample_count_value, hall_delta_is_sum,
           &hall_delta_adc_counts) != ESP_OK) {
     if (out_reason != NULL) {
       *out_reason = CAL_REASON_INVALID_HALL_DELTA;
@@ -2757,14 +2810,24 @@ esp_err_t calibration_manager_parse_start_payload(
 
   bool pressure_targets_required =
       calibration_pressure_targets_required(parsed_pressure_mode);
+  bool any_pressure_target = ref_pressure != NULL || bladder_1_pressure != NULL ||
+                             bladder_2_pressure != NULL;
   bool pressure_targets_present = cJSON_IsNumber(ref_pressure) &&
                                   cJSON_IsNumber(bladder_1_pressure) &&
                                   cJSON_IsNumber(bladder_2_pressure);
+  int32_t ref_pressure_value = 0;
+  int32_t bladder_1_pressure_value = 0;
+  int32_t bladder_2_pressure_value = 0;
 
   if ((pressure_targets_required && !pressure_targets_present) ||
-      (pressure_targets_present && (ref_pressure->valuedouble <= 0 ||
-                                    bladder_1_pressure->valuedouble <= 0 ||
-                                    bladder_2_pressure->valuedouble <= 0))) {
+      (any_pressure_target && !pressure_targets_present) ||
+      (pressure_targets_present &&
+       (!json_number_to_i32(ref_pressure, 1, INT32_MAX,
+                            &ref_pressure_value) ||
+        !json_number_to_i32(bladder_1_pressure, 1, INT32_MAX,
+                            &bladder_1_pressure_value) ||
+        !json_number_to_i32(bladder_2_pressure, 1, INT32_MAX,
+                            &bladder_2_pressure_value)))) {
     if (out_reason != NULL) {
       *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
     }
@@ -2772,75 +2835,96 @@ esp_err_t calibration_manager_parse_start_payload(
     goto exit;
   }
 
-  if (out_command_id != NULL && out_command_id_len > 0) {
-    strncpy(out_command_id, command_id->valuestring, out_command_id_len - 1);
-    out_command_id[out_command_id_len - 1] = '\0';
-  }
-
-  out_config->hall_delta = hall_delta_adc_counts;
-  out_config->pressure_mode = parsed_pressure_mode;
+  candidate.hall_delta = hall_delta_adc_counts;
+  candidate.pressure_mode = parsed_pressure_mode;
   if (pressure_targets_present) {
-    out_config->ref_pressure = (int32_t)ref_pressure->valuedouble;
-    out_config->bladder_1_pressure = (int32_t)bladder_1_pressure->valuedouble;
-    out_config->bladder_2_pressure = (int32_t)bladder_2_pressure->valuedouble;
+    candidate.ref_pressure = ref_pressure_value;
+    candidate.bladder_1_pressure = bladder_1_pressure_value;
+    candidate.bladder_2_pressure = bladder_2_pressure_value;
   }
-  out_config->calibrated = false;
+  candidate.calibrated = false;
 
-  if (cJSON_IsString(profile_id) && profile_id->valuestring != NULL) {
-    strncpy(out_config->profile_id, profile_id->valuestring,
-            sizeof(out_config->profile_id) - 1);
-    out_config->profile_id[sizeof(out_config->profile_id) - 1] = '\0';
-  }
-
-  if (cJSON_IsNumber(pressure_balance_allowed_pct)) {
-    int32_t pct = (int32_t)pressure_balance_allowed_pct->valuedouble;
-    if (pct >= 5 && pct <= 60) {
-      out_config->pressure_balance_allowed_pct = pct;
-    }
-  }
-
-  if (cJSON_IsNumber(full_depth_mm) && full_depth_mm->valuedouble > 0.0) {
-    out_config->full_depth_mm = (float)full_depth_mm->valuedouble;
-  }
-  if (cJSON_IsNumber(pressure_0_kpa_per_count) &&
-      pressure_0_kpa_per_count->valuedouble > 0.0) {
-    out_config->pressure_0_kpa_per_count =
-        (float)pressure_0_kpa_per_count->valuedouble;
-  }
-  if (cJSON_IsNumber(pressure_1_kpa_per_count) &&
-      pressure_1_kpa_per_count->valuedouble > 0.0) {
-    out_config->pressure_1_kpa_per_count =
-        (float)pressure_1_kpa_per_count->valuedouble;
-  }
-  if (cJSON_IsNumber(pressure_2_kpa_per_count) &&
-      pressure_2_kpa_per_count->valuedouble > 0.0) {
-    out_config->pressure_2_kpa_per_count =
-        (float)pressure_2_kpa_per_count->valuedouble;
-  }
-  if (cJSON_IsNumber(calibration_sample_count)) {
-    int value = calibration_sample_count->valueint;
-    if (value <= 0 || value > CALIBRATION_MAX_STATS_SAMPLES) {
+  if (profile_id != NULL) {
+    if (!json_identifier_valid(profile_id, sizeof(candidate.profile_id))) {
       if (out_reason != NULL) {
         *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
       }
       result = ESP_ERR_INVALID_ARG;
       goto exit;
     }
-    out_config->calibration_sample_count = value;
+    strncpy(candidate.profile_id, profile_id->valuestring,
+            sizeof(candidate.profile_id) - 1);
+    candidate.profile_id[sizeof(candidate.profile_id) - 1] = '\0';
   }
-  if (cJSON_IsNumber(calibration_window_ms)) {
-    int value = calibration_window_ms->valueint;
-    if (value <= 0 || value > CALIBRATION_MAX_WAIT_MS) {
+
+  if (pressure_balance_allowed_pct != NULL) {
+    int32_t pct = 0;
+    if (!json_number_to_i32(pressure_balance_allowed_pct, 5, 60, &pct)) {
+      result = ESP_ERR_INVALID_ARG;
+      goto exit;
+    }
+    candidate.pressure_balance_allowed_pct = pct;
+  }
+
+  if (full_depth_mm != NULL &&
+      !json_number_to_positive_float(full_depth_mm, 500.0f,
+                                     &candidate.full_depth_mm)) {
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  if (pressure_0_kpa_per_count != NULL &&
+      !json_number_to_positive_float(pressure_0_kpa_per_count, 1000.0f,
+                                     &candidate.pressure_0_kpa_per_count)) {
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  if (pressure_1_kpa_per_count != NULL &&
+      !json_number_to_positive_float(pressure_1_kpa_per_count, 1000.0f,
+                                     &candidate.pressure_1_kpa_per_count)) {
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  if (pressure_2_kpa_per_count != NULL &&
+      !json_number_to_positive_float(pressure_2_kpa_per_count, 1000.0f,
+                                     &candidate.pressure_2_kpa_per_count)) {
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  if (calibration_sample_count != NULL) {
+    int32_t value = 0;
+    if (!json_number_to_i32(calibration_sample_count, 1,
+                            CALIBRATION_MAX_STATS_SAMPLES, &value)) {
       if (out_reason != NULL) {
         *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
       }
       result = ESP_ERR_INVALID_ARG;
       goto exit;
     }
-    out_config->calibration_window_ms = value;
+    candidate.calibration_sample_count = value;
+  }
+  if (calibration_window_ms != NULL) {
+    int32_t value = 0;
+    if (!json_number_to_i32(calibration_window_ms, 1,
+                            CALIBRATION_MAX_WAIT_MS, &value)) {
+      if (out_reason != NULL) {
+        *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+      }
+      result = ESP_ERR_INVALID_ARG;
+      goto exit;
+    }
+    candidate.calibration_window_ms = value;
   }
 
 exit:
+  if (result == ESP_OK) {
+    memcpy(out_config, &candidate, sizeof(candidate));
+    if (out_command_id != NULL && out_command_id_len > 0) {
+      strncpy(out_command_id, command_id->valuestring, out_command_id_len - 1);
+      out_command_id[out_command_id_len - 1] = '\0';
+    }
+  } else if (out_reason != NULL && *out_reason == CAL_REASON_NONE) {
+    *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+  }
   cJSON_Delete(root);
   return result;
 }

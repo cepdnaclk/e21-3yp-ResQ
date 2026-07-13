@@ -276,7 +276,7 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
       /* Require calibrated flag plus manager readiness and validated adaptive
        * thresholds */
       if (!calibration_config->calibrated || !calibration_manager_is_ready() ||
-          !calibration_config_validate(calibration_config)) {
+          !calibration_config_is_valid(calibration_config)) {
         runtime_helpers_publish_command_result_from_command(
             network_config, visible_state, &command, "cmd/session/start",
             "NACK", "calibration_not_ready");
@@ -323,9 +323,10 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
       char command_id[128] = {0};
       calibration_reason_id_t parse_reason = CAL_REASON_NONE;
+      calibration_config_t candidate;
 
       esp_err_t parse_err = calibration_manager_parse_start_payload(
-          command.payload, calibration_config, command_id, sizeof(command_id),
+          command.payload, &candidate, command_id, sizeof(command_id),
           &parse_reason);
 
       if (parse_err != ESP_OK) {
@@ -361,8 +362,6 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         continue;
       }
 
-      calibration_config->calibrated = false;
-
       esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
       if (stream_stop_err != ESP_OK) {
         runtime_helpers_publish_command_result_from_command(
@@ -376,7 +375,7 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
       calibration_manager_set_request_id(reply_id);
 
       esp_err_t start_err =
-          calibration_manager_start(network_config, calibration_config,
+          calibration_manager_start(network_config, &candidate,
                                     command_id[0] != '\0' ? command_id : NULL);
 
       if (start_err != ESP_OK) {

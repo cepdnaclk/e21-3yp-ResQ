@@ -33,6 +33,9 @@ TEST_CASE("Request ID parser rejects malformed missing and oversized IDs", "[mqt
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_SIZE,
                       resq_command_extract_request_id(
                           "{\"command_id\":\"too-long-id\"}", id, sizeof(id)));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      resq_command_extract_request_id(
+                          "{\"request_id\":\"bad\\\"id\"}", id, sizeof(id)));
 }
 
 TEST_CASE("Idle debug payload contains raw and converted direct snapshot fields", "[debug]")

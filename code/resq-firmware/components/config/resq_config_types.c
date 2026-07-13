@@ -74,9 +74,10 @@ bool network_config_validate(network_config_t *config) {
 /**
  * @brief Validate calibration configuration.
  *
- * This function also updates config->calibrated.
+ * This function is intentionally pure. Workflow code is responsible for
+ * setting or clearing the trusted `calibrated` marker.
  */
-bool calibration_config_validate(calibration_config_t *config) {
+bool calibration_config_is_valid(const calibration_config_t *config) {
   if (config == NULL) {
     return false;
   }
@@ -159,9 +160,11 @@ bool calibration_config_validate(calibration_config_t *config) {
     valid = false;
   }
 
-  config->calibrated = valid;
-
   return valid;
+}
+
+bool calibration_config_validate(calibration_config_t *config) {
+  return calibration_config_is_valid(config);
 }
 
 bool calibration_profile_matches(const calibration_config_t *config,
@@ -170,10 +173,7 @@ bool calibration_profile_matches(const calibration_config_t *config,
     return false;
   }
 
-  if (config->profile_id[0] == '\0') {
-    return true;
-  }
-
-  return profile_id != NULL && profile_id[0] != '\0' &&
+  return config->profile_id[0] != '\0' && profile_id != NULL &&
+         profile_id[0] != '\0' &&
          strcmp(profile_id, config->profile_id) == 0;
 }

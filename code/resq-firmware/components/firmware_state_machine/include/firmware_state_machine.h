@@ -69,6 +69,7 @@ typedef struct {
                                         const char *ip_address,
                                         int wifi_rssi);
     esp_err_t (*start_heartbeat)(void);
+    esp_err_t (*stop_heartbeat)(void);
 
     resq_state_t (*paired_idle_run)(network_config_t *network_config,
                                     calibration_config_t *calibration_config,
@@ -96,7 +97,8 @@ typedef struct {
 
     bool (*session_is_active)(void);
     esp_err_t (*session_get_state)(session_state_t *state);
-    const char *(*session_get_id)(void);
+    esp_err_t (*session_get_id)(char *out_session_id,
+                                size_t out_session_id_len);
     esp_err_t (*session_stop)(const char *session_id);
 
     esp_err_t (*buzzer_stop)(void);
@@ -104,6 +106,7 @@ typedef struct {
     esp_err_t (*calibration_cancel)(void);
 
     void (*status_set_state)(resq_state_t state);
+    void (*status_stop)(void);
     system_button_action_t (*button_poll)(resq_state_t state);
     void (*button_drain_actions)(resq_state_t state);
 

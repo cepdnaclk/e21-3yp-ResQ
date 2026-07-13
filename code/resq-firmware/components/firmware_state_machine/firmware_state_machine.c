@@ -37,6 +37,7 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
            ops->mqtt_publish_status != NULL &&
            ops->mqtt_publish_heartbeat != NULL &&
            ops->start_heartbeat != NULL &&
+           ops->stop_heartbeat != NULL &&
            ops->paired_idle_run != NULL &&
            ops->calibration_run != NULL &&
            ops->calibration_fail_run != NULL &&
@@ -54,6 +55,7 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
            ops->telemetry_stop != NULL &&
            ops->calibration_cancel != NULL &&
            ops->status_set_state != NULL &&
+           ops->status_stop != NULL &&
            ops->button_poll != NULL &&
            ops->button_drain_actions != NULL &&
            ops->delay_ms != NULL &&
@@ -181,7 +183,9 @@ static resq_state_t run_boot(resq_fsm_t *fsm)
     if (fsm->ops->load_calibration(&fsm->calibration_config) != ESP_OK) {
         fsm->ops->calibration_set_defaults(&fsm->calibration_config);
     }
-    fsm->ops->calibration_validate(&fsm->calibration_config);
+    if (!fsm->ops->calibration_validate(&fsm->calibration_config)) {
+        fsm->calibration_config.calibrated = false;
+    }
     return RESQ_STATE_CONFIG_CHECK;
 }
 
@@ -345,23 +349,32 @@ static resq_state_t run_session_interrupted(resq_fsm_t *fsm)
         : RESQ_STATE_PAIRED_IDLE;
 }
 
-static void stop_runtime(resq_fsm_t *fsm)
+static esp_err_t preserve_first_error(esp_err_t current, esp_err_t candidate)
 {
-    fsm->ops->buzzer_stop();
-    fsm->ops->telemetry_stop();
+    return current == ESP_OK && candidate != ESP_OK ? candidate : current;
+}
+
+static esp_err_t stop_runtime(resq_fsm_t *fsm)
+{
+    esp_err_t result = ESP_OK;
+    result = preserve_first_error(result, fsm->ops->buzzer_stop());
+    result = preserve_first_error(result, fsm->ops->telemetry_stop());
     if (fsm->ops->session_is_active()) {
-        const char *session_id = fsm->ops->session_get_id();
-        if (session_id != NULL && session_id[0] != '\0') {
-            fsm->ops->session_stop(session_id);
+        char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+        if (fsm->ops->session_get_id(session_id, sizeof(session_id)) == ESP_OK &&
+            session_id[0] != '\0') {
+            result = preserve_first_error(result,
+                                          fsm->ops->session_stop(session_id));
         }
     }
-    fsm->ops->calibration_cancel();
+    result = preserve_first_error(result, fsm->ops->calibration_cancel());
+    return result;
 }
 
 static resq_state_t run_resetting(resq_fsm_t *fsm)
 {
     fsm->ops->status_set_state(RESQ_STATE_RESETTING);
-    stop_runtime(fsm);
+    esp_err_t cleanup_err = stop_runtime(fsm);
     if (fsm->ops->mqtt_is_connected()) {
         fsm->ops->mqtt_publish_status(RESQ_STATE_RESETTING,
                                       &fsm->network_config,
@@ -371,7 +384,22 @@ static resq_state_t run_resetting(resq_fsm_t *fsm)
                                       fsm->ip_address);
         fsm->ops->delay_ms(300);
     }
-    fsm->ops->clear_all();
+    esp_err_t clear_err = fsm->ops->clear_all();
+    if (cleanup_err != ESP_OK || clear_err != ESP_OK) {
+        ESP_LOGE(TAG, "Reset cleanup failed: runtime=%s nvs=%s",
+                 esp_err_to_name(cleanup_err), esp_err_to_name(clear_err));
+        fsm->ops->error_set(clear_err != ESP_OK ? FW_ERROR_NVS_SAVE_FAILED
+                                                : FW_ERROR_UNKNOWN_ERROR);
+        return RESQ_STATE_ERROR;
+    }
+    esp_err_t shutdown_err = fsm->ops->stop_heartbeat();
+    shutdown_err = preserve_first_error(shutdown_err, fsm->ops->mqtt_stop());
+    shutdown_err = preserve_first_error(shutdown_err,
+                                        fsm->ops->wifi_disconnect());
+    if (shutdown_err != ESP_OK) {
+        fsm->ops->error_set(FW_ERROR_UNKNOWN_ERROR);
+        return RESQ_STATE_ERROR;
+    }
     fsm->ops->delay_ms(200);
     fsm->ops->restart();
     return RESQ_STATE_RESETTING;
@@ -380,10 +408,12 @@ static resq_state_t run_resetting(resq_fsm_t *fsm)
 static resq_state_t run_turn_off(resq_fsm_t *fsm)
 {
     fsm->ops->status_set_state(RESQ_STATE_TURN_OFF);
-    stop_runtime(fsm);
-    fsm->ops->save_network(&fsm->network_config);
+    esp_err_t result = stop_runtime(fsm);
+    result = preserve_first_error(result,
+                                  fsm->ops->save_network(&fsm->network_config));
     if (fsm->calibration_config.calibrated) {
-        fsm->ops->save_calibration(&fsm->calibration_config);
+        result = preserve_first_error(
+            result, fsm->ops->save_calibration(&fsm->calibration_config));
     }
     if (fsm->ops->mqtt_is_connected()) {
         fsm->ops->mqtt_publish_status(RESQ_STATE_TURN_OFF,
@@ -394,6 +424,15 @@ static resq_state_t run_turn_off(resq_fsm_t *fsm)
                                       fsm->ip_address);
         fsm->ops->delay_ms(300);
     }
+    result = preserve_first_error(result, fsm->ops->stop_heartbeat());
+    result = preserve_first_error(result, fsm->ops->mqtt_stop());
+    result = preserve_first_error(result, fsm->ops->wifi_disconnect());
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "Turn-off cleanup failed: %s", esp_err_to_name(result));
+        fsm->ops->error_set(FW_ERROR_UNKNOWN_ERROR);
+        return RESQ_STATE_ERROR;
+    }
+    fsm->ops->status_stop();
     fsm->ops->enter_soft_off();
     return RESQ_STATE_TURN_OFF;
 }

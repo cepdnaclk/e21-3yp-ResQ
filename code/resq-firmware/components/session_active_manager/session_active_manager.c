@@ -53,6 +53,7 @@ typedef struct {
 } pending_interruption_t;
 
 static pending_interruption_t s_pending_interruption;
+static esp_err_t session_sensor_task_stop(void);
 
 static void sensor_task_finish(bool failed) {
   sensor_owner_release(SENSOR_OWNER_SESSION);
@@ -97,21 +98,23 @@ static void session_sensor_task(void *arg) {
 
     {
       int32_t p0 = 0, p1 = 0, p2 = 0;
-      esp_err_t pressure_err = hx710_read_3_shared_sck(
+      uint8_t valid_mask = 0;
+      esp_err_t pressure_err = hx710_read_3_shared_sck_valid(
           BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
-          BOARD_HX710_2_DOUT, &p0, &p1, &p2);
+          BOARD_HX710_2_DOUT, &p0, &p1, &p2, &valid_mask);
 
-      if (pressure_err != ESP_OK) {
-        sample.pressure_0_raw = HX710_ERROR_TIMEOUT;
-        sample.pressure_1_raw = HX710_ERROR_TIMEOUT;
-        sample.pressure_2_raw = HX710_ERROR_TIMEOUT;
-        sample.quality_flags |= CPR_SAMPLE_PRESSURE_READ_FAILED;
-        ESP_LOGW(TAG, "Failed to read shared HX710 pressure sensors: %s",
-                 esp_err_to_name(pressure_err));
-      } else {
-        sample.pressure_0_raw = p0;
-        sample.pressure_1_raw = p1;
-        sample.pressure_2_raw = p2;
+      sample.pressure_0_raw = p0;
+      sample.pressure_1_raw = p1;
+      sample.pressure_2_raw = p2;
+      if ((valid_mask & HX710_VALID_CHANNEL_0) == 0)
+        sample.quality_flags |= CPR_SAMPLE_PRESSURE_0_READ_FAILED;
+      if ((valid_mask & HX710_VALID_CHANNEL_1) == 0)
+        sample.quality_flags |= CPR_SAMPLE_PRESSURE_1_READ_FAILED;
+      if ((valid_mask & HX710_VALID_CHANNEL_2) == 0)
+        sample.quality_flags |= CPR_SAMPLE_PRESSURE_2_READ_FAILED;
+      if (pressure_err != ESP_OK || valid_mask != HX710_VALID_CHANNEL_ALL) {
+        ESP_LOGW(TAG, "HX710 read partial: err=%s valid_mask=0x%02x",
+                 esp_err_to_name(pressure_err), valid_mask);
       }
     }
 
@@ -179,14 +182,14 @@ static esp_err_t session_sensor_task_start(void) {
   }
 
   if ((bits & SENSOR_TASK_STARTED_BIT) == 0) {
-    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-      if (s_sensor_task != NULL) {
-        s_sensor_task_run = false;
-        xTaskNotifyGive(s_sensor_task);
-      }
-      xSemaphoreGive(s_mutex);
+    /* The task owns cleanup once it has been created. Do not advertise the
+     * sensors as free until TASK_STOPPED confirms that it has exited. */
+    esp_err_t stop_err = session_sensor_task_stop();
+    if (stop_err != ESP_OK) {
+      ESP_LOGE(TAG,
+               "Session sensor startup timed out and task cleanup did not "
+               "complete; sensor ownership remains quarantined");
     }
-    sensor_owner_release(SENSOR_OWNER_SESSION);
     return ESP_ERR_TIMEOUT;
   }
 
@@ -205,7 +208,6 @@ static esp_err_t session_sensor_task_stop(void) {
   if (s_sensor_task == NULL) {
     s_sensor_task_run = false;
     xSemaphoreGive(s_mutex);
-    sensor_owner_release(SENSOR_OWNER_SESSION);
     return ESP_OK;
   }
 
@@ -335,6 +337,8 @@ esp_err_t session_active_manager_init(void) {
     return owner_err;
   }
 
+  bool first_init = s_mutex == NULL && s_sensor_task_events == NULL;
+
   if (s_mutex == NULL) {
     s_mutex = xSemaphoreCreateMutex();
     if (s_mutex == NULL)
@@ -347,10 +351,12 @@ esp_err_t session_active_manager_init(void) {
       return ESP_ERR_NO_MEM;
   }
 
-  s_sensor_task_run = false;
-  s_sensor_task = NULL;
-  memset(&s_pending_interruption, 0, sizeof(s_pending_interruption));
-  xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STOPPED_BIT);
+  if (first_init) {
+    s_sensor_task_run = false;
+    s_sensor_task = NULL;
+    memset(&s_pending_interruption, 0, sizeof(s_pending_interruption));
+    xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STOPPED_BIT);
+  }
 
   return ESP_OK;
 }
@@ -380,7 +386,7 @@ resq_state_t session_active_manager_start(
   }
 
   if (!calibration_config->calibrated || !calibration_manager_is_ready() ||
-      !calibration_config_validate(calibration_config)) {
+      !calibration_config_is_valid(calibration_config)) {
     if (cmd != NULL) {
       runtime_helpers_publish_command_result_from_command(
           network_config, RESQ_STATE_READY_FOR_SESSION, cmd,

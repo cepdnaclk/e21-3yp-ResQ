@@ -13,6 +13,7 @@
 #include "error_manager.h"
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
+#include "sensor_owner.h"
 #include "status_indicator.h"
 #include "system_button_manager.h"
 #include "telemetry_publisher.h"
@@ -85,18 +86,6 @@ calibration_state_manager_run(network_config_t *network_config,
           continue;
         }
 
-        /* publish ACK and check result before cancelling */
-        esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(
-            network_config, RESQ_STATE_CALIBRATING, &command,
-            "cmd/calibration/cancel", "ACK", "calibration_cancelled");
-        if (pub_err != ESP_OK) {
-          ESP_LOGW(TAG,
-                   "Failed to publish command result for "
-                   "cmd/calibration/cancel; skipping cancel (err=%d)",
-                   pub_err);
-          continue;
-        }
-
         esp_err_t cancel_err = calibration_manager_cancel();
         if (cancel_err != ESP_OK) {
           ESP_LOGE(TAG, "Calibration cancel did not complete cleanup: %s",
@@ -105,6 +94,26 @@ calibration_state_manager_run(network_config_t *network_config,
               reply_id, "NACK", "FAIL", CAL_REASON_SENSOR_STUCK_OR_NOISE,
               RESQ_STATE_CALIBRATION_FAIL, CAL_ACTION_CHECK_SENSOR_AND_RETRY);
           return RESQ_STATE_CALIBRATION_FAIL;
+        }
+
+        sensor_owner_t owner;
+        esp_err_t owner_err = sensor_owner_get(&owner);
+        if (owner_err != ESP_OK || owner == SENSOR_OWNER_CALIBRATION) {
+          ESP_LOGE(TAG, "Calibration task stopped without confirmed owner release");
+          publish_calibration_result(
+              reply_id, "NACK", "FAIL", CAL_REASON_SENSOR_STUCK_OR_NOISE,
+              RESQ_STATE_CALIBRATION_FAIL, CAL_ACTION_CHECK_SENSOR_AND_RETRY);
+          return RESQ_STATE_CALIBRATION_FAIL;
+        }
+
+        esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(
+            network_config, RESQ_STATE_CALIBRATING, &command,
+            "cmd/calibration/cancel", "ACK", "calibration_cancelled");
+        if (pub_err != ESP_OK) {
+          ESP_LOGW(TAG,
+                   "Calibration cancelled locally but ACK publish failed "
+                   "(err=%d)",
+                   pub_err);
         }
 
         publish_calibration_result(

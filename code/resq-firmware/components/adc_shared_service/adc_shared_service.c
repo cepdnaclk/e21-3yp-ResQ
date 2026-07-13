@@ -17,6 +17,8 @@ static adc_cali_handle_t s_cali_handle = NULL;
 static bool s_initialized = false;
 static bool s_cali_enabled = false;
 static SemaphoreHandle_t s_adc_mutex = NULL;
+static StaticSemaphore_t s_adc_mutex_storage;
+static portMUX_TYPE s_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static esp_err_t adc_shared_create_calibration(void)
 {
@@ -32,12 +34,15 @@ esp_err_t adc_shared_service_init(void)
         return ESP_OK;
     }
 
+    taskENTER_CRITICAL(&s_init_lock);
     if (s_adc_mutex == NULL) {
-        s_adc_mutex = xSemaphoreCreateMutex();
-        if (s_adc_mutex == NULL) {
-            ESP_LOGE(TAG, "Failed to create ADC mutex");
-            return ESP_ERR_NO_MEM;
-        }
+        s_adc_mutex = xSemaphoreCreateMutexStatic(&s_adc_mutex_storage);
+    }
+    SemaphoreHandle_t adc_mutex = s_adc_mutex;
+    taskEXIT_CRITICAL(&s_init_lock);
+    if (adc_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create ADC mutex");
+        return ESP_ERR_NO_MEM;
     }
 
     if (xSemaphoreTake(s_adc_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
@@ -92,10 +97,7 @@ esp_err_t adc_shared_service_read_hall_raw(int *out_raw)
     }
 
     if (!s_initialized) {
-        esp_err_t init_err = adc_shared_service_init();
-        if (init_err != ESP_OK) {
-            return init_err;
-        }
+        return ESP_ERR_INVALID_STATE;
     }
 
     if (xSemaphoreTake(s_adc_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
@@ -135,9 +137,11 @@ esp_err_t adc_shared_service_read_hall_mv(int *out_mv)
         }
     }
 
-    // Fallback: return raw when calibration unavailable
-    *out_mv = raw;
-    return ESP_OK;
+    /* Raw ADC counts are not millivolts. Callers that need raw data must use
+     * adc_shared_service_read_hall_raw() explicitly. */
+    *out_mv = 0;
+    ESP_LOGW(TAG, "Hall ADC voltage unavailable without calibration");
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 esp_err_t adc_shared_service_read_hall_average(int sample_count, int delay_ms, int *out_avg)

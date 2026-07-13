@@ -20,8 +20,8 @@ typedef enum {
 esp_err_t sensor_owner_init(void);
 esp_err_t sensor_owner_acquire(sensor_owner_t owner);
 esp_err_t sensor_owner_release(sensor_owner_t owner);
-sensor_owner_t sensor_owner_get(void);
-bool sensor_owner_is(sensor_owner_t owner);
+esp_err_t sensor_owner_get(sensor_owner_t *out_owner);
+esp_err_t sensor_owner_is(sensor_owner_t owner, bool *out_is_owner);
 esp_err_t sensor_owner_wait_until_free(TickType_t timeout);
 void sensor_owner_reset_for_test(void);
 

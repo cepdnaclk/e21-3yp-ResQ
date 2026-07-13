@@ -156,22 +156,19 @@ bool network_config_validate(network_config_t *config);
 /**
  * @brief Validate calibration config.
  *
- * If valid:
- *   config->calibrated = true
- *
- * If invalid:
- *   config->calibrated = false
+ * Pure validation does not modify the trusted calibrated marker.
  */
+bool calibration_config_is_valid(const calibration_config_t *config);
+
+/* Compatibility wrapper; also pure. */
 bool calibration_config_validate(calibration_config_t *config);
 
 /**
  * @brief Return true when a requested runtime profile can use the
  * calibration.
  *
- * Empty calibration profile IDs mean the calibration is
- * profile-agnostic. A
- * non-empty calibration profile requires a non-empty
- * exact profile match.
+ * Both IDs must be non-empty and exactly equal. Legacy blank profiles are not
+ * trusted as wildcards.
  */
 bool calibration_profile_matches(const calibration_config_t *config,
                                  const char *profile_id);

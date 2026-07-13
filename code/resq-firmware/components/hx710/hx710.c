@@ -6,8 +6,9 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 
-/* Timeout for HX710 ready (DOUT low) waiting loop, in vTaskDelay ticks */
-#define HX710_READY_TIMEOUT_TICKS 150
+/* Timeout is expressed in wall-clock milliseconds, independent of RTOS tick
+ * frequency. */
+#define HX710_READY_TIMEOUT_MS 150
 
 esp_err_t hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
 {
@@ -59,7 +60,7 @@ esp_err_t hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
 int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
 {
   int timeout_ticks = 0;
-  const int max_wait_ticks = HX710_READY_TIMEOUT_TICKS;
+  const TickType_t max_wait_ticks = pdMS_TO_TICKS(HX710_READY_TIMEOUT_MS);
 
   while (gpio_get_level(dout_pin) == 1) {
     vTaskDelay(1);
@@ -103,12 +104,15 @@ int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
 static const char *TAG = "hx710";
 
 static SemaphoreHandle_t s_hx710_mutex = NULL;
+static StaticSemaphore_t s_hx710_mutex_storage;
+static portMUX_TYPE s_hx710_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void hx710_ensure_mutex(void)
 {
-  if (s_hx710_mutex == NULL) {
-    s_hx710_mutex = xSemaphoreCreateMutex();
-  }
+  taskENTER_CRITICAL(&s_hx710_init_lock);
+  if (s_hx710_mutex == NULL)
+    s_hx710_mutex = xSemaphoreCreateMutexStatic(&s_hx710_mutex_storage);
+  taskEXIT_CRITICAL(&s_hx710_init_lock);
 }
 
 static int32_t hx710_sign_extend_24(uint32_t raw)
@@ -130,9 +134,32 @@ esp_err_t hx710_read_3_shared_sck(gpio_num_t sck_pin,
                                   int32_t *out1,
                                   int32_t *out2)
 {
-  if (out0 == NULL || out1 == NULL || out2 == NULL) {
+  uint8_t valid_mask = 0;
+  esp_err_t err = hx710_read_3_shared_sck_valid(
+      sck_pin, dout0_pin, dout1_pin, dout2_pin, out0, out1, out2,
+      &valid_mask);
+  if (err != ESP_OK) return err;
+  return valid_mask == HX710_VALID_CHANNEL_ALL ? ESP_OK
+                                               : ESP_ERR_INVALID_RESPONSE;
+}
+
+esp_err_t hx710_read_3_shared_sck_valid(gpio_num_t sck_pin,
+                                        gpio_num_t dout0_pin,
+                                        gpio_num_t dout1_pin,
+                                        gpio_num_t dout2_pin,
+                                        int32_t *out0,
+                                        int32_t *out1,
+                                        int32_t *out2,
+                                        uint8_t *out_valid_mask)
+{
+  if (out0 == NULL || out1 == NULL || out2 == NULL ||
+      out_valid_mask == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
+  *out0 = HX710_ERROR_TIMEOUT;
+  *out1 = HX710_ERROR_TIMEOUT;
+  *out2 = HX710_ERROR_TIMEOUT;
+  *out_valid_mask = 0;
 
   if (!GPIO_IS_VALID_OUTPUT_GPIO(sck_pin) ||
       !GPIO_IS_VALID_GPIO(dout0_pin) ||
@@ -194,25 +221,28 @@ esp_err_t hx710_read_3_shared_sck(gpio_num_t sck_pin,
            dout1_pin, gpio_get_level(dout1_pin),
            dout2_pin, gpio_get_level(dout2_pin));
 
-  /* Wait until all three DOUT pins go low (sensor ready) */
-  int timeout_ticks = 0;
-  const int max_wait_ticks = HX710_READY_TIMEOUT_TICKS;
-
-  while (gpio_get_level(dout0_pin) == 1 ||
-         gpio_get_level(dout1_pin) == 1 ||
-         gpio_get_level(dout2_pin) == 1) {
+  /* Wait for at least one channel. A stalled DOUT remains invalid but cannot
+   * prevent healthy channels from being clocked and sampled. */
+  TickType_t started = xTaskGetTickCount();
+  const TickType_t max_wait_ticks = pdMS_TO_TICKS(HX710_READY_TIMEOUT_MS);
+  uint8_t ready_mask = 0;
+  while (ready_mask == 0) {
+    if (gpio_get_level(dout0_pin) == 0) ready_mask |= HX710_VALID_CHANNEL_0;
+    if (gpio_get_level(dout1_pin) == 0) ready_mask |= HX710_VALID_CHANNEL_1;
+    if (gpio_get_level(dout2_pin) == 0) ready_mask |= HX710_VALID_CHANNEL_2;
+    if (ready_mask != 0) break;
     vTaskDelay(1);
-    timeout_ticks++;
-    if (timeout_ticks > max_wait_ticks) {
-      ESP_LOGW(TAG, "Timeout waiting for all HX710 sensors ready");
-      /* On timeout, log each DOUT level separately for diagnostics */
-      ESP_LOGW(TAG, "DOUT0 (GPIO%d) level=%d", dout0_pin, gpio_get_level(dout0_pin));
-      ESP_LOGW(TAG, "DOUT1 (GPIO%d) level=%d", dout1_pin, gpio_get_level(dout1_pin));
-      ESP_LOGW(TAG, "DOUT2 (GPIO%d) level=%d", dout2_pin, gpio_get_level(dout2_pin));
+    if ((xTaskGetTickCount() - started) >= max_wait_ticks) {
+      ESP_LOGW(TAG, "Timeout waiting for any HX710 sensor ready");
       err = ESP_ERR_TIMEOUT;
       goto _cleanup;
     }
   }
+
+  /* Include channels that became ready during the final scheduler tick. */
+  if (gpio_get_level(dout0_pin) == 0) ready_mask |= HX710_VALID_CHANNEL_0;
+  if (gpio_get_level(dout1_pin) == 0) ready_mask |= HX710_VALID_CHANNEL_1;
+  if (gpio_get_level(dout2_pin) == 0) ready_mask |= HX710_VALID_CHANNEL_2;
 
   uint32_t raw0 = 0, raw1 = 0, raw2 = 0;
 
@@ -245,9 +275,10 @@ esp_err_t hx710_read_3_shared_sck(gpio_num_t sck_pin,
   gpio_set_level(sck_pin, 0);
   esp_rom_delay_us(1);
 
-  *out0 = hx710_sign_extend_24(raw0);
-  *out1 = hx710_sign_extend_24(raw1);
-  *out2 = hx710_sign_extend_24(raw2);
+  if (ready_mask & HX710_VALID_CHANNEL_0) *out0 = hx710_sign_extend_24(raw0);
+  if (ready_mask & HX710_VALID_CHANNEL_1) *out1 = hx710_sign_extend_24(raw1);
+  if (ready_mask & HX710_VALID_CHANNEL_2) *out2 = hx710_sign_extend_24(raw2);
+  *out_valid_mask = ready_mask;
 
   /* Debug builds: show decimal and hex representations of the raw sensor values */
   ESP_LOGD(TAG,

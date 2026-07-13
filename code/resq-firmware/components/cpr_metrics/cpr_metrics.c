@@ -1,5 +1,6 @@
 #include "cpr_metrics.h"
 
+#include <limits.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +13,16 @@
 
 static int32_t calib_abs_i32(int32_t v)
 {
-    return v < 0 ? -v : v;
+    int64_t wide = v;
+    if (wide < 0) wide = -wide;
+    return wide > INT32_MAX ? INT32_MAX : (int32_t)wide;
+}
+
+static int32_t calib_abs_diff_i32(int32_t a, int32_t b)
+{
+    int64_t diff = (int64_t)a - (int64_t)b;
+    if (diff < 0) diff = -diff;
+    return diff > INT32_MAX ? INT32_MAX : (int32_t)diff;
 }
 
 static int32_t calib_max_i32(int32_t a, int32_t b)
@@ -49,7 +59,7 @@ static int32_t peak_to_peak_i32(const int32_t *samples, size_t count)
         max_value = calib_max_i32(max_value, samples[i]);
     }
 
-    return max_value - min_value;
+    return calib_abs_diff_i32(max_value, min_value);
 }
 
 static bool all_samples_equal(const int32_t *samples, size_t count)
@@ -84,6 +94,7 @@ static cpr_sensor_health_t health_from_faults(uint32_t faults)
 #define CPR_SENSOR_2_SIDE_LABEL "RIGHT"
 #define CPR_PRESSURE_BALANCE_SENSOR_MASK 0x06u
 #define CPR_PRESSURE_BALANCE_HOLD_MAX_MS 300
+#define CPR_RATE_STALE_MS 3000
 
 typedef enum {
     WAITING_FOR_COMPRESSION = 0,
@@ -105,6 +116,11 @@ static float s_rate_cpm = 0.0f;
 static int64_t s_last_compression_start_ms = 0;
 static int64_t s_current_compression_start_ms = 0;
 static int64_t s_last_compression_end_ms = 0;
+static float s_last_pause_s = 0.0f;
+static bool s_current_compression_depth_ok = false;
+static bool s_last_compression_depth_ok = false;
+static bool s_last_compression_recoil_ok = false;
+static bool s_last_compression_incomplete_recoil = false;
 static float s_depth_progress = 0.0f;
 static float s_depth_mm = 0.0f;
 static float s_pressure_0_kpa = 0.0f;
@@ -148,6 +164,11 @@ esp_err_t cpr_metrics_init(void)
     s_last_compression_start_ms = 0;
     s_current_compression_start_ms = 0;
     s_last_compression_end_ms = 0;
+    s_last_pause_s = 0.0f;
+    s_current_compression_depth_ok = false;
+    s_last_compression_depth_ok = false;
+    s_last_compression_recoil_ok = false;
+    s_last_compression_incomplete_recoil = false;
     s_depth_progress = 0.0f;
     s_depth_mm = 0.0f;
     s_pressure_0_kpa = 0.0f;
@@ -193,6 +214,11 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
     s_last_compression_start_ms = 0;
     s_current_compression_start_ms = 0;
     s_last_compression_end_ms = 0;
+    s_last_pause_s = 0.0f;
+    s_current_compression_depth_ok = false;
+    s_last_compression_depth_ok = false;
+    s_last_compression_recoil_ok = false;
+    s_last_compression_incomplete_recoil = false;
     s_depth_progress = 0.0f;
     s_depth_mm = 0.0f;
     s_pressure_0_kpa = 0.0f;
@@ -308,10 +334,20 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     s_last_sample_ms = sample->ts_ms;
 
     bool hall_valid = (sample->quality_flags & CPR_SAMPLE_HALL_READ_FAILED) == 0;
-    bool pressure_read_valid = (sample->quality_flags & CPR_SAMPLE_PRESSURE_READ_FAILED) == 0;
+    bool pressure_0_valid =
+        (sample->quality_flags & CPR_SAMPLE_PRESSURE_0_READ_FAILED) == 0;
+    bool pressure_1_valid =
+        (sample->quality_flags & CPR_SAMPLE_PRESSURE_1_READ_FAILED) == 0;
+    bool pressure_2_valid =
+        (sample->quality_flags & CPR_SAMPLE_PRESSURE_2_READ_FAILED) == 0;
+    bool pressure_read_valid =
+        pressure_0_valid && pressure_1_valid && pressure_2_valid;
+    bool pressure_balance_channels_valid = pressure_1_valid && pressure_2_valid;
 
-    uint8_t sample_saturation_mask = pressure_read_valid ?
-        pressure_saturation_mask(sample) : 0;
+    uint8_t sample_saturation_mask = pressure_saturation_mask(sample);
+    if (!pressure_0_valid) sample_saturation_mask &= (uint8_t)~0x01u;
+    if (!pressure_1_valid) sample_saturation_mask &= (uint8_t)~0x02u;
+    if (!pressure_2_valid) sample_saturation_mask &= (uint8_t)~0x04u;
     sensor_raw_sample_t raw = {
         .pressure_raw = {
             sample->pressure_0_raw,
@@ -319,9 +355,9 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
             sample->pressure_2_raw,
         },
         .pressure_read_valid = {
-            pressure_read_valid,
-            pressure_read_valid,
-            pressure_read_valid,
+            pressure_0_valid,
+            pressure_1_valid,
+            pressure_2_valid,
         },
         .hall_raw = sample->hall_raw,
         .hall_read_valid = hall_valid,
@@ -342,17 +378,17 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         current_quality_flags |= CPR_SENSOR_QUALITY_PRESSURE_MISSED;
     }
 
-    uint8_t current_saturation_mask = pressure_read_valid ?
-        (uint8_t)converted.pressure_saturation_mask : 0;
+    uint8_t current_saturation_mask =
+        (uint8_t)converted.pressure_saturation_mask;
     if (current_saturation_mask != 0) {
         current_quality_flags |= CPR_SENSOR_QUALITY_PRESSURE_SATURATED;
     }
 
     s_pressure_saturation_mask = current_saturation_mask;
 
-    s_pressure_0_kpa_valid = pressure_read_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[0];
-    s_pressure_1_kpa_valid = pressure_read_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[1];
-    s_pressure_2_kpa_valid = pressure_read_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[2];
+    s_pressure_0_kpa_valid = pressure_0_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[0];
+    s_pressure_1_kpa_valid = pressure_1_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[1];
+    s_pressure_2_kpa_valid = pressure_2_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[2];
     s_pressure_0_kpa = s_pressure_0_kpa_valid ? converted.pressure_kpa[0] : 0.0f;
     s_pressure_1_kpa = s_pressure_1_kpa_valid ? converted.pressure_kpa[1] : 0.0f;
     s_pressure_2_kpa = s_pressure_2_kpa_valid ? converted.pressure_kpa[2] : 0.0f;
@@ -370,23 +406,26 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     }
 
     /* pressures */
-    int32_t p1_delta_signed = sample->pressure_1_raw - s_calib.pressure_1_baseline;
-    int32_t p2_delta_signed = sample->pressure_2_raw - s_calib.pressure_2_baseline;
-    int32_t p1_delta = calib_abs_i32(p1_delta_signed);
-    int32_t p2_delta = calib_abs_i32(p2_delta_signed);
+    int32_t p1_delta = calib_abs_diff_i32(sample->pressure_1_raw,
+                                          s_calib.pressure_1_baseline);
+    int32_t p2_delta = calib_abs_diff_i32(sample->pressure_2_raw,
+                                          s_calib.pressure_2_baseline);
     bool pressure_contact = false;
     bool pressure_balanced = false;
     bool pressure_balance_saturated =
         (current_saturation_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) != 0;
     bool pressure_unavailable = calibration_uses_hall_only_pressure();
-    bool pressure_balance_reliable = pressure_read_valid && !pressure_balance_saturated && !pressure_unavailable;
+    bool pressure_balance_reliable = pressure_balance_channels_valid && !pressure_balance_saturated && !pressure_unavailable;
+    bool last_pressure_fresh =
+        s_has_reliable_pressure_balance && s_last_reliable_pressure_ms > 0 &&
+        sample->ts_ms >= s_last_reliable_pressure_ms &&
+        sample->ts_ms - s_last_reliable_pressure_ms <=
+            CPR_PRESSURE_BALANCE_HOLD_MAX_MS;
     bool pressure_balance_held_center =
-        pressure_read_valid &&
+        pressure_balance_channels_valid &&
         ((current_saturation_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) ==
             CPR_PRESSURE_BALANCE_SENSOR_MASK) &&
-        s_has_reliable_pressure_balance &&
-        s_last_reliable_pressure_ms > 0 &&
-        sample->ts_ms - s_last_reliable_pressure_ms <= CPR_PRESSURE_BALANCE_HOLD_MAX_MS &&
+        last_pressure_fresh &&
         strcmp(s_last_reliable_hand_placement, "CENTER") == 0;
 
     /*
@@ -399,7 +438,7 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
             strncpy(s_hand_placement, "UNAVAILABLE", sizeof(s_hand_placement) - 1);
             s_hand_placement[sizeof(s_hand_placement) - 1] = '\0';
             s_pressure_balance_pct = 0.0f;
-        } else if (s_has_reliable_pressure_balance) {
+        } else if (last_pressure_fresh) {
             strncpy(s_hand_placement,
                     s_last_reliable_hand_placement,
                     sizeof(s_hand_placement) - 1);
@@ -407,6 +446,9 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
             s_pressure_balance_pct = s_last_reliable_pressure_balance_pct;
             current_quality_flags |= CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD;
         } else {
+            if (s_has_reliable_pressure_balance && !last_pressure_fresh) {
+                s_has_reliable_pressure_balance = false;
+            }
             strncpy(s_hand_placement, "UNKNOWN", sizeof(s_hand_placement) - 1);
             s_hand_placement[sizeof(s_hand_placement) - 1] = '\0';
             s_pressure_balance_pct = 0.0f;
@@ -457,6 +499,11 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     /* compression state machine. Without a Hall sample, keep the previous
      * depth/state and wait for a valid depth observation before advancing. */
     int64_t now = sample->ts_ms;
+    if (s_state == WAITING_FOR_COMPRESSION &&
+        s_last_compression_start_ms > 0 &&
+        now - s_last_compression_start_ms > CPR_RATE_STALE_MS) {
+        s_rate_cpm = 0.0f;
+    }
     if (hall_sample_usable) {
         switch (s_state) {
             case WAITING_FOR_COMPRESSION:
@@ -467,6 +514,12 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                     /* start new compression and update rate based on start-to-start interval */
                     int64_t prev_start = s_last_compression_start_ms;
                     s_current_compression_start_ms = now;
+                    if (s_last_compression_end_ms > 0 &&
+                        now >= s_last_compression_end_ms) {
+                        s_last_pause_s =
+                            (now - s_last_compression_end_ms) / 1000.0f;
+                    }
+                    s_current_compression_depth_ok = false;
                     if (prev_start > 0) {
                         int64_t interval_ms = s_current_compression_start_ms - prev_start;
                         if (interval_ms >= 250 && interval_ms <= 3000) {
@@ -487,6 +540,7 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                 /* use adaptive full-press threshold */
                 if (hall_delta_now >= s_calib.hall_full_delta_threshold) {
                     s_state = FULL_PRESS_REACHED;
+                    s_current_compression_depth_ok = true;
                     /* evaluate pressure-based validity */
                     bool pressure_ok = false;
                     /* pressure validity using absolute adaptive threshold */
@@ -505,6 +559,10 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                 }
                 if (hall_delta_now <= s_calib.hall_recoil_delta) {
                     /* canceled shallow or recoil detected too early */
+                    s_last_compression_depth_ok = s_current_compression_depth_ok;
+                    s_last_compression_recoil_ok = true;
+                    s_last_compression_incomplete_recoil = false;
+                    s_last_compression_end_ms = now;
                     s_state = WAITING_FOR_COMPRESSION;
                 }
                 break;
@@ -522,13 +580,20 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                     /* good recoil */
                     s_recoil_ok_count++;
                     s_last_compression_end_ms = now;
+                    s_last_compression_depth_ok = s_current_compression_depth_ok;
+                    s_last_compression_recoil_ok = true;
+                    s_last_compression_incomplete_recoil = false;
                     s_state = WAITING_FOR_COMPRESSION;
                 } else if (s_calib.hall_range_raw > 0 && progress >= ((float)s_calib.hall_start_delta / (float)s_calib.hall_range_raw) && progress > s_prev_progress) {
                     /* new compression before full recoil */
                     s_incomplete_recoil_count++;
+                    s_last_compression_depth_ok = s_current_compression_depth_ok;
+                    s_last_compression_recoil_ok = false;
+                    s_last_compression_incomplete_recoil = true;
                     /* start new compression (counted as a new compression start) */
                     int64_t prev_start = s_last_compression_start_ms;
                     s_current_compression_start_ms = now;
+                    s_current_compression_depth_ok = false;
                     if (prev_start > 0) {
                         int64_t interval_ms = s_current_compression_start_ms - prev_start;
                         if (interval_ms >= 250 && interval_ms <= 3000) {
@@ -566,21 +631,27 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->depth_progress = s_depth_progress;
     out_snapshot->depth_mm = s_depth_mm;
     out_snapshot->rate_cpm = s_rate_cpm;
-    out_snapshot->pause_s = 0.0f;
-    if (s_last_compression_start_ms != 0) {
-        out_snapshot->pause_s = (s_last_sample_ms - s_last_compression_start_ms) / 1000.0f;
+    out_snapshot->pause_s = s_last_pause_s;
+    if (s_state == WAITING_FOR_COMPRESSION && s_last_compression_end_ms > 0 &&
+        s_last_sample_ms >= s_last_compression_end_ms) {
+        out_snapshot->pause_s =
+            (s_last_sample_ms - s_last_compression_end_ms) / 1000.0f;
     }
     out_snapshot->total_compressions = s_total_compressions;
     out_snapshot->valid_compressions = s_valid_compressions;
     out_snapshot->recoil_ok_count = s_recoil_ok_count;
     out_snapshot->incomplete_recoil_count = s_incomplete_recoil_count;
-    /* depth_ok determined by adaptive hall full-press threshold */
-    out_snapshot->depth_ok = false;
+    out_snapshot->current_depth_in_range = false;
     if (s_calib.hall_range_raw > 0 && s_calib.hall_full_delta_threshold > 0) {
         float full_pct = (float)s_calib.hall_full_delta_threshold / (float)s_calib.hall_range_raw;
-        out_snapshot->depth_ok = (s_depth_progress >= full_pct);
+        out_snapshot->current_depth_in_range = (s_depth_progress >= full_pct);
     }
-    out_snapshot->recoil_ok = (s_recoil_ok_count > 0);
+    out_snapshot->last_compression_depth_ok = s_last_compression_depth_ok;
+    out_snapshot->last_compression_recoil_ok = s_last_compression_recoil_ok;
+    out_snapshot->last_compression_incomplete_recoil =
+        s_last_compression_incomplete_recoil;
+    out_snapshot->depth_ok = out_snapshot->last_compression_depth_ok;
+    out_snapshot->recoil_ok = out_snapshot->last_compression_recoil_ok;
     strncpy(out_snapshot->hand_placement, s_hand_placement, sizeof(out_snapshot->hand_placement) - 1);
     out_snapshot->hand_placement[sizeof(out_snapshot->hand_placement) - 1] = '\0';
     out_snapshot->pressure_balance_pct = s_pressure_balance_pct;
@@ -623,7 +694,7 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
         append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RATE_FAST,");
     }
 
-    if (out_snapshot->incomplete_recoil_count > 0) {
+    if (out_snapshot->last_compression_incomplete_recoil) {
         append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "INCOMPLETE_RECOIL,");
     } else if (out_snapshot->recoil_ok) {
         append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RECOIL_OK,");
@@ -747,8 +818,10 @@ esp_err_t pressure_sensor_evaluate_window(const int32_t *pressure_1_samples,
                     pressure_raw_is_saturated(pressure_1_samples[i]) ||
                     pressure_raw_is_saturated(pressure_2_samples[i]);
 
-        int32_t p1_delta = calib_abs_i32(pressure_1_samples[i] - out_result->baseline_1);
-        int32_t p2_delta = calib_abs_i32(pressure_2_samples[i] - out_result->baseline_2);
+        int32_t p1_delta = calib_abs_diff_i32(pressure_1_samples[i],
+                                              out_result->baseline_1);
+        int32_t p2_delta = calib_abs_diff_i32(pressure_2_samples[i],
+                                              out_result->baseline_2);
         out_result->max_delta_1 = calib_max_i32(out_result->max_delta_1, p1_delta);
         out_result->max_delta_2 = calib_max_i32(out_result->max_delta_2, p2_delta);
     }
@@ -769,9 +842,11 @@ esp_err_t pressure_sensor_evaluate_window(const int32_t *pressure_1_samples,
         out_result->response_delta >= calibration->pressure_valid_threshold;
 
     out_result->release_delta_1 =
-        calib_abs_i32(pressure_1_samples[sample_count - 1] - out_result->baseline_1);
+        calib_abs_diff_i32(pressure_1_samples[sample_count - 1],
+                           out_result->baseline_1);
     out_result->release_delta_2 =
-        calib_abs_i32(pressure_2_samples[sample_count - 1] - out_result->baseline_2);
+        calib_abs_diff_i32(pressure_2_samples[sample_count - 1],
+                           out_result->baseline_2);
     out_result->release_near_baseline =
         out_result->release_delta_1 <= calibration->pressure_contact_threshold &&
         out_result->release_delta_2 <= calibration->pressure_contact_threshold;

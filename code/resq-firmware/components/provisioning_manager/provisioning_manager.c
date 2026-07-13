@@ -21,12 +21,12 @@
  * ========================================================= */
 
 #define PROVISIONING_AP_SSID_PREFIX        "ResQ-"
-#define PROVISIONING_AP_PASSWORD           "resq12345"
 #define PROVISIONING_AP_CHANNEL            1
 #define PROVISIONING_AP_MAX_CONNECTIONS    4
 
 #define PROVISIONING_HTTP_PORT             80
 #define PROVISIONING_MAX_BODY_LEN          512
+#define PROVISIONING_BODY_TIMEOUT_RETRIES  3
 
 #define PROVISIONING_ACK_ID_MAX_LEN        16
 /* =========================================================
@@ -71,6 +71,38 @@ static esp_err_t copy_string_safe(char *dest,
 
     memcpy(dest, src, src_len + 1);
 
+    return ESP_OK;
+}
+
+static esp_err_t receive_full_body(httpd_req_t *req, char *body,
+                                   size_t body_len)
+{
+    if (req == NULL || body == NULL || req->content_len <= 0 ||
+        (size_t)req->content_len >= body_len) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const size_t expected = (size_t)req->content_len;
+    size_t received_total = 0;
+    unsigned timeout_retries = 0;
+
+    while (received_total < expected) {
+        int received = httpd_req_recv(req, body + received_total,
+                                      expected - received_total);
+        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (++timeout_retries > PROVISIONING_BODY_TIMEOUT_RETRIES) {
+                return ESP_ERR_TIMEOUT;
+            }
+            continue;
+        }
+        if (received <= 0) {
+            return ESP_FAIL;
+        }
+        received_total += (size_t)received;
+        timeout_retries = 0;
+    }
+
+    body[received_total] = '\0';
     return ESP_OK;
 }
 
@@ -412,6 +444,30 @@ static esp_err_t build_softap_ssid(char *ssid, size_t ssid_len)
     return ESP_OK;
 }
 
+static esp_err_t build_softap_password(char *password, size_t password_len)
+{
+    if (password == NULL || password_len < 12) return ESP_ERR_INVALID_ARG;
+
+    char mac[RESQ_DEVICE_MAC_MAX_LEN] = {0};
+    esp_err_t err = config_store_get_device_mac(mac, sizeof(mac));
+    if (err != ESP_OK) return err;
+
+    /* Avoid a fleet-wide credential. The matching derived value belongs on
+     * the device's physical onboarding label, not in URLs or logs. */
+    uint32_t hash = 2166136261u;
+    const char *salt = "ResQ-Provisioning-v1:";
+    for (const char *p = salt; *p != '\0'; ++p) {
+        hash = (hash ^ (uint8_t)*p) * 16777619u;
+    }
+    for (const char *p = mac; *p != '\0'; ++p) {
+        hash = (hash ^ (uint8_t)*p) * 16777619u;
+    }
+
+    int written = snprintf(password, password_len, "Rq!%08lX",
+                           (unsigned long)hash);
+    return written > 0 && (size_t)written < password_len ? ESP_OK : ESP_FAIL;
+}
+
 /**
  * @brief Generate random ACK ID for mobile/LocalHub to confirm provisioning.
  */
@@ -485,7 +541,7 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
         "  function applyQueryParams(){"
         "    const params = new URLSearchParams(window.location.search);"
-        "    const fields = ['wifi_ssid','wifi_pass','backend_base_url'];"
+        "    const fields = ['wifi_ssid','backend_base_url'];"
         "    let filled = 0;"
         "    fields.forEach(function(id){"
         "      const value = params.get(id);"
@@ -607,17 +663,11 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
 
     char body[PROVISIONING_MAX_BODY_LEN] = {0};
 
-    int received = httpd_req_recv(req,
-                                  body,
-                                  req->content_len);
-
-    if (received <= 0) {
+    if (receive_full_body(req, body, sizeof(body)) != ESP_OK) {
         return send_json_response(req,
                                   400,
                                   "{\"ok\":false,\"error\":\"body_read_failed\"}");
     }
-
-    body[received] = '\0';
 
     network_config_t config;
     network_config_set_defaults(&config);
@@ -688,17 +738,11 @@ static esp_err_t provision_ack_post_handler(httpd_req_t *req)
 
     char body[PROVISIONING_MAX_BODY_LEN] = {0};
 
-    int received = httpd_req_recv(req,
-                                  body,
-                                  req->content_len);
-
-    if (received <= 0) {
+    if (receive_full_body(req, body, sizeof(body)) != ESP_OK) {
         return send_json_response(req,
                                   400,
                                   "{\"ok\":false,\"error\":\"body_read_failed\"}");
     }
-
-    body[received] = '\0';
 
     char received_ack_id[PROVISIONING_ACK_ID_MAX_LEN] = {0};
 
@@ -881,11 +925,14 @@ static esp_err_t start_softap(void)
     }
 
     char ap_ssid[32] = {0};
+    char ap_password[16] = {0};
 
     err = build_softap_ssid(ap_ssid, sizeof(ap_ssid));
     if (err != ESP_OK) {
         return err;
     }
+    err = build_softap_password(ap_password, sizeof(ap_password));
+    if (err != ESP_OK) return err;
 
     wifi_config_t ap_config = {0};
 
@@ -895,17 +942,13 @@ static esp_err_t start_softap(void)
 
     copy_string_safe((char *)ap_config.ap.password,
                      sizeof(ap_config.ap.password),
-                     PROVISIONING_AP_PASSWORD);
+                     ap_password);
 
     ap_config.ap.ssid_len = strlen(ap_ssid);
     ap_config.ap.channel = PROVISIONING_AP_CHANNEL;
     ap_config.ap.max_connection = PROVISIONING_AP_MAX_CONNECTIONS;
 
-    if (strlen(PROVISIONING_AP_PASSWORD) == 0) {
-        ap_config.ap.authmode = WIFI_AUTH_OPEN;
-    } else {
-        ap_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
-    }
+    ap_config.ap.authmode = WIFI_AUTH_WPA2_PSK;
 
     err = esp_wifi_set_mode(WIFI_MODE_AP);
     if (err != ESP_OK) {
@@ -923,9 +966,8 @@ static esp_err_t start_softap(void)
     }
 
     ESP_LOGI(TAG,
-             "Provisioning SoftAP started SSID=%s password=%s url=http://192.168.4.1",
-             ap_ssid,
-             PROVISIONING_AP_PASSWORD);
+             "Provisioning SoftAP started SSID=%s url=http://192.168.4.1; use device onboarding credential",
+             ap_ssid);
 
     return ESP_OK;
 }

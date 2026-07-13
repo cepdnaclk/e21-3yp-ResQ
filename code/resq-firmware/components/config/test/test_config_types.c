@@ -71,15 +71,15 @@ TEST_CASE("Calibration defaults are safe and explicit", "[config]") {
   do {                                                                         \
     calibration_config_t invalid = valid_calibration();                        \
     invalid.field = (value);                                                   \
-    TEST_ASSERT_FALSE(calibration_config_validate(&invalid));                  \
-    TEST_ASSERT_FALSE(invalid.calibrated);                                     \
+    TEST_ASSERT_FALSE(calibration_config_is_valid(&invalid));                  \
+    TEST_ASSERT_TRUE(invalid.calibrated);                                      \
   } while (0)
 
 TEST_CASE("Calibration validation covers every threshold boundary",
           "[config]") {
   calibration_config_t config = valid_calibration();
-  TEST_ASSERT_TRUE(calibration_config_validate(&config));
-  TEST_ASSERT_FALSE(calibration_config_validate(NULL));
+  TEST_ASSERT_TRUE(calibration_config_is_valid(&config));
+  TEST_ASSERT_FALSE(calibration_config_is_valid(NULL));
 
   ASSERT_INVALID_FIELD(hall_baseline, 0);
   ASSERT_INVALID_FIELD(hall_full_press, 0);
@@ -103,17 +103,17 @@ TEST_CASE("Calibration validation covers every threshold boundary",
   config.pressure_0_kpa_per_count = 0.0f;
   config.pressure_1_kpa_per_count = 0.0f;
   config.pressure_2_kpa_per_count = 0.0f;
-  TEST_ASSERT_TRUE(calibration_config_validate(&config));
+  TEST_ASSERT_TRUE(calibration_config_is_valid(&config));
 
   config = valid_calibration();
   config.pressure_mode = CALIBRATION_PRESSURE_REQUIRED;
   config.ref_pressure = 0;
-  TEST_ASSERT_FALSE(calibration_config_validate(&config));
+  TEST_ASSERT_FALSE(calibration_config_is_valid(&config));
 
   config = valid_calibration();
   config.pressure_mode = CALIBRATION_PRESSURE_REQUIRED;
   config.bladder_1_pressure = 0;
-  TEST_ASSERT_FALSE(calibration_config_validate(&config));
+  TEST_ASSERT_FALSE(calibration_config_is_valid(&config));
 
   config = valid_calibration();
   config.pressure_mode = CALIBRATION_HALL_ONLY;
@@ -127,16 +127,16 @@ TEST_CASE("Calibration validation covers every threshold boundary",
   config.pressure_2_range_raw = 0;
   config.pressure_contact_threshold = 0;
   config.pressure_valid_threshold = 0;
-  TEST_ASSERT_TRUE(calibration_config_validate(&config));
+  TEST_ASSERT_TRUE(calibration_config_is_valid(&config));
 }
 
 TEST_CASE("Calibration profile helper uses one matching rule", "[config]") {
   calibration_config_t config = valid_calibration();
 
   config.profile_id[0] = '\0';
-  TEST_ASSERT_TRUE(calibration_profile_matches(&config, NULL));
-  TEST_ASSERT_TRUE(calibration_profile_matches(&config, ""));
-  TEST_ASSERT_TRUE(calibration_profile_matches(&config, "adult"));
+  TEST_ASSERT_FALSE(calibration_profile_matches(&config, NULL));
+  TEST_ASSERT_FALSE(calibration_profile_matches(&config, ""));
+  TEST_ASSERT_FALSE(calibration_profile_matches(&config, "adult"));
 
   strcpy(config.profile_id, "adult");
   TEST_ASSERT_TRUE(calibration_profile_matches(&config, "adult"));
@@ -144,6 +144,18 @@ TEST_CASE("Calibration profile helper uses one matching rule", "[config]") {
   TEST_ASSERT_FALSE(calibration_profile_matches(&config, ""));
   TEST_ASSERT_FALSE(calibration_profile_matches(&config, "child"));
   TEST_ASSERT_FALSE(calibration_profile_matches(NULL, "adult"));
+}
+
+TEST_CASE("Calibration validation never changes trust state", "[config]") {
+  calibration_config_t config = valid_calibration();
+  config.calibrated = false;
+  TEST_ASSERT_TRUE(calibration_config_is_valid(&config));
+  TEST_ASSERT_FALSE(config.calibrated);
+
+  config = valid_calibration();
+  config.hall_baseline = 0;
+  TEST_ASSERT_FALSE(calibration_config_is_valid(&config));
+  TEST_ASSERT_TRUE(config.calibrated);
 }
 
 TEST_CASE("All firmware states have stable string names", "[config][fsm]") {

@@ -1,5 +1,6 @@
 #include "calibration_codes.h"
 #include "calibration_manager.h"
+#include <string.h>
 #include "unity.h"
 
 TEST_CASE("Calibration reason table covers every documented failure",
@@ -214,6 +215,26 @@ TEST_CASE("Calibration start parser rejects malformed and unsafe values",
                         "\"bladder_2_pressure\":1}",
                         &config, command_id, sizeof(command_id), &reason));
   TEST_ASSERT_EQUAL(CAL_REASON_INVALID_CALIBRATION_PAYLOAD, reason);
+}
+
+TEST_CASE("Invalid calibration payload preserves caller configuration",
+          "[calibration]") {
+  calibration_config_t config;
+  calibration_config_set_defaults(&config);
+  config.calibrated = true;
+  config.hall_delta = 777;
+  config.ref_pressure = 1234;
+  strncpy(config.profile_id, "existing-profile",
+          sizeof(config.profile_id) - 1);
+  calibration_config_t before = config;
+  calibration_reason_id_t reason = CAL_REASON_NONE;
+  char command_id[32] = "unchanged";
+
+  TEST_ASSERT_EQUAL(
+      ESP_FAIL, calibration_manager_parse_start_payload(
+                    "{bad", &config, command_id, sizeof(command_id), &reason));
+  TEST_ASSERT_EQUAL_MEMORY(&before, &config, sizeof(config));
+  TEST_ASSERT_EQUAL_STRING("", command_id);
 }
 
 TEST_CASE(

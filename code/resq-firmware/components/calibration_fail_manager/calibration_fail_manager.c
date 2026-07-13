@@ -224,8 +224,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                                                                                       "ACK",
                                                                                       "calibration_cancelled");
             if (pub_err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/cancel; skipping cancel (err=%d)", pub_err);
-                continue;
+                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/cancel after local cleanup (err=%d)", pub_err);
             }
 
             /* publish minimal calibration_result CANCELLED */
@@ -336,26 +335,9 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                 continue;
             }
 
-            esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
-                                                                                      RESQ_STATE_CALIBRATION_FAIL,
-                                                                                      &command,
-                                                                                      "cmd/calibration/start",
-                                                                                      "ACK",
-                                                                                      "moving_to_calibrating");
-            if (pub_err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/start; skipping calibration start (err=%d)", pub_err);
-                continue;
-            }
-
-            /* publish result STARTED and store request id */
+            /* Start and confirm the task before publishing ACK/STARTED. Local
+             * recovery must not depend on MQTT availability. */
             calibration_manager_set_request_id(reply_id);
-            calibration_manager_publish_calibration_result(reply_id,
-                                                           "ACK",
-                                                           "STARTED",
-                                                           CAL_REASON_NONE,
-                                                           RESQ_STATE_CALIBRATING,
-                                                           CAL_ACTION_NONE);
-
             esp_err_t start_err = calibration_manager_start(network_config,
                                                             &parsed,
                                                             command_id[0] != '\0' ? command_id : NULL);
@@ -374,6 +356,23 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                                                            12);
                 continue;
             }
+
+            esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                      RESQ_STATE_CALIBRATION_FAIL,
+                                                                                      &command,
+                                                                                      "cmd/calibration/start",
+                                                                                      "ACK",
+                                                                                      "moving_to_calibrating");
+            if (pub_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/start after startup (err=%d)", pub_err);
+            }
+
+            calibration_manager_publish_calibration_result(reply_id,
+                                                           "ACK",
+                                                           "STARTED",
+                                                           CAL_REASON_NONE,
+                                                           RESQ_STATE_CALIBRATING,
+                                                           CAL_ACTION_NONE);
 
             return RESQ_STATE_CALIBRATING;
         }
