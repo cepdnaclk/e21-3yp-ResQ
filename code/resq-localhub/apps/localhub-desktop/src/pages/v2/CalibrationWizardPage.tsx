@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
 import type { DeviceReadinessState, CalibrationState, CalibrationStreamEvent, CalibrationEvidence } from "../../types/manikin";
-import Card, { CardHeader } from "../../components/ui/Card";
+import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { getDeviceStateTone } from "../../utils/userFriendlyLabels";
@@ -34,6 +34,184 @@ const STEPS = [
   { name: "Save / Result", ids: [11, 12, 13] },
 ];
 
+const LAST_COMPLETED_PROGRESS: Record<number, number> = {
+  1: 0,
+  2: 1,
+  3: 3,
+  4: 3,
+  5: 5,
+  6: 5,
+  7: 7,
+  8: 8,
+  9: 8,
+  10: 10,
+  11: 11,
+  12: 10,
+  13: 10,
+};
+
+const REASON_DETAILS: Record<string, { title: string; action: string }> = {
+  "08101": {
+    title: "Invalid calibration values",
+    action: "Review the raw calibration configuration values and retry.",
+  },
+  "08102": {
+    title: "Calibration is already running",
+    action: "Wait for the current calibration to finish or cancel it before retrying.",
+  },
+  "08401": {
+    title: "Reference pressure target was not reached",
+    action: "Check the reference pressure connection and hold the requested pressure steady before retrying.",
+  },
+  "08402": {
+    title: "Bladder 1 pressure target was not reached",
+    action: "Check bladder 1 tubing and pressure source, then retry calibration.",
+  },
+  "08403": {
+    title: "Bladder 2 pressure target was not reached",
+    action: "Check bladder 2 tubing and pressure source, then retry calibration.",
+  },
+  "08404": {
+    title: "Hall baseline could not be read",
+    action: "Keep the manikin fully released and verify Hall sensor wiring and magnet alignment before retrying.",
+  },
+  "08405": {
+    title: "Full compression target was not reached",
+    action: "Press to full depth and hold steady until the firmware captures the sample.",
+  },
+  "08406": {
+    title: "Full compression pressure could not be read",
+    action: "Check pressure sensor wiring and tubing, then repeat the full compression capture.",
+  },
+  "08407": {
+    title: "Pressure imbalance is too high",
+    action: "Check both bladder channels for leaks, blocked tubing, or uneven pressure before retrying.",
+  },
+  "08408": {
+    title: "Calibration values are outside range",
+    action: "Check the raw targets and sensor readings, then retry with values inside the firmware limits.",
+  },
+  "08409": {
+    title: "Sensor readings are unstable",
+    action: "Keep the manikin still, check pressure and Hall sensor wiring, and retry once readings stabilize.",
+  },
+  "08410": {
+    title: "Pressure sample is too noisy",
+    action: "Hold pressure steady and check pressure sensor tubing and wiring before retrying.",
+  },
+  "08411": {
+    title: "Pressure sensor saturated",
+    action: "Release pressure, check for over-pressure or wiring faults, and retry calibration.",
+  },
+  "08412": {
+    title: "Hall travel is too small",
+    action: "Verify the magnet position and Hall sensor mounting, then repeat the full compression capture.",
+  },
+  "08413": {
+    title: "Hall travel is too large",
+    action: "Check Hall sensor and magnet alignment and make sure the manikin mechanics move within the expected range.",
+  },
+  "08414": {
+    title: "Hall sample is invalid",
+    action: "Keep the manikin still and verify Hall sensor wiring before retrying.",
+  },
+  "08415": {
+    title: "Pressure baseline is invalid",
+    action: "Release all pressure, check pressure sensors and tubing, then retry calibration.",
+  },
+  "08416": {
+    title: "Pressure span is invalid",
+    action: "Check the pressure source and sensor wiring, then retry with stable reference pressure.",
+  },
+  "08417": {
+    title: "Calibration save failed",
+    action: "Retry calibration. If the problem persists, restart firmware and check persistent storage.",
+  },
+  "08418": {
+    title: "Hall sensor signal is too noisy",
+    action: "Keep the manikin completely still during baseline capture. Check Hall sensor and magnet mounting/alignment and verify the sensor wiring before retrying.",
+  },
+  "08701": {
+    title: "Calibration was cancelled",
+    action: "Start calibration again when the manikin is idle and connected.",
+  },
+};
+
+function mapEventState(event: CalibrationStreamEvent): CalibrationState {
+  const status = event.status?.toUpperCase();
+  const result = event.result?.toUpperCase();
+  if (event.eventId === 4000) {
+    return status === "ACK" ? "RUNNING" : status === "NACK" ? "FAILED" : "STARTING";
+  }
+  if (event.eventId === 4002) {
+    if (result === "PASS" || result === "PASS_WITH_WARNINGS") return "PASSED";
+    if (result === "CANCELLED" || result === "CANCELED") return "CANCELLED";
+    if (result === "FAIL") return "FAILED";
+  }
+  if (event.progressId === 12) return "FAILED";
+  if (event.progressId === 13) return "CANCELLED";
+  return event.calibrationState === "CALIBRATING" ? "RUNNING" : event.calibrationState;
+}
+
+function mergeEventIntoReadiness(
+  event: CalibrationStreamEvent,
+  previous: DeviceReadinessState | null,
+): DeviceReadinessState {
+  if (event.readiness) {
+    return event.readiness;
+  }
+  return {
+    deviceId: event.deviceId,
+    calibrationState: mapEventState(event),
+    firmwareState: event.firmwareState ?? previous?.firmwareState ?? null,
+    currentProgressId: event.progressId ?? previous?.currentProgressId ?? null,
+    lastReasonId: event.reasonId ?? previous?.lastReasonId ?? null,
+    lastActionId: event.actionId ?? previous?.lastActionId ?? null,
+    lastResult: event.result ?? previous?.lastResult ?? null,
+    lastReplyId: event.replyId ?? previous?.lastReplyId ?? null,
+    readyForSession: event.readyForSession ?? previous?.readyForSession ?? false,
+    lastUpdatedAt: event.receivedAt || new Date().toISOString(),
+  };
+}
+
+function hasLiveMeasurements(event: CalibrationStreamEvent | null): boolean {
+  return Boolean(
+    event &&
+      (
+        event.pressure0Kpa !== undefined ||
+        event.pressure1Kpa !== undefined ||
+        event.pressure2Kpa !== undefined ||
+        event.hallMm !== undefined ||
+        event.fullDepthMm !== undefined
+      ),
+  );
+}
+
+function formatKpa(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)} kPa` : "Unavailable";
+}
+
+function pressureDisplay(event: CalibrationStreamEvent | null, channel: 0 | 1 | 2): string {
+  if (!event) return "Waiting";
+  const mask = event.pressureSaturationMask ?? 0;
+  if ((mask & (1 << channel)) !== 0) {
+    return "Saturated";
+  }
+  const value = channel === 0 ? event.pressure0Kpa : channel === 1 ? event.pressure1Kpa : event.pressure2Kpa;
+  const valid = channel === 0 ? event.pressure0KpaValid : channel === 1 ? event.pressure1KpaValid : event.pressure2KpaValid;
+  return valid === true ? formatKpa(value) : "Unavailable";
+}
+
+function hallDisplay(event: CalibrationStreamEvent | null): { value: string; progress: string } {
+  if (!event || event.sampleHallMmValid !== true) {
+    return { value: "Unavailable", progress: "Unavailable" };
+  }
+  const mm = typeof event.hallMm === "number" && Number.isFinite(event.hallMm) ? `${event.hallMm.toFixed(1)} mm` : "Unavailable";
+  const rawProgress = typeof event.hallProgress === "number" && Number.isFinite(event.hallProgress) ? event.hallProgress : null;
+  const pct = rawProgress === null ? "Unavailable" : `${Math.round((rawProgress <= 1 ? rawProgress * 100 : rawProgress))}%`;
+  return { value: mm, progress: pct };
+}
+
 export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationWizardPageProps) {
   // Form states with defaults
   const [form, setForm] = useState<FormValues>({
@@ -62,6 +240,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
   // Latest SSE Event details for the event details panel
   const [latestEvent, setLatestEvent] = useState<CalibrationStreamEvent | null>(null);
+  const [commandEvent, setCommandEvent] = useState<CalibrationStreamEvent | null>(null);
+  const [progressEvent, setProgressEvent] = useState<CalibrationStreamEvent | null>(null);
+  const [finalEvent, setFinalEvent] = useState<CalibrationStreamEvent | null>(null);
+  const [lastCompletedProgressId, setLastCompletedProgressId] = useState<number>(0);
+  const [startNotice, setStartNotice] = useState<string | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -103,75 +286,44 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
     init();
     fetchEvidence();
 
+    const applyStreamEvent = (event: CalibrationStreamEvent) => {
+      setLatestEvent(event);
+      setStreamError(null);
+      setReadiness((prev) => mergeEventIntoReadiness(event, prev));
+
+      if (event.eventId === 4000) {
+        setCommandEvent(event);
+        setIsSubmitting(false);
+      } else if (event.eventId === 4001) {
+        setProgressEvent(event);
+        if (event.progressId !== null && event.progressId !== undefined) {
+          setLastCompletedProgressId((prev) => Math.max(prev, LAST_COMPLETED_PROGRESS[event.progressId ?? 0] ?? prev));
+        }
+      } else if (event.eventId === 4002) {
+        setFinalEvent(event);
+        setIsSubmitting(false);
+        setIsCancelling(false);
+        if (event.progressId !== null && event.progressId !== undefined) {
+          setLastCompletedProgressId((prev) => Math.max(prev, LAST_COMPLETED_PROGRESS[event.progressId ?? 0] ?? prev));
+        }
+        fetchEvidence();
+      }
+    };
+
     // Setup SSE connection
     try {
       eventSourceRef.current = connectCalibrationStream(deviceId, {
         onSnapshot: (event) => {
           if (!active) return;
-          setLatestEvent(event);
-          setStreamError(null);
-          if (event.readiness) {
-            setReadiness(event.readiness);
-          } else {
-            // Populate readiness fields from event directly if backend nested object is absent
-            setReadiness((prev) => ({
-              deviceId: event.deviceId,
-              calibrationState: event.calibrationState,
-              firmwareState: event.firmwareState,
-              currentProgressId: event.progressId,
-              lastReasonId: event.reasonId,
-              lastActionId: event.actionId,
-              lastResult: event.result,
-              lastReplyId: event.replyId,
-              readyForSession: event.readyForSession,
-              lastUpdatedAt: event.receivedAt || new Date().toISOString(),
-            }));
-          }
+          applyStreamEvent(event);
         },
         onUpdate: (event) => {
           if (!active) return;
-          setLatestEvent(event);
-          setStreamError(null);
-          if (event.readiness) {
-            setReadiness(event.readiness);
-          } else {
-            setReadiness((prev) => ({
-              deviceId: event.deviceId,
-              calibrationState: event.calibrationState,
-              firmwareState: event.firmwareState,
-              currentProgressId: event.progressId,
-              lastReasonId: event.reasonId,
-              lastActionId: event.actionId,
-              lastResult: event.result,
-              lastReplyId: event.replyId,
-              readyForSession: event.readyForSession,
-              lastUpdatedAt: event.receivedAt || new Date().toISOString(),
-            }));
-          }
+          applyStreamEvent(event);
         },
         onFinal: (event) => {
           if (!active) return;
-          setLatestEvent(event);
-          setStreamError(null);
-          setIsSubmitting(false);
-          setIsCancelling(false);
-          fetchEvidence();
-          if (event.readiness) {
-            setReadiness(event.readiness);
-          } else {
-            setReadiness((prev) => ({
-              deviceId: event.deviceId,
-              calibrationState: event.calibrationState,
-              firmwareState: event.firmwareState,
-              currentProgressId: event.progressId,
-              lastReasonId: event.reasonId,
-              lastActionId: event.actionId,
-              lastResult: event.result,
-              lastReplyId: event.replyId,
-              readyForSession: event.readyForSession,
-              lastUpdatedAt: event.receivedAt || new Date().toISOString(),
-            }));
-          }
+          applyStreamEvent(event);
         },
         onError: () => {
           if (!active) return;
@@ -247,6 +399,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
     setIsSubmitting(true);
     setApiError(null);
+    setStartNotice(null);
+    setCommandEvent(null);
+    setProgressEvent(null);
+    setFinalEvent(null);
+    setLastCompletedProgressId(0);
 
     // Transit state to STARTING locally to show immediate response
     setReadiness((prev) => ({
@@ -268,6 +425,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       };
 
       await startCalibration(deviceId, reqPayload);
+      setStartNotice("Start command published");
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Failed to start calibration.");
       setIsSubmitting(false);
@@ -280,6 +438,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const handleCancelCalibration = async () => {
     setIsCancelling(true);
     setApiError(null);
+    setReadiness((prev) => prev ? { ...prev, calibrationState: "CANCELLING" } : {
+      deviceId,
+      calibrationState: "CANCELLING",
+      readyForSession: false,
+    });
 
     try {
       await cancelCalibration(deviceId);
@@ -291,13 +454,14 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
   const calState: CalibrationState = readiness?.calibrationState ?? "UNKNOWN";
   const progressId = readiness?.currentProgressId ?? 0;
+  const terminalResult = finalEvent?.result?.toUpperCase() ?? readiness?.lastResult?.toUpperCase() ?? null;
   
   // Status check variables
-  const isRunning = calState === "STARTING" || calState === "CALIBRATING";
-  const isSuccess = readiness?.readyForSession === true || calState === "READY";
-  const isFailure = calState === "FAILED" || progressId === 12;
+  const isRunning = calState === "STARTING" || calState === "RUNNING" || calState === "CALIBRATING";
+  const isSuccess = terminalResult === "PASS" || terminalResult === "PASS_WITH_WARNINGS" || calState === "PASSED" || calState === "READY";
+  const isFailure = terminalResult === "FAIL" || calState === "FAILED" || progressId === 12;
   const isInterrupted = calState === "INTERRUPTED" || progressId === 13;
-  const isCancelled = calState === "CANCELLED";
+  const isCancelled = terminalResult === "CANCELLED" || terminalResult === "CANCELED" || calState === "CANCELLED";
 
   // Determine current active stepper step
   let activeStep = 0;
@@ -308,7 +472,15 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
     else if (progressId === 6 || progressId === 7) activeStep = 3;
     else if (progressId === 8) activeStep = 4;
     else if (progressId === 9 || progressId === 10) activeStep = 5;
-    else if (progressId >= 11) activeStep = 6;
+    else if (progressId === 11) activeStep = 6;
+    else if (progressId >= 12) {
+      if (lastCompletedProgressId >= 9) activeStep = 5;
+      else if (lastCompletedProgressId >= 8) activeStep = 4;
+      else if (lastCompletedProgressId >= 6) activeStep = 3;
+      else if (lastCompletedProgressId >= 4) activeStep = 2;
+      else if (lastCompletedProgressId >= 2) activeStep = 1;
+      else activeStep = 0;
+    }
   }
 
   // Mapped Progress Instructions
@@ -444,7 +616,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   };
 
   const instruction = getProgressInstructions(progressId);
-  const actionMsg = getActionMessage(readiness?.lastActionId);
+  const reasonDetail = readiness?.lastReasonId ? REASON_DETAILS[readiness.lastReasonId] : null;
+  const actionMsg = reasonDetail?.action ?? getActionMessage(readiness?.lastActionId);
+  const sensorEvent = progressEvent;
+  const hall = hallDisplay(sensorEvent);
+  const resultEvent = finalEvent ?? commandEvent;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -459,6 +635,12 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       {apiError && (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-xl font-semibold shadow-sm">
           {apiError}
+        </div>
+      )}
+
+      {startNotice && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-800 text-xs px-4 py-3 rounded-xl font-semibold shadow-sm">
+          {startNotice}
         </div>
       )}
 
@@ -548,6 +730,50 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
             </div>
           </Card>
 
+          <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Live Sensor Measurements
+              </h4>
+              {sensorEvent?.pressureKpaValid === false && (
+                <span className="text-[10px] font-bold text-amber-600">Pressure aggregate degraded</span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[0, 1, 2].map((channel) => (
+                <div
+                  key={channel}
+                  role="group"
+                  aria-label={`Pressure ${channel}`}
+                  className="rounded-xl border border-slate-100 bg-slate-50/60 p-3"
+                >
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Pressure {channel}
+                  </div>
+                  <div className="mt-1 text-lg font-extrabold text-slate-800">
+                    {pressureDisplay(sensorEvent, channel as 0 | 1 | 2)}
+                  </div>
+                  <div className="mt-1 text-[10px] font-medium text-slate-400">
+                    {sensorEvent ? "Converted kPa" : "Waiting for 4001"}
+                  </div>
+                </div>
+              ))}
+
+              <div role="group" aria-label="Hall" className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Hall</div>
+                <div className="mt-1 text-lg font-extrabold text-slate-800">{hall.value}</div>
+                <div className="mt-1 text-[10px] font-medium text-slate-400">Progress: {hall.progress}</div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-[11px] font-medium text-slate-500">
+              <span>Sample pressure valid: {sensorEvent?.samplePressureKpaValid === true ? "TRUE" : sensorEvent?.samplePressureKpaValid === false ? "FALSE" : "N/A"}</span>
+              <span>Full depth: {typeof sensorEvent?.fullDepthMm === "number" ? `${sensorEvent.fullDepthMm.toFixed(1)} mm` : "N/A"}</span>
+            </div>
+            {!hasLiveMeasurements(sensorEvent) && (
+              <p className="mt-3 text-xs text-slate-400">Waiting for calibration progress event 4001.</p>
+            )}
+          </Card>
+
           {/* Form / Actions Panel */}
           <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6">
             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
@@ -579,9 +805,14 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
               <div className="space-y-5">
                 {/* Inputs Grid */}
                 <div className="grid grid-cols-2 gap-4">
+                  <details className="col-span-2 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                    <summary className="cursor-pointer text-xs font-bold text-slate-700">
+                      Advanced Calibration Configuration
+                    </summary>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
                   <div>
                     <label htmlFor="hall_delta" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Hall Delta (test value)
+                      Hall Delta Raw ADC Counts
                     </label>
                     <input
                       id="hall_delta"
@@ -602,7 +833,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
                   <div>
                     <label htmlFor="ref_pressure" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Reference Pressure (test value)
+                      Reference Pressure Raw HX710 Counts
                     </label>
                     <input
                       id="ref_pressure"
@@ -623,7 +854,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
                   <div>
                     <label htmlFor="bladder_1_pressure" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Bladder 1 Pressure (test value)
+                      Bladder 1 Pressure Raw HX710 Counts
                     </label>
                     <input
                       id="bladder_1_pressure"
@@ -644,7 +875,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
                   <div>
                     <label htmlFor="bladder_2_pressure" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Bladder 2 Pressure (test value)
+                      Bladder 2 Pressure Raw HX710 Counts
                     </label>
                     <input
                       id="bladder_2_pressure"
@@ -662,6 +893,8 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                       </span>
                     )}
                   </div>
+                    </div>
+                  </details>
 
                   <div>
                     <label htmlFor="profile_id" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -794,7 +1027,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                 </div>
                 <div className="flex justify-between py-1.5">
                   <span>Last Reply ID:</span>
-                  <strong className="text-slate-800 font-mono">{readiness?.lastReplyId || "N/A"}</strong>
+                  <strong className="text-slate-800 font-mono">{finalEvent?.replyId || commandEvent?.replyId || readiness?.lastReplyId || "N/A"}</strong>
                 </div>
               </div>
             )}
@@ -807,8 +1040,9 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                 Warning / Alert
               </span>
               <p className="text-xs font-bold">
-                Reason ID: {readiness.lastReasonId}
+                {reasonDetail?.title ?? "Calibration warning"}
               </p>
+              <p className="text-[11px] font-mono text-amber-700">Reason ID: {readiness.lastReasonId}</p>
               <p className="text-xs font-medium">
                 {actionMsg}
               </p>
@@ -831,7 +1065,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-slate-50">
                   <span>Result status:</span>
-                  <strong className="text-slate-800">{latestEvent.result || latestEvent.status || "N/A"}</strong>
+                  <strong className="text-slate-800">{resultEvent?.result || resultEvent?.status || "N/A"}</strong>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span>Final Reply ID:</span>
+                  <strong className="text-slate-800 font-mono">{finalEvent?.replyId || "N/A"}</strong>
                 </div>
                 <div className="flex justify-between py-1.5">
                   <span>Received at:</span>

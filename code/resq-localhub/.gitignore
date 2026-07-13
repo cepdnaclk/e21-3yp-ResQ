@@ -10,6 +10,7 @@ docs/*
 docs/telemetry-api-update/*
 !docs/telemetry-api-update/phase-5-frontend-sensor-stream.md
 !docs/telemetry-api-update/phase-6-end-to-end-validation.md
+!docs/telemetry-api-update/phase-7-hardware-validation.md
 !docs/telemetry-api-update/fixtures/
 !docs/telemetry-api-update/fixtures/sensor-stream-contract-fixtures.json
 

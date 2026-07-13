@@ -1,4 +1,4 @@
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import CalibrationWizardPage from "./CalibrationWizardPage";
@@ -41,6 +41,10 @@ const MOCK_EVIDENCE = {
   updatedAt: "2026-06-01T10:05:00Z",
 };
 
+async function openAdvancedConfiguration() {
+  await userEvent.click(screen.getByText("Advanced Calibration Configuration"));
+}
+
 describe("CalibrationWizardPage", () => {
   let sseHandlers: any = null;
   const mockClose = vi.fn();
@@ -73,6 +77,8 @@ describe("CalibrationWizardPage", () => {
     expect(screen.getByText("MAN-01")).toBeInTheDocument();
 
     // Verify default form fields are loaded
+    expect(screen.getByText("Advanced Calibration Configuration")).toBeInTheDocument();
+    await openAdvancedConfiguration();
     expect(screen.getByLabelText(/Hall Delta/i)).toHaveValue("13500");
     expect(screen.getByLabelText(/Reference Pressure/i)).toHaveValue("20100");
     expect(screen.getByLabelText(/Bladder 1 Pressure/i)).toHaveValue("15000");
@@ -85,6 +91,7 @@ describe("CalibrationWizardPage", () => {
   it("blocks calibration start and shows inline messages on invalid values", async () => {
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
     await screen.findByText("Calibration / Pre-Check");
+    await openAdvancedConfiguration();
 
     const hallInput = screen.getByLabelText(/Hall Delta/i);
     await userEvent.clear(hallInput);
@@ -107,6 +114,7 @@ describe("CalibrationWizardPage", () => {
 
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
     await screen.findByText("Calibration / Pre-Check");
+    await openAdvancedConfiguration();
 
     const startBtn = screen.getByRole("button", { name: "Start Calibration" });
     await userEvent.click(startBtn);
@@ -161,6 +169,183 @@ describe("CalibrationWizardPage", () => {
 
     expect(await screen.findByText("Full compression")).toBeInTheDocument();
     expect(screen.getByText("Press and hold full compression until the firmware captures the full press.")).toBeInTheDocument();
+  });
+
+  it("renders converted 4001 pressure and Hall measurements independently", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    act(() => {
+      sseHandlers.onUpdate({
+        type: "calibration_update",
+        deviceId: "MAN-01",
+        eventId: 4001,
+        progressId: 5,
+        calibrationState: "CALIBRATING",
+        readyForSession: false,
+        pressure0Kpa: 0,
+        pressure0KpaValid: true,
+        pressure1Kpa: 4.25,
+        pressure1KpaValid: false,
+        pressure2Kpa: 9.49,
+        pressure2KpaValid: true,
+        pressureKpaValid: false,
+        hallMm: 18.4,
+        hallProgress: 0.42,
+        hallMmValid: true,
+        samplePressureKpaValid: true,
+        sampleHallMmValid: true,
+        pressureSaturationMask: 0,
+        fullDepthMm: 44.8,
+      });
+    });
+
+    expect(within(screen.getByRole("group", { name: "Pressure 0" })).getByText("0.0 kPa")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Pressure 1" })).getByText("Unavailable")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Pressure 2" })).getByText("9.5 kPa")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Hall" })).getByText("18.4 mm")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Hall" })).getByText("Progress: 42%")).toBeInTheDocument();
+  });
+
+  it("shows saturation before validity and does not display invalid numeric zero", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    act(() => {
+      sseHandlers.onUpdate({
+        type: "calibration_update",
+        deviceId: "MAN-01",
+        eventId: 4001,
+        progressId: 2,
+        calibrationState: "CALIBRATING",
+        readyForSession: false,
+        pressure0Kpa: 0,
+        pressure0KpaValid: false,
+        pressure1Kpa: 0,
+        pressure1KpaValid: true,
+        pressure2Kpa: 0,
+        pressure2KpaValid: false,
+        sampleHallMmValid: false,
+        pressureSaturationMask: 4,
+      });
+    });
+
+    expect(within(screen.getByRole("group", { name: "Pressure 0" })).getByText("Unavailable")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Pressure 1" })).getByText("0.0 kPa")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Pressure 2" })).getByText("Saturated")).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Hall" })).getByText("Unavailable")).toBeInTheDocument();
+  });
+
+  it("keeps HTTP start in STARTING until the 4000 ACK enters RUNNING", async () => {
+    vi.mocked(startCalibration).mockResolvedValue({
+      deviceId: "MAN-01",
+      requestId: "req-1",
+      command: "start",
+      status: "PUBLISHED",
+    });
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await userEvent.click(screen.getByRole("button", { name: "Start Calibration" }));
+
+    expect(await screen.findByText("Start command published")).toBeInTheDocument();
+    expect(screen.getAllByText("STARTING").length).toBeGreaterThan(0);
+
+    act(() => {
+      sseHandlers.onUpdate({
+        type: "calibration_update",
+        deviceId: "MAN-01",
+        eventId: 4000,
+        replyId: "req-1",
+        status: "ACK",
+        calibrationState: "STARTING",
+        readyForSession: false,
+      });
+    });
+
+    await waitFor(() => expect(screen.getAllByText("RUNNING").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("req-1").length).toBeGreaterThan(0);
+  });
+
+  it("displays Hall noise reason 08418 with the specific suggested action", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    act(() => {
+      sseHandlers.onFinal({
+        type: "calibration_final",
+        deviceId: "MAN-01",
+        eventId: 4002,
+        replyId: "req-noisy",
+        result: "FAIL",
+        reasonId: "08418",
+        actionId: 4,
+        progressId: 12,
+        readyForSession: false,
+        calibrationState: "FAILED",
+      });
+    });
+
+    expect(await screen.findByText("Hall sensor signal is too noisy")).toBeInTheDocument();
+    expect(screen.getByText("Reason ID: 08418")).toBeInTheDocument();
+    expect(screen.getAllByText(/Keep the manikin completely still during baseline capture/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Check the sensor connection and retry.")).not.toBeInTheDocument();
+  });
+
+  it("keeps final 4002 FAIL result and reply ID after progress updates", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    act(() => {
+      sseHandlers.onFinal({
+        type: "calibration_final",
+        deviceId: "MAN-01",
+        eventId: 4002,
+        replyId: "req-final",
+        result: "FAIL",
+        reasonId: "08418",
+        progressId: 12,
+        readyForSession: false,
+        calibrationState: "FAILED",
+      });
+    });
+
+    await waitFor(() => expect(screen.getAllByText("req-final").length).toBeGreaterThan(0));
+    expect(screen.getByText("FAIL")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Calibration" })).toBeInTheDocument();
+  });
+
+  it("does not mark Save / Result complete when failure progress 12 arrives", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    act(() => {
+      sseHandlers.onUpdate({
+        type: "calibration_update",
+        deviceId: "MAN-01",
+        eventId: 4001,
+        progressId: 10,
+        calibrationState: "CALIBRATING",
+        readyForSession: false,
+      });
+      sseHandlers.onUpdate({
+        type: "calibration_update",
+        deviceId: "MAN-01",
+        eventId: 4001,
+        progressId: 12,
+        reasonId: "08418",
+        calibrationState: "FAILED",
+        readyForSession: false,
+      });
+    });
+
+    expect(await screen.findByText("Calibration failed. Check the reason and follow the suggested action.")).toBeInTheDocument();
+    expect(screen.getByText("Save / Result")).toHaveClass("text-slate-400");
   });
 
   it("handles final PASS and navigates back on Start Session click", async () => {

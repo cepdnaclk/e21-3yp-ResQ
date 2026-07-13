@@ -18,7 +18,21 @@ public record CalibrationStreamEvent(
         Long tsMs,
         Instant receivedAt,
         DeviceReadinessState readiness,
-        Instant ts
+        Instant ts,
+        Double pressure0Kpa,
+        Boolean pressure0KpaValid,
+        Double pressure1Kpa,
+        Boolean pressure1KpaValid,
+        Double pressure2Kpa,
+        Boolean pressure2KpaValid,
+        Boolean pressureKpaValid,
+        Double hallMm,
+        Double hallProgress,
+        Boolean hallMmValid,
+        Boolean samplePressureKpaValid,
+        Boolean sampleHallMmValid,
+        Integer pressureSaturationMask,
+        Double fullDepthMm
 ) {
 
     public static CalibrationStreamEvent snapshot(String deviceId, DeviceReadinessState readiness) {
@@ -48,6 +62,20 @@ public record CalibrationStreamEvent(
                 null,
                 readiness != null ? readiness.lastUpdatedAt() : Instant.now(),
                 readiness,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 null
         );
     }
@@ -100,7 +128,21 @@ public record CalibrationStreamEvent(
                 event.tsMs(),
                 event.receivedAt(),
                 null,
-                null
+                null,
+                event.pressure0Kpa(),
+                event.pressure0KpaValid(),
+                event.pressure1Kpa(),
+                event.pressure1KpaValid(),
+                event.pressure2Kpa(),
+                event.pressure2KpaValid(),
+                event.pressureKpaValid(),
+                event.hallMm(),
+                event.hallProgress(),
+                event.hallMmValid(),
+                event.samplePressureKpaValid(),
+                event.sampleHallMmValid(),
+                event.pressureSaturationMask(),
+                event.fullDepthMm()
         );
     }
 
@@ -121,7 +163,21 @@ public record CalibrationStreamEvent(
                 null,
                 null,
                 null,
-                Instant.now()
+                Instant.now(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
         );
     }
 }

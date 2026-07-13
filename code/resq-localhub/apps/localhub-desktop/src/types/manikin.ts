@@ -101,13 +101,18 @@ export type ManikinPairTokenResponse = {
 
 export type CalibrationState =
   | "UNKNOWN"
+  | "IDLE"
   | "NOT_READY"
   | "STARTING"
+  | "RUNNING"
+  | "CANCELLING"
   | "CALIBRATING"
+  | "PASSED"
   | "READY"
   | "FAILED"
   | "INTERRUPTED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "ERROR";
 
 export type DeviceReadinessState = {
   deviceId: string;
@@ -157,6 +162,20 @@ export type CalibrationStreamEvent = {
   tsMs: number | null;
   receivedAt: string | null;
   readiness: DeviceReadinessState | null;
+  pressure0Kpa?: number | null;
+  pressure0KpaValid?: boolean | null;
+  pressure1Kpa?: number | null;
+  pressure1KpaValid?: boolean | null;
+  pressure2Kpa?: number | null;
+  pressure2KpaValid?: boolean | null;
+  pressureKpaValid?: boolean | null;
+  hallMm?: number | null;
+  hallProgress?: number | null;
+  hallMmValid?: boolean | null;
+  samplePressureKpaValid?: boolean | null;
+  sampleHallMmValid?: boolean | null;
+  pressureSaturationMask?: number | null;
+  fullDepthMm?: number | null;
 };
 
 export type CalibrationEvidence = {

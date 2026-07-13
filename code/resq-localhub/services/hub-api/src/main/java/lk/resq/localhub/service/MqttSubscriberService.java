@@ -607,7 +607,21 @@ public class MqttSubscriberService {
                 actionId,
                 firmwareState,
                 tsMs,
-                receivedAt
+                receivedAt,
+                doubleValue(payload, "pressure_0_kpa", "pressure0Kpa"),
+                booleanValue(payload, "pressure_0_kpa_valid", "pressure0KpaValid"),
+                doubleValue(payload, "pressure_1_kpa", "pressure1Kpa"),
+                booleanValue(payload, "pressure_1_kpa_valid", "pressure1KpaValid"),
+                doubleValue(payload, "pressure_2_kpa", "pressure2Kpa"),
+                booleanValue(payload, "pressure_2_kpa_valid", "pressure2KpaValid"),
+                booleanValue(payload, "pressure_kpa_valid", "pressureKpaValid"),
+                doubleValue(payload, "hall_mm", "hallMm"),
+                doubleValue(payload, "hall_progress", "hallProgress"),
+                booleanValue(payload, "hall_mm_valid", "hallMmValid"),
+                booleanValue(payload, "sample_pressure_kpa_valid", "samplePressureKpaValid"),
+                booleanValue(payload, "sample_hall_mm_valid", "sampleHallMmValid"),
+                integer(payload, "pressure_saturation_mask", "pressureSaturationMask"),
+                doubleValue(payload, "full_depth_mm", "fullDepthMm")
         );
     }
 
@@ -903,6 +917,53 @@ public class MqttSubscriberService {
                 try {
                     return Long.parseLong(node.asText().trim());
                 } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static Double doubleValue(JsonNode payload, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isNumber()) {
+                return node.asDouble();
+            }
+
+            if (node.isTextual()) {
+                try {
+                    return Double.parseDouble(node.asText().trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static Boolean booleanValue(JsonNode payload, String... keys) {
+        for (String key : keys) {
+            JsonNode node = payload.get(key);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+
+            if (node.isBoolean()) {
+                return node.asBoolean();
+            }
+
+            if (node.isTextual()) {
+                String value = node.asText().trim();
+                if ("true".equalsIgnoreCase(value)) {
+                    return true;
+                }
+                if ("false".equalsIgnoreCase(value)) {
+                    return false;
                 }
             }
         }

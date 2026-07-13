@@ -97,6 +97,56 @@ class CalibrationStreamServiceTest {
     }
 
     @Test
+    void publishCalibrationUpdatePreservesConvertedSensorFields() {
+        CapturingCalibrationStreamService service = new CapturingCalibrationStreamService(readinessService);
+        service.subscribe("M01");
+        service.sentEvents.clear();
+
+        CalibrationMqttEvent progressEvent = new CalibrationMqttEvent(
+                "M01",
+                4001,
+                null,
+                null,
+                5,
+                null,
+                "00000",
+                0,
+                "CALIBRATING",
+                123456L,
+                Instant.now(),
+                0.0,
+                true,
+                4.25,
+                false,
+                9.5,
+                true,
+                false,
+                18.4,
+                0.42,
+                true,
+                true,
+                true,
+                2,
+                44.8
+        );
+
+        service.publishCalibrationUpdate("M01", progressEvent, null);
+
+        CalibrationStreamEvent payload = (CalibrationStreamEvent) service.sentEvents.get(0).payload();
+        assertThat(payload.pressure0Kpa()).isEqualTo(0.0);
+        assertThat(payload.pressure0KpaValid()).isTrue();
+        assertThat(payload.pressure1Kpa()).isEqualTo(4.25);
+        assertThat(payload.pressure1KpaValid()).isFalse();
+        assertThat(payload.pressureKpaValid()).isFalse();
+        assertThat(payload.hallMm()).isEqualTo(18.4);
+        assertThat(payload.hallProgress()).isEqualTo(0.42);
+        assertThat(payload.samplePressureKpaValid()).isTrue();
+        assertThat(payload.sampleHallMmValid()).isTrue();
+        assertThat(payload.pressureSaturationMask()).isEqualTo(2);
+        assertThat(payload.fullDepthMm()).isEqualTo(44.8);
+    }
+
+    @Test
     void failedEmitterIsRemovedSafely() {
         CalibrationStreamService service = new CalibrationStreamService(readinessService);
         SseEmitter emitter = service.subscribe("M01");
