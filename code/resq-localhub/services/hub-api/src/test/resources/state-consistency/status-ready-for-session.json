@@ -1,0 +1,10 @@
+{
+  "state": "READY_FOR_SESSION",
+  "session_active": false,
+  "session_id": "",
+  "calibrated": true,
+  "profile_id": "adult-basic",
+  "last_error_id": "00000",
+  "ip": "192.168.8.161",
+  "ts_ms": 126000
+}

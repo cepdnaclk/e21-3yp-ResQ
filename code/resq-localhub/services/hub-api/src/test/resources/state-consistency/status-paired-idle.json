@@ -1,0 +1,9 @@
+{
+  "state": "PAIRED_IDLE",
+  "session_active": false,
+  "session_id": "",
+  "calibrated": false,
+  "last_error_id": "00000",
+  "ip": "192.168.8.161",
+  "ts_ms": 125000
+}

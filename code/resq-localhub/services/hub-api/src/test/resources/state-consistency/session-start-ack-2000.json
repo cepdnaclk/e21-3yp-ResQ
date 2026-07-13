@@ -1,0 +1,8 @@
+{
+  "event_id": 2000,
+  "reply_id": "req-300-phase0-0001",
+  "status": "ACK",
+  "state": "SESSION_ACTIVE",
+  "session_id": "session-phase0-0001",
+  "ts_ms": 130000
+}

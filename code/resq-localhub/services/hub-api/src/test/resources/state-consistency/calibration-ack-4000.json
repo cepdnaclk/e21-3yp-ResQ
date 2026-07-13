@@ -1,0 +1,9 @@
+{
+  "event_id": 4000,
+  "reply_id": "req-200-phase0-0001",
+  "status": "ACK",
+  "reason_id": "00000",
+  "state": "CALIBRATING",
+  "action_id": 0,
+  "ts_ms": 123000
+}

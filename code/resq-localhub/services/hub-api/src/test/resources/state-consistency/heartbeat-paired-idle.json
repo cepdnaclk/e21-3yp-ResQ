@@ -1,0 +1,12 @@
+{
+  "state": "PAIRED_IDLE",
+  "wifi_connected": true,
+  "mqtt_connected": true,
+  "backend_registered": true,
+  "session_active": false,
+  "sensor_running": false,
+  "session_id": "",
+  "calibrated": false,
+  "uptime_ms": 25000,
+  "ts_ms": 125500
+}
