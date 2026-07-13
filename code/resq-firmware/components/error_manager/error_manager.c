@@ -234,8 +234,7 @@ resq_state_t error_manager_run(network_config_t *network_config,
                                                                                               "ACK",
                                                                                               "retry_requested");
                     if (pub_err != ESP_OK) {
-                        ESP_LOGW(TAG, "Failed to publish command result for %s; skipping retry (err=%d)", suffix, pub_err);
-                        continue;
+                        ESP_LOGW(TAG, "Failed to publish command result for %s; continuing local retry (err=%d)", suffix, pub_err);
                     }
 
                     return error_manager_get_retry_state();
@@ -255,8 +254,7 @@ resq_state_t error_manager_run(network_config_t *network_config,
                                                                                               "ACK",
                                                                                               "reset_requested");
                     if (pub_err != ESP_OK) {
-                        ESP_LOGW(TAG, "Failed to publish command result for %s; skipping reset (err=%d)", suffix, pub_err);
-                        continue;
+                        ESP_LOGW(TAG, "Failed to publish command result for %s; continuing local reset (err=%d)", suffix, pub_err);
                     }
 
                     return RESQ_STATE_RESETTING;
@@ -276,8 +274,7 @@ resq_state_t error_manager_run(network_config_t *network_config,
                                                                                               "ACK",
                                                                                               "flush_config_requested");
                     if (pub_err != ESP_OK) {
-                        ESP_LOGW(TAG, "Failed to publish command result for %s; skipping flush-config (err=%d)", suffix, pub_err);
-                        continue;
+                        ESP_LOGW(TAG, "Failed to publish command result for %s; continuing local flush-config (err=%d)", suffix, pub_err);
                     }
 
                     return RESQ_STATE_FLUSH_CONFIG;

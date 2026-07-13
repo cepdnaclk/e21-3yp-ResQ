@@ -1,5 +1,7 @@
 #include "backend_register_client.h"
 
+#include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,7 +20,25 @@ typedef struct
     char *buffer;
     int buffer_len;
     int written;
+    bool overflow;
 } backend_http_response_t;
+
+static bool response_string_valid(const char *value, size_t capacity,
+                                  bool host)
+{
+    if (value == NULL) return false;
+    size_t len = strnlen(value, capacity);
+    if (len == 0 || len >= capacity) return false;
+    for (size_t i = 0; i < len; ++i) {
+        unsigned char c = (unsigned char)value[i];
+        if (isalnum(c) || c == '-' || c == '_' ||
+            (host && (c == '.' || c == ':' || c == '[' || c == ']'))) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
 
 static esp_err_t backend_register_build_request_body(const network_config_t *config,
                                                      char *buffer,
@@ -66,6 +86,9 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
                     memcpy(ctx->buffer + ctx->written, evt->data, copy_len);
                     ctx->written += copy_len;
                     ctx->buffer[ctx->written] = '\0';
+                }
+                if (copy_len < evt->data_len) {
+                    ctx->overflow = true;
                 }
             }
             break;
@@ -170,6 +193,7 @@ esp_err_t backend_register_client_register(const network_config_t *config,
 
     for (int attempt = 1; attempt <= BACKEND_REGISTER_MAX_RETRIES; ++attempt) {
         resp.written = 0;
+        resp.overflow = false;
         resp.buffer[0] = '\0';
 
         esp_http_client_handle_t client_attempt = esp_http_client_init(&http_cfg);
@@ -198,6 +222,14 @@ esp_err_t backend_register_client_register(const network_config_t *config,
 
         /* Read response written into resp.buffer by the event handler */
         if (status >= 200 && status < 300) {
+            if (resp.overflow) {
+                ESP_LOGE(TAG, "Registration response exceeds %d bytes",
+                         resp.buffer_len - 1);
+                esp_http_client_cleanup(client_attempt);
+                err = ESP_ERR_INVALID_SIZE;
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                continue;
+            }
             if (resp.written == 0) {
                 ESP_LOGW(TAG, "Empty registration response");
             }
@@ -213,8 +245,10 @@ esp_err_t backend_register_client_register(const network_config_t *config,
             }
 
             cJSON *device_id = cJSON_GetObjectItemCaseSensitive(resp_json, "device_id");
-            if (!cJSON_IsString(device_id) || device_id->valuestring == NULL || device_id->valuestring[0] == '\0') {
-                ESP_LOGE(TAG, "Backend response missing device_id");
+            if (!cJSON_IsString(device_id) ||
+                !response_string_valid(device_id->valuestring,
+                                       sizeof(out_result->device_id), false)) {
+                ESP_LOGE(TAG, "Backend response has invalid device_id");
                 cJSON_Delete(resp_json);
                 esp_http_client_cleanup(client_attempt);
                 err = ESP_FAIL;
@@ -222,22 +256,30 @@ esp_err_t backend_register_client_register(const network_config_t *config,
                 continue;
             }
 
-            /* Required device_id */
-            strncpy(out_result->device_id, device_id->valuestring, sizeof(out_result->device_id) - 1);
-            out_result->device_id[sizeof(out_result->device_id) - 1] = '\0';
-
-            /* Optional fields */
             cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(resp_json, "mqtt_host");
             cJSON *mqtt_port = cJSON_GetObjectItemCaseSensitive(resp_json, "mqtt_port");
 
-            if (cJSON_IsString(mqtt_host) && mqtt_host->valuestring) {
-                strncpy(out_result->mqtt_host, mqtt_host->valuestring, sizeof(out_result->mqtt_host) - 1);
-                out_result->mqtt_host[sizeof(out_result->mqtt_host) - 1] = '\0';
+            if (!cJSON_IsString(mqtt_host) ||
+                !response_string_valid(mqtt_host->valuestring,
+                                       sizeof(out_result->mqtt_host), true) ||
+                !cJSON_IsNumber(mqtt_port) ||
+                !isfinite(mqtt_port->valuedouble) ||
+                floor(mqtt_port->valuedouble) != mqtt_port->valuedouble ||
+                mqtt_port->valuedouble < 1.0 ||
+                mqtt_port->valuedouble > 65535.0) {
+                ESP_LOGE(TAG, "Backend response has invalid MQTT endpoint");
+                cJSON_Delete(resp_json);
+                esp_http_client_cleanup(client_attempt);
+                err = ESP_ERR_INVALID_RESPONSE;
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                continue;
             }
 
-            if (cJSON_IsNumber(mqtt_port)) {
-                out_result->mqtt_port = (uint16_t)mqtt_port->valueint;
-            }
+            memcpy(out_result->device_id, device_id->valuestring,
+                   strlen(device_id->valuestring) + 1);
+            memcpy(out_result->mqtt_host, mqtt_host->valuestring,
+                   strlen(mqtt_host->valuestring) + 1);
+            out_result->mqtt_port = (uint16_t)mqtt_port->valuedouble;
 
             cJSON_Delete(resp_json);
             esp_http_client_cleanup(client_attempt);

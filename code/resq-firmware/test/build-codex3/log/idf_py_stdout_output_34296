@@ -1,0 +1,31 @@
+Command: cmake -G Ninja -B D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test\build-codex3 -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Users\ganat\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 -DCCACHE_ENABLE=False D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test
+-- IDF_TARGET is not set, guessed 'esp32c3' from sdkconfig 'D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/sdkconfig'
+-- Found Git: C:/Program Files/Git/cmd/git.exe (found version "2.53.0.windows.2")
+-- Component directory C:/esp/v6.0/esp-idf/components/mqtt does not contain a CMakeLists.txt file. No component will be added
+-- Minimal build - ON
+-- The C compiler identification is GNU 15.2.0
+-- The CXX compiler identification is GNU 15.2.0
+-- The ASM compiler identification is GNU
+-- Found assembler: C:/Users/ganat/.espressif/tools/riscv32-esp-elf/esp-15.2.0_20251204/riscv32-esp-elf/bin/riscv32-esp-elf-gcc.exe
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Users/ganat/.espressif/tools/riscv32-esp-elf/esp-15.2.0_20251204/riscv32-esp-elf/bin/riscv32-esp-elf-gcc.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Users/ganat/.espressif/tools/riscv32-esp-elf/esp-15.2.0_20251204/riscv32-esp-elf/bin/riscv32-esp-elf-g++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Building ESP-IDF components for target esp32c3
+NOTICE: Processing 3 dependencies:
+NOTICE: [1/3] espressif/cjson (1.7.19~2)
+NOTICE: [2/3] espressif/mqtt (1.0.0)
+NOTICE: [3/3] idf (6.0.0)
+-- ESP-TEE is currently supported only on the esp32c6;esp32h2;esp32c5;esp32c61 SoCs
+-- KCONFIG_REPORT_VERBOSITY not set, using default
+-- Project sdkconfig file D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/sdkconfig
+Loading defaults file D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/sdkconfig.defaults...
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting CXX compiler ABI info

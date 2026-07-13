@@ -39,6 +39,9 @@ typedef struct {
 
 esp_err_t system_button_manager_init(void);
 
+/** Number of ISR edges recovered after the bounded edge queue was full. */
+uint32_t system_button_manager_get_dropped_edge_count(void);
+
 /*
  * New centralized API.
  * Use this in state managers that need state-specific button behavior.

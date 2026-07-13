@@ -604,6 +604,11 @@ esp_err_t config_store_clear_calibration(void)
     nvs_erase_key(handle, NVS_KEY_PRESSURE_CONTACT);
     nvs_erase_key(handle, NVS_KEY_PRESSURE_VALID);
     nvs_erase_key(handle, NVS_KEY_PRESSURE_BALANCE_PCT);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE_MODE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE_DEGRADED);
+    nvs_erase_key(handle, NVS_KEY_USING_LAST_PRESSURE);
+    nvs_erase_key(handle, NVS_KEY_PRESSURE_OK);
+    nvs_erase_key(handle, NVS_KEY_HALL_OK);
     nvs_erase_key(handle, NVS_KEY_CAL_SAMPLES);
     nvs_erase_key(handle, NVS_KEY_CAL_WINDOW_MS);
     nvs_erase_key(handle, NVS_KEY_CALIBRATED_AT_MS);

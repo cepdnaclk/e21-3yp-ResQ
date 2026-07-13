@@ -36,6 +36,7 @@ static calibration_config_t s_sensor_stream_calibration;
 #define TELEMETRY_TASK_STOPPED_BIT BIT1
 #define SENSOR_STREAM_TASK_STARTED_BIT BIT2
 #define SENSOR_STREAM_TASK_STOPPED_BIT BIT3
+#define SENSOR_STREAM_TASK_FAILED_BIT BIT4
 #define TELEMETRY_TASK_START_TIMEOUT_MS 1000
 #define TELEMETRY_TASK_STOP_TIMEOUT_MS 1500
 #define SENSOR_STREAM_TASK_START_TIMEOUT_MS 1000
@@ -45,6 +46,7 @@ static calibration_config_t s_sensor_stream_calibration;
 #define SENSOR_STREAM_MAX_INTERVAL_MS TELEMETRY_SENSOR_STREAM_INTERVAL_MAX_MS
 #define SENSOR_STREAM_INVALID_COMMAND_REASON_ID "07101"
 #define SENSOR_STREAM_RUNTIME_REASON_ID "07102"
+#define SENSOR_STREAM_MAX_CONSECUTIVE_FAILURES 5
 
 typedef enum {
     SENSOR_STREAM_ACTION_START = 0,
@@ -168,7 +170,17 @@ exit:
     return result;
 }
 
-static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample)
+static bool sensor_stream_pressure_requested(
+    const calibration_config_t *calibration)
+{
+    return calibration->pressure_valid &&
+           calibration->pressure_mode != CALIBRATION_HALL_ONLY &&
+           calibration->pressure_mode !=
+               CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE;
+}
+
+static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample,
+                                           bool read_pressure)
 {
     if (out_sample == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -181,21 +193,31 @@ static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample)
     int32_t p0 = 0;
     int32_t p1 = 0;
     int32_t p2 = 0;
-    esp_err_t pressure_err = hx710_read_3_shared_sck(
-        BOARD_HX710_SHARED_SCK,
-        BOARD_HX710_0_DOUT,
-        BOARD_HX710_1_DOUT,
-        BOARD_HX710_2_DOUT,
-        &p0,
-        &p1,
-        &p2);
-    if (pressure_err == ESP_OK) {
+    if (read_pressure) {
+        uint8_t valid_mask = 0;
+        esp_err_t pressure_err = hx710_read_3_shared_sck_valid(
+            BOARD_HX710_SHARED_SCK,
+            BOARD_HX710_0_DOUT,
+            BOARD_HX710_1_DOUT,
+            BOARD_HX710_2_DOUT,
+            &p0,
+            &p1,
+            &p2,
+            &valid_mask);
         out_sample->pressure_0_raw = p0;
         out_sample->pressure_1_raw = p1;
         out_sample->pressure_2_raw = p2;
+        if ((valid_mask & HX710_VALID_CHANNEL_0) == 0)
+            out_sample->quality_flags |= CPR_SAMPLE_PRESSURE_0_READ_FAILED;
+        if ((valid_mask & HX710_VALID_CHANNEL_1) == 0)
+            out_sample->quality_flags |= CPR_SAMPLE_PRESSURE_1_READ_FAILED;
+        if ((valid_mask & HX710_VALID_CHANNEL_2) == 0)
+            out_sample->quality_flags |= CPR_SAMPLE_PRESSURE_2_READ_FAILED;
+        if (pressure_err != ESP_OK || valid_mask != HX710_VALID_CHANNEL_ALL) {
+            first_error = pressure_err;
+        }
     } else {
         out_sample->quality_flags |= CPR_SAMPLE_PRESSURE_READ_FAILED;
-        first_error = pressure_err;
     }
 
     hall_sensor_t hall = {0};
@@ -227,7 +249,12 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
         return ESP_ERR_INVALID_ARG;
     }
 
-    bool pressure_read_ok = (sample->quality_flags & CPR_SAMPLE_PRESSURE_READ_FAILED) == 0;
+    bool pressure_0_ok =
+        (sample->quality_flags & CPR_SAMPLE_PRESSURE_0_READ_FAILED) == 0;
+    bool pressure_1_ok =
+        (sample->quality_flags & CPR_SAMPLE_PRESSURE_1_READ_FAILED) == 0;
+    bool pressure_2_ok =
+        (sample->quality_flags & CPR_SAMPLE_PRESSURE_2_READ_FAILED) == 0;
     bool hall_read_ok = (sample->quality_flags & CPR_SAMPLE_HALL_READ_FAILED) == 0;
 
     sensor_raw_sample_t raw = {
@@ -237,30 +264,26 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
             sample->pressure_2_raw,
         },
         .pressure_read_valid = {
-            pressure_read_ok,
-            pressure_read_ok,
-            pressure_read_ok,
+            pressure_0_ok,
+            pressure_1_ok,
+            pressure_2_ok,
         },
         .hall_raw = sample->hall_raw,
         .hall_read_valid = hall_read_ok,
-        .pressure_saturation_mask = pressure_read_ok ?
-            pressure_saturation_mask_from_sample(sample) : 0u,
+        .pressure_saturation_mask = pressure_saturation_mask_from_sample(sample),
         .timestamp_ms = sample->ts_ms,
     };
     sensor_conversion_profile_t profile = conversion_profile_from_calibration(calibration);
     sensor_converted_sample_t converted = {0};
     sensor_conversion_convert(&raw, &profile, &converted);
 
-    if (!pressure_read_ok || !calibration->pressure_valid) {
-        converted.pressure_kpa[0] = 0.0f;
-        converted.pressure_kpa[1] = 0.0f;
-        converted.pressure_kpa[2] = 0.0f;
-        converted.pressure_kpa_channel_valid[0] = false;
-        converted.pressure_kpa_channel_valid[1] = false;
-        converted.pressure_kpa_channel_valid[2] = false;
-        converted.pressure_kpa_valid = false;
-        converted.pressure_saturation_mask = 0u;
-    }
+    if (!calibration->pressure_valid) pressure_0_ok = pressure_1_ok = pressure_2_ok = false;
+    if (!pressure_0_ok) converted.pressure_kpa_channel_valid[0] = false;
+    if (!pressure_1_ok) converted.pressure_kpa_channel_valid[1] = false;
+    if (!pressure_2_ok) converted.pressure_kpa_channel_valid[2] = false;
+    converted.pressure_kpa_valid = converted.pressure_kpa_channel_valid[0] &&
+                                   converted.pressure_kpa_channel_valid[1] &&
+                                   converted.pressure_kpa_channel_valid[2];
 
     if (!hall_read_ok || !calibration->hall_valid) {
         converted.hall_mm = 0.0f;
@@ -291,12 +314,50 @@ static void sensor_stream_task(void *arg)
 {
     (void)arg;
 
-    hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT);
-    hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_1_DOUT);
-    hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_2_DOUT);
+    calibration_config_t startup_calibration = {0};
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+        xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_FAILED_BIT);
+        goto task_exit;
+    }
+    memcpy(&startup_calibration, &s_sensor_stream_calibration,
+           sizeof(startup_calibration));
+    xSemaphoreGive(s_mutex);
+
+    hall_sensor_t hall = {0};
+    if (hall_sensor_init(&hall, BOARD_HALL_ADC_CHAN) != ESP_OK) {
+        ESP_LOGE("telemetry_publisher", "Manual stream Hall initialization failed");
+        xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_FAILED_BIT);
+        goto task_exit;
+    }
+
+    bool pressure_enabled = sensor_stream_pressure_requested(&startup_calibration);
+    bool pressure_required =
+        startup_calibration.pressure_mode == CALIBRATION_PRESSURE_REQUIRED;
+    if (pressure_enabled) {
+        esp_err_t p0_err = hx710_init(BOARD_HX710_SHARED_SCK,
+                                     BOARD_HX710_0_DOUT);
+        esp_err_t p1_err = hx710_init(BOARD_HX710_SHARED_SCK,
+                                     BOARD_HX710_1_DOUT);
+        esp_err_t p2_err = hx710_init(BOARD_HX710_SHARED_SCK,
+                                     BOARD_HX710_2_DOUT);
+        if (p0_err != ESP_OK || p1_err != ESP_OK || p2_err != ESP_OK) {
+            if (pressure_required) {
+                ESP_LOGE("telemetry_publisher",
+                         "Manual stream required pressure initialization failed");
+                xEventGroupSetBits(s_task_events,
+                                   SENSOR_STREAM_TASK_FAILED_BIT);
+                goto task_exit;
+            }
+            ESP_LOGW("telemetry_publisher",
+                     "Manual stream continuing in degraded Hall-only mode");
+            pressure_enabled = false;
+        }
+    }
 
     xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_STARTED_BIT);
     TickType_t last_wake = xTaskGetTickCount();
+    unsigned consecutive_read_failures = 0;
+    unsigned consecutive_publish_failures = 0;
 
     while (s_sensor_stream_running) {
         if (!mqtt_manager_is_connected()) {
@@ -315,12 +376,43 @@ static void sensor_stream_task(void *arg)
         }
 
         cpr_sensor_sample_t sample = {0};
-        sensor_stream_read_sample(&sample);
-        sensor_stream_publish_sample(&sample, &calibration, state, interval_ms);
+        esp_err_t read_err = sensor_stream_read_sample(&sample, pressure_enabled);
+        esp_err_t publish_err = sensor_stream_publish_sample(
+            &sample, &calibration, state, interval_ms);
+
+        if (read_err == ESP_OK) {
+            consecutive_read_failures = 0;
+        } else if (++consecutive_read_failures >=
+                   SENSOR_STREAM_MAX_CONSECUTIVE_FAILURES) {
+            bool only_pressure_failed =
+                (sample.quality_flags & CPR_SAMPLE_PRESSURE_READ_FAILED) != 0 &&
+                (sample.quality_flags & CPR_SAMPLE_HALL_READ_FAILED) == 0;
+            if (!pressure_required && pressure_enabled && only_pressure_failed) {
+                ESP_LOGW("telemetry_publisher",
+                         "Manual stream degrading to Hall-only after repeated "
+                         "pressure failures");
+                pressure_enabled = false;
+                consecutive_read_failures = 0;
+            } else {
+                ESP_LOGE("telemetry_publisher",
+                         "Manual stream stopped after repeated sensor failures");
+                break;
+            }
+        }
+
+        if (publish_err == ESP_OK) {
+            consecutive_publish_failures = 0;
+        } else if (++consecutive_publish_failures >=
+                   SENSOR_STREAM_MAX_CONSECUTIVE_FAILURES) {
+            ESP_LOGE("telemetry_publisher",
+                     "Manual stream stopped after repeated publish failures");
+            break;
+        }
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(interval_ms));
     }
 
+task_exit:
     sensor_owner_release(SENSOR_OWNER_MANUAL_STREAM);
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -430,6 +522,10 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         "\"depth_mm\":%.3f,"
         "\"depth_source\":\"HALL\","
         "\"depth_ok\":%s,"
+        "\"current_depth_in_range\":%s,"
+        "\"last_compression_depth_ok\":%s,"
+        "\"last_compression_recoil_ok\":%s,"
+        "\"last_compression_incomplete_recoil\":%s,"
         "\"rate_cpm\":%.1f,"
         "\"compression_count\":%d,"
         "\"valid_compression_count\":%d,"
@@ -464,6 +560,10 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         snap->depth_progress,
         snap->hall_mm_valid ? snap->depth_mm : 0.0f,
         snap->depth_ok ? "true" : "false",
+        snap->current_depth_in_range ? "true" : "false",
+        snap->last_compression_depth_ok ? "true" : "false",
+        snap->last_compression_recoil_ok ? "true" : "false",
+        snap->last_compression_incomplete_recoil ? "true" : "false",
         snap->rate_cpm,
         snap->total_compressions,
         snap->valid_compressions,
@@ -520,7 +620,12 @@ static void telemetry_task(void *arg)
 
         char payload[1792];
         const char *device_id = runtime_helpers_get_device_id(NULL);
-        const char *session_id = session_manager_get_session_id();
+        char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
+        if (session_manager_get_session_id(session_id, sizeof(session_id)) !=
+            ESP_OK) {
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
+            continue;
+        }
 
         if (telemetry_publisher_build_session_payload(&snap,
                                                       device_id,
@@ -699,7 +804,9 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
     memcpy(&s_sensor_stream_calibration, calibration_config, sizeof(s_sensor_stream_calibration));
 
     xEventGroupClearBits(s_task_events,
-                         SENSOR_STREAM_TASK_STARTED_BIT | SENSOR_STREAM_TASK_STOPPED_BIT);
+                         SENSOR_STREAM_TASK_STARTED_BIT |
+                         SENSOR_STREAM_TASK_STOPPED_BIT |
+                         SENSOR_STREAM_TASK_FAILED_BIT);
     s_sensor_stream_running = true;
     BaseType_t ok = xTaskCreate(sensor_stream_task,
                                 "sensor_stream",
@@ -720,11 +827,14 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
 
     EventBits_t bits = xEventGroupWaitBits(
         s_task_events,
-        SENSOR_STREAM_TASK_STARTED_BIT,
+        SENSOR_STREAM_TASK_STARTED_BIT | SENSOR_STREAM_TASK_FAILED_BIT,
         pdFALSE,
-        pdTRUE,
+        pdFALSE,
         pdMS_TO_TICKS(SENSOR_STREAM_TASK_START_TIMEOUT_MS));
 
+    if ((bits & SENSOR_STREAM_TASK_FAILED_BIT) != 0) {
+        return ESP_FAIL;
+    }
     if ((bits & SENSOR_STREAM_TASK_STARTED_BIT) == 0) {
         telemetry_publisher_stop_sensor_stream();
         return ESP_ERR_TIMEOUT;
@@ -746,7 +856,6 @@ esp_err_t telemetry_publisher_stop_sensor_stream(void)
     if (s_sensor_stream_task == NULL) {
         s_sensor_stream_running = false;
         xSemaphoreGive(s_mutex);
-        sensor_owner_release(SENSOR_OWNER_MANUAL_STREAM);
         return ESP_OK;
     }
 

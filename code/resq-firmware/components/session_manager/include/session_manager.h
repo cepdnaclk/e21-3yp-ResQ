@@ -2,6 +2,7 @@
 #define SESSION_MANAGER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -33,7 +34,8 @@ bool session_manager_is_active(void);
 
 esp_err_t session_manager_get_state(session_state_t *out_state);
 
-const char *session_manager_get_session_id(void);
+esp_err_t session_manager_get_session_id(char *out_session_id,
+                                         size_t out_session_id_len);
 
 #ifdef __cplusplus
 }

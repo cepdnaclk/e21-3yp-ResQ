@@ -222,3 +222,48 @@ TEST_CASE("CPR metrics holds depth and state on missed Hall sample", "[metrics]"
     TEST_ASSERT_TRUE((snapshot.sensor_quality_flags & CPR_SENSOR_QUALITY_HALL_MISSED) != 0);
     TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "HALL_MISSED"));
 }
+
+TEST_CASE("CPR metrics expires stale pressure placement", "[metrics]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1600, 1000);
+    update_with_quality(1400, 0, 0, 1401,
+                        CPR_SAMPLE_PRESSURE_READ_FAILED);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL_STRING("UNKNOWN", snapshot.hand_placement);
+    TEST_ASSERT_FALSE((snapshot.sensor_quality_flags &
+                       CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD) != 0);
+}
+
+TEST_CASE("CPR metrics invalidates stale rate and tracks release pause",
+          "[metrics]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1600, 1000);
+    update(1900, 1700, 1700, 1100);
+    update(1200, 1200, 1200, 1200);
+    update(1000, 1000, 1000, 1300);
+    update(1400, 1600, 1600, 1500);
+    update(1900, 1700, 1700, 1600);
+    update(1200, 1200, 1200, 1700);
+    update(1000, 1000, 1000, 1800);
+    update(1000, 1000, 1000, 5001);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, snapshot.rate_cpm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 3.201f, snapshot.pause_s);
+    TEST_ASSERT_TRUE(snapshot.last_compression_depth_ok);
+    TEST_ASSERT_TRUE(snapshot.last_compression_recoil_ok);
+    TEST_ASSERT_FALSE(snapshot.last_compression_incomplete_recoil);
+    TEST_ASSERT_FALSE(snapshot.current_depth_in_range);
+    TEST_ASSERT_TRUE(snapshot.depth_ok);
+}

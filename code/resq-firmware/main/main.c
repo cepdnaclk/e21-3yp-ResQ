@@ -8,6 +8,7 @@
 #include "esp_system.h"
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "adc_shared_service.h"
@@ -38,7 +39,36 @@
 static const char *TAG = "resq_main";
 static bool s_components_initialized;
 static TaskHandle_t s_heartbeat_task;
+static volatile bool s_heartbeat_running;
 static resq_fsm_t s_fsm;
+static StaticSemaphore_t s_heartbeat_snapshot_mutex_storage;
+static SemaphoreHandle_t s_heartbeat_snapshot_mutex;
+
+typedef struct {
+    network_config_t network_config;
+    calibration_config_t calibration_config;
+    resq_state_t state;
+    char ip_address[sizeof(s_fsm.ip_address)];
+} heartbeat_snapshot_t;
+
+static heartbeat_snapshot_t s_heartbeat_snapshot;
+
+static void heartbeat_snapshot_update(void)
+{
+    if (s_heartbeat_snapshot_mutex == NULL ||
+        xSemaphoreTake(s_heartbeat_snapshot_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGW(TAG, "Unable to update heartbeat state snapshot");
+        return;
+    }
+
+    s_heartbeat_snapshot.network_config = s_fsm.network_config;
+    s_heartbeat_snapshot.calibration_config = s_fsm.calibration_config;
+    s_heartbeat_snapshot.state = s_fsm.current_state;
+    memcpy(s_heartbeat_snapshot.ip_address,
+           s_fsm.ip_address,
+           sizeof(s_heartbeat_snapshot.ip_address));
+    xSemaphoreGive(s_heartbeat_snapshot_mutex);
+}
 
 static esp_err_t initialize_components_once(void)
 {
@@ -135,14 +165,26 @@ static void get_heartbeat_session(bool *active,
 
 static void heartbeat_task(void *arg)
 {
-    resq_fsm_t *fsm = (resq_fsm_t *)arg;
+    (void)arg;
 
-    while (true) {
+    while (s_heartbeat_running) {
         if (mqtt_manager_is_connected()) {
-            char latest_ip[sizeof(fsm->ip_address)] = {0};
+            heartbeat_snapshot_t snapshot = {0};
+            if (xSemaphoreTake(s_heartbeat_snapshot_mutex,
+                               pdMS_TO_TICKS(100)) != pdTRUE) {
+                ESP_LOGW(TAG, "Unable to read heartbeat state snapshot");
+                ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
+                continue;
+            }
+            snapshot = s_heartbeat_snapshot;
+            xSemaphoreGive(s_heartbeat_snapshot_mutex);
+
+            char latest_ip[sizeof(snapshot.ip_address)] = {0};
             if (wifi_manager_get_ip(latest_ip, sizeof(latest_ip)) == ESP_OK) {
-                strncpy(fsm->ip_address, latest_ip, sizeof(fsm->ip_address) - 1);
-                fsm->ip_address[sizeof(fsm->ip_address) - 1] = '\0';
+                strncpy(snapshot.ip_address,
+                        latest_ip,
+                        sizeof(snapshot.ip_address) - 1);
+                snapshot.ip_address[sizeof(snapshot.ip_address) - 1] = '\0';
             }
 
             bool session_active;
@@ -154,21 +196,24 @@ static void heartbeat_task(void *arg)
                                   sizeof(session_id));
 
             esp_err_t err = mqtt_manager_publish_heartbeat(
-                &fsm->network_config,
-                &fsm->calibration_config,
-                fsm->current_state,
+                &snapshot.network_config,
+                &snapshot.calibration_config,
+                snapshot.state,
                 session_active,
                 sensor_running,
                 session_id,
-                fsm->ip_address,
+                snapshot.ip_address,
                 wifi_manager_get_rssi());
             if (err != ESP_OK) {
                 ESP_LOGW(TAG, "Heartbeat publish failed: %s", esp_err_to_name(err));
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
     }
+
+    s_heartbeat_task = NULL;
+    vTaskDelete(NULL);
 }
 
 static esp_err_t start_heartbeat_once(void)
@@ -177,17 +222,36 @@ static esp_err_t start_heartbeat_once(void)
         return ESP_OK;
     }
 
+    s_heartbeat_running = true;
     BaseType_t result = xTaskCreate(heartbeat_task,
                                     "heartbeat_task",
                                     HEARTBEAT_TASK_STACK_SIZE,
-                                    &s_fsm,
+                                    NULL,
                                     HEARTBEAT_TASK_PRIORITY,
                                     &s_heartbeat_task);
     if (result != pdPASS) {
+        s_heartbeat_running = false;
         s_heartbeat_task = NULL;
         return ESP_FAIL;
     }
     return ESP_OK;
+}
+
+static esp_err_t stop_heartbeat(void)
+{
+    TaskHandle_t task = s_heartbeat_task;
+    if (task == NULL) {
+        s_heartbeat_running = false;
+        return ESP_OK;
+    }
+
+    s_heartbeat_running = false;
+    xTaskNotifyGive(task);
+    for (int waited_ms = 0; waited_ms < 1000; waited_ms += 10) {
+        if (s_heartbeat_task == NULL) return ESP_OK;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return ESP_ERR_TIMEOUT;
 }
 
 static void delay_ms(uint32_t delay)
@@ -236,6 +300,7 @@ static const resq_fsm_ops_t s_fsm_ops = {
     .mqtt_publish_status = mqtt_manager_publish_status,
     .mqtt_publish_heartbeat = mqtt_manager_publish_heartbeat,
     .start_heartbeat = start_heartbeat_once,
+    .stop_heartbeat = stop_heartbeat,
     .paired_idle_run = paired_idle_manager_run,
     .calibration_run = calibration_state_manager_run,
     .calibration_fail_run = calibration_fail_manager_run,
@@ -255,6 +320,7 @@ static const resq_fsm_ops_t s_fsm_ops = {
     .telemetry_stop = telemetry_publisher_stop_all,
     .calibration_cancel = calibration_manager_cancel,
     .status_set_state = status_indicator_set_state,
+    .status_stop = status_indicator_stop,
     .button_poll = system_button_manager_poll,
     .button_drain_actions = system_button_manager_drain_actions,
     .delay_ms = delay_ms,
@@ -289,9 +355,14 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(resq_fsm_init(&s_fsm, &s_fsm_ops));
+    s_heartbeat_snapshot_mutex =
+        xSemaphoreCreateMutexStatic(&s_heartbeat_snapshot_mutex_storage);
+    ESP_ERROR_CHECK(s_heartbeat_snapshot_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM);
+    heartbeat_snapshot_update();
 
     while (true) {
         resq_fsm_step(&s_fsm);
+        heartbeat_snapshot_update();
         vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_DELAY_MS));
     }
 }

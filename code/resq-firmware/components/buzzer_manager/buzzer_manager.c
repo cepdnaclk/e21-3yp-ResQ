@@ -165,6 +165,25 @@ esp_err_t buzzer_manager_stop(void)
     return ESP_OK;
 }
 
+esp_err_t buzzer_manager_beep_once(uint32_t duration_ms)
+{
+    if (s_mutex == NULL) return ESP_ERR_INVALID_STATE;
+    if (duration_ms == 0 || duration_ms > 1000) return ESP_ERR_INVALID_ARG;
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_task != NULL || s_running) {
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    gpio_set_level(BOARD_BUZZER_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(duration_ms));
+    gpio_set_level(BOARD_BUZZER_GPIO, 0);
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
+}
+
 bool buzzer_manager_is_running(void)
 {
     bool running = false;

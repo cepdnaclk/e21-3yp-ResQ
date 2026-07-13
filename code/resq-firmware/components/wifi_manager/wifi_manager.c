@@ -27,6 +27,7 @@ static int s_max_retries = WIFI_MANAGER_DEFAULT_MAX_RETRIES;
 static char s_ip_addr[16] = {0};
 static volatile wifi_manager_reconnect_status_t s_reconnect_status =
     WIFI_MANAGER_RECONNECT_IDLE;
+static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static esp_event_handler_instance_t s_any_wifi_handler;
 static esp_event_handler_instance_t s_got_ip_handler;
@@ -59,21 +60,33 @@ static void wifi_event_handler(void *arg,
     }
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        bool reconnect_allowed;
+        bool should_retry = false;
+        int retry_count = 0;
+        int max_retries = 0;
+
+        taskENTER_CRITICAL(&s_state_lock);
         s_connected = false;
         s_ip_addr[0] = '\0';
-
-        if (!s_reconnect_allowed) {
+        reconnect_allowed = s_reconnect_allowed;
+        if (!reconnect_allowed) {
             s_reconnect_status = WIFI_MANAGER_RECONNECT_IDLE;
-            return;
-        }
-
-        if (s_retry_count < s_max_retries) {
+        } else if (s_retry_count < s_max_retries) {
             s_retry_count++;
+            retry_count = s_retry_count;
+            max_retries = s_max_retries;
+            should_retry = true;
             s_reconnect_status = WIFI_MANAGER_RECONNECT_IN_PROGRESS;
-            ESP_LOGW(TAG, "Wi-Fi disconnected, retry %d/%d", s_retry_count, s_max_retries);
-            esp_wifi_connect();
         } else {
             s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
+        }
+        taskEXIT_CRITICAL(&s_state_lock);
+
+        if (!reconnect_allowed) return;
+        if (should_retry) {
+            ESP_LOGW(TAG, "Wi-Fi disconnected, retry %d/%d", retry_count, max_retries);
+            esp_wifi_connect();
+        } else {
             ESP_LOGE(TAG, "Wi-Fi failed after max retries");
             xEventGroupSetBits(s_wifi_events, WIFI_FAIL_BIT);
         }
@@ -83,14 +96,17 @@ static void wifi_event_handler(void *arg,
 
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+        char ip_addr[sizeof(s_ip_addr)] = {0};
+        snprintf(ip_addr, sizeof(ip_addr), IPSTR, IP2STR(&event->ip_info.ip));
 
+        taskENTER_CRITICAL(&s_state_lock);
         s_retry_count = 0;
         s_connected = true;
         s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
+        memcpy(s_ip_addr, ip_addr, sizeof(s_ip_addr));
+        taskEXIT_CRITICAL(&s_state_lock);
 
-        snprintf(s_ip_addr, sizeof(s_ip_addr), IPSTR, IP2STR(&event->ip_info.ip));
-
-        ESP_LOGI(TAG, "Got IP: %s", s_ip_addr);
+        ESP_LOGI(TAG, "Got IP: %s", ip_addr);
 
         xEventGroupSetBits(s_wifi_events, WIFI_CONNECTED_BIT);
         return;
@@ -145,9 +161,11 @@ esp_err_t wifi_manager_init(void)
         return err;
     }
 
+    taskENTER_CRITICAL(&s_state_lock);
     s_initialized = true;
     s_reconnect_allowed = false;
     s_reconnect_status = WIFI_MANAGER_RECONNECT_IDLE;
+    taskEXIT_CRITICAL(&s_state_lock);
     ESP_LOGI(TAG, "Wi-Fi manager initialized");
     return ESP_OK;
 }
@@ -166,8 +184,10 @@ esp_err_t wifi_manager_connect(const char *ssid,
         return err;
     }
 
-    if (s_connected) {
+    if (wifi_manager_is_connected()) {
+        taskENTER_CRITICAL(&s_state_lock);
         s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
+        taskEXIT_CRITICAL(&s_state_lock);
         return ESP_OK;
     }
 
@@ -182,11 +202,13 @@ esp_err_t wifi_manager_connect(const char *ssid,
     }
 
     xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    taskENTER_CRITICAL(&s_state_lock);
     s_retry_count = 0;
     s_connected = false;
     s_reconnect_allowed = true;
     s_reconnect_status = WIFI_MANAGER_RECONNECT_IN_PROGRESS;
     s_ip_addr[0] = '\0';
+    taskEXIT_CRITICAL(&s_state_lock);
 
     wifi_config_t wifi_cfg = {0};
     snprintf((char *)wifi_cfg.sta.ssid, sizeof(wifi_cfg.sta.ssid), "%s", ssid);
@@ -207,13 +229,17 @@ esp_err_t wifi_manager_connect(const char *ssid,
 
     err = esp_wifi_start();
     if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+        taskENTER_CRITICAL(&s_state_lock);
         s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
+        taskEXIT_CRITICAL(&s_state_lock);
         return err;
     }
 
     err = esp_wifi_connect();
     if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+        taskENTER_CRITICAL(&s_state_lock);
         s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
+        taskEXIT_CRITICAL(&s_state_lock);
         return err;
     }
 
@@ -228,18 +254,24 @@ esp_err_t wifi_manager_connect(const char *ssid,
     );
 
     if (bits & WIFI_CONNECTED_BIT) {
+        taskENTER_CRITICAL(&s_state_lock);
         s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
+        taskEXIT_CRITICAL(&s_state_lock);
         ESP_LOGI(TAG, "Wi-Fi connected successfully");
         return ESP_OK;
     }
 
     if (bits & WIFI_FAIL_BIT) {
+        taskENTER_CRITICAL(&s_state_lock);
         s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
+        taskEXIT_CRITICAL(&s_state_lock);
         ESP_LOGE(TAG, "Wi-Fi connection failed");
         return ESP_FAIL;
     }
 
+    taskENTER_CRITICAL(&s_state_lock);
     s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
+    taskEXIT_CRITICAL(&s_state_lock);
     ESP_LOGE(TAG, "Wi-Fi connection timeout");
     return ESP_ERR_TIMEOUT;
 }
@@ -250,10 +282,12 @@ esp_err_t wifi_manager_disconnect(void)
         return ESP_ERR_INVALID_STATE;
     }
 
+    taskENTER_CRITICAL(&s_state_lock);
     s_reconnect_allowed = false;
     s_reconnect_status = WIFI_MANAGER_RECONNECT_IDLE;
     s_connected = false;
     s_ip_addr[0] = '\0';
+    taskEXIT_CRITICAL(&s_state_lock);
 
     esp_err_t err = esp_wifi_disconnect();
     if (err == ESP_ERR_WIFI_NOT_CONNECT) {
@@ -269,17 +303,21 @@ esp_err_t wifi_manager_reconnect_async(int max_retries)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (s_connected) {
+    if (wifi_manager_is_connected()) {
+        taskENTER_CRITICAL(&s_state_lock);
         s_reconnect_status = WIFI_MANAGER_RECONNECT_CONNECTED;
+        taskEXIT_CRITICAL(&s_state_lock);
         return ESP_OK;
     }
 
+    taskENTER_CRITICAL(&s_state_lock);
     s_max_retries = max_retries > 0
         ? max_retries
         : WIFI_MANAGER_DEFAULT_MAX_RETRIES;
     s_retry_count = 0;
     s_reconnect_allowed = true;
     s_reconnect_status = WIFI_MANAGER_RECONNECT_IN_PROGRESS;
+    taskEXIT_CRITICAL(&s_state_lock);
 
     xEventGroupClearBits(s_wifi_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
 
@@ -288,18 +326,26 @@ esp_err_t wifi_manager_reconnect_async(int max_retries)
         return ESP_OK;
     }
 
+    taskENTER_CRITICAL(&s_state_lock);
     s_reconnect_status = WIFI_MANAGER_RECONNECT_FAILED;
+    taskEXIT_CRITICAL(&s_state_lock);
     return err;
 }
 
 wifi_manager_reconnect_status_t wifi_manager_get_reconnect_status(void)
 {
-    return s_reconnect_status;
+    taskENTER_CRITICAL(&s_state_lock);
+    wifi_manager_reconnect_status_t status = s_reconnect_status;
+    taskEXIT_CRITICAL(&s_state_lock);
+    return status;
 }
 
 bool wifi_manager_is_connected(void)
 {
-    return s_connected;
+    taskENTER_CRITICAL(&s_state_lock);
+    bool connected = s_connected;
+    taskEXIT_CRITICAL(&s_state_lock);
+    return connected;
 }
 
 esp_err_t wifi_manager_get_ip(char *buffer, size_t buffer_len)
@@ -312,11 +358,14 @@ esp_err_t wifi_manager_get_ip(char *buffer, size_t buffer_len)
         return ESP_ERR_INVALID_STATE;
     }
 
+    taskENTER_CRITICAL(&s_state_lock);
     if (s_ip_addr[0] == '\0') {
+        taskEXIT_CRITICAL(&s_state_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
     snprintf(buffer, buffer_len, "%s", s_ip_addr);
+    taskEXIT_CRITICAL(&s_state_lock);
     return ESP_OK;
 }
 

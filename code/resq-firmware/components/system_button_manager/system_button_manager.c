@@ -49,6 +49,8 @@ static bool s_initialized = false;
 static QueueHandle_t s_edge_queue = NULL;
 static QueueHandle_t s_event_queue = NULL;
 static TaskHandle_t s_button_task_handle = NULL;
+static volatile uint32_t s_missed_edge_mask;
+static volatile uint32_t s_dropped_edge_count;
 
 static button_runtime_t s_button_1 = {
     .gpio = BUTTON_1,
@@ -134,6 +136,7 @@ static bool turn_off_allowed_in_state(resq_state_t state)
 static bool factory_reset_allowed_in_state(resq_state_t state)
 {
     switch (state) {
+    case RESQ_STATE_PROVISIONING:
     case RESQ_STATE_PAIRED_IDLE:
     case RESQ_STATE_READY_FOR_SESSION:
     case RESQ_STATE_CALIBRATING:
@@ -169,7 +172,12 @@ static void IRAM_ATTR button_gpio_isr(void *arg)
     BaseType_t higher_priority_task_woken = pdFALSE;
 
     if (s_edge_queue != NULL) {
-        xQueueSendFromISR(s_edge_queue, &event, &higher_priority_task_woken);
+        if (xQueueSendFromISR(s_edge_queue, &event,
+                              &higher_priority_task_woken) != pdTRUE) {
+            uint32_t bit = gpio == BUTTON_1 ? BIT0 : BIT1;
+            __atomic_fetch_or(&s_missed_edge_mask, bit, __ATOMIC_RELAXED);
+            __atomic_fetch_add(&s_dropped_edge_count, 1, __ATOMIC_RELAXED);
+        }
     }
 
     if (higher_priority_task_woken == pdTRUE) {
@@ -262,7 +270,17 @@ static void system_button_task(void *arg)
         if (xQueueReceive(s_edge_queue, &edge, pdMS_TO_TICKS(SYSTEM_BUTTON_TASK_POLL_MS)) == pdTRUE) {
             update_button_state_from_edge(edge.gpio);
         }
+
+        uint32_t missed = __atomic_exchange_n(&s_missed_edge_mask, 0,
+                                               __ATOMIC_ACQ_REL);
+        if ((missed & BIT0) != 0) update_button_state_from_edge(BUTTON_1);
+        if ((missed & BIT1) != 0) update_button_state_from_edge(BUTTON_2);
     }
+}
+
+uint32_t system_button_manager_get_dropped_edge_count(void)
+{
+    return __atomic_load_n(&s_dropped_edge_count, __ATOMIC_RELAXED);
 }
 
 esp_err_t system_button_manager_init(void)

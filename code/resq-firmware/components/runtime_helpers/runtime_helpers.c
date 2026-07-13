@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 
 static const char *TAG = "runtime_helpers";
+#define COMMAND_RESPONSE_CACHE_PAYLOAD_MAX_LEN 640
 
 static bool runtime_helpers_is_blank(const char *value)
 {
@@ -86,11 +87,21 @@ static sensor_conversion_profile_t runtime_helpers_conversion_profile(
 
 static esp_err_t copy_request_id_if_fits(const char *value, char *out, size_t out_len)
 {
-    if (strlen(value) >= out_len) {
+    size_t len = strlen(value);
+    if (len == 0 || len >= out_len) {
         return ESP_ERR_INVALID_SIZE;
     }
 
-    strcpy(out, value);
+    for (size_t i = 0; i < len; ++i) {
+        char ch = value[i];
+        bool allowed = (ch >= 'a' && ch <= 'z') ||
+                       (ch >= 'A' && ch <= 'Z') ||
+                       (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' ||
+                       ch == '.' || ch == ':';
+        if (!allowed) return ESP_ERR_INVALID_ARG;
+    }
+
+    memcpy(out, value, len + 1);
     return ESP_OK;
 }
 
@@ -130,28 +141,7 @@ esp_err_t runtime_helpers_publish_error_event(const network_config_t *network_co
                                               const char *error_code,
                                               const char *message)
 {
-    char payload[512];
-
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"event_id\":%d," 
-                           "\"device_id\":\"%s\"," 
-                           "\"state\":\"%s\"," 
-                           "\"error_code\":\"%s\"," 
-                           "\"message\":\"%s\"," 
-                           "\"ts_ms\":%lld"
-                           "}",
-                           5000,
-                           runtime_helpers_get_device_id(network_config),
-                           resq_state_to_string(state),
-                           error_code != NULL ? error_code : "UNKNOWN_ERROR",
-                           message != NULL ? message : "",
-                           (long long)runtime_helpers_now_ms());
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        return ESP_ERR_INVALID_SIZE;
-    }
+    if (network_config == NULL) return ESP_ERR_INVALID_ARG;
 
     ESP_LOGE(TAG,
              "State error state=%s code=%s message=%s",
@@ -163,7 +153,23 @@ esp_err_t runtime_helpers_publish_error_event(const network_config_t *network_co
         return ESP_ERR_INVALID_STATE;
     }
 
-    return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_ERROR, payload);
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) return ESP_ERR_NO_MEM;
+    cJSON_AddNumberToObject(root, "event_id", 5000);
+    cJSON_AddStringToObject(root, "device_id",
+                           runtime_helpers_get_device_id(network_config));
+    cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
+    cJSON_AddStringToObject(root, "error_code",
+                           error_code != NULL ? error_code : "UNKNOWN_ERROR");
+    cJSON_AddStringToObject(root, "message", message != NULL ? message : "");
+    cJSON_AddNumberToObject(root, "ts_ms", runtime_helpers_now_ms());
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (payload == NULL) return ESP_ERR_NO_MEM;
+    esp_err_t publish_err =
+        mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_ERROR, payload);
+    cJSON_free(payload);
+    return publish_err;
 }
 
 esp_err_t resq_command_extract_request_id(const char *payload, char *out, size_t out_len)
@@ -247,47 +253,42 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
         }
     }
 
-    char reason_segment[160] = {0};
-    if (!runtime_helpers_is_blank(reason) && status != NULL && strcmp(status, "NACK") == 0) {
-        const char *field_name = runtime_helpers_is_reason_id(reason) ? "reason_id" : "reason";
-        int reason_written = snprintf(reason_segment,
-                                      sizeof(reason_segment),
-                                      ",\"%s\":\"%s\"",
-                                      field_name,
-                                      reason);
-        if (reason_written <= 0 || reason_written >= (int)sizeof(reason_segment)) {
-            return ESP_ERR_INVALID_SIZE;
-        }
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) return ESP_ERR_NO_MEM;
+    cJSON_AddNumberToObject(root, "event_id", event_id);
+    cJSON_AddStringToObject(root, "reply_id", request_id);
+    cJSON_AddStringToObject(root, "status", status != NULL ? status : "");
+    cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
+    if (!runtime_helpers_is_blank(reason) && status != NULL &&
+        strcmp(status, "NACK") == 0) {
+        const char *field_name = runtime_helpers_is_reason_id(reason)
+                                     ? "reason_id"
+                                     : "reason";
+        cJSON_AddStringToObject(root, field_name, reason);
     }
+    cJSON_AddNumberToObject(root, "ts_ms", runtime_helpers_now_ms());
 
-    char payload[640];
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"event_id\":%d," 
-                           "\"reply_id\":\"%s\"," 
-                           "\"status\":\"%s\"," 
-                           "\"state\":\"%s\""
-                           "%s"
-                           ","
-                           "\"ts_ms\":%lld"
-                           "}",
-                           event_id,
-                           request_id,
-                           status != NULL ? status : "",
-                           resq_state_to_string(state),
-                           reason_segment,
-                           (long long)runtime_helpers_now_ms());
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (payload == NULL) return ESP_ERR_NO_MEM;
+    if (strlen(payload) >= COMMAND_RESPONSE_CACHE_PAYLOAD_MAX_LEN) {
+        cJSON_free(payload);
         return ESP_ERR_INVALID_SIZE;
     }
 
+    if (request_id[0] != '\0') {
+        (void)mqtt_manager_cache_command_response(cmd->topic, request_id,
+                                                  topic_suffix, payload);
+    }
+
     if (!mqtt_manager_is_connected()) {
+        cJSON_free(payload);
         return ESP_ERR_INVALID_STATE;
     }
 
-    return mqtt_manager_publish_topic_json(topic_suffix, payload);
+    esp_err_t publish_err = mqtt_manager_publish_topic_json(topic_suffix, payload);
+    cJSON_free(payload);
+    return publish_err;
 }
 
 esp_err_t runtime_helpers_publish_command_result(const network_config_t *network_config,
@@ -296,34 +297,28 @@ esp_err_t runtime_helpers_publish_command_result(const network_config_t *network
                                                  const char *status,
                                                  const char *reason)
 {
-    char payload[512];
-
-    int written = snprintf(payload,
-                           sizeof(payload),
-                           "{"
-                           "\"device_id\":\"%s\"," 
-                           "\"command\":\"%s\"," 
-                           "\"status\":\"%s\"," 
-                           "\"reason\":\"%s\"," 
-                           "\"state\":\"%s\"," 
-                           "\"ts_ms\":%lld"
-                           "}",
-                           runtime_helpers_get_device_id(network_config),
-                           command != NULL ? command : "",
-                           status != NULL ? status : "",
-                           reason != NULL ? reason : "",
-                           resq_state_to_string(state),
-                           (long long)runtime_helpers_now_ms());
-
-    if (written <= 0 || written >= (int)sizeof(payload)) {
-        return ESP_ERR_INVALID_SIZE;
-    }
+    if (network_config == NULL) return ESP_ERR_INVALID_ARG;
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) return ESP_ERR_NO_MEM;
+    cJSON_AddStringToObject(root, "device_id",
+                           runtime_helpers_get_device_id(network_config));
+    cJSON_AddStringToObject(root, "command", command != NULL ? command : "");
+    cJSON_AddStringToObject(root, "status", status != NULL ? status : "");
+    cJSON_AddStringToObject(root, "reason", reason != NULL ? reason : "");
+    cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
+    cJSON_AddNumberToObject(root, "ts_ms", runtime_helpers_now_ms());
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (payload == NULL) return ESP_ERR_NO_MEM;
 
     if (!mqtt_manager_is_connected()) {
+        cJSON_free(payload);
         return ESP_ERR_INVALID_STATE;
     }
 
-    return mqtt_manager_publish_event_json(payload);
+    esp_err_t publish_err = mqtt_manager_publish_event_json(payload);
+    cJSON_free(payload);
+    return publish_err;
 }
 
 
@@ -411,7 +406,12 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (sensor_owner_is(SENSOR_OWNER_MANUAL_STREAM)) {
+    sensor_owner_t owner;
+    esp_err_t owner_err = sensor_owner_get(&owner);
+    if (owner_err != ESP_OK) {
+        return owner_err;
+    }
+    if (owner != SENSOR_OWNER_NONE) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -419,14 +419,16 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
     int32_t pressure_1_raw = 0;
     int32_t pressure_2_raw = 0;
 
-    esp_err_t perr = hx710_read_3_shared_sck(
+    uint8_t pressure_valid_mask = 0;
+    esp_err_t perr = hx710_read_3_shared_sck_valid(
         BOARD_HX710_SHARED_SCK,
         BOARD_HX710_0_DOUT,
         BOARD_HX710_1_DOUT,
         BOARD_HX710_2_DOUT,
         &pressure_0_raw,
         &pressure_1_raw,
-        &pressure_2_raw);
+        &pressure_2_raw,
+        &pressure_valid_mask);
 
     if (perr != ESP_OK) {
         return ESP_FAIL;
@@ -454,7 +456,11 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
             pressure_1_raw,
             pressure_2_raw,
         },
-        .pressure_read_valid = {true, true, true},
+        .pressure_read_valid = {
+            (pressure_valid_mask & HX710_VALID_CHANNEL_0) != 0,
+            (pressure_valid_mask & HX710_VALID_CHANNEL_1) != 0,
+            (pressure_valid_mask & HX710_VALID_CHANNEL_2) != 0,
+        },
         .hall_raw = hall_raw,
         .hall_read_valid = true,
         .pressure_saturation_mask = runtime_helpers_pressure_saturation_mask(

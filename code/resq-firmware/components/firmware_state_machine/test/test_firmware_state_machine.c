@@ -45,6 +45,7 @@ typedef struct {
     int heartbeat_calls;
     int identity_calls;
     int heartbeat_start_calls;
+    int heartbeat_stop_calls;
     int drain_calls;
     int delay_calls;
     uint32_t last_delay_ms;
@@ -61,6 +62,7 @@ typedef struct {
     int calibration_cancel_calls;
     int restart_calls;
     int soft_off_calls;
+    int status_stop_calls;
 } fake_t;
 
 static fake_t f;
@@ -82,7 +84,7 @@ static bool fake_network_validate(network_config_t *config)
 }
 static bool fake_calibration_validate(calibration_config_t *config)
 {
-    config->calibrated = f.calibration_valid;
+    (void)config;
     return f.calibration_valid;
 }
 static esp_err_t fake_load_network(network_config_t *config)
@@ -295,7 +297,18 @@ static esp_err_t fake_session_get_state(session_state_t *state)
     *state = f.session_state;
     return ESP_OK;
 }
-static const char *fake_session_get_id(void) { return f.session_id; }
+static esp_err_t fake_session_get_id(char *out_session_id, size_t out_len)
+{
+    if (out_session_id == NULL || out_len == 0) return ESP_ERR_INVALID_ARG;
+    strncpy(out_session_id, f.session_id, out_len - 1);
+    out_session_id[out_len - 1] = '\0';
+    return ESP_OK;
+}
+static esp_err_t fake_stop_heartbeat(void)
+{
+    f.heartbeat_stop_calls++;
+    return ESP_OK;
+}
 static esp_err_t fake_session_stop(const char *session_id)
 {
     (void)session_id;
@@ -322,6 +335,7 @@ static void fake_status_set(resq_state_t state)
     (void)state;
     f.status_calls++;
 }
+static void fake_status_stop(void) { f.status_stop_calls++; }
 static system_button_action_t fake_button_poll(resq_state_t state)
 {
     (void)state;
@@ -371,6 +385,7 @@ static const resq_fsm_ops_t ops = {
     .mqtt_publish_status = fake_publish_status,
     .mqtt_publish_heartbeat = fake_publish_heartbeat,
     .start_heartbeat = fake_start_heartbeat,
+    .stop_heartbeat = fake_stop_heartbeat,
     .paired_idle_run = fake_paired_idle,
     .calibration_run = fake_calibration,
     .calibration_fail_run = fake_calibration_fail,
@@ -388,6 +403,7 @@ static const resq_fsm_ops_t ops = {
     .telemetry_stop = fake_telemetry_stop,
     .calibration_cancel = fake_calibration_cancel,
     .status_set_state = fake_status_set,
+    .status_stop = fake_status_stop,
     .button_poll = fake_button_poll,
     .button_drain_actions = fake_button_drain,
     .delay_ms = fake_delay,
@@ -672,8 +688,8 @@ TEST_CASE("RESETTING cleans runtime and invokes restart", "[fsm]")
 
     reset_fixture();
     f.clear_all_result = ESP_FAIL;
-    TEST_ASSERT_EQUAL(RESQ_STATE_RESETTING, run_state(RESQ_STATE_RESETTING));
-    TEST_ASSERT_EQUAL(1, f.restart_calls);
+    TEST_ASSERT_EQUAL(RESQ_STATE_ERROR, run_state(RESQ_STATE_RESETTING));
+    TEST_ASSERT_EQUAL(0, f.restart_calls);
 }
 
 TEST_CASE("TURN_OFF persists only valid calibration and invokes soft off", "[fsm]")
@@ -684,6 +700,10 @@ TEST_CASE("TURN_OFF persists only valid calibration and invokes soft off", "[fsm
     TEST_ASSERT_EQUAL(1, f.save_network_calls);
     TEST_ASSERT_EQUAL(1, f.save_calibration_calls);
     TEST_ASSERT_EQUAL(1, f.soft_off_calls);
+    TEST_ASSERT_EQUAL(1, f.heartbeat_stop_calls);
+    TEST_ASSERT_EQUAL(1, f.mqtt_stop_calls);
+    TEST_ASSERT_EQUAL(1, f.wifi_disconnect_calls);
+    TEST_ASSERT_EQUAL(1, f.status_stop_calls);
 
     reset_fixture();
     fsm.calibration_config.calibrated = false;

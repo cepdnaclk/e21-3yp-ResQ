@@ -14,8 +14,13 @@ extern "C" {
 #define CPR_FLAGS_MAX_LEN 160
 #define CPR_HAND_PLACEMENT_MAX_LEN 24
 
-#define CPR_SAMPLE_PRESSURE_READ_FAILED      (1u << 0)
-#define CPR_SAMPLE_HALL_READ_FAILED          (1u << 1)
+#define CPR_SAMPLE_PRESSURE_0_READ_FAILED    (1u << 0)
+#define CPR_SAMPLE_PRESSURE_1_READ_FAILED    (1u << 1)
+#define CPR_SAMPLE_PRESSURE_2_READ_FAILED    (1u << 2)
+#define CPR_SAMPLE_PRESSURE_READ_FAILED      \
+    (CPR_SAMPLE_PRESSURE_0_READ_FAILED | CPR_SAMPLE_PRESSURE_1_READ_FAILED | \
+     CPR_SAMPLE_PRESSURE_2_READ_FAILED)
+#define CPR_SAMPLE_HALL_READ_FAILED          (1u << 3)
 
 #define CPR_SENSOR_QUALITY_PRESSURE_MISSED       (1u << 0)
 #define CPR_SENSOR_QUALITY_HALL_MISSED           (1u << 1)
@@ -40,6 +45,10 @@ typedef struct {
     int valid_compressions;
     int recoil_ok_count;
     int incomplete_recoil_count;
+    bool current_depth_in_range;
+    bool last_compression_depth_ok;
+    bool last_compression_recoil_ok;
+    bool last_compression_incomplete_recoil;
     bool depth_ok;
     bool recoil_ok;
     char hand_placement[CPR_HAND_PLACEMENT_MAX_LEN];

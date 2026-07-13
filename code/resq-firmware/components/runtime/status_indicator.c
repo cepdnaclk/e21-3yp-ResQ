@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include "board_config.h"
+#include "buzzer_manager.h"
 
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -212,13 +213,11 @@ static void status_indicator_task(void *arg)
 
     gpio_set_level(BOARD_STATE_LED, 0);
     gpio_set_level(BOARD_ACTIVITY_LED, 0);
-    gpio_set_level(BOARD_BUZZER_GPIO, 0);
-
     s_status_task_handle = NULL;
     vTaskDelete(NULL);
 }
 
-/* Configure GPIOs for the state LED, activity LED and buzzer.
+/* Configure GPIOs for the state and activity LEDs.
  * Leaves outputs in the OFF state and sets the initial state to
  * `RESQ_STATE_BOOT`.
  */
@@ -226,8 +225,7 @@ esp_err_t status_indicator_init(void)
 {
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << BOARD_STATE_LED) |
-                        (1ULL << BOARD_ACTIVITY_LED) |
-                        (1ULL << BOARD_BUZZER_GPIO),
+                        (1ULL << BOARD_ACTIVITY_LED),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -243,8 +241,6 @@ esp_err_t status_indicator_init(void)
 
     gpio_set_level(BOARD_STATE_LED, 0);
     gpio_set_level(BOARD_ACTIVITY_LED, 0);
-    gpio_set_level(BOARD_BUZZER_GPIO, 0);
-
     s_current_state = RESQ_STATE_BOOT;
 
     return ESP_OK;
@@ -303,7 +299,8 @@ resq_state_t status_indicator_get_state(void)
 /* Produce a single short beep on the buzzer (blocking for ~100ms). */
 void status_indicator_beep_once(void)
 {
-    gpio_set_level(BOARD_BUZZER_GPIO, 1);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    gpio_set_level(BOARD_BUZZER_GPIO, 0);
+    esp_err_t err = buzzer_manager_beep_once(100);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "Buzzer pulse failed: %s", esp_err_to_name(err));
+    }
 }
