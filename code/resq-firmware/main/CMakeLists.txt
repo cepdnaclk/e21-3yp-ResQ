@@ -11,6 +11,7 @@ idf_component_register(
         runtime
         error_manager
         runtime_helpers
+        runtime_identity
         provisioning_manager
         wifi_manager
         backend_register_client

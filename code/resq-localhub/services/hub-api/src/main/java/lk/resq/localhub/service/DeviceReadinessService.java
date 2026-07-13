@@ -5,6 +5,8 @@ import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
+import lk.resq.localhub.model.firmware.RuntimeMessageApplyResult;
+import lk.resq.localhub.model.firmware.RuntimeMessageDisposition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,20 +57,47 @@ public class DeviceReadinessService {
     }
 
     public DeviceReadinessState handleStatus(String deviceId, JsonNode payload) {
+        RuntimeMessageApplyResult result = handleStatusResult(deviceId, payload);
+        return result == null ? null : toReadinessState(result.state());
+    }
+
+    public RuntimeMessageApplyResult handleStatusResult(String deviceId, JsonNode payload) {
         if (deviceId == null) {
             return null;
         }
-        return toReadinessState(runtimeStateService.applyStatus(deviceId, payload));
+        return runtimeStateService.applyStatusResult(deviceId, payload);
     }
 
     public DeviceReadinessState handleHeartbeat(String deviceId, JsonNode payload) {
+        RuntimeMessageApplyResult result = handleHeartbeatResult(deviceId, payload);
+        return result == null ? null : toReadinessState(result.state());
+    }
+
+    public RuntimeMessageApplyResult handleHeartbeatResult(String deviceId, JsonNode payload) {
         if (deviceId == null) {
             return null;
         }
-        return toReadinessState(runtimeStateService.applyHeartbeat(deviceId, payload));
+        return runtimeStateService.applyHeartbeatResult(deviceId, payload);
     }
 
     public DeviceReadinessState handleCalibrationEvent(String deviceId, CalibrationMqttEvent event) {
+        RuntimeMessageApplyResult result = handleCalibrationEventResult(deviceId, event);
+        if (result == null || result.state() == null) {
+            return null;
+        }
+        if (!result.domainMutationAllowed()) {
+            return toReadinessState(result.state());
+        }
+        return toReadinessState(
+                result.state(),
+                event.replyId(),
+                event.progressId(),
+                event.reasonId(),
+                event.actionId()
+        );
+    }
+
+    public RuntimeMessageApplyResult handleCalibrationEventResult(String deviceId, CalibrationMqttEvent event) {
         if (deviceId == null || event == null) {
             return null;
         }
@@ -78,19 +107,21 @@ public class DeviceReadinessService {
 
         if (event.eventId() == null) {
             logger.warn("Received calibration event with missing eventId for deviceId={}", deviceId);
-            return getReadiness(deviceId);
+            DeviceRuntimeState state = runtimeStateService.getOrCreate(deviceId);
+            return new RuntimeMessageApplyResult(RuntimeMessageDisposition.INVALID_ORDERING_FIELDS, state, false, state.bootId(), state.bootId());
         }
 
         if (event.eventId() != 4000 && event.eventId() != 4001 && event.eventId() != 4002) {
             logger.warn("Received calibration event with unknown eventId={} for deviceId={}", event.eventId(), deviceId);
-            return getReadiness(deviceId);
+            DeviceRuntimeState state = runtimeStateService.getOrCreate(deviceId);
+            return new RuntimeMessageApplyResult(RuntimeMessageDisposition.INVALID_ORDERING_FIELDS, state, false, state.bootId(), state.bootId());
         }
 
-        DeviceRuntimeState state = runtimeStateService.applyCalibrationEvent(deviceId, event);
-        DeviceReadinessState readiness = toReadinessState(state, event.replyId(), event.progressId(), event.reasonId(), event.actionId());
+        RuntimeMessageApplyResult result = runtimeStateService.applyCalibrationEventResult(deviceId, event);
+        DeviceReadinessState readiness = toReadinessState(result.state(), event.replyId(), event.progressId(), event.reasonId(), event.actionId());
         logger.info("Updated runtime readiness deviceId={} calibrationState={} readyForSession={}",
                 deviceId, readiness.calibrationState(), readiness.readyForSession());
-        return readiness;
+        return result;
     }
 
     public static DeviceReadinessState toReadinessState(DeviceRuntimeState state) {

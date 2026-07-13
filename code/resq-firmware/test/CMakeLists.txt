@@ -8,6 +8,7 @@ set(TEST_COMPONENTS
     "error_manager"
     "mqtt_manager"
     "runtime_helpers"
+    "runtime_identity"
     "session_manager"
     "cpr_metrics"
     "sensor_conversion"

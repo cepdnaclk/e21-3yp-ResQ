@@ -140,7 +140,7 @@ class DeviceRuntimeStateServiceTest {
         assertThat(state.readyForSession()).isTrue();
     }
 
-    private static CalibrationMqttEvent calibrationEvent(Integer eventId, String result, String status, String state, Long tsMs) {
+    static CalibrationMqttEvent calibrationEvent(Integer eventId, String result, String status, String state, Long tsMs) {
         return new CalibrationMqttEvent(
                 "M01",
                 eventId,

@@ -20,6 +20,9 @@ export type FirmwareReadinessResponse = {
   receivedAt: string | null;
   sessionId?: string | null;
   lastErrorId?: string | null;
+  bootId?: string | null;
+  stateSeq?: number | null;
+  orderingConfidence?: "SEQUENCED" | "LEGACY" | "UNKNOWN" | null;
 };
 
 export type FirmwareCalibrationCommandResponse = {

@@ -333,6 +333,45 @@ public class ActiveSessionService {
         }
     }
 
+    public synchronized void handleFirmwareBootChanged(
+            String deviceId,
+            String previousBootId,
+            String newBootId,
+            DeviceRuntimeState currentState
+    ) {
+        String normalizedDeviceId = normalize(deviceId);
+        if (normalizedDeviceId == null) {
+            return;
+        }
+
+        for (ActiveSessionState state : sessionsById.values()) {
+            if (!normalizedDeviceId.equals(state.deviceId)) {
+                continue;
+            }
+            switch (state.lifecycleState) {
+                case START_PENDING ->
+                        rejectStart(state, "FIRMWARE_REBOOT_DURING_SESSION_START", null, null);
+                case ACTIVE ->
+                        interruptRecoveredSession(state, SessionRecoveryStatus.CONFLICT, "FIRMWARE_REBOOT_DURING_ACTIVE_SESSION");
+                case STOP_PENDING ->
+                        timeoutStop(state, "FIRMWARE_REBOOT_BEFORE_STOP_CONFIRMATION", SessionRecoveryStatus.CONFLICT);
+                case STOP_REJECTED ->
+                        interruptRecoveredSession(state, SessionRecoveryStatus.CONFLICT, "FIRMWARE_REBOOT_AFTER_STOP_REJECTED");
+                default -> {
+                    // Terminal and non-runtime states remain unchanged.
+                }
+            }
+        }
+
+        logger.info(
+                "Handled firmware boot change for device {} previousBootId={} newBootId={} stateSeq={}",
+                normalizedDeviceId,
+                previousBootId,
+                newBootId,
+                currentState != null ? currentState.stateSeq() : null
+        );
+    }
+
     @Scheduled(fixedDelayString = "${resq.session.recovery-sweep-ms:1000}")
     public synchronized int expireRecoveryGrace() {
         Instant now = now();
@@ -382,6 +421,8 @@ public class ActiveSessionService {
         state.rejectionReason = record.rejectionReason();
         state.firmwareReasonId = record.firmwareReasonId();
         state.firmwareActionId = record.firmwareActionId();
+        state.firmwareBootId = record.firmwareBootId();
+        state.firmwareStateSeq = record.firmwareStateSeq();
         state.completedPersisted = record.completedPersisted();
         state.syncQueued = record.syncQueued();
         state.accumulator.restore(deserializeAccumulator(record.accumulatorSnapshotJson(), record.sessionId()));
@@ -496,6 +537,7 @@ public class ActiveSessionService {
                 state.recoveryStatus = SessionRecoveryStatus.CONFIRMED;
                 state.recoveryReason = "RETAINED_SESSION_ACTIVE_MATCH";
                 state.recoveryDeadline = null;
+                bindFirmwareBootFromRuntime(state);
                 persistRuntimeState(state, true);
                 publishLifecycleUpdate(state);
             } else if (!runtimeState.sessionActive() && ("READY_FOR_SESSION".equals(firmwareState) || "PAIRED_IDLE".equals(firmwareState))) {
@@ -512,6 +554,7 @@ public class ActiveSessionService {
         state.recoveryReason = reason;
         state.recoveryDeadline = null;
         activeSessionIdByDeviceId.put(state.deviceId, state.sessionId);
+        bindFirmwareBootFromRuntime(state);
         persistRuntimeState(state, true);
         publishLifecycleUpdate(state);
     }
@@ -903,6 +946,7 @@ public class ActiveSessionService {
             state.rejectionReason = null;
             state.firmwareReasonId = reasonId;
             state.firmwareActionId = actionId;
+            bindFirmwareBootFromRuntime(state);
             state.recoveryStatus = SessionRecoveryStatus.CONFIRMED;
             persistRuntimeState(state, true);
             publishLifecycleUpdate(state);
@@ -1499,9 +1543,21 @@ public class ActiveSessionService {
                 state.recoveryStatus,
                 state.recoveryStartedAt,
                 state.recoveryDeadline,
-                state.recoveryReason
+                state.recoveryReason,
+                state.firmwareBootId,
+                state.firmwareStateSeq
         );
         sessionRuntimeRepository.upsert(record);
+    }
+
+    private void bindFirmwareBootFromRuntime(ActiveSessionState state) {
+        if (state == null || deviceReadinessService == null) {
+            return;
+        }
+        deviceReadinessService.findRuntimeState(state.deviceId).ifPresent(runtimeState -> {
+            state.firmwareBootId = runtimeState.bootId();
+            state.firmwareStateSeq = runtimeState.stateSeq();
+        });
     }
 
     private boolean shouldCheckpoint(ActiveSessionState state) {
@@ -1813,6 +1869,8 @@ public class ActiveSessionService {
         private volatile Instant recoveryStartedAt;
         private volatile Instant recoveryDeadline;
         private volatile String recoveryReason;
+        private volatile String firmwareBootId;
+        private volatile Long firmwareStateSeq;
         private volatile Instant lastRuntimeCheckpointAt;
         private volatile int samplesAtLastRuntimeCheckpoint;
 

@@ -74,9 +74,13 @@ public class SessionRuntimeRepository {
                           recovery_status TEXT NOT NULL DEFAULT 'NONE',
                           recovery_started_at TEXT,
                           recovery_deadline TEXT,
-                          recovery_reason TEXT
+                          recovery_reason TEXT,
+                          firmware_boot_id TEXT,
+                          firmware_state_seq INTEGER
                         )
                         """);
+                ensureColumn(connection, "session_runtime", "firmware_boot_id", "TEXT");
+                ensureColumn(connection, "session_runtime", "firmware_state_seq", "INTEGER");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_session_runtime_device_id ON session_runtime(device_id)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_session_runtime_lifecycle_state ON session_runtime(lifecycle_state)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_session_runtime_start_request_id ON session_runtime(start_request_id)");
@@ -97,8 +101,9 @@ public class SessionRuntimeRepository {
                   lifecycle_state, active, started_at, updated_at, ended_at, start_request_id, start_requested_at,
                   start_deadline, stop_request_id, stop_requested_at, stop_deadline, rejection_reason,
                   firmware_reason_id, firmware_action_id, last_accepted_telemetry_seq, accumulator_snapshot_json,
-                  completed_persisted, sync_queued, recovery_status, recovery_started_at, recovery_deadline, recovery_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  completed_persisted, sync_queued, recovery_status, recovery_started_at, recovery_deadline, recovery_reason,
+                  firmware_boot_id, firmware_state_seq
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                   device_id = excluded.device_id,
                   trainee_id = excluded.trainee_id,
@@ -128,7 +133,9 @@ public class SessionRuntimeRepository {
                   recovery_status = excluded.recovery_status,
                   recovery_started_at = excluded.recovery_started_at,
                   recovery_deadline = excluded.recovery_deadline,
-                  recovery_reason = excluded.recovery_reason
+                  recovery_reason = excluded.recovery_reason,
+                  firmware_boot_id = excluded.firmware_boot_id,
+                  firmware_state_seq = excluded.firmware_state_seq
                 """)) {
             bind(statement, record);
             statement.executeUpdate();
@@ -253,6 +260,8 @@ public class SessionRuntimeRepository {
         statement.setString(28, toIso(record.recoveryStartedAt()));
         statement.setString(29, toIso(record.recoveryDeadline()));
         statement.setString(30, record.recoveryReason());
+        statement.setString(31, record.firmwareBootId());
+        setNullableLong(statement, 32, record.firmwareStateSeq());
     }
 
     private DurableSessionRuntimeRecord mapRow(ResultSet resultSet) throws SQLException {
@@ -286,7 +295,9 @@ public class SessionRuntimeRepository {
                 SessionRecoveryStatus.valueOf(resultSet.getString("recovery_status")),
                 parseInstant(resultSet.getString("recovery_started_at")),
                 parseInstant(resultSet.getString("recovery_deadline")),
-                resultSet.getString("recovery_reason")
+                resultSet.getString("recovery_reason"),
+                resultSet.getString("firmware_boot_id"),
+                getNullableLong(resultSet, "firmware_state_seq")
         );
     }
 
@@ -297,9 +308,20 @@ public class SessionRuntimeRepository {
                        start_deadline, stop_request_id, stop_requested_at, stop_deadline, rejection_reason,
                        firmware_reason_id, firmware_action_id, last_accepted_telemetry_seq, accumulator_snapshot_json,
                        completed_persisted, sync_queued, recovery_status, recovery_started_at, recovery_deadline,
-                       recovery_reason
+                       recovery_reason, firmware_boot_id, firmware_state_seq
                 FROM session_runtime
                 """;
+    }
+
+    private static void ensureColumn(Connection connection, String table, String column, String definition) throws SQLException {
+        try (ResultSet columns = connection.getMetaData().getColumns(null, null, table, column)) {
+            if (columns.next()) {
+                return;
+            }
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+        }
     }
 
     private Connection openConnection() throws SQLException {

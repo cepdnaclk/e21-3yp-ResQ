@@ -16,6 +16,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mqtt_client.h"
+#include "runtime_identity.h"
 
 static const char *TAG = "mqtt_manager";
 
@@ -384,6 +385,29 @@ static esp_err_t publish_to_topic(const char *topic, const char *payload,
   return ESP_OK;
 }
 
+static bool is_state_bearing_suffix(const char *suffix) {
+  return suffix != NULL &&
+         (strcmp(suffix, RESQ_SUFFIX_STATUS) == 0 ||
+          strcmp(suffix, RESQ_SUFFIX_HEARTBEAT) == 0 ||
+          strcmp(suffix, RESQ_SUFFIX_EVENTS) == 0 ||
+          strcmp(suffix, RESQ_SUFFIX_EVENTS_CALIBRATION) == 0 ||
+          strcmp(suffix, RESQ_SUFFIX_EVENTS_ERROR) == 0);
+}
+
+static esp_err_t publish_state_json_to_topic(const char *topic,
+                                             const char *json_payload, int qos,
+                                             int retain) {
+  char *ordered_payload = NULL;
+  esp_err_t err =
+      runtime_identity_ensure_json_payload(json_payload, &ordered_payload);
+  if (err != ESP_OK) {
+    return err;
+  }
+  err = publish_to_topic(topic, ordered_payload, qos, retain);
+  cJSON_free(ordered_payload);
+  return err;
+}
+
 static esp_err_t publish_queue_overload_nack(const char *payload) {
   if (!mqtt_connected_load() || payload == NULL) {
     return ESP_ERR_INVALID_STATE;
@@ -427,7 +451,7 @@ static esp_err_t publish_queue_overload_nack(const char *payload) {
   esp_err_t err = resq_mqtt_build_topic(
       select_device_id_runtime(), RESQ_SUFFIX_EVENTS, topic, sizeof(topic));
   if (err == ESP_OK) {
-    err = publish_to_topic(topic, reply_payload, 1, 0);
+    err = publish_state_json_to_topic(topic, reply_payload, 1, 0);
   }
   cJSON_free(reply_payload);
   return err;
@@ -836,7 +860,7 @@ esp_err_t mqtt_manager_publish_status(
   if (!payload)
     return ESP_ERR_NO_MEM;
 
-  esp_err_t ret = publish_to_topic(topic, payload, 1, 1);
+  esp_err_t ret = publish_state_json_to_topic(topic, payload, 1, 1);
   cJSON_free(payload);
   return ret;
 }
@@ -894,7 +918,7 @@ esp_err_t mqtt_manager_publish_error_status(
   if (!payload)
     return ESP_ERR_NO_MEM;
 
-  esp_err_t ret = publish_to_topic(topic, payload, 1, 1);
+  esp_err_t ret = publish_state_json_to_topic(topic, payload, 1, 1);
   cJSON_free(payload);
   return ret;
 }
@@ -931,7 +955,7 @@ mqtt_manager_publish_identity_event(const network_config_t *network_config) {
   if (!payload)
     return ESP_ERR_NO_MEM;
 
-  esp_err_t ret = publish_to_topic(topic, payload, 1, 0);
+  esp_err_t ret = publish_state_json_to_topic(topic, payload, 1, 0);
   cJSON_free(payload);
   return ret;
 }
@@ -1003,7 +1027,7 @@ mqtt_manager_publish_heartbeat(const network_config_t *network_config,
   if (!payload)
     return ESP_ERR_NO_MEM;
 
-  esp_err_t ret = publish_to_topic(topic, payload, 0, 0);
+  esp_err_t ret = publish_state_json_to_topic(topic, payload, 0, 0);
   cJSON_free(payload);
   return ret;
 }
@@ -1016,7 +1040,7 @@ esp_err_t mqtt_manager_publish_event_json(const char *json_payload) {
   esp_err_t topic_err = build_topic_for_suffix(
       select_device_id_runtime(), RESQ_SUFFIX_EVENTS, topic, sizeof(topic));
   if (topic_err != ESP_OK) return topic_err;
-  return publish_to_topic(topic, json_payload, 1, 0);
+  return publish_state_json_to_topic(topic, json_payload, 1, 0);
 }
 
 esp_err_t mqtt_manager_publish_telemetry_json(const char *json_payload) {
@@ -1057,6 +1081,10 @@ esp_err_t mqtt_manager_publish_topic_json(const char *suffix,
       select_device_id_runtime(), suffix, topic, sizeof(topic));
   if (topic_err != ESP_OK) return topic_err;
 
+  if (is_state_bearing_suffix(suffix)) {
+    return publish_state_json_to_topic(topic, json_payload, 1, 0);
+  }
+
   return publish_to_topic(topic, json_payload, 1, 0);
 }
 
@@ -1076,8 +1104,26 @@ esp_err_t mqtt_manager_cache_command_response(const char *command_topic,
           MQTT_COMMAND_RESPONSE_MAX_LEN) {
     return ESP_ERR_INVALID_ARG;
   }
+
+  char *ordered_payload = NULL;
+  if (is_state_bearing_suffix(response_suffix)) {
+    esp_err_t identity_err =
+        runtime_identity_ensure_json_payload(response_payload, &ordered_payload);
+    if (identity_err != ESP_OK) {
+      return identity_err;
+    }
+    if (strnlen(ordered_payload, MQTT_COMMAND_RESPONSE_MAX_LEN) >=
+        MQTT_COMMAND_RESPONSE_MAX_LEN) {
+      cJSON_free(ordered_payload);
+      return ESP_ERR_INVALID_ARG;
+    }
+  }
+  const char *payload_to_cache =
+      ordered_payload != NULL ? ordered_payload : response_payload;
+
   if (s_command_cache_mutex == NULL ||
       xSemaphoreTake(s_command_cache_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    if (ordered_payload != NULL) cJSON_free(ordered_payload);
     return ESP_ERR_TIMEOUT;
   }
 
@@ -1099,10 +1145,11 @@ esp_err_t mqtt_manager_cache_command_response(const char *command_topic,
   }
   memcpy(target->response_suffix, response_suffix,
          strlen(response_suffix) + 1);
-  memcpy(target->response_payload, response_payload,
-         strlen(response_payload) + 1);
+  memcpy(target->response_payload, payload_to_cache,
+         strlen(payload_to_cache) + 1);
   target->completed = true;
   xSemaphoreGive(s_command_cache_mutex);
+  if (ordered_payload != NULL) cJSON_free(ordered_payload);
   return ESP_OK;
 }
 

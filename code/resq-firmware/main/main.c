@@ -24,6 +24,7 @@
 #include "mqtt_manager.h"
 #include "paired_idle_manager.h"
 #include "provisioning_manager.h"
+#include "runtime_identity.h"
 #include "session_active_manager.h"
 #include "session_manager.h"
 #include "status_indicator.h"
@@ -98,6 +99,11 @@ static esp_err_t initialize_components_once(void)
     if (err != ESP_OK) {
         return err;
     }
+    err = runtime_identity_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+
     err = mqtt_manager_init();
     if (err != ESP_OK) {
         return err;

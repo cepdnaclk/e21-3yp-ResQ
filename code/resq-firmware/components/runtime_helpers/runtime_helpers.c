@@ -1,4 +1,5 @@
 #include "runtime_helpers.h"
+#include "runtime_identity.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -274,6 +275,17 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
     if (strlen(payload) >= COMMAND_RESPONSE_CACHE_PAYLOAD_MAX_LEN) {
         cJSON_free(payload);
         return ESP_ERR_INVALID_SIZE;
+    }
+
+    char *ordered_payload = NULL;
+    esp_err_t identity_err =
+        runtime_identity_ensure_json_payload(payload, &ordered_payload);
+    if (identity_err == ESP_OK && ordered_payload != NULL) {
+        cJSON_free(payload);
+        payload = ordered_payload;
+    } else if (identity_err != ESP_OK) {
+        cJSON_free(payload);
+        return identity_err;
     }
 
     if (request_id[0] != '\0') {

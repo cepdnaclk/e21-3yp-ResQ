@@ -4,19 +4,32 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
+import lk.resq.localhub.model.firmware.RuntimeMessageApplyResult;
+import lk.resq.localhub.model.firmware.RuntimeMessageDisposition;
+import lk.resq.localhub.model.firmware.RuntimeOrderingConfidence;
 import lk.resq.localhub.model.firmware.RuntimeStateSource;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 @Service
 public class DeviceRuntimeStateService {
 
+    private static final Pattern BOOT_ID_PATTERN = Pattern.compile("^[0-9a-f]{16}$");
+    private static final int SUPERSEDED_BOOT_HISTORY_LIMIT = 4;
+
     private final ConcurrentMap<String, DeviceRuntimeState> statesByDeviceId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Deque<String>> supersededBootIdsByDeviceId = new ConcurrentHashMap<>();
 
     public Optional<DeviceRuntimeState> find(String deviceId) {
         String normalized = normalizeDeviceIdOrNull(deviceId);
@@ -32,26 +45,55 @@ public class DeviceRuntimeStateService {
     }
 
     public DeviceRuntimeState applyStatus(String deviceId, JsonNode payload) {
+        return applyStatusResult(deviceId, payload).state();
+    }
+
+    public RuntimeMessageApplyResult applyStatusResult(String deviceId, JsonNode payload) {
         return applySnapshot(deviceId, payload, RuntimeStateSource.STATUS);
     }
 
     public DeviceRuntimeState applyHeartbeat(String deviceId, JsonNode payload) {
+        return applyHeartbeatResult(deviceId, payload).state();
+    }
+
+    public RuntimeMessageApplyResult applyHeartbeatResult(String deviceId, JsonNode payload) {
         return applySnapshot(deviceId, payload, RuntimeStateSource.HEARTBEAT);
     }
 
     public DeviceRuntimeState applyCalibrationEvent(String deviceId, CalibrationMqttEvent event) {
+        return applyCalibrationEventResult(deviceId, event).state();
+    }
+
+    public RuntimeMessageApplyResult applyCalibrationEventResult(String deviceId, CalibrationMqttEvent event) {
         String normalized = requireDeviceId(deviceId);
         if (event == null) {
-            return getOrCreate(normalized);
+            DeviceRuntimeState state = getOrCreate(normalized);
+            return new RuntimeMessageApplyResult(RuntimeMessageDisposition.INVALID_ORDERING_FIELDS, state, false, state.bootId(), state.bootId());
         }
 
         long nowMs = nowMs();
         long incomingTs = positiveOrZero(event.tsMs());
         int incomingPrecedence = calibrationEventPrecedence(event.eventId());
+        IncomingOrdering incomingOrdering = orderingFromEvent(event);
+        AtomicReference<RuntimeMessageDisposition> disposition = new AtomicReference<>(RuntimeMessageDisposition.ACCEPTED);
+        AtomicReference<Boolean> bootChanged = new AtomicReference<>(false);
+        AtomicReference<String> previousBootId = new AtomicReference<>(null);
+        AtomicReference<String> currentBootId = new AtomicReference<>(null);
 
-        return statesByDeviceId.compute(normalized, (key, previous) -> {
+        DeviceRuntimeState state = statesByDeviceId.compute(normalized, (key, previous) -> {
             DeviceRuntimeState base = previous != null ? previous : unknownState(normalized);
-            if (shouldKeepPrevious(base, incomingTs, incomingPrecedence)) {
+            OrderingDecision orderingDecision = decideOrdering(normalized, base, incomingOrdering);
+            disposition.set(orderingDecision.disposition());
+            bootChanged.set(orderingDecision.bootChanged());
+            previousBootId.set(orderingDecision.previousBootId());
+            currentBootId.set(orderingDecision.currentBootId());
+            if (!orderingDecision.acceptDomainMutation()) {
+                return withLastSeen(base, nowMs);
+            }
+            if (!orderingDecision.bootChanged() && shouldKeepPrevious(base, incomingTs, incomingPrecedence)) {
+                disposition.set(incomingOrdering.confidence() == RuntimeOrderingConfidence.SEQUENCED
+                        ? RuntimeMessageDisposition.STALE_SEQUENCE
+                        : RuntimeMessageDisposition.LEGACY_IGNORED);
                 return withLastSeen(base, nowMs);
             }
 
@@ -123,7 +165,7 @@ public class DeviceRuntimeStateService {
             boolean readyForSession = deriveReadyForSession(firmwareState, calibrated, sessionActive);
             readinessReason = deriveReadinessReason(firmwareState, calibrated, sessionActive, readyForSession, readinessReason);
 
-            return new DeviceRuntimeState(
+            DeviceRuntimeState updated = new DeviceRuntimeState(
                     normalized,
                     firmwareState,
                     calibrated,
@@ -142,7 +184,9 @@ public class DeviceRuntimeStateService {
                     event.actionId() != null ? event.actionId() : (base.lastActionId() != null ? base.lastActionId() : 0),
                     event.replyId() != null ? event.replyId() : base.lastReplyId()
             );
+            return withOrdering(updated, orderingDecision.acceptedBootId(), orderingDecision.acceptedStateSeq(), incomingOrdering.confidence());
         });
+        return new RuntimeMessageApplyResult(disposition.get(), state, bootChanged.get(), previousBootId.get(), currentBootId.get());
     }
 
     public DeviceRuntimeState markCalibrationStartRequested(String deviceId, String requestId) {
@@ -150,7 +194,7 @@ public class DeviceRuntimeStateService {
         long nowMs = nowMs();
         return statesByDeviceId.compute(normalized, (key, previous) -> {
             DeviceRuntimeState base = previous != null ? previous : unknownState(normalized);
-            return new DeviceRuntimeState(
+            DeviceRuntimeState updated = new DeviceRuntimeState(
                     normalized,
                     base.firmwareState(),
                     base.calibrated(),
@@ -169,6 +213,7 @@ public class DeviceRuntimeStateService {
                     base.lastActionId(),
                     requestId != null ? requestId : base.lastReplyId()
             );
+            return withOrdering(updated, base.bootId(), base.stateSeq(), base.orderingConfidence());
         });
     }
 
@@ -183,15 +228,31 @@ public class DeviceRuntimeStateService {
         }
     }
 
-    private DeviceRuntimeState applySnapshot(String deviceId, JsonNode payload, RuntimeStateSource source) {
+    private RuntimeMessageApplyResult applySnapshot(String deviceId, JsonNode payload, RuntimeStateSource source) {
         String normalized = requireDeviceId(deviceId);
         long nowMs = nowMs();
         long incomingTs = positiveOrZero(longValue(payload, "ts_ms", "tsMs"));
         int incomingPrecedence = sourcePrecedence(source, null);
+        IncomingOrdering incomingOrdering = orderingFromPayload(payload);
+        AtomicReference<RuntimeMessageDisposition> disposition = new AtomicReference<>(RuntimeMessageDisposition.ACCEPTED);
+        AtomicReference<Boolean> bootChanged = new AtomicReference<>(false);
+        AtomicReference<String> previousBootId = new AtomicReference<>(null);
+        AtomicReference<String> currentBootId = new AtomicReference<>(null);
 
-        return statesByDeviceId.compute(normalized, (key, previous) -> {
+        DeviceRuntimeState state = statesByDeviceId.compute(normalized, (key, previous) -> {
             DeviceRuntimeState base = previous != null ? previous : unknownState(normalized);
-            if (shouldKeepPrevious(base, incomingTs, incomingPrecedence)) {
+            OrderingDecision orderingDecision = decideOrdering(normalized, base, incomingOrdering);
+            disposition.set(orderingDecision.disposition());
+            bootChanged.set(orderingDecision.bootChanged());
+            previousBootId.set(orderingDecision.previousBootId());
+            currentBootId.set(orderingDecision.currentBootId());
+            if (!orderingDecision.acceptDomainMutation()) {
+                return withLastSeen(base, nowMs);
+            }
+            if (!orderingDecision.bootChanged() && shouldKeepPrevious(base, incomingTs, incomingPrecedence)) {
+                disposition.set(incomingOrdering.confidence() == RuntimeOrderingConfidence.SEQUENCED
+                        ? RuntimeMessageDisposition.STALE_SEQUENCE
+                        : RuntimeMessageDisposition.LEGACY_IGNORED);
                 return withLastSeen(base, nowMs);
             }
 
@@ -219,7 +280,7 @@ public class DeviceRuntimeStateService {
             String profileId = firstNonBlank(firstText(payload, "profileId", "profile_id"), base.calibrationProfileId());
             boolean readyForSession = deriveReadyForSession(firmwareState, calibrated, sessionActive);
 
-            return new DeviceRuntimeState(
+            DeviceRuntimeState updated = new DeviceRuntimeState(
                     normalized,
                     firmwareState,
                     calibrated,
@@ -238,7 +299,9 @@ public class DeviceRuntimeStateService {
                     base.lastActionId(),
                     base.lastReplyId()
             );
+            return withOrdering(updated, orderingDecision.acceptedBootId(), orderingDecision.acceptedStateSeq(), incomingOrdering.confidence());
         });
+        return new RuntimeMessageApplyResult(disposition.get(), state, bootChanged.get(), previousBootId.get(), currentBootId.get());
     }
 
     private static boolean shouldKeepPrevious(DeviceRuntimeState previous, long incomingTs, int incomingPrecedence) {
@@ -345,8 +408,131 @@ public class DeviceRuntimeStateService {
                 state.currentProgressId(),
                 state.lastReasonId(),
                 state.lastActionId(),
-                state.lastReplyId()
+                state.lastReplyId(),
+                state.bootId(),
+                state.stateSeq(),
+                state.orderingConfidence()
         );
+    }
+
+    private DeviceRuntimeState withOrdering(
+            DeviceRuntimeState state,
+            String bootId,
+            Long stateSeq,
+            RuntimeOrderingConfidence confidence
+    ) {
+        return new DeviceRuntimeState(
+                state.deviceId(),
+                state.firmwareState(),
+                state.calibrated(),
+                state.readyForSession(),
+                state.calibrationState(),
+                state.lastCalibrationResult(),
+                state.calibrationProfileId(),
+                state.sessionId(),
+                state.sessionActive(),
+                state.firmwareTimestampMs(),
+                state.lastSeenEpochMs(),
+                state.lastSource(),
+                state.readinessReason(),
+                state.currentProgressId(),
+                state.lastReasonId(),
+                state.lastActionId(),
+                state.lastReplyId(),
+                bootId,
+                stateSeq,
+                confidence
+        );
+    }
+
+    private OrderingDecision decideOrdering(String deviceId, DeviceRuntimeState base, IncomingOrdering incoming) {
+        if (incoming.disposition() == RuntimeMessageDisposition.INVALID_ORDERING_FIELDS) {
+            return OrderingDecision.reject(RuntimeMessageDisposition.INVALID_ORDERING_FIELDS, base.bootId(), base.bootId());
+        }
+
+        if (incoming.confidence() == RuntimeOrderingConfidence.LEGACY) {
+            if (base.orderingConfidence() == RuntimeOrderingConfidence.SEQUENCED && base.bootId() != null) {
+                return OrderingDecision.reject(RuntimeMessageDisposition.LEGACY_IGNORED, base.bootId(), base.bootId());
+            }
+            return OrderingDecision.accept(RuntimeMessageDisposition.LEGACY_ACCEPTED, false, null, base.bootId(), base.bootId(), base.stateSeq());
+        }
+
+        String incomingBootId = incoming.bootId();
+        Long incomingStateSeq = incoming.stateSeq();
+        if (incomingBootId == null || incomingStateSeq == null) {
+            return OrderingDecision.reject(RuntimeMessageDisposition.INVALID_ORDERING_FIELDS, base.bootId(), base.bootId());
+        }
+
+        if (isSupersededBoot(deviceId, incomingBootId)) {
+            return OrderingDecision.reject(RuntimeMessageDisposition.SUPERSEDED_BOOT, base.bootId(), base.bootId());
+        }
+
+        if (base.bootId() == null) {
+            return OrderingDecision.accept(RuntimeMessageDisposition.ACCEPTED, false, null, incomingBootId, incomingBootId, incomingStateSeq);
+        }
+
+        if (incomingBootId.equals(base.bootId())) {
+            long previousSeq = base.stateSeq() == null ? 0L : base.stateSeq();
+            if (incomingStateSeq > previousSeq) {
+                return OrderingDecision.accept(RuntimeMessageDisposition.ACCEPTED, false, base.bootId(), incomingBootId, incomingBootId, incomingStateSeq);
+            }
+            if (incomingStateSeq == previousSeq) {
+                return OrderingDecision.reject(RuntimeMessageDisposition.DUPLICATE, base.bootId(), base.bootId());
+            }
+            return OrderingDecision.reject(RuntimeMessageDisposition.STALE_SEQUENCE, base.bootId(), base.bootId());
+        }
+
+        recordSupersededBoot(deviceId, base.bootId());
+        return OrderingDecision.accept(RuntimeMessageDisposition.ACCEPTED, true, base.bootId(), incomingBootId, incomingBootId, incomingStateSeq);
+    }
+
+    private boolean isSupersededBoot(String deviceId, String bootId) {
+        Deque<String> boots = supersededBootIdsByDeviceId.get(deviceId);
+        return boots != null && boots.contains(bootId);
+    }
+
+    private void recordSupersededBoot(String deviceId, String bootId) {
+        if (bootId == null || bootId.isBlank()) {
+            return;
+        }
+        supersededBootIdsByDeviceId.compute(deviceId, (key, existing) -> {
+            Deque<String> boots = existing != null ? existing : new ArrayDeque<>();
+            boots.remove(bootId);
+            boots.addFirst(bootId);
+            while (boots.size() > SUPERSEDED_BOOT_HISTORY_LIMIT) {
+                boots.removeLast();
+            }
+            return boots;
+        });
+    }
+
+    private static IncomingOrdering orderingFromPayload(JsonNode payload) {
+        boolean hasBootId = hasAny(payload, "boot_id", "bootId");
+        boolean hasStateSeq = hasAny(payload, "state_seq", "stateSeq");
+        if (!hasBootId && !hasStateSeq) {
+            return IncomingOrdering.legacy();
+        }
+        String bootId = firstText(payload, "boot_id", "bootId");
+        Long stateSeq = unsignedIntValue(payload, "state_seq", "stateSeq");
+        if (!validBootId(bootId) || stateSeq == null) {
+            return IncomingOrdering.invalid();
+        }
+        return IncomingOrdering.sequenced(bootId, stateSeq);
+    }
+
+    private static IncomingOrdering orderingFromEvent(CalibrationMqttEvent event) {
+        if (event.bootId() == null && event.stateSeq() == null) {
+            return IncomingOrdering.legacy();
+        }
+        if (!validBootId(event.bootId()) || event.stateSeq() == null
+                || event.stateSeq() < 1L || event.stateSeq() > 4294967295L) {
+            return IncomingOrdering.invalid();
+        }
+        return IncomingOrdering.sequenced(event.bootId(), event.stateSeq());
+    }
+
+    private static boolean validBootId(String bootId) {
+        return bootId != null && BOOT_ID_PATTERN.matcher(bootId).matches();
     }
 
     private static long acceptedTimestamp(DeviceRuntimeState previous, long incomingTs) {
@@ -531,5 +717,54 @@ public class DeviceRuntimeStateService {
             }
         }
         return null;
+    }
+
+    private static Long unsignedIntValue(JsonNode payload, String... keys) {
+        Long value = longValue(payload, keys);
+        return value != null && value >= 1L && value <= 4294967295L ? value : null;
+    }
+
+    private record IncomingOrdering(
+            RuntimeOrderingConfidence confidence,
+            String bootId,
+            Long stateSeq,
+            RuntimeMessageDisposition disposition
+    ) {
+        static IncomingOrdering sequenced(String bootId, Long stateSeq) {
+            return new IncomingOrdering(RuntimeOrderingConfidence.SEQUENCED, bootId, stateSeq, RuntimeMessageDisposition.ACCEPTED);
+        }
+
+        static IncomingOrdering legacy() {
+            return new IncomingOrdering(RuntimeOrderingConfidence.LEGACY, null, null, RuntimeMessageDisposition.LEGACY_ACCEPTED);
+        }
+
+        static IncomingOrdering invalid() {
+            return new IncomingOrdering(RuntimeOrderingConfidence.UNKNOWN, null, null, RuntimeMessageDisposition.INVALID_ORDERING_FIELDS);
+        }
+    }
+
+    private record OrderingDecision(
+            RuntimeMessageDisposition disposition,
+            boolean acceptDomainMutation,
+            boolean bootChanged,
+            String previousBootId,
+            String currentBootId,
+            String acceptedBootId,
+            Long acceptedStateSeq
+    ) {
+        static OrderingDecision accept(
+                RuntimeMessageDisposition disposition,
+                boolean bootChanged,
+                String previousBootId,
+                String currentBootId,
+                String acceptedBootId,
+                Long acceptedStateSeq
+        ) {
+            return new OrderingDecision(disposition, true, bootChanged, previousBootId, currentBootId, acceptedBootId, acceptedStateSeq);
+        }
+
+        static OrderingDecision reject(RuntimeMessageDisposition disposition, String previousBootId, String currentBootId) {
+            return new OrderingDecision(disposition, false, false, previousBootId, currentBootId, currentBootId, null);
+        }
     }
 }

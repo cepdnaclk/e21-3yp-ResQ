@@ -145,7 +145,10 @@ public class FirmwareCalibrationService {
                 result == null ? null : result.tsMs(),
                 result == null ? null : toIso(result.receivedAt()),
                 runtimeState != null ? runtimeState.sessionId() : summary.map(ManikinLiveSummary::sessionId).orElse(null),
-                latestErrorId(summary.orElse(null), result)
+                latestErrorId(summary.orElse(null), result),
+                runtimeState != null ? runtimeState.bootId() : null,
+                runtimeState != null ? runtimeState.stateSeq() : null,
+                runtimeState != null ? runtimeState.orderingConfidence() : null
         );
     }
 

@@ -8,6 +8,7 @@ idf_component_register(
     REQUIRES
         config
         mqtt_manager
+        runtime_identity
         esp_timer
         hx710
         hall_sensor
