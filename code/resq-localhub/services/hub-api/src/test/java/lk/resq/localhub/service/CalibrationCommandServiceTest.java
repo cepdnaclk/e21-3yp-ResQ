@@ -51,7 +51,13 @@ class CalibrationCommandServiceTest {
         registryService = new ManikinRegistryService(12);
         idGenerator = new CommandRequestIdGenerator("a4f18d2c");
         streamService = new CapturingCalibrationStreamService(readinessService);
-        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService, calRepo);
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+                Path.of("target", "calibration-service-test-profile-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
+        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService, calRepo, profileService, fingerprintService);
     }
 
     @Test
@@ -102,7 +108,12 @@ class CalibrationCommandServiceTest {
 
         assertThat(publisher.lastDeviceId).isEqualTo("M01");
         assertThat(publisher.lastRequestId).isEqualTo(response.requestId());
-        assertThat(publisher.lastStartRequest).isEqualTo(request);
+        CalibrationStartRequest expectedRequest = new CalibrationStartRequest(
+                13500, 20100, 15000, 15000, "adult-basic", 20, 3000,
+                null, null, null, null,
+                1, "833aeb4af4c0c577e917d5e997283a3f259107011a3e0ef8afe275c317805dc0"
+        );
+        assertThat(publisher.lastStartRequest).isEqualTo(expectedRequest);
 
         DeviceReadinessState state = readinessService.getReadiness("M01");
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.STARTING);

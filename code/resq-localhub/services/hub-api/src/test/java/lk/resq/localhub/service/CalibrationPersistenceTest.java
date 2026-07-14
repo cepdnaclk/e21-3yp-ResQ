@@ -300,13 +300,36 @@ class CalibrationPersistenceTest {
         statusPayload.put("state", "paired_idle");
         registry.updateFromStatus("DEV-101", statusPayload);
 
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+                Path.of("target", "calibration-persistence-profile-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        profileRepository.insertProfile(new CalibrationProfileRecord(
+                "adult",
+                "Adult",
+                CalibrationConstraints.DEFAULT_HALL_DELTA,
+                CalibrationConstraints.DEFAULT_REF_PRESSURE,
+                CalibrationConstraints.DEFAULT_BLADDER_1_PRESSURE,
+                CalibrationConstraints.DEFAULT_BLADDER_2_PRESSURE,
+                "Default adult profile",
+                true,
+                false,
+                Instant.now().toString(),
+                Instant.now().toString(),
+                1
+        ));
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
+
         CalibrationCommandService service = new CalibrationCommandService(
                 publisher,
                 readinessService,
                 registry,
                 new CommandRequestIdGenerator(),
                 streamService,
-                failingRepo
+                failingRepo,
+                profileService,
+                fingerprintService
         );
 
         CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, "adult", 20, 3000);

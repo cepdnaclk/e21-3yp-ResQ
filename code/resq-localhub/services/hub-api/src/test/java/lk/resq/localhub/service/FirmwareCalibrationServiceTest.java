@@ -173,12 +173,13 @@ class FirmwareCalibrationServiceTest {
             Path.of("target", "firmware-calibration-service-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         ManikinRegistryService registry = new ManikinRegistryService(12);
         registry.seedFromRegistration("M01", null);
         DeviceRuntimeStateService runtimeStateService = new DeviceRuntimeStateService();
-        FirmwareCalibrationService service = new FirmwareCalibrationService(publisher, repository, profileService, registry, runtimeStateService);
+        FirmwareCalibrationService service = new FirmwareCalibrationService(publisher, repository, profileService, registry, runtimeStateService, fingerprintService);
         return new Fixture(service, repository, publisher, registry, profileService, runtimeStateService);
     }
 

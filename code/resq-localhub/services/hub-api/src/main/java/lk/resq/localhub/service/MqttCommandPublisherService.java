@@ -159,7 +159,7 @@ public class MqttCommandPublisherService {
             Integer bladder1Pressure,
             Integer bladder2Pressure
     ) {
-        return publishCalibrationStartCommand(deviceId, hallDelta, refPressure, bladder1Pressure, bladder2Pressure, null);
+        return publishCalibrationStartCommand(deviceId, hallDelta, refPressure, bladder1Pressure, bladder2Pressure, null, null, null);
     }
 
     public FirmwareCommandPublishResult publishCalibrationStartCommand(
@@ -170,6 +170,19 @@ public class MqttCommandPublisherService {
             Integer bladder2Pressure,
             String profileId
     ) {
+        return publishCalibrationStartCommand(deviceId, hallDelta, refPressure, bladder1Pressure, bladder2Pressure, profileId, null, null);
+    }
+
+    public FirmwareCommandPublishResult publishCalibrationStartCommand(
+            String deviceId,
+            Integer hallDelta,
+            Integer refPressure,
+            Integer bladder1Pressure,
+            Integer bladder2Pressure,
+            String profileId,
+            Integer profileVersion,
+            String profileHash
+    ) {
         Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.CALIBRATION_START, null);
         payload.put("hall_delta", hallDelta);
         payload.put("ref_pressure", refPressure);
@@ -177,6 +190,12 @@ public class MqttCommandPublisherService {
         payload.put("bladder_2_pressure", bladder2Pressure);
         if (profileId != null && !profileId.isBlank()) {
             payload.put("profile_id", profileId.trim());
+        }
+        if (profileVersion != null) {
+            payload.put("profile_version", profileVersion);
+        }
+        if (profileHash != null && !profileHash.isBlank()) {
+            payload.put("profile_hash", profileHash.trim());
         }
         return publishFirmwareCommand(
                 FirmwareTopics.calibrationStartCommandTopic(deviceId),
@@ -209,6 +228,12 @@ public class MqttCommandPublisherService {
         payload.put("bladder_2_pressure", request.bladder2Pressure());
         if (request.profileId() != null && !request.profileId().isBlank()) {
             payload.put("profile_id", request.profileId().trim());
+        }
+        if (request.profileVersion() != null) {
+            payload.put("profile_version", request.profileVersion());
+        }
+        if (request.profileHash() != null && !request.profileHash().isBlank()) {
+            payload.put("profile_hash", request.profileHash().trim());
         }
         if (request.sampleIntervalMs() != null) {
             payload.put("sample_interval_ms", request.sampleIntervalMs());
@@ -256,7 +281,7 @@ public class MqttCommandPublisherService {
             String profileId,
             Instant startedAt
     ) {
-        return publishSessionStartCommand(deviceId, sessionId, profileId, startedAt, null);
+        return publishSessionStartCommand(deviceId, sessionId, profileId, null, null, startedAt, null);
     }
 
     public FirmwareCommandPublishResult publishSessionStartCommand(
@@ -266,9 +291,27 @@ public class MqttCommandPublisherService {
             Instant startedAt,
             String requestId
     ) {
+        return publishSessionStartCommand(deviceId, sessionId, profileId, null, null, startedAt, requestId);
+    }
+
+    public FirmwareCommandPublishResult publishSessionStartCommand(
+            String deviceId,
+            String sessionId,
+            String profileId,
+            Integer profileVersion,
+            String profileHash,
+            Instant startedAt,
+            String requestId
+    ) {
         Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_START, startedAt, requestId);
         payload.put("session_id", sessionId);
         payload.put("profile_id", profileId);
+        if (profileVersion != null) {
+            payload.put("profile_version", profileVersion);
+        }
+        if (profileHash != null && !profileHash.isBlank()) {
+            payload.put("profile_hash", profileHash.trim());
+        }
         return publishFirmwareCommand(
                 FirmwareTopics.sessionStartCommandTopic(deviceId),
                 payload,
@@ -350,6 +393,8 @@ public class MqttCommandPublisherService {
                 payload.deviceId(),
                 payload.sessionId(),
                 payload.profileId(),
+                payload.profileVersion(),
+                payload.profileHash(),
                 payload.startedAt(),
                 payload.requestId()
         );

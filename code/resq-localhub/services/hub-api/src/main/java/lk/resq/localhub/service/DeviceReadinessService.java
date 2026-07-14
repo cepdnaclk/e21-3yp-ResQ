@@ -132,6 +132,48 @@ public class DeviceReadinessService {
         return toReadinessState(state, replyId, null, null, null);
     }
 
+    private static final String SENTINEL_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    private static boolean deriveReadyForSessionStrict(
+            String firmwareState,
+            boolean calibrated,
+            boolean sessionActive,
+            String storageStatus,
+            Boolean recalibrationRequired,
+            String profileId,
+            Integer profileVersion,
+            String profileHash
+    ) {
+        if (firmwareState == null) return false;
+        String norm = firmwareState.trim().toUpperCase();
+        if (!"READY_FOR_SESSION".equals(norm)) return false;
+        if (!calibrated) return false;
+        if (sessionActive) return false;
+
+        // Legacy fallback: if ALL Phase 8 metadata fields are absent (or only sentinel hash),
+        // this is a pre-Phase-8 report. Fall back to simple readiness.
+        boolean hasMetadata = (storageStatus != null && !storageStatus.isBlank())
+                || (profileId != null && !profileId.isBlank())
+                || (profileVersion != null)
+                || (profileHash != null && !profileHash.isBlank() && !SENTINEL_HASH.equals(profileHash.trim()));
+        if (!hasMetadata) {
+            return true;
+        }
+
+        // Full Phase 8 strict checks
+        if (!"VALID".equalsIgnoreCase(storageStatus)) return false;
+        if (recalibrationRequired == null || recalibrationRequired) return false;
+        // When firmware reports the sentinel hash it has no real Phase 8 profile identity — skip
+        // profile identity checks.
+        boolean isSentinel = SENTINEL_HASH.equals(profileHash == null ? null : profileHash.trim());
+        if (!isSentinel) {
+            if (profileId == null || profileId.trim().isEmpty()) return false;
+            if (profileVersion == null || profileVersion <= 0) return false;
+            if (profileHash == null || profileHash.trim().length() != 64 || !profileHash.trim().matches("^[0-9a-fA-F]{64}$")) return false;
+        }
+        return true;
+    }
+
     private static DeviceReadinessState toReadinessState(
             DeviceRuntimeState state,
             String replyId,
@@ -143,6 +185,17 @@ public class DeviceReadinessService {
             return null;
         }
 
+        boolean derivedReady = deriveReadyForSessionStrict(
+                state.firmwareState(),
+                state.calibrated(),
+                state.sessionActive(),
+                state.calibrationStorageStatus(),
+                state.recalibrationRequired(),
+                state.calibrationProfileId(),
+                state.profileVersion(),
+                state.profileHash()
+        );
+
         return new DeviceReadinessState(
                 state.deviceId(),
                 calibrationState(state.calibrationState()),
@@ -152,8 +205,14 @@ public class DeviceReadinessService {
                 actionId != null ? actionId : (state.lastActionId() != null ? state.lastActionId() : 0),
                 state.lastCalibrationResult(),
                 replyId != null ? replyId : state.lastReplyId(),
-                state.readyForSession(),
-                state.lastSeenEpochMs() > 0 ? Instant.ofEpochMilli(state.lastSeenEpochMs()) : Instant.now()
+                derivedReady,
+                state.lastSeenEpochMs() > 0 ? Instant.ofEpochMilli(state.lastSeenEpochMs()) : Instant.now(),
+                state.calibrationSchemaVersion(),
+                state.calibrationGeneration(),
+                state.calibrationStorageStatus(),
+                state.recalibrationRequired(),
+                state.profileVersion(),
+                state.profileHash()
         );
     }
 

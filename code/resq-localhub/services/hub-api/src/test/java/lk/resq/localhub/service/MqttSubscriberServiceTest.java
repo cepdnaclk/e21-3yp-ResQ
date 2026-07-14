@@ -628,12 +628,14 @@ class MqttSubscriberServiceTest {
             Path.of("target", "mqtt-subscriber-calibration-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
                 commandPublisher,
                 repository,
             profileService,
-                registry
+                registry,
+                fingerprintService
         );
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
             Path.of("target", "mqtt-subscriber-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
@@ -669,7 +671,9 @@ class MqttSubscriberServiceTest {
                 syncQueueService,
                 null,
                 new RateEstimatorRegistry(),
-                readinessService
+                readinessService,
+                profileService,
+                fingerprintService
         );
         CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         MqttSubscriberService subscriber = new MqttSubscriberService(
@@ -698,7 +702,8 @@ class MqttSubscriberServiceTest {
             Path.of("target", "mqtt-subscriber-live-registry-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         DeviceReadinessService readinessService = new DeviceReadinessService();
         CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
@@ -710,7 +715,8 @@ class MqttSubscriberServiceTest {
             commandPublisher,
             repository,
             profileService,
-            registry
+            registry,
+            fingerprintService
         );
         MqttSubscriberService subscriber = new MqttSubscriberService(
                 objectMapper,
@@ -722,7 +728,9 @@ class MqttSubscriberServiceTest {
                         liveStreamService,
                         traineeRecordsRepository,
                         firmwareCalibrationService,
-                syncQueueService
+                syncQueueService,
+                profileService,
+                fingerprintService
                 ),
                 liveStreamService,
                 repository,

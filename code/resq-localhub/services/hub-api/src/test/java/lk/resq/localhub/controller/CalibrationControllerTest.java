@@ -154,7 +154,7 @@ class CalibrationControllerTest {
                 CommandRequestIdGenerator idGenerator,
                 CalibrationStreamService streamService
         ) {
-            super(publisher, readinessService, registryService, idGenerator, streamService);
+            super(publisher, readinessService, registryService, idGenerator, streamService, null, null);
         }
 
         public void setMockStartResponse(CalibrationCommandResponse response) {

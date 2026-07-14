@@ -46,8 +46,9 @@ class CourseSessionStartTest {
         firmwareRepository.initialize();
         CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(sqlitePath);
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
-        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
+        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry, fingerprintService);
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(sqlitePath);
         syncQueueRepository.initialize();
         SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, mapper, new CloudSessionSummaryPayloadMapper());
@@ -76,7 +77,9 @@ class CourseSessionStartTest {
                 syncQueueService,
                 rosterRepository,
                 new lk.resq.localhub.service.RateEstimatorRegistry(),
-                readinessService
+                readinessService,
+                profileService,
+                fingerprintService
         );
         authService = new TestAuthService(authRepository, rosterRepository, mapper);
         controller = new SessionController(sessionService, authService, registry);

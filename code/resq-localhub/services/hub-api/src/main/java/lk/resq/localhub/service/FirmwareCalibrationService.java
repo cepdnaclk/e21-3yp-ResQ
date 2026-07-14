@@ -25,6 +25,7 @@ public class FirmwareCalibrationService {
     private final CalibrationProfileService calibrationProfileService;
     private final ManikinRegistryService manikinRegistryService;
     private final DeviceRuntimeStateService deviceRuntimeStateService;
+    private final CalibrationProfileFingerprintService fingerprintService;
 
     @Autowired
     public FirmwareCalibrationService(
@@ -32,29 +33,35 @@ public class FirmwareCalibrationService {
             FirmwarePersistenceRepository firmwarePersistenceRepository,
             CalibrationProfileService calibrationProfileService,
             ManikinRegistryService manikinRegistryService,
-            DeviceRuntimeStateService deviceRuntimeStateService
+            DeviceRuntimeStateService deviceRuntimeStateService,
+            CalibrationProfileFingerprintService fingerprintService
     ) {
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
         this.calibrationProfileService = calibrationProfileService;
         this.manikinRegistryService = manikinRegistryService;
         this.deviceRuntimeStateService = deviceRuntimeStateService;
+        this.fingerprintService = fingerprintService;
     }
 
     public FirmwareCalibrationService(
             MqttCommandPublisherService mqttCommandPublisherService,
             FirmwarePersistenceRepository firmwarePersistenceRepository,
             CalibrationProfileService calibrationProfileService,
-            ManikinRegistryService manikinRegistryService
+            ManikinRegistryService manikinRegistryService,
+            CalibrationProfileFingerprintService fingerprintService
     ) {
         this(
                 mqttCommandPublisherService,
                 firmwarePersistenceRepository,
                 calibrationProfileService,
                 manikinRegistryService,
-                new DeviceRuntimeStateService()
+                new DeviceRuntimeStateService(),
+                fingerprintService
         );
     }
+
+
 
     public FirmwareCalibrationCommandResponse startCalibration(String deviceId, FirmwareCalibrationStartRequest request) {
         String normalizedDeviceId = requireDeviceId(deviceId);
@@ -63,10 +70,22 @@ public class FirmwareCalibrationService {
                 ? new FirmwareCalibrationStartRequest(null, null, null, null, null)
                 : request;
 
-        String requestedProfileId = normalize(normalizedRequest.profileId());
-        CalibrationProfileResponse profile = requestedProfileId != null
-            ? calibrationProfileService.getProfile(requestedProfileId).orElseThrow(() -> new IllegalArgumentException("Calibration profile not found: " + requestedProfileId))
-            : calibrationProfileService.getDefaultProfile().orElseThrow(() -> new IllegalArgumentException("No calibration profile is available"));
+        String requestedProfileId = normalizedRequest.profileId();
+        CalibrationProfileResponse profile;
+        if (requestedProfileId == null || requestedProfileId.trim().isEmpty()) {
+            profile = calibrationProfileService.getDefaultProfile()
+                    .orElseThrow(() -> new IllegalArgumentException("profileId is required and no default profile is configured."));
+            requestedProfileId = profile.profileId();
+        } else {
+            requestedProfileId = requestedProfileId.trim();
+            profile = calibrationProfileService.getProfile(requestedProfileId).orElse(null);
+            if (profile == null) {
+                throw new IllegalArgumentException("Calibration profile not found: " + requestedProfileId);
+            }
+        }
+        if (!profile.active()) {
+            throw new IllegalArgumentException("Calibration profile is inactive: " + requestedProfileId);
+        }
 
         Integer hallDelta = coalesce(normalizedRequest.hallDelta(), profile.hallDelta());
         Integer refPressure = coalesce(normalizedRequest.refPressure(), profile.refPressure());
@@ -79,7 +98,8 @@ public class FirmwareCalibrationService {
         bladder2Pressure = requirePositiveInteger(bladder2Pressure, "bladder2Pressure must be greater than 0");
         warnIfSuspiciousPressureScale(normalizedDeviceId, refPressure, bladder1Pressure, bladder2Pressure);
 
-        String resolvedProfileId = requestedProfileId != null ? requestedProfileId : profile.profileId();
+        String resolvedProfileId = requestedProfileId;
+        String hash = fingerprintService.computeHash(resolvedProfileId, profile.version(), hallDelta, refPressure, bladder1Pressure, bladder2Pressure);
 
         MqttCommandPublisherService.FirmwareCommandPublishResult result =
                 mqttCommandPublisherService.publishCalibrationStartCommand(
@@ -88,7 +108,9 @@ public class FirmwareCalibrationService {
                         refPressure,
                         bladder1Pressure,
                         bladder2Pressure,
-                resolvedProfileId
+                        resolvedProfileId,
+                        profile.version(),
+                        hash
                 );
 
         return new FirmwareCalibrationCommandResponse(
@@ -148,7 +170,13 @@ public class FirmwareCalibrationService {
                 latestErrorId(summary.orElse(null), result),
                 runtimeState != null ? runtimeState.bootId() : null,
                 runtimeState != null ? runtimeState.stateSeq() : null,
-                runtimeState != null ? runtimeState.orderingConfidence() : null
+                runtimeState != null ? runtimeState.orderingConfidence() : null,
+                runtimeState != null ? runtimeState.calibrationSchemaVersion() : null,
+                runtimeState != null ? runtimeState.calibrationGeneration() : null,
+                runtimeState != null ? runtimeState.calibrationStorageStatus() : null,
+                runtimeState != null ? runtimeState.recalibrationRequired() : null,
+                runtimeState != null ? runtimeState.profileVersion() : null,
+                runtimeState != null ? runtimeState.profileHash() : null
         );
     }
 

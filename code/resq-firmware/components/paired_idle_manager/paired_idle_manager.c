@@ -38,8 +38,9 @@ static esp_err_t
 paired_idle_parse_session_start(const char *payload, char *out_command_id,
                                 size_t command_id_len, char *out_session_id,
                                 size_t session_id_len, char *out_profile_id,
-                                size_t profile_id_len) {
-  if (payload == NULL || out_session_id == NULL)
+                                size_t profile_id_len, uint32_t *out_profile_version,
+                                char *out_profile_hash, size_t profile_hash_len) {
+  if (payload == NULL || out_session_id == NULL || out_profile_version == NULL || out_profile_hash == NULL)
     return ESP_ERR_INVALID_ARG;
 
   cJSON *root = cJSON_Parse(payload);
@@ -56,9 +57,16 @@ paired_idle_parse_session_start(const char *payload, char *out_command_id,
   cJSON *session_id = cJSON_GetObjectItemCaseSensitive(root, "session_id");
   cJSON *sessionId = cJSON_GetObjectItemCaseSensitive(root, "sessionId");
   cJSON *profile_id = cJSON_GetObjectItemCaseSensitive(root, "profile_id");
+  cJSON *profile_version = cJSON_GetObjectItemCaseSensitive(root, "profile_version");
+  if (!profile_version) {
+    profile_version = cJSON_GetObjectItemCaseSensitive(root, "profileVersion");
+  }
+  cJSON *profile_hash = cJSON_GetObjectItemCaseSensitive(root, "profile_hash");
+  if (!profile_hash) {
+    profile_hash = cJSON_GetObjectItemCaseSensitive(root, "profileHash");
+  }
 
-  /* Require either request_id (preferred) or legacy command_id, and a session
-   * id. */
+  /* Require either request_id (preferred) or legacy command_id, and a session id. */
   if (!cJSON_IsString(command_id) || command_id->valuestring == NULL) {
     result = ESP_ERR_INVALID_ARG;
     goto exit;
@@ -97,6 +105,19 @@ paired_idle_parse_session_start(const char *payload, char *out_command_id,
     } else {
       out_profile_id[0] = '\0';
     }
+  }
+
+  if (profile_version && cJSON_IsNumber(profile_version)) {
+    *out_profile_version = (uint32_t)profile_version->valuedouble;
+  } else {
+    *out_profile_version = 0;
+  }
+
+  if (profile_hash && cJSON_IsString(profile_hash) && profile_hash->valuestring) {
+    strncpy(out_profile_hash, profile_hash->valuestring, profile_hash_len - 1);
+    out_profile_hash[profile_hash_len - 1] = '\0';
+  } else {
+    out_profile_hash[0] = '\0';
   }
 
 exit:
@@ -255,26 +276,28 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         continue;
       }
 
+      uint32_t profile_version = 0;
+      char profile_hash[128] = {0};
       char command_id[128] = {0};
       char session_id[128] = {0};
       char profile_id[128] = {0};
 
       esp_err_t parse_err = paired_idle_parse_session_start(
           command.payload, command_id, sizeof(command_id), session_id,
-          sizeof(session_id), profile_id, sizeof(profile_id));
+          sizeof(session_id), profile_id, sizeof(profile_id),
+          &profile_version, profile_hash, sizeof(profile_hash));
 
       if (parse_err != ESP_OK) {
         runtime_helpers_publish_command_result_from_command(
             network_config, visible_state, &command, "cmd/session/start",
             "NACK", "invalid_session_start_payload");
         runtime_helpers_publish_error_event(network_config, visible_state,
-                                            "INVALID_SESSION_START_PAYLOAD",
-                                            "invalid_session_start_payload");
+                                             "INVALID_SESSION_START_PAYLOAD",
+                                             "invalid_session_start_payload");
         continue;
       }
 
-      /* Require calibrated flag plus manager readiness and validated adaptive
-       * thresholds */
+      /* Require calibrated flag plus manager readiness and validated adaptive thresholds */
       if (!calibration_config->calibrated || !calibration_manager_is_ready() ||
           !calibration_config_is_valid(calibration_config)) {
         runtime_helpers_publish_command_result_from_command(
@@ -283,15 +306,26 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         continue;
       }
 
-      if (!calibration_profile_matches(calibration_config, profile_id)) {
+      if (strcmp(calibration_config->profile_id, profile_id) != 0 ||
+          calibration_config->profile_version != profile_version ||
+          strcmp(calibration_config->profile_hash, profile_hash) != 0) {
         runtime_helpers_publish_command_result_from_command(
             network_config, visible_state, &command, "cmd/session/start",
             "NACK", "profile_mismatch");
         continue;
       }
 
+      /* Try to atomically reserve session start */
+      if (!calibration_manager_try_reserve_session_start(profile_id, profile_version, profile_hash)) {
+        runtime_helpers_publish_command_result_from_command(
+            network_config, visible_state, &command, "cmd/session/start",
+            "NACK", "calibration_not_ready");
+        continue;
+      }
+
       esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
       if (stream_stop_err != ESP_OK) {
+        calibration_manager_release_session_reservation();
         runtime_helpers_publish_command_result_from_command(
             network_config, visible_state, &command, "cmd/session/start",
             "NACK", "07102");
@@ -305,10 +339,13 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
           profile_id, &command);
 
       if (start_state == RESQ_STATE_SESSION_ACTIVE) {
+        // Release reservation now that state owner entered active state
+        calibration_manager_release_session_reservation();
         return RESQ_STATE_SESSION_ACTIVE;
       }
 
-      /* otherwise stay in current visible state */
+      /* otherwise stay in current visible state, release reservation */
+      calibration_manager_release_session_reservation();
       continue;
     }
 

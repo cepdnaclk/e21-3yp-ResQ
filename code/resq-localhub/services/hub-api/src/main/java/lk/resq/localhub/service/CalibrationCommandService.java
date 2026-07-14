@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import lk.resq.localhub.model.firmware.CalibrationCommandResponse;
 import lk.resq.localhub.model.firmware.CalibrationStartRequest;
+import lk.resq.localhub.model.firmware.CalibrationProfileResponse;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.CalibrationEvidence;
@@ -25,6 +26,8 @@ public class CalibrationCommandService {
     private final CommandRequestIdGenerator requestIdGenerator;
     private final CalibrationStreamService calibrationStreamService;
     private final CalibrationPersistenceRepository calibrationPersistenceRepository;
+    private final CalibrationProfileService calibrationProfileService;
+    private final CalibrationProfileFingerprintService fingerprintService;
 
     @Autowired
     public CalibrationCommandService(
@@ -33,7 +36,9 @@ public class CalibrationCommandService {
             ManikinRegistryService manikinRegistryService,
             CommandRequestIdGenerator requestIdGenerator,
             CalibrationStreamService calibrationStreamService,
-            CalibrationPersistenceRepository calibrationPersistenceRepository
+            CalibrationPersistenceRepository calibrationPersistenceRepository,
+            CalibrationProfileService calibrationProfileService,
+            CalibrationProfileFingerprintService fingerprintService
     ) {
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.deviceReadinessService = deviceReadinessService;
@@ -41,6 +46,8 @@ public class CalibrationCommandService {
         this.requestIdGenerator = requestIdGenerator;
         this.calibrationStreamService = calibrationStreamService;
         this.calibrationPersistenceRepository = calibrationPersistenceRepository;
+        this.calibrationProfileService = calibrationProfileService;
+        this.fingerprintService = fingerprintService;
     }
 
     public CalibrationCommandService(
@@ -48,7 +55,9 @@ public class CalibrationCommandService {
             DeviceReadinessService deviceReadinessService,
             ManikinRegistryService manikinRegistryService,
             CommandRequestIdGenerator requestIdGenerator,
-            CalibrationStreamService calibrationStreamService
+            CalibrationStreamService calibrationStreamService,
+            CalibrationProfileService calibrationProfileService,
+            CalibrationProfileFingerprintService fingerprintService
     ) {
         this(
                 mqttCommandPublisherService,
@@ -56,9 +65,13 @@ public class CalibrationCommandService {
                 manikinRegistryService,
                 requestIdGenerator,
                 calibrationStreamService,
-                null
+                null,
+                calibrationProfileService,
+                fingerprintService
         );
     }
+
+
 
     public CalibrationCommandResponse startCalibration(String deviceId, CalibrationStartRequest request) {
         return startCalibration(deviceId, request, "system");
@@ -119,8 +132,52 @@ public class CalibrationCommandService {
 
         String requestId = requestIdGenerator.next(FirmwareCommandTypeId.CALIBRATION_START);
 
+        String resolvedProfileId = request.profileId();
+        CalibrationProfileResponse profile;
+        if (resolvedProfileId == null || resolvedProfileId.trim().isEmpty()) {
+            if (calibrationProfileService != null) {
+                profile = calibrationProfileService.getDefaultProfile()
+                        .orElseThrow(() -> new IllegalArgumentException("profile_id is required and no default profile is configured."));
+                resolvedProfileId = profile.profileId();
+            } else {
+                throw new IllegalArgumentException("profile_id is required");
+            }
+        } else {
+            resolvedProfileId = resolvedProfileId.trim();
+            if (calibrationProfileService != null) {
+                profile = calibrationProfileService.getProfile(resolvedProfileId).orElse(null);
+                if (profile == null) {
+                    throw new IllegalArgumentException("Requested calibration profile not found: " + resolvedProfileId);
+                }
+            } else {
+                throw new IllegalArgumentException("Requested calibration profile not found: " + resolvedProfileId);
+            }
+        }
+        if (profile != null && !profile.active()) {
+            throw new IllegalArgumentException("Requested calibration profile is inactive: " + resolvedProfileId);
+        }
+
+        int version = profile.version();
+        String hash = fingerprintService.computeHash(resolvedProfileId, version, request.hallDelta(), request.refPressure(), request.bladder1Pressure(), request.bladder2Pressure());
+
+        CalibrationStartRequest enrichedRequest = new CalibrationStartRequest(
+                request.hallDelta(),
+                request.refPressure(),
+                request.bladder1Pressure(),
+                request.bladder2Pressure(),
+                resolvedProfileId,
+                request.sampleIntervalMs(),
+                request.calibrationWindowMs(),
+                request.fullDepthMm(),
+                request.pressure0KpaPerCount(),
+                request.pressure1KpaPerCount(),
+                request.pressure2KpaPerCount(),
+                version,
+                hash
+        );
+
         // Publish to MQTT broker
-        mqttCommandPublisherService.publishCalibrationStart(normalizedDeviceId, requestId, request);
+        mqttCommandPublisherService.publishCalibrationStart(normalizedDeviceId, requestId, enrichedRequest);
 
         // Update readiness only after publish succeeds
         DeviceReadinessState readiness = deviceReadinessService.markCalibrationStartRequested(normalizedDeviceId, requestId);

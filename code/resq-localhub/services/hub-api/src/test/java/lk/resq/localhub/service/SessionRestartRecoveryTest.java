@@ -128,11 +128,14 @@ class SessionRestartRecoveryTest {
         ManikinRegistryService registry = new ManikinRegistryService(12);
         CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(Path.of("target", "session-recovery-profile-" + id + ".sqlite").toString());
         profileRepository.initialize();
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(
                 publisher,
                 firmwareRepository,
-                new CalibrationProfileService(profileRepository),
-                registry
+                profileService,
+                registry,
+                fingerprintService
         );
         DeviceReadinessService readinessService = new DeviceReadinessService();
         ActiveSessionService service = new ActiveSessionService(
@@ -155,7 +158,9 @@ class SessionRestartRecoveryTest {
                 objectMapper,
                 1000L,
                 1000L,
-                25
+                25,
+                profileService,
+                fingerprintService
         );
         return new Fixture(service, runtimeRepository, firmwareRepository, localSessionRepository, syncQueueRepository, readinessService, clock);
     }

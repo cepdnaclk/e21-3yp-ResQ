@@ -15,7 +15,13 @@ public record FirmwareReadinessResponse(
         String lastErrorId,
         String bootId,
         Long stateSeq,
-        RuntimeOrderingConfidence orderingConfidence
+        RuntimeOrderingConfidence orderingConfidence,
+        Integer calibrationSchemaVersion,
+        Integer calibrationGeneration,
+        String calibrationStorageStatus,
+        Boolean recalibrationRequired,
+        Integer profileVersion,
+        String profileHash
 ) {
     public FirmwareReadinessResponse(
             String deviceId,
@@ -46,7 +52,13 @@ public record FirmwareReadinessResponse(
                 lastErrorId,
                 null,
                 null,
-                RuntimeOrderingConfidence.UNKNOWN
+                RuntimeOrderingConfidence.UNKNOWN,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
         );
     }
 }

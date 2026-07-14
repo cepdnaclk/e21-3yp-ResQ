@@ -13,7 +13,9 @@ public record CalibrationStartRequest(
         @JsonProperty("full_depth_mm") Double fullDepthMm,
         @JsonProperty("pressure_0_kpa_per_count") Double pressure0KpaPerCount,
         @JsonProperty("pressure_1_kpa_per_count") Double pressure1KpaPerCount,
-        @JsonProperty("pressure_2_kpa_per_count") Double pressure2KpaPerCount
+        @JsonProperty("pressure_2_kpa_per_count") Double pressure2KpaPerCount,
+        @JsonProperty("profile_version") Integer profileVersion,
+        @JsonProperty("profile_hash") String profileHash
 ) {
     public CalibrationStartRequest(
             Integer hallDelta,
@@ -32,6 +34,8 @@ public record CalibrationStartRequest(
                 profileId,
                 sampleIntervalMs,
                 calibrationWindowMs,
+                null,
+                null,
                 null,
                 null,
                 null,

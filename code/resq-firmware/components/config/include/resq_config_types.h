@@ -21,6 +21,7 @@ extern "C" {
 #define RESQ_MQTT_HOST_MAX_LEN 64
 #define RESQ_DEVICE_MAC_MAX_LEN 18
 #define RESQ_DEVICE_ID_MAX_LEN 32
+#define CALIBRATION_STORAGE_STATUS_MAX_LEN 32
 
 /* =========================================================
  * Network configuration
@@ -126,6 +127,14 @@ typedef struct {
   int32_t calibration_window_ms;
 
   int64_t calibrated_at_ms;
+
+  /* Phase 8 metadata fields */
+  int32_t calibration_schema_version;
+  int32_t calibration_generation;
+  char calibration_storage_status[CALIBRATION_STORAGE_STATUS_MAX_LEN];
+  bool recalibration_required;
+  int32_t profile_version;
+  char profile_hash[65];
 
 } calibration_config_t;
 

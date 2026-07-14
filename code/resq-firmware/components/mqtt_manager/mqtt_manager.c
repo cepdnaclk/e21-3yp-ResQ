@@ -906,6 +906,28 @@ esp_err_t mqtt_manager_publish_error_status(
                               calibration_hall_mm_ready(calibration_config));
   }
 
+  if (calibration_config) {
+    cJSON_AddNumberToObject(root, "calibration_schema_version",
+                            calibration_config->calibration_schema_version);
+    cJSON_AddNumberToObject(root, "calibration_generation",
+                            calibration_config->calibration_generation);
+    cJSON_AddStringToObject(root, "calibration_storage_status",
+                            calibration_config->calibration_storage_status);
+    cJSON_AddBoolToObject(root, "recalibration_required",
+                          calibration_config->recalibration_required);
+    cJSON_AddNumberToObject(root, "profile_version",
+                            calibration_config->profile_version);
+    cJSON_AddStringToObject(root, "profile_hash",
+                            calibration_config->profile_hash);
+  } else {
+    cJSON_AddNumberToObject(root, "calibration_schema_version", 1);
+    cJSON_AddNumberToObject(root, "calibration_generation", 0);
+    cJSON_AddStringToObject(root, "calibration_storage_status", "MISSING");
+    cJSON_AddBoolToObject(root, "recalibration_required", false);
+    cJSON_AddNumberToObject(root, "profile_version", 0);
+    cJSON_AddStringToObject(root, "profile_hash", "");
+  }
+
   cJSON_AddNumberToObject(root, "last_error_id", last_error_id);
 
   cJSON_AddStringToObject(root, "ip", ip ? ip : "");

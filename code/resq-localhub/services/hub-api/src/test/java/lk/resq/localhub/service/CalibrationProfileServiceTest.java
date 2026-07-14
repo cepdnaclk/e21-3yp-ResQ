@@ -86,6 +86,6 @@ class CalibrationProfileServiceTest {
                 Path.of("target", "calibration-profile-service-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         repository.initialize();
-        return new CalibrationProfileService(repository);
+        return new CalibrationProfileService(repository, new CalibrationProfileFingerprintService());
     }
 }

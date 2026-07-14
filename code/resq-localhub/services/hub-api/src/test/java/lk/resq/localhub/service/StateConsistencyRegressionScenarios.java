@@ -189,17 +189,22 @@ class StateConsistencyRegressionScenarios {
         DeviceReadinessService readinessService = new DeviceReadinessService();
         CapturingLiveStreamService liveStreamService = new CapturingLiveStreamService();
         CapturingMqttCommandPublisherService commandPublisher = new CapturingMqttCommandPublisherService(repository);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileRepository profileRepository = newProfileRepository();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         ActiveSessionService activeSessionService = new ActiveSessionService(
                 registry,
                 commandPublisher,
                 new InMemoryLocalSessionRepository(),
                 liveStreamService,
                 new TraineeRecordsRepository(),
-                new AllowingFirmwareCalibrationService(repository, registry, commandPublisher),
+                new AllowingFirmwareCalibrationService(repository, registry, commandPublisher, profileService, fingerprintService),
                 new NoopSyncQueueService(),
                 null,
                 new RateEstimatorRegistry(),
-                readinessService
+                readinessService,
+                profileService,
+                fingerprintService
         );
         CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         MqttSubscriberService subscriber = new MqttSubscriberService(
@@ -301,13 +306,16 @@ class StateConsistencyRegressionScenarios {
         private AllowingFirmwareCalibrationService(
                 FirmwarePersistenceRepository repository,
                 ManikinRegistryService registry,
-                MqttCommandPublisherService publisher
+                MqttCommandPublisherService publisher,
+                CalibrationProfileService profileService,
+                CalibrationProfileFingerprintService fingerprintService
         ) {
             super(
                     publisher,
                     repository,
-                    new CalibrationProfileService(newProfileRepository()),
-                    registry
+                    profileService,
+                    registry,
+                    fingerprintService
             );
         }
 

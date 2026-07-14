@@ -102,6 +102,10 @@ public class DeviceRuntimeStateService {
             String lastResult = firstNonBlank(event.result(), base.lastCalibrationResult());
             boolean calibrated = base.calibrated();
             String readinessReason = base.readinessReason();
+            String calibrationStorageStatus = base.calibrationStorageStatus();
+            Boolean recalibrationRequired = base.recalibrationRequired();
+            Integer profileVersion = base.profileVersion();
+            String profileHash = base.profileHash();
 
             String status = clean(event.status());
             String result = clean(event.result());
@@ -135,6 +139,14 @@ public class DeviceRuntimeStateService {
                 if ("PASS".equals(result) || "PASS_WITH_WARNINGS".equals(result)) {
                     calibrationState = CalibrationState.READY.name();
                     calibrated = true;
+                    calibrationStorageStatus = "VALID";
+                    recalibrationRequired = false;
+                    if (profileVersion == null) {
+                        profileVersion = 1;
+                    }
+                    if (profileHash == null) {
+                        profileHash = "0000000000000000000000000000000000000000000000000000000000000000";
+                    }
                     if ("READY_FOR_SESSION".equals(firmwareState)) {
                         readinessReason = "READY";
                     } else if (firmwareState == null) {
@@ -146,6 +158,8 @@ public class DeviceRuntimeStateService {
                 } else if ("FAIL".equals(result) || "NACK".equals(status)) {
                     calibrationState = CalibrationState.FAILED.name();
                     calibrated = false;
+                    calibrationStorageStatus = "INVALID";
+                    recalibrationRequired = true;
                     if (firmwareState == null) {
                         firmwareState = "CALIBRATION_FAIL";
                     }
@@ -161,8 +175,15 @@ public class DeviceRuntimeStateService {
                 firmwareState = base.firmwareState();
             }
 
+            String profileId = firstNonBlank(event.profileId(), base.calibrationProfileId());
+
             boolean sessionActive = deriveSessionActive(firmwareState, base.sessionActive(), null);
-            boolean readyForSession = deriveReadyForSession(firmwareState, calibrated, sessionActive);
+            boolean readyForSession = deriveReadyForSessionStrict(
+                    firmwareState, calibrated, sessionActive,
+                    calibrationStorageStatus, recalibrationRequired,
+                    profileId,
+                    profileVersion, profileHash
+            );
             readinessReason = deriveReadinessReason(firmwareState, calibrated, sessionActive, readyForSession, readinessReason);
 
             DeviceRuntimeState updated = new DeviceRuntimeState(
@@ -172,7 +193,7 @@ public class DeviceRuntimeStateService {
                     readyForSession,
                     calibrationState,
                     lastResult,
-                    firstNonBlank(event.profileId(), base.calibrationProfileId()),
+                    profileId,
                     base.sessionId(),
                     sessionActive,
                     acceptedTimestamp(base, incomingTs),
@@ -182,7 +203,16 @@ public class DeviceRuntimeStateService {
                     resolvedProgressId(event, base),
                     event.reasonId() != null ? event.reasonId() : (base.lastReasonId() != null ? base.lastReasonId() : "00000"),
                     event.actionId() != null ? event.actionId() : (base.lastActionId() != null ? base.lastActionId() : 0),
-                    event.replyId() != null ? event.replyId() : base.lastReplyId()
+                    event.replyId() != null ? event.replyId() : base.lastReplyId(),
+                    null, // bootId
+                    null, // stateSeq
+                    RuntimeOrderingConfidence.UNKNOWN, // orderingConfidence
+                    base.calibrationSchemaVersion(),
+                    base.calibrationGeneration(),
+                    calibrationStorageStatus,
+                    recalibrationRequired,
+                    profileVersion,
+                    profileHash
             );
             return withOrdering(updated, orderingDecision.acceptedBootId(), orderingDecision.acceptedStateSeq(), incomingOrdering.confidence());
         });
@@ -211,7 +241,16 @@ public class DeviceRuntimeStateService {
                     1,
                     base.lastReasonId(),
                     base.lastActionId(),
-                    requestId != null ? requestId : base.lastReplyId()
+                    requestId != null ? requestId : base.lastReplyId(),
+                    null, // bootId
+                    null, // stateSeq
+                    RuntimeOrderingConfidence.UNKNOWN, // orderingConfidence
+                    base.calibrationSchemaVersion(),
+                    base.calibrationGeneration(),
+                    base.calibrationStorageStatus(),
+                    base.recalibrationRequired(),
+                    base.profileVersion(),
+                    base.profileHash()
             );
             return withOrdering(updated, base.bootId(), base.stateSeq(), base.orderingConfidence());
         });
@@ -278,7 +317,54 @@ public class DeviceRuntimeStateService {
             }
 
             String profileId = firstNonBlank(firstText(payload, "profileId", "profile_id"), base.calibrationProfileId());
-            boolean readyForSession = deriveReadyForSession(firmwareState, calibrated, sessionActive);
+
+            Integer calibrationSchemaVersion = integerValue(payload, "calibrationSchemaVersion", "calibration_schema_version");
+            if (calibrationSchemaVersion == null) {
+                calibrationSchemaVersion = base.calibrationSchemaVersion();
+            }
+
+            Integer calibrationGeneration = integerValue(payload, "calibrationGeneration", "calibration_generation");
+            if (calibrationGeneration == null) {
+                calibrationGeneration = base.calibrationGeneration();
+            }
+
+            String calibrationStorageStatus = firstText(payload, "calibrationStorageStatus", "calibration_storage_status");
+            if (calibrationStorageStatus == null) {
+                calibrationStorageStatus = base.calibrationStorageStatus();
+            }
+            if (calibrated && (calibrationStorageStatus == null || "UNKNOWN".equalsIgnoreCase(calibrationStorageStatus))) {
+                calibrationStorageStatus = "VALID";
+            }
+
+            Boolean recalibrationRequired = booleanValue(payload, "recalibrationRequired", "recalibration_required");
+            if (recalibrationRequired == null) {
+                recalibrationRequired = base.recalibrationRequired();
+            }
+            if (calibrated && recalibrationRequired == null) {
+                recalibrationRequired = false;
+            }
+
+            Integer profileVersion = integerValue(payload, "profileVersion", "profile_version");
+            if (profileVersion == null) {
+                profileVersion = base.profileVersion();
+            }
+            if (calibrated && profileVersion == null) {
+                profileVersion = 1;
+            }
+
+            String profileHash = firstText(payload, "profileHash", "profile_hash");
+            if (profileHash == null) {
+                profileHash = base.profileHash();
+            }
+            if (calibrated && profileHash == null) {
+                profileHash = "0000000000000000000000000000000000000000000000000000000000000000";
+            }
+
+            boolean readyForSession = deriveReadyForSessionStrict(
+                    firmwareState, calibrated, sessionActive,
+                    calibrationStorageStatus, recalibrationRequired,
+                    profileId, profileVersion, profileHash
+            );
 
             DeviceRuntimeState updated = new DeviceRuntimeState(
                     normalized,
@@ -297,7 +383,16 @@ public class DeviceRuntimeStateService {
                     base.currentProgressId(),
                     base.lastReasonId(),
                     base.lastActionId(),
-                    base.lastReplyId()
+                    base.lastReplyId(),
+                    null, // bootId
+                    null, // stateSeq
+                    RuntimeOrderingConfidence.UNKNOWN, // orderingConfidence
+                    calibrationSchemaVersion,
+                    calibrationGeneration,
+                    calibrationStorageStatus,
+                    recalibrationRequired,
+                    profileVersion,
+                    profileHash
             );
             return withOrdering(updated, orderingDecision.acceptedBootId(), orderingDecision.acceptedStateSeq(), incomingOrdering.confidence());
         });
@@ -386,7 +481,16 @@ public class DeviceRuntimeStateService {
                 null,
                 null,
                 null,
-                null
+                null,
+                null, // bootId
+                null, // stateSeq
+                RuntimeOrderingConfidence.UNKNOWN, // orderingConfidence
+                0, // calibrationSchemaVersion
+                0, // calibrationGeneration
+                "UNKNOWN", // calibrationStorageStatus
+                null, // recalibrationRequired
+                null, // profileVersion
+                null // profileHash
         );
     }
 
@@ -411,7 +515,13 @@ public class DeviceRuntimeStateService {
                 state.lastReplyId(),
                 state.bootId(),
                 state.stateSeq(),
-                state.orderingConfidence()
+                state.orderingConfidence(),
+                state.calibrationSchemaVersion(),
+                state.calibrationGeneration(),
+                state.calibrationStorageStatus(),
+                state.recalibrationRequired(),
+                state.profileVersion(),
+                state.profileHash()
         );
     }
 
@@ -441,7 +551,13 @@ public class DeviceRuntimeStateService {
                 state.lastReplyId(),
                 bootId,
                 stateSeq,
-                confidence
+                confidence,
+                state.calibrationSchemaVersion(),
+                state.calibrationGeneration(),
+                state.calibrationStorageStatus(),
+                state.recalibrationRequired(),
+                state.profileVersion(),
+                state.profileHash()
         );
     }
 
@@ -539,8 +655,44 @@ public class DeviceRuntimeStateService {
         return incomingTs > 0 ? incomingTs : previous.firmwareTimestampMs();
     }
 
-    private static boolean deriveReadyForSession(String firmwareState, boolean calibrated, boolean sessionActive) {
-        return "READY_FOR_SESSION".equals(normalizeState(firmwareState)) && calibrated && !sessionActive;
+    private static final String SENTINEL_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    private static boolean deriveReadyForSessionStrict(
+            String firmwareState,
+            boolean calibrated,
+            boolean sessionActive,
+            String storageStatus,
+            Boolean recalibrationRequired,
+            String profileId,
+            Integer profileVersion,
+            String profileHash
+    ) {
+        if (!"READY_FOR_SESSION".equals(normalizeState(firmwareState))) return false;
+        if (!calibrated) return false;
+        if (sessionActive) return false;
+
+        // Legacy fallback: if ALL Phase 8 metadata fields are absent this is a pre-Phase-8
+        // device report. Fall back to simple readiness (READY_FOR_SESSION + calibrated + !session).
+        boolean hasMetadata = (storageStatus != null && !storageStatus.isBlank())
+                || (profileId != null && !profileId.isBlank())
+                || (profileVersion != null)
+                || (profileHash != null && !profileHash.isBlank() && !SENTINEL_HASH.equals(profileHash.trim()));
+        if (!hasMetadata) {
+            return true;
+        }
+
+        // Full Phase 8 strict checks
+        if (!"VALID".equalsIgnoreCase(storageStatus)) return false;
+        if (recalibrationRequired == null || recalibrationRequired) return false;
+        // When firmware reports the sentinel hash it has no real Phase 8 profile identity
+        // (legacy firmware or freshly started calibration) — skip the profile identity checks.
+        boolean isSentinel = SENTINEL_HASH.equals(profileHash == null ? null : profileHash.trim());
+        if (!isSentinel) {
+            if (profileId == null || profileId.trim().isEmpty()) return false;
+            if (profileVersion == null || profileVersion <= 0) return false;
+            if (profileHash.trim().length() != 64 || !profileHash.trim().matches("^[0-9a-fA-F]{64}$")) return false;
+        }
+        return true;
     }
 
     private static boolean deriveSessionActive(String firmwareState, boolean previous, Boolean explicit) {
@@ -717,6 +869,11 @@ public class DeviceRuntimeStateService {
             }
         }
         return null;
+    }
+
+    private static Integer integerValue(JsonNode payload, String... keys) {
+        Long val = longValue(payload, keys);
+        return val == null ? null : val.intValue();
     }
 
     private static Long unsignedIntValue(JsonNode payload, String... keys) {

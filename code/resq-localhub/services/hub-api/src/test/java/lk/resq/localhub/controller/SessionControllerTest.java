@@ -14,6 +14,7 @@ import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
+import lk.resq.localhub.service.CalibrationProfileFingerprintService;
 import lk.resq.localhub.service.FirmwareCalibrationService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LiveStreamService;
@@ -223,8 +224,9 @@ class SessionControllerTest {
             Path.of("target", "session-controller-profile-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
-        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
+        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry, fingerprintService);
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(Path.of("target", "session-controller-sync-" + UUID.randomUUID() + ".sqlite").toString());
         syncQueueRepository.initialize();
         SyncQueueService syncQueueService = new SyncQueueService(
@@ -257,7 +259,9 @@ class SessionControllerTest {
                 syncQueueService,
                 null,
                 new lk.resq.localhub.service.RateEstimatorRegistry(),
-                readinessService
+                readinessService,
+                profileService,
+                fingerprintService
         );
         AuthService authService = new AllowingAuthService(objectMapper);
         SessionController controller = new SessionController(service, authService, registry);

@@ -11,6 +11,7 @@ import lk.resq.localhub.model.firmware.FirmwareTopics;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
+import lk.resq.localhub.service.CalibrationProfileFingerprintService;
 import lk.resq.localhub.service.FirmwareCalibrationService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LocalAuthRepository;
@@ -69,7 +70,8 @@ class FirmwareCalibrationControllerTest {
             Path.of("target", "firmware-calibration-controller-test-profile-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         ManikinRegistryService registryService = new ManikinRegistryService(12);
         com.fasterxml.jackson.databind.node.ObjectNode livePayload = objectMapper.createObjectNode();
@@ -79,7 +81,8 @@ class FirmwareCalibrationControllerTest {
                 publisher,
                 repository,
                 profileService,
-                registryService
+                registryService,
+                fingerprintService
         );
         FirmwareCalibrationController controller = new FirmwareCalibrationController(service, new AllowingAuthService(objectMapper));
         return new Fixture(controller, publisher);

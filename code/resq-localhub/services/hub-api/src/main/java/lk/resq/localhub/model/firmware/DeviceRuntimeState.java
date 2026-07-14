@@ -20,7 +20,13 @@ public record DeviceRuntimeState(
         String lastReplyId,
         String bootId,
         Long stateSeq,
-        RuntimeOrderingConfidence orderingConfidence
+        RuntimeOrderingConfidence orderingConfidence,
+        Integer calibrationSchemaVersion,
+        Integer calibrationGeneration,
+        String calibrationStorageStatus,
+        Boolean recalibrationRequired,
+        Integer profileVersion,
+        String profileHash
 ) {
     public DeviceRuntimeState(
             String deviceId,
@@ -61,7 +67,13 @@ public record DeviceRuntimeState(
                 lastReplyId,
                 null,
                 null,
-                RuntimeOrderingConfidence.UNKNOWN
+                RuntimeOrderingConfidence.UNKNOWN,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
         );
     }
 }

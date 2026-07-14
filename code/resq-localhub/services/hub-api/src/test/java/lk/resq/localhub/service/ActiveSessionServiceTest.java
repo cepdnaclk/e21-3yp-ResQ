@@ -787,12 +787,14 @@ class ActiveSessionServiceTest {
           Path.of("target", "active-session-profile-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
                 commandPublisher,
                 firmwareRepository,
-          profileService,
-                registry
+                profileService,
+                registry,
+                fingerprintService
         );
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
           Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
@@ -814,7 +816,9 @@ class ActiveSessionServiceTest {
                 syncQueueService,
                 null,
                 new RateEstimatorRegistry(),
-                readinessService
+                readinessService,
+                profileService,
+                fingerprintService
         );
         assertThatThrownBy(() -> service.startSession(new SessionStartRequest(
                 "M03",
@@ -851,12 +855,28 @@ class ActiveSessionServiceTest {
           Path.of("target", "active-session-profile-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository);
+        profileRepository.insertProfile(new lk.resq.localhub.model.firmware.CalibrationProfileRecord(
+                "child-basic",
+                "Child Basic",
+                13500,
+                20100,
+                15000,
+                15000,
+                "Child CPR calibration profile",
+                true,
+                false,
+                java.time.Instant.now().toString(),
+                java.time.Instant.now().toString(),
+                1
+        ));
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
                 commandPublisher,
                 firmwareRepository,
-          profileService,
-                registry
+                profileService,
+                registry,
+                fingerprintService
         );
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
           Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
@@ -909,7 +929,9 @@ class ActiveSessionServiceTest {
                 new RateEstimatorRegistry(),
                 readinessService,
                 startAckTimeoutMs,
-                clock
+                clock,
+                profileService,
+                fingerprintService
         );
         return new ServiceFixture(service, registry, firmwareRepository, readinessService, commandPublisher, sessionRepository, syncQueueRepository);
     }

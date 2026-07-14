@@ -395,7 +395,26 @@ resq_state_t session_active_manager_start(
     return RESQ_STATE_READY_FOR_SESSION;
   }
 
-  if (!calibration_profile_matches(calibration_config, profile_id)) {
+  uint32_t req_version = 0;
+  char req_hash[128] = {0};
+  cJSON *req_root = cJSON_Parse(cmd->payload);
+  if (req_root != NULL) {
+    cJSON *v = cJSON_GetObjectItemCaseSensitive(req_root, "profile_version");
+    if (!v) v = cJSON_GetObjectItemCaseSensitive(req_root, "profileVersion");
+    if (v && cJSON_IsNumber(v)) {
+      req_version = (uint32_t)v->valuedouble;
+    }
+    cJSON *h = cJSON_GetObjectItemCaseSensitive(req_root, "profile_hash");
+    if (!h) h = cJSON_GetObjectItemCaseSensitive(req_root, "profileHash");
+    if (h && cJSON_IsString(h) && h->valuestring) {
+      strncpy(req_hash, h->valuestring, sizeof(req_hash) - 1);
+    }
+    cJSON_Delete(req_root);
+  }
+
+  if (!calibration_profile_matches(calibration_config, profile_id) ||
+      calibration_config->profile_version != req_version ||
+      strcmp(calibration_config->profile_hash, req_hash) != 0) {
     if (cmd != NULL) {
       runtime_helpers_publish_command_result_from_command(
           network_config, RESQ_STATE_READY_FOR_SESSION, cmd,

@@ -142,6 +142,42 @@ static const calibration_reason_entry_t REASON_TABLE[] = {
         CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
     },
     {
+        CAL_REASON_CORRUPT,
+        "CORRUPT",
+        "Calibration storage is corrupt and cannot be loaded",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_UNSUPPORTED_SCHEMA,
+        "UNSUPPORTED_SCHEMA",
+        "Calibration storage schema version is not supported",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_IO_ERROR,
+        "IO_ERROR",
+        "Calibration NVS I/O error occurred",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_COMMIT_VERIFICATION_FAILED,
+        "COMMIT_VERIFICATION_FAILED",
+        "Calibration commit succeeded but committed record could not be verified",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_GENERATION_EXHAUSTED,
+        "GENERATION_EXHAUSTED",
+        "Calibration generation counter has been exhausted",
+        CAL_ACTION_MOVE_TO_ERROR
+    },
+    {
+        CAL_REASON_PROFILE_HASH_MISMATCH,
+        "PROFILE_HASH_MISMATCH",
+        "Calibration profile hash does not match the committed record",
+        CAL_ACTION_SEND_VALID_PAYLOAD
+    },
+    {
         CAL_REASON_MQTT_DISCONNECTED_DURING_CALIBRATION,
         "MQTT_DISCONNECTED_DURING_CALIBRATION",
         "MQTT disconnected during calibration",

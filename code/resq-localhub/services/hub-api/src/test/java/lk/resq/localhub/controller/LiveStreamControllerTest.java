@@ -137,7 +137,7 @@ class LiveStreamControllerTest {
 
     private static final class DummyActiveSessionService extends ActiveSessionService {
         private DummyActiveSessionService() {
-            super(null, null, null, null, null, null, null);
+            super(null, null, null, null, null, null, null, null, null);
         }
 
         @Override
