@@ -8,6 +8,11 @@ static void assert_contains(const char *payload, const char *field)
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, field), field);
 }
 
+static void assert_not_contains(const char *payload, const char *field)
+{
+    TEST_ASSERT_NULL_MESSAGE(strstr(payload, field), field);
+}
+
 static cpr_metrics_snapshot_t base_snapshot(void)
 {
     cpr_metrics_snapshot_t snap = {
@@ -39,6 +44,34 @@ static cpr_metrics_snapshot_t base_snapshot(void)
     strcpy(snap.hand_placement, "CENTER");
     strcpy(snap.flags, "DEPTH_OK,RATE_OK,RECOIL_OK");
     return snap;
+}
+
+static sensor_raw_sample_t base_raw_sample(void)
+{
+    return (sensor_raw_sample_t) {
+        .pressure_raw = {1010, 2020, 3030},
+        .pressure_read_valid = {true, true, true},
+        .hall_raw = 1850,
+        .hall_read_valid = true,
+        .pressure_saturation_mask = 0u,
+        .timestamp_ms = 124700,
+    };
+}
+
+static sensor_converted_sample_t base_converted_sample(void)
+{
+    return (sensor_converted_sample_t) {
+        .pressure_kpa = {1.0f, 2.0f, 3.0f},
+        .pressure_kpa_channel_valid = {true, true, true},
+        .pressure_kpa_valid = true,
+        .pressure_profile_valid = true,
+        .hall_mm = 24.5f,
+        .hall_progress = 0.49f,
+        .hall_mm_valid = true,
+        .hall_profile_valid = true,
+        .pressure_saturation_mask = 0u,
+        .timestamp_ms = 124700,
+    };
 }
 
 TEST_CASE("Session telemetry payload keeps legacy fields and adds converted fields", "[telemetry]")
@@ -173,22 +206,15 @@ TEST_CASE("Sensor stream command validation requires request id action and inter
 
 TEST_CASE("Sensor stream payload contains diagnostics fields without session scoring", "[telemetry]")
 {
-    sensor_converted_sample_t converted = {
-        .pressure_kpa = {1.0f, 2.0f, 3.0f},
-        .pressure_kpa_channel_valid = {true, true, true},
-        .pressure_kpa_valid = true,
-        .hall_mm = 24.5f,
-        .hall_progress = 0.49f,
-        .hall_mm_valid = true,
-        .pressure_saturation_mask = 0u,
-        .timestamp_ms = 124700,
-    };
-    char payload[768];
+    sensor_raw_sample_t raw = base_raw_sample();
+    sensor_converted_sample_t converted = base_converted_sample();
+    char payload[1280];
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_build_sensor_stream_payload(
                           "M-DEV",
                           RESQ_STATE_PAIRED_IDLE,
+                          &raw,
                           &converted,
                           200,
                           payload,
@@ -197,6 +223,14 @@ TEST_CASE("Sensor stream payload contains diagnostics fields without session sco
     assert_contains(payload, "\"device_id\":\"M-DEV\"");
     assert_contains(payload, "\"telemetry_mode\":\"SENSOR_STREAM\"");
     assert_contains(payload, "\"state\":\"PAIRED_IDLE\"");
+    assert_contains(payload, "\"pressure_0_raw\":1010");
+    assert_contains(payload, "\"pressure_0_raw_valid\":true");
+    assert_contains(payload, "\"pressure_1_raw\":2020");
+    assert_contains(payload, "\"pressure_1_raw_valid\":true");
+    assert_contains(payload, "\"pressure_2_raw\":3030");
+    assert_contains(payload, "\"pressure_2_raw_valid\":true");
+    assert_contains(payload, "\"hall_raw\":1850");
+    assert_contains(payload, "\"hall_raw_valid\":true");
     assert_contains(payload, "\"pressure_0_kpa\":1.000");
     assert_contains(payload, "\"pressure_0_kpa_valid\":true");
     assert_contains(payload, "\"pressure_1_kpa\":2.000");
@@ -207,33 +241,40 @@ TEST_CASE("Sensor stream payload contains diagnostics fields without session sco
     assert_contains(payload, "\"hall_mm\":24.500");
     assert_contains(payload, "\"hall_progress\":0.490");
     assert_contains(payload, "\"hall_mm_valid\":true");
+    assert_contains(payload, "\"pressure_profile_valid\":true");
+    assert_contains(payload, "\"hall_profile_valid\":true");
     assert_contains(payload, "\"pressure_saturation_mask\":0");
     assert_contains(payload, "\"interval_ms\":200");
     assert_contains(payload, "\"ts_ms\":124700");
-    TEST_ASSERT_NULL(strstr(payload, "session_id"));
-    TEST_ASSERT_NULL(strstr(payload, "compression_count"));
-    TEST_ASSERT_NULL(strstr(payload, "rate_cpm"));
-    TEST_ASSERT_NULL(strstr(payload, "score"));
+    assert_not_contains(payload, "session_id");
+    assert_not_contains(payload, "compression_count");
+    assert_not_contains(payload, "rate_cpm");
+    assert_not_contains(payload, "score");
 }
 
 TEST_CASE("Sensor stream payload zeros saturated or invalid converted values", "[telemetry]")
 {
+    sensor_raw_sample_t raw = base_raw_sample();
+    raw.pressure_raw[2] = 8300000;
     sensor_converted_sample_t converted = {
         .pressure_kpa = {1.0f, 2.0f, 999.0f},
         .pressure_kpa_channel_valid = {true, true, false},
         .pressure_kpa_valid = false,
+        .pressure_profile_valid = true,
         .hall_mm = 0.0f,
         .hall_progress = 0.0f,
         .hall_mm_valid = false,
+        .hall_profile_valid = false,
         .pressure_saturation_mask = 0x04u,
         .timestamp_ms = 124700,
     };
-    char payload[768];
+    char payload[1280];
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_build_sensor_stream_payload(
                           "M-DEV",
                           RESQ_STATE_READY_FOR_SESSION,
+                          &raw,
                           &converted,
                           100,
                           payload,
@@ -241,12 +282,100 @@ TEST_CASE("Sensor stream payload zeros saturated or invalid converted values", "
 
     assert_contains(payload, "\"pressure_0_kpa_valid\":true");
     assert_contains(payload, "\"pressure_1_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_2_raw\":8300000");
+    assert_contains(payload, "\"pressure_2_raw_valid\":true");
     assert_contains(payload, "\"pressure_2_kpa\":0.000");
     assert_contains(payload, "\"pressure_2_kpa_valid\":false");
     assert_contains(payload, "\"pressure_kpa_valid\":false");
     assert_contains(payload, "\"hall_mm\":0.000");
     assert_contains(payload, "\"hall_mm_valid\":false");
+    assert_contains(payload, "\"pressure_profile_valid\":true");
+    assert_contains(payload, "\"hall_profile_valid\":false");
     assert_contains(payload, "\"pressure_saturation_mask\":4");
     TEST_ASSERT_NULL(strstr(payload, "nan"));
     TEST_ASSERT_NULL(strstr(payload, "inf"));
+}
+
+TEST_CASE("Sensor stream payload includes valid raw readings before calibration", "[telemetry]")
+{
+    sensor_raw_sample_t raw = base_raw_sample();
+    raw.pressure_read_valid[1] = false;
+    sensor_converted_sample_t converted = {
+        .pressure_kpa = {12.0f, 13.0f, 14.0f},
+        .pressure_kpa_channel_valid = {false, false, false},
+        .pressure_kpa_valid = false,
+        .pressure_profile_valid = false,
+        .hall_mm = 31.0f,
+        .hall_progress = 0.62f,
+        .hall_mm_valid = false,
+        .hall_profile_valid = false,
+        .pressure_saturation_mask = 0u,
+        .timestamp_ms = 124700,
+    };
+    char payload[1280];
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_build_sensor_stream_payload(
+                          "M-DEV",
+                          RESQ_STATE_CALIBRATING,
+                          &raw,
+                          &converted,
+                          200,
+                          payload,
+                          sizeof(payload)));
+
+    assert_contains(payload, "\"pressure_0_raw\":1010");
+    assert_contains(payload, "\"pressure_0_raw_valid\":true");
+    assert_contains(payload, "\"pressure_1_raw\":2020");
+    assert_contains(payload, "\"pressure_1_raw_valid\":false");
+    assert_contains(payload, "\"pressure_2_raw\":3030");
+    assert_contains(payload, "\"pressure_2_raw_valid\":true");
+    assert_contains(payload, "\"hall_raw\":1850");
+    assert_contains(payload, "\"hall_raw_valid\":true");
+    assert_contains(payload, "\"pressure_0_kpa\":0.000");
+    assert_contains(payload, "\"pressure_0_kpa_valid\":false");
+    assert_contains(payload, "\"pressure_1_kpa\":0.000");
+    assert_contains(payload, "\"pressure_1_kpa_valid\":false");
+    assert_contains(payload, "\"pressure_2_kpa\":0.000");
+    assert_contains(payload, "\"pressure_2_kpa_valid\":false");
+    assert_contains(payload, "\"pressure_kpa_valid\":false");
+    assert_contains(payload, "\"hall_mm\":0.000");
+    assert_contains(payload, "\"hall_progress\":0.000");
+    assert_contains(payload, "\"hall_mm_valid\":false");
+    assert_contains(payload, "\"pressure_profile_valid\":false");
+    assert_contains(payload, "\"hall_profile_valid\":false");
+    assert_not_contains(payload, "session_id");
+    assert_not_contains(payload, "compression_count");
+}
+
+TEST_CASE("Sensor stream payload preserves calibrated converted values", "[telemetry]")
+{
+    sensor_raw_sample_t raw = base_raw_sample();
+    sensor_converted_sample_t converted = base_converted_sample();
+    char payload[1280];
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_build_sensor_stream_payload(
+                          "M-DEV",
+                          RESQ_STATE_READY_FOR_SESSION,
+                          &raw,
+                          &converted,
+                          250,
+                          payload,
+                          sizeof(payload)));
+
+    assert_contains(payload, "\"pressure_0_raw_valid\":true");
+    assert_contains(payload, "\"pressure_1_raw_valid\":true");
+    assert_contains(payload, "\"pressure_2_raw_valid\":true");
+    assert_contains(payload, "\"hall_raw_valid\":true");
+    assert_contains(payload, "\"pressure_0_kpa\":1.000");
+    assert_contains(payload, "\"pressure_0_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_1_kpa\":2.000");
+    assert_contains(payload, "\"pressure_1_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_2_kpa\":3.000");
+    assert_contains(payload, "\"pressure_2_kpa_valid\":true");
+    assert_contains(payload, "\"pressure_kpa_valid\":true");
+    assert_contains(payload, "\"hall_mm\":24.500");
+    assert_contains(payload, "\"hall_progress\":0.490");
+    assert_contains(payload, "\"hall_mm_valid\":true");
 }
