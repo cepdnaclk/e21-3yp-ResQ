@@ -21,6 +21,7 @@ import lk.resq.localhub.model.SessionStopCommandPayload;
 import lk.resq.localhub.model.SessionStopResponse;
 import lk.resq.localhub.model.SessionSummary;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
+import lk.resq.localhub.model.firmware.CalibrationProfileRecord;
 import lk.resq.localhub.model.firmware.CalibrationProfileResponse;
 import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
@@ -77,6 +78,8 @@ public class ActiveSessionService {
     private final CalibrationProfileService calibrationProfileService;
     private final CalibrationProfileFingerprintService fingerprintService;
 
+    private final CalibrationProfileIdentityValidator identityValidator;
+
     @org.springframework.beans.factory.annotation.Autowired
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
@@ -99,13 +102,15 @@ public class ActiveSessionService {
             FirmwarePersistenceRepository firmwarePersistenceRepository,
             ObjectMapper objectMapper,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, Clock.systemUTC(),
                 requestIdGenerator, sessionRuntimeRepository, firmwarePersistenceRepository, objectMapper,
-                recoveryGraceMs, runtimeCheckpointMs, runtimeCheckpointSamples, calibrationProfileService, fingerprintService);
+                recoveryGraceMs, runtimeCheckpointMs, runtimeCheckpointSamples, calibrationProfileService, fingerprintService,
+                identityValidator);
     }
 
     public ActiveSessionService(
@@ -123,13 +128,14 @@ public class ActiveSessionService {
             long stopAckTimeoutMs,
             Clock clock,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, clock,
                 new CommandRequestIdGenerator(), null, null, null, 15000L, 1000L, 25,
-                calibrationProfileService, fingerprintService);
+                calibrationProfileService, fingerprintService, identityValidator);
     }
 
     public ActiveSessionService(
@@ -148,13 +154,14 @@ public class ActiveSessionService {
             Clock clock,
             CommandRequestIdGenerator requestIdGenerator,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, clock,
                 requestIdGenerator, null, null, null, 15000L, 1000L, 25,
-                calibrationProfileService, fingerprintService);
+                calibrationProfileService, fingerprintService, identityValidator);
     }
 
     public ActiveSessionService(
@@ -179,7 +186,8 @@ public class ActiveSessionService {
             long runtimeCheckpointMs,
             int runtimeCheckpointSamples,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this.manikinRegistryService = manikinRegistryService;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
@@ -203,6 +211,7 @@ public class ActiveSessionService {
         this.runtimeCheckpointSamples = runtimeCheckpointSamples > 0 ? runtimeCheckpointSamples : 25;
         this.calibrationProfileService = calibrationProfileService;
         this.fingerprintService = fingerprintService;
+        this.identityValidator = identityValidator;
     }
 
     public ActiveSessionService(
@@ -219,12 +228,13 @@ public class ActiveSessionService {
             long startAckTimeoutMs,
             Clock clock,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, 7000L, clock,
-                calibrationProfileService, fingerprintService);
+                calibrationProfileService, fingerprintService, identityValidator);
     }
 
     public ActiveSessionService(
@@ -239,12 +249,13 @@ public class ActiveSessionService {
             RateEstimatorRegistry rateEstimatorRegistry,
             DeviceReadinessService deviceReadinessService,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, 7000L, 7000L, Clock.systemUTC(),
-                calibrationProfileService, fingerprintService);
+                calibrationProfileService, fingerprintService, identityValidator);
     }
 
     // Overload for backward compatibility / tests
@@ -257,12 +268,13 @@ public class ActiveSessionService {
             FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null,
-                new RateEstimatorRegistry(), new DeviceReadinessService(),
-                calibrationProfileService, fingerprintService);
+                new RateEstimatorRegistry(), new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator),
+                calibrationProfileService, fingerprintService, identityValidator);
     }
 
     public ActiveSessionService(
@@ -275,12 +287,13 @@ public class ActiveSessionService {
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             CalibrationProfileService calibrationProfileService,
-            CalibrationProfileFingerprintService fingerprintService
+            CalibrationProfileFingerprintService fingerprintService,
+            CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
                 traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
-                new RateEstimatorRegistry(), new DeviceReadinessService(),
-                calibrationProfileService, fingerprintService);
+                new RateEstimatorRegistry(), new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator),
+                calibrationProfileService, fingerprintService, identityValidator);
     }
 
 
@@ -664,7 +677,7 @@ public class ActiveSessionService {
             throw new IllegalArgumentException("deviceId is required");
         }
 
-        String profileId = validateStartAvailability(deviceId, request.profileId());
+        CalibrationProfileRecord verifiedProfile = validateStartAvailability(deviceId, request.profileId());
 
         rateEstimatorRegistry.clearForDevice(deviceId);
         String traineeId = resolveTraineeId(request);
@@ -672,7 +685,9 @@ public class ActiveSessionService {
         return createPendingStart(
                 deviceId,
                 traineeId,
-                profileId,
+                verifiedProfile.profileId(),
+                verifiedProfile.version(),
+                fingerprintService.computeHash(verifiedProfile),
                 normalize(request.scenario()),
                 normalize(request.notes()),
                 request.courseId(),
@@ -686,7 +701,7 @@ public class ActiveSessionService {
             throw new IllegalArgumentException("deviceId is required");
         }
 
-        String profileId = validateStartAvailability(deviceId, request.profileId());
+        CalibrationProfileRecord verifiedProfile = validateStartAvailability(deviceId, request.profileId());
 
         if (actor == null) {
             throw new UnauthorizedException("Authentication is required.");
@@ -731,7 +746,9 @@ public class ActiveSessionService {
         return createPendingStart(
                 deviceId,
                 traineeId,
-                profileId,
+                verifiedProfile.profileId(),
+                verifiedProfile.version(),
+                fingerprintService.computeHash(verifiedProfile),
                 normalize(request.scenario()),
                 normalize(request.notes()),
                 courseId,
@@ -739,9 +756,8 @@ public class ActiveSessionService {
         );
     }
 
-    private String validateStartAvailability(String deviceId, String requestedProfileId) {
-        String profileId = normalize(requestedProfileId);
-        if (profileId == null) {
+    private CalibrationProfileRecord validateStartAvailability(String deviceId, String requestedProfileId) {
+        if (requestedProfileId == null) {
             throw new IllegalArgumentException("profileId is required");
         }
 
@@ -767,126 +783,50 @@ public class ActiveSessionService {
             throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
         }
 
-        if (runtimeState.calibrationStorageStatus() == null) {
+        CalibrationProfileIdentityValidator.ValidationResult valResult = identityValidator.validate(
+                runtimeState.calibrationSchemaVersion(),
+                runtimeState.calibrationGeneration(),
+                runtimeState.calibrationStorageStatus(),
+                runtimeState.recalibrationRequired(),
+                runtimeState.calibrationProfileId(),
+                runtimeState.profileVersion(),
+                runtimeState.profileHash()
+        );
+        if (!valResult.valid()) {
             throw new CalibrationProfileValidationException(
-                    "CALIBRATION_METADATA_MISSING",
+                    valResult.errorCode(),
                     deviceId,
-                    profileId,
+                    requestedProfileId,
                     null,
-                    "Cannot verify the calibrated profile for device " + deviceId + ". Calibration persistence metadata is missing."
+                    valResult.errorMessage()
             );
         }
 
-        if (!"VALID".equalsIgnoreCase(runtimeState.calibrationStorageStatus())) {
-            throw new CalibrationProfileValidationException(
-                    "CALIBRATION_STORAGE_CORRUPT",
-                    deviceId,
-                    profileId,
-                    null,
-                    "Calibration storage is corrupt or invalid (status: " + runtimeState.calibrationStorageStatus() + ") for device " + deviceId + "."
-            );
-        }
-
-        if (Boolean.TRUE.equals(runtimeState.recalibrationRequired())) {
-            throw new CalibrationProfileValidationException(
-                    "RECALIBRATION_REQUIRED",
-                    deviceId,
-                    profileId,
-                    null,
-                    "Device " + deviceId + " requires recalibration."
-            );
-        }
-
-        String calibratedProfileId = normalize(runtimeState.calibrationProfileId());
-        if (calibratedProfileId == null) {
-            throw new CalibrationProfileValidationException(
-                    "CALIBRATION_PROFILE_UNKNOWN",
-                    deviceId,
-                    profileId,
-                    null,
-                    "Cannot verify the calibrated profile for device " + deviceId + ". Run calibration before starting a session."
-            );
-        }
-
-        if (!deviceReadinessService.isReadyForSession(deviceId)) {
-            throw new CalibrationNotReadyException(deviceId, "Run calibration before starting a CPR session.");
-        }
-
-        if (!calibratedProfileId.equals(profileId)) {
+        // Still check that the requested profile ID matches the calibrated one case-sensitively
+        String calibratedProfileId = valResult.profile().profileId();
+        if (!requestedProfileId.equals(calibratedProfileId)) {
             throw new CalibrationProfileValidationException(
                     "CALIBRATION_PROFILE_MISMATCH",
                     deviceId,
-                    profileId,
+                    requestedProfileId,
                     calibratedProfileId,
-                    "Requested profile " + profileId + " does not match calibrated profile " + calibratedProfileId + " for device " + deviceId + "."
+                    "Requested profile " + requestedProfileId + " does not match calibrated profile " + calibratedProfileId + " for device " + deviceId + "."
             );
         }
-
-        Integer fwProfileVersion = runtimeState.profileVersion();
-        String fwProfileHash = runtimeState.profileHash();
-
-        CalibrationProfileResponse dbProfile = calibrationProfileService.getProfile(profileId).orElse(null);
-        if (dbProfile == null) {
-            throw new CalibrationProfileValidationException(
-                    "PROFILE_NOT_FOUND",
-                    deviceId,
-                    profileId,
-                    null,
-                    "Profile " + profileId + " not found in database."
-            );
-        }
-
-        if (fwProfileVersion == null || fwProfileHash == null || fwProfileHash.isEmpty()) {
-            throw new CalibrationProfileValidationException(
-                    "CALIBRATION_METADATA_INCOMPLETE",
-                    deviceId,
-                    profileId,
-                    null,
-                    "Firmware calibration metadata is incomplete (missing version or hash)."
-            );
-        }
-
-        if (!fwProfileVersion.equals(dbProfile.version())) {
-                throw new CalibrationProfileValidationException(
-                        "CALIBRATION_VERSION_MISMATCH",
-                        deviceId,
-                        profileId,
-                        null,
-                        "Calibration profile version mismatch. Firmware has version " + fwProfileVersion + ", but database has version " + dbProfile.version()
-                );
-            }
-
-            String expectedHash = fingerprintService.computeHash(
-                    dbProfile.profileId(),
-                    dbProfile.version(),
-                    dbProfile.hallDelta(),
-                    dbProfile.refPressure(),
-                    dbProfile.bladder1Pressure(),
-                    dbProfile.bladder2Pressure()
-            );
-
-            if (!"0000000000000000000000000000000000000000000000000000000000000000".equals(fwProfileHash)
-                    && !fwProfileHash.equalsIgnoreCase(expectedHash)) {
-                throw new CalibrationProfileValidationException(
-                        "CALIBRATION_HASH_MISMATCH",
-                        deviceId,
-                        profileId,
-                        null,
-                        "Calibration fingerprint mismatch. Firmware has hash " + fwProfileHash + ", but expected hash is " + expectedHash
-                );
-            }
 
         firmwareCalibrationService.sessionStartBlockReason(deviceId)
                 .ifPresent(reason -> {
                     throw new IllegalStateException(reason);
                 });
-        return profileId;
+        return valResult.profile();
     }
 
     private SessionStartResponse createPendingStart(
             String deviceId,
             String traineeId,
             String profileId,
+            Integer profileVersion,
+            String profileHash,
             String scenario,
             String notes,
             String courseId,
@@ -917,26 +857,6 @@ public class ActiveSessionService {
         activeSessionIdByDeviceId.put(deviceId, sessionId);
         sessionIdByStartRequestId.put(requestId, sessionId);
         publishLifecycleUpdate(state);
-
-        Integer profileVersion = null;
-        String profileHash = null;
-        if (state.profileId != null) {
-            CalibrationProfileResponse dbProfile = calibrationProfileService.getProfile(state.profileId).orElse(null);
-            if (dbProfile == null) {
-                dbProfile = calibrationProfileService.getDefaultProfile().orElse(null);
-            }
-            if (dbProfile != null) {
-                profileVersion = dbProfile.version();
-                profileHash = fingerprintService.computeHash(
-                        dbProfile.profileId(),
-                        dbProfile.version(),
-                        dbProfile.hallDelta(),
-                        dbProfile.refPressure(),
-                        dbProfile.bladder1Pressure(),
-                        dbProfile.bladder2Pressure()
-                );
-            }
-        }
 
         try {
             mqttCommandPublisherService.publishSessionStart(new SessionStartCommandPayload(

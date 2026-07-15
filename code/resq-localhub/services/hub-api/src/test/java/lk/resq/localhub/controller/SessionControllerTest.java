@@ -7,6 +7,9 @@ import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
+import lk.resq.localhub.service.DeviceRuntimeStateService;
+import lk.resq.localhub.service.CalibrationProfileIdentityValidator;
+import lk.resq.localhub.service.TestIdentityValidator;
 import lk.resq.localhub.service.DeviceReadinessService;
 import java.time.Instant;
 import lk.resq.localhub.model.UserRole;
@@ -234,7 +237,8 @@ class SessionControllerTest {
                 objectMapper,
                 new lk.resq.localhub.service.CloudSessionSummaryPayloadMapper()
         );
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
                 "M01",
                 4002,
@@ -261,7 +265,8 @@ class SessionControllerTest {
                 new lk.resq.localhub.service.RateEstimatorRegistry(),
                 readinessService,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                identityValidator
         );
         AuthService authService = new AllowingAuthService(objectMapper);
         SessionController controller = new SessionController(service, authService, registry);

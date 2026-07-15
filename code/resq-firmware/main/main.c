@@ -278,18 +278,6 @@ static void enter_soft_off(void)
     }
 }
 
-/**
- * @brief Phase 8 compatibility stub for the FSM save_calibration op.
- *
- * Calibration is persisted exclusively through config_store_promote_calibration().
- * The legacy FSM save op intentionally returns ESP_ERR_NOT_SUPPORTED.
- */
-static esp_err_t save_calibration_not_supported(const calibration_config_t *config)
-{
-    (void)config;
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
 static const resq_fsm_ops_t s_fsm_ops = {
     .initialize_components = initialize_components_once,
     .network_set_defaults = network_config_set_defaults,
@@ -299,7 +287,6 @@ static const resq_fsm_ops_t s_fsm_ops = {
     .load_network = config_store_load_network,
     .load_calibration = config_store_load_calibration,
     .save_network = config_store_save_network,
-    .save_calibration = save_calibration_not_supported,
     .clear_network = config_store_clear_network,
     .clear_all = config_store_clear_all,
     .provisioning_start = provisioning_manager_start,

@@ -805,7 +805,8 @@ class ActiveSessionServiceTest {
                 objectMapper,
                 new CloudSessionSummaryPayloadMapper()
         );
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 commandPublisher,
@@ -818,7 +819,8 @@ class ActiveSessionServiceTest {
                 new RateEstimatorRegistry(),
                 readinessService,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                identityValidator
         );
         assertThatThrownBy(() -> service.startSession(new SessionStartRequest(
                 "M03",
@@ -887,7 +889,8 @@ class ActiveSessionServiceTest {
                 objectMapper,
                 new CloudSessionSummaryPayloadMapper()
         );
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         // Pre-configure M01 and M02 as READY
         readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
                 "M01",
@@ -931,7 +934,8 @@ class ActiveSessionServiceTest {
                 startAckTimeoutMs,
                 clock,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                identityValidator
         );
         return new ServiceFixture(service, registry, firmwareRepository, readinessService, commandPublisher, sessionRepository, syncQueueRepository);
     }

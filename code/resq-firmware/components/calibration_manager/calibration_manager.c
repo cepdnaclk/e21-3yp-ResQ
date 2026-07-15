@@ -19,14 +19,7 @@
 #include "cJSON.h"
 #include "calibration_codes.h"
 #include "config_store.h"
-#include "mbedtls/sha256.h"
-
-static esp_err_t calculate_fingerprint(
-    const char *profile_id, uint32_t profile_version,
-    int32_t hall_delta, int32_t ref_pressure,
-    int32_t bladder_1_pressure, int32_t bladder_2_pressure,
-    char *out_hex, size_t out_hex_len
-);
+#include "calibration_fingerprint.h"
 
 #include "hall_sensor.h"
 #include "hx710.h"
@@ -85,12 +78,22 @@ static SemaphoreHandle_t s_manager_mutex = NULL;
 #define LOCK_MGR()   do { if (s_manager_mutex) xSemaphoreTake(s_manager_mutex, portMAX_DELAY); } while(0)
 #define UNLOCK_MGR() do { if (s_manager_mutex) xSemaphoreGive(s_manager_mutex); } while(0)
 
+typedef enum {
+    CAL_SESSION_NONE = 0,
+    CAL_SESSION_START_RESERVED,
+    CAL_SESSION_ACTIVE
+} cal_session_lifecycle_t;
+
 static struct {
     char profile_id[32];
     uint32_t profile_version;
     char profile_hash[65];
-    bool reserved;
+    cal_session_lifecycle_t state;
 } s_session_reservation = {0};
+
+static char s_candidate_profile_id[32] = {0};
+static uint32_t s_candidate_profile_version = 0;
+static char s_candidate_profile_hash[65] = {0};
 
 static hall_sensor_t s_hall_sensor;
 
@@ -1835,8 +1838,9 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id) {
 
   s_candidate_config.calibrated = false;
 
-  // Clear candidate details in config store RAM/snapshot diagnostics
-  config_store_set_candidate_profile(NULL, 0, NULL);
+  s_candidate_profile_id[0] = '\0';
+  s_candidate_profile_version = 0;
+  s_candidate_profile_hash[0] = '\0';
 
   status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
 
@@ -1874,8 +1878,9 @@ static esp_err_t calibration_manager_save_success(void) {
     return ESP_FAIL;
   }
 
-  // Clear candidate details in config store RAM/snapshot diagnostics upon commit
-  config_store_set_candidate_profile(NULL, 0, NULL);
+  s_candidate_profile_id[0] = '\0';
+  s_candidate_profile_version = 0;
+  s_candidate_profile_hash[0] = '\0';
 
   status_indicator_set_state(RESQ_STATE_READY_FOR_SESSION);
   UNLOCK_MGR();
@@ -2448,6 +2453,9 @@ esp_err_t calibration_manager_init(void) {
 
   if (s_manager_mutex == NULL) {
     s_manager_mutex = xSemaphoreCreateMutex();
+    if (s_manager_mutex == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
   }
 
   calibration_config_set_defaults(&s_candidate_config);
@@ -2474,11 +2482,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
                                     const calibration_config_t *host_params,
                                     const char *command_id) {
 
-  if (s_manager_mutex == NULL) {
-    s_manager_mutex = xSemaphoreCreateMutex();
-  }
-
-  if (!s_initialized) {
+  if (!s_initialized || s_manager_mutex == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -2487,7 +2491,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   }
 
   LOCK_MGR();
-  if (s_running || s_calibration_task_handle != NULL || s_session_reservation.reserved) {
+  if (s_running || s_calibration_task_handle != NULL || s_session_reservation.state != CAL_SESSION_NONE) {
     UNLOCK_MGR();
     return ESP_ERR_INVALID_STATE;
   }
@@ -2499,6 +2503,12 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
        !calibration_pressure_targets_usable(host_params))) {
 
     ESP_LOGE(TAG, "Invalid host calibration parameters");
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  /* Validate profile version > 0 */
+  if (host_params->profile_version <= 0) {
     UNLOCK_MGR();
     return ESP_ERR_INVALID_ARG;
   }
@@ -2547,7 +2557,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
 
   /* Compute and verify SHA-256 fingerprint */
   char computed_hash[65];
-  if (calculate_fingerprint(
+  if (calibration_fingerprint_calculate(
           host_params->profile_id, host_params->profile_version,
           host_params->hall_delta, host_params->ref_pressure,
           host_params->bladder_1_pressure, host_params->bladder_2_pressure,
@@ -2559,12 +2569,19 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     return ESP_ERR_INVALID_ARG;
   }
 
-  /* Set candidate profile details in config store RAM */
-  config_store_set_candidate_profile(host_params->profile_id, host_params->profile_version, host_params->profile_hash);
+  /* Set candidate profile details in local RAM */
+  strncpy(s_candidate_profile_id, host_params->profile_id, sizeof(s_candidate_profile_id) - 1);
+  s_candidate_profile_id[sizeof(s_candidate_profile_id) - 1] = '\0';
+  s_candidate_profile_version = host_params->profile_version;
+  strncpy(s_candidate_profile_hash, host_params->profile_hash, sizeof(s_candidate_profile_hash) - 1);
+  s_candidate_profile_hash[sizeof(s_candidate_profile_hash) - 1] = '\0';
 
   /* Set recalibration required marker in NVS */
   esp_err_t recal_err = config_store_mark_recalibration_required();
   if (recal_err != ESP_OK) {
+    s_candidate_profile_id[0] = '\0';
+    s_candidate_profile_version = 0;
+    s_candidate_profile_hash[0] = '\0';
     sensor_owner_release(SENSOR_OWNER_CALIBRATION);
     UNLOCK_MGR();
     return recal_err;
@@ -2700,8 +2717,8 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
 }
 
 esp_err_t calibration_manager_cancel(void) {
-  if (s_manager_mutex == NULL) {
-    s_manager_mutex = xSemaphoreCreateMutex();
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
   }
   LOCK_MGR();
   if (!s_running && s_calibration_task_handle == NULL) {
@@ -2720,6 +2737,9 @@ esp_err_t calibration_manager_cancel(void) {
   }
 
   s_candidate_config.calibrated = false;
+  s_candidate_profile_id[0] = '\0';
+  s_candidate_profile_version = 0;
+  s_candidate_profile_hash[0] = '\0';
   UNLOCK_MGR();
 
   if (s_calibration_events != NULL) {
@@ -2728,7 +2748,9 @@ esp_err_t calibration_manager_cancel(void) {
                             pdFALSE, pdMS_TO_TICKS(CALIBRATION_CANCEL_WAIT_MS));
     if ((bits & CAL_EVENT_TASK_DONE) == 0) {
       ESP_LOGE(TAG, "Timed out waiting for calibration cleanup");
-      config_store_set_candidate_profile(NULL, 0, NULL);
+      s_candidate_profile_id[0] = '\0';
+      s_candidate_profile_version = 0;
+      s_candidate_profile_hash[0] = '\0';
       return ESP_ERR_TIMEOUT;
     }
   } else {
@@ -2738,7 +2760,9 @@ esp_err_t calibration_manager_cancel(void) {
   }
 
   // Clear candidate profile fields
-  config_store_set_candidate_profile(NULL, 0, NULL);
+  s_candidate_profile_id[0] = '\0';
+  s_candidate_profile_version = 0;
+  s_candidate_profile_hash[0] = '\0';
 
   status_indicator_set_state(RESQ_STATE_PAIRED_IDLE);
 
@@ -2746,6 +2770,9 @@ esp_err_t calibration_manager_cancel(void) {
 }
 
 bool calibration_manager_is_running(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return false;
+  }
   LOCK_MGR();
   bool running = s_running || (s_calibration_task_handle != NULL);
   UNLOCK_MGR();
@@ -2753,6 +2780,9 @@ bool calibration_manager_is_running(void) {
 }
 
 bool calibration_manager_is_ready(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return false;
+  }
   LOCK_MGR();
   bool ready = s_calibration_config.calibrated;
   UNLOCK_MGR();
@@ -2763,6 +2793,9 @@ esp_err_t calibration_manager_get_config(calibration_config_t *out_config) {
   if (out_config == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
 
   LOCK_MGR();
   memcpy(out_config, &s_calibration_config, sizeof(calibration_config_t));
@@ -2771,13 +2804,24 @@ esp_err_t calibration_manager_get_config(calibration_config_t *out_config) {
   return ESP_OK;
 }
 
-const char *calibration_manager_get_command_id(void) { return s_command_id; }
+const char *calibration_manager_get_command_id(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return "";
+  }
+  return s_command_id;
+}
 
 calibration_reason_id_t calibration_manager_get_last_failure_reason(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return CAL_REASON_NONE;
+  }
   return s_last_failure_reason;
 }
 
 calibration_action_id_t calibration_manager_get_last_failure_action(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return CAL_ACTION_NONE;
+  }
   return s_last_failure_action;
 }
 
@@ -2785,6 +2829,9 @@ esp_err_t
 calibration_manager_get_last_host_params(calibration_config_t *out_config) {
   if (out_config == NULL) {
     return ESP_ERR_INVALID_ARG;
+  }
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
   }
 
   if (!s_has_last_host_params) {
@@ -2796,13 +2843,18 @@ calibration_manager_get_last_host_params(calibration_config_t *out_config) {
 }
 
 esp_err_t calibration_manager_drop_temporary_values(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
   LOCK_MGR();
   esp_err_t err = config_store_load_calibration(&s_calibration_config);
   if (err != ESP_OK) {
     calibration_config_set_defaults(&s_calibration_config);
   }
   calibration_config_set_defaults(&s_candidate_config);
-  config_store_set_candidate_profile(NULL, 0, NULL);
+  s_candidate_profile_id[0] = '\0';
+  s_candidate_profile_version = 0;
+  s_candidate_profile_hash[0] = '\0';
   UNLOCK_MGR();
 
   return ESP_OK;
@@ -2811,6 +2863,9 @@ esp_err_t calibration_manager_drop_temporary_values(void) {
 esp_err_t calibration_manager_retry_last(network_config_t *network_config) {
   if (network_config == NULL) {
     return ESP_ERR_INVALID_ARG;
+  }
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
   }
 
   if (!s_has_last_host_params) {
@@ -2999,27 +3054,92 @@ esp_err_t calibration_manager_parse_start_payload(
   }
   candidate.calibrated = false;
 
-  if (profile_id != NULL) {
-    if (!json_identifier_valid(profile_id, sizeof(candidate.profile_id))) {
+  // profile_id: REQUIRED
+  if (profile_id == NULL || !json_identifier_valid(profile_id, sizeof(candidate.profile_id))) {
+    if (out_reason != NULL) {
+      *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+    }
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  size_t parsed_id_len = strlen(profile_id->valuestring);
+  if (parsed_id_len == 0 || parsed_id_len > 31) {
+    if (out_reason != NULL) {
+      *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+    }
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  for (size_t i = 0; i < parsed_id_len; i++) {
+    char c = profile_id->valuestring[i];
+    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) {
       if (out_reason != NULL) {
         *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
       }
       result = ESP_ERR_INVALID_ARG;
       goto exit;
     }
-    strncpy(candidate.profile_id, profile_id->valuestring,
-            sizeof(candidate.profile_id) - 1);
-    candidate.profile_id[sizeof(candidate.profile_id) - 1] = '\0';
   }
+  strncpy(candidate.profile_id, profile_id->valuestring, sizeof(candidate.profile_id) - 1);
+  candidate.profile_id[sizeof(candidate.profile_id) - 1] = '\0';
 
-  if (cJSON_IsNumber(profile_version)) {
-    candidate.profile_version = profile_version->valueint;
+  // profile_version: REQUIRED
+  if (profile_version == NULL || !cJSON_IsNumber(profile_version)) {
+    if (out_reason != NULL) {
+      *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+    }
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
   }
-  if (cJSON_IsString(profile_hash) && profile_hash->valuestring != NULL) {
-    strncpy(candidate.profile_hash, profile_hash->valuestring,
-            sizeof(candidate.profile_hash) - 1);
-    candidate.profile_hash[sizeof(candidate.profile_hash) - 1] = '\0';
+  double ver_val = profile_version->valuedouble;
+  if (ver_val <= 0.0 || ver_val > (double)UINT32_MAX || ver_val != (double)((uint32_t)ver_val)) {
+    if (out_reason != NULL) {
+      *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+    }
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
   }
+  candidate.profile_version = (uint32_t)ver_val;
+
+  // profile_hash: REQUIRED
+  if (profile_hash == NULL || !cJSON_IsString(profile_hash) || profile_hash->valuestring == NULL) {
+    if (out_reason != NULL) {
+      *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+    }
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  size_t parsed_hash_len = strlen(profile_hash->valuestring);
+  if (parsed_hash_len != 64) {
+    if (out_reason != NULL) {
+      *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+    }
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  bool is_zero = true;
+  for (size_t i = 0; i < 64; i++) {
+    char c = profile_hash->valuestring[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+      if (out_reason != NULL) {
+        *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+      }
+      result = ESP_ERR_INVALID_ARG;
+      goto exit;
+    }
+    if (c != '0') {
+      is_zero = false;
+    }
+  }
+  if (is_zero) {
+    if (out_reason != NULL) {
+      *out_reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+    }
+    result = ESP_ERR_INVALID_ARG;
+    goto exit;
+  }
+  strncpy(candidate.profile_hash, profile_hash->valuestring, sizeof(candidate.profile_hash) - 1);
+  candidate.profile_hash[sizeof(candidate.profile_hash) - 1] = '\0';
 
   if (pressure_balance_allowed_pct != NULL) {
     int32_t pct = 0;
@@ -3093,54 +3213,6 @@ exit:
   return result;
 }
 
-static esp_err_t calculate_fingerprint(
-    const char *profile_id, uint32_t profile_version,
-    int32_t hall_delta, int32_t ref_pressure,
-    int32_t bladder_1_pressure, int32_t bladder_2_pressure,
-    char *out_hex, size_t out_hex_len
-) {
-    if (profile_id == NULL || out_hex == NULL || out_hex_len < 65) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    char buffer[256];
-    int written = snprintf(
-        buffer, sizeof(buffer),
-        "profile_id=%s;profile_version=%lu;hall_delta=%ld;ref_pressure=%ld;bladder_1_pressure=%ld;bladder_2_pressure=%ld",
-        profile_id, (unsigned long)profile_version, (long)hall_delta, (long)ref_pressure,
-        (long)bladder_1_pressure, (long)bladder_2_pressure
-    );
-
-    if (written < 0 || written >= (int)sizeof(buffer)) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    uint8_t digest[32];
-    mbedtls_sha256_context ctx;
-    mbedtls_sha256_init(&ctx);
-    int ret = mbedtls_sha256_starts(&ctx, 0);
-    if (ret != 0) {
-        mbedtls_sha256_free(&ctx);
-        return ESP_FAIL;
-    }
-    ret = mbedtls_sha256_update(&ctx, (const unsigned char *)buffer, written);
-    if (ret != 0) {
-        mbedtls_sha256_free(&ctx);
-        return ESP_FAIL;
-    }
-    ret = mbedtls_sha256_finish(&ctx, digest);
-    mbedtls_sha256_free(&ctx);
-    if (ret != 0) {
-        return ESP_FAIL;
-    }
-
-    for (int i = 0; i < 32; i++) {
-        sprintf(out_hex + (i * 2), "%02x", digest[i]);
-    }
-    out_hex[64] = '\0';
-
-    return ESP_OK;
-}
 
 esp_err_t calibration_manager_publish_calibration_result(
     const char *reply_id, const char *status, const char *result,
@@ -3169,24 +3241,53 @@ esp_err_t calibration_manager_publish_calibration_result(
   bool accepted_result = strcmp(result_to_publish, "PASS") == 0 ||
                          strcmp(result_to_publish, "PASS_WITH_WARNINGS") == 0;
 
+  calibration_store_snapshot_t snapshot;
+  memset(&snapshot, 0, sizeof(snapshot));
+  snprintf(snapshot.calibration_storage_status, CALIBRATION_STORAGE_STATUS_MAX_LEN, "%s", "UNKNOWN");
+  snapshot.recalibration_required = 1;
+  cal_store_outcome_t snap_result = config_store_get_snapshot(&snapshot);
+
+  // If snapshot verification fails in firmware, map the exact cal_store_outcome_t
+  // to the corresponding storage reason ID. Do not publish generic failure or PASS reason.
+  if (snap_result != CAL_STORE_VALID && (
+      strcmp(result_to_publish, "PASS") == 0 ||
+      strcmp(result_to_publish, "PASS_WITH_WARNINGS") == 0)) {
+    result_to_publish = "FAIL";
+    switch (snap_result) {
+      case CAL_STORE_CORRUPT:                    reason_to_publish = CAL_REASON_CORRUPT;                    break;
+      case CAL_STORE_UNSUPPORTED_SCHEMA:         reason_to_publish = CAL_REASON_UNSUPPORTED_SCHEMA;         break;
+      case CAL_STORE_COMMIT_VERIFICATION_FAILED: reason_to_publish = CAL_REASON_COMMIT_VERIFICATION_FAILED; break;
+      case CAL_STORE_GENERATION_EXHAUSTED:       reason_to_publish = CAL_REASON_GENERATION_EXHAUSTED;       break;
+      case CAL_STORE_PROFILE_HASH_MISMATCH:      reason_to_publish = CAL_REASON_PROFILE_HASH_MISMATCH;      break;
+      case CAL_STORE_IO_ERROR:                   // fall-through
+      default:                                   reason_to_publish = CAL_REASON_IO_ERROR;                   break;
+    }
+    state = RESQ_STATE_CALIBRATION_FAIL;
+    action_id = calibration_codes_default_action_for_reason(reason_to_publish);
+    progress_id = 12; // FAIL
+    accepted_result = false;
+  }
+
+  const calibration_config_t *cfg = accepted_result ? &s_calibration_config : &s_candidate_config;
+
   float hall_full_press_mm = 0.0f;
   float hall_full_press_progress = 0.0f;
   int32_t hall_full_press_delta_raw = 0;
   sensor_raw_sample_t hall_full_press_raw = {
-      .hall_raw = s_candidate_config.hall_full_press,
+      .hall_raw = cfg->hall_full_press,
       .hall_read_valid = true,
   };
   sensor_conversion_profile_t hall_full_press_profile =
-      calibration_conversion_profile(&s_candidate_config);
+      calibration_conversion_profile(cfg);
   sensor_converted_sample_t hall_full_press_converted = {0};
   bool converted_full_press =
       sensor_conversion_convert(&hall_full_press_raw, &hall_full_press_profile,
                                 &hall_full_press_converted) == ESP_OK;
   bool pressure_kpa_valid =
-      accepted_result && s_candidate_config.pressure_valid &&
-      !s_candidate_config.pressure_degraded && converted_full_press &&
+      accepted_result && cfg->pressure_valid &&
+      !cfg->pressure_degraded && converted_full_press &&
       hall_full_press_converted.pressure_profile_valid;
-  bool hall_mm_valid = accepted_result && s_candidate_config.hall_valid &&
+  bool hall_mm_valid = accepted_result && cfg->hall_valid &&
                        converted_full_press &&
                        hall_full_press_converted.hall_profile_valid;
   bool hall_full_press_sample_valid =
@@ -3195,18 +3296,6 @@ esp_err_t calibration_manager_publish_calibration_result(
     hall_full_press_mm = hall_full_press_converted.hall_mm;
     hall_full_press_progress = hall_full_press_converted.hall_progress;
     hall_full_press_delta_raw = hall_full_press_converted.hall_delta_raw;
-  }
-
-  calibration_store_snapshot_t snapshot;
-  memset(&snapshot, 0, sizeof(snapshot));
-  snprintf(snapshot.calibration_storage_status, CALIBRATION_STORAGE_STATUS_MAX_LEN, "%s", "UNKNOWN");
-  snapshot.recalibration_required = 1;
-  cal_store_outcome_t snap_result = config_store_get_snapshot(&snapshot);
-  // Only publish PASS if the committed snapshot is actually valid
-  if (snap_result != CAL_STORE_VALID && (
-      strcmp(result_to_publish, "PASS") == 0 ||
-      strcmp(result_to_publish, "PASS_WITH_WARNINGS") == 0)) {
-    result_to_publish = "FAIL";
   }
 
   char payload[1792];
@@ -3269,35 +3358,35 @@ esp_err_t calibration_manager_publish_calibration_result(
         status != NULL ? status : "", result_to_publish, progress_id,
         calibration_reason_contract_id(reason_to_publish),
         resq_state_to_string(state), (int)action_id,
-        calibration_pressure_mode_to_string(s_candidate_config.pressure_mode),
-        s_candidate_config.pressure_degraded ? "true" : "false",
-        s_candidate_config.using_last_stable_pressure ? "true" : "false",
-        s_candidate_config.pressure_valid ? "true" : "false",
-        s_candidate_config.hall_valid ? "true" : "false",
+        calibration_pressure_mode_to_string(cfg->pressure_mode),
+        cfg->pressure_degraded ? "true" : "false",
+        cfg->using_last_stable_pressure ? "true" : "false",
+        cfg->pressure_valid ? "true" : "false",
+        cfg->hall_valid ? "true" : "false",
         pressure_kpa_valid ? "true" : "false", hall_mm_valid ? "true" : "false",
-        s_candidate_config.full_depth_mm,
-        (int)s_candidate_config.hall_baseline,
-        (int)s_candidate_config.hall_baseline,
-        (int)s_candidate_config.hall_full_press,
-        (int)s_candidate_config.hall_full_press,
+        cfg->full_depth_mm,
+        (int)cfg->hall_baseline,
+        (int)cfg->hall_baseline,
+        (int)cfg->hall_full_press,
+        (int)cfg->hall_full_press,
         hall_full_press_sample_valid ? hall_full_press_mm : 0.0f,
         hall_full_press_sample_valid ? hall_full_press_progress : 0.0f,
         hall_full_press_sample_valid ? (int)hall_full_press_delta_raw : 0,
-        (int)s_candidate_config.hall_range_raw,
-        (int)s_candidate_config.hall_start_delta,
-        (int)s_candidate_config.hall_full_delta_threshold,
-        (int)s_candidate_config.hall_recoil_delta,
-        (int)s_candidate_config.pressure_0_baseline,
-        (int)s_candidate_config.pressure_1_baseline,
-        (int)s_candidate_config.pressure_2_baseline,
-        s_candidate_config.pressure_0_kpa_per_count,
-        s_candidate_config.pressure_1_kpa_per_count,
-        s_candidate_config.pressure_2_kpa_per_count,
-        (int)s_candidate_config.pressure_1_range_raw,
-        (int)s_candidate_config.pressure_2_range_raw,
-        (int)s_candidate_config.pressure_contact_threshold,
-        (int)s_candidate_config.pressure_valid_threshold,
-        (int)s_candidate_config.pressure_balance_allowed_pct,
+        (int)cfg->hall_range_raw,
+        (int)cfg->hall_start_delta,
+        (int)cfg->hall_full_delta_threshold,
+        (int)cfg->hall_recoil_delta,
+        (int)cfg->pressure_0_baseline,
+        (int)cfg->pressure_1_baseline,
+        (int)cfg->pressure_2_baseline,
+        cfg->pressure_0_kpa_per_count,
+        cfg->pressure_1_kpa_per_count,
+        cfg->pressure_2_kpa_per_count,
+        (int)cfg->pressure_1_range_raw,
+        (int)cfg->pressure_2_range_raw,
+        (int)cfg->pressure_contact_threshold,
+        (int)cfg->pressure_valid_threshold,
+        (int)cfg->pressure_balance_allowed_pct,
         (long long)(esp_timer_get_time() / 1000),
         snapshot.calibration_storage_status,
         (int)snapshot.schema_version,
@@ -3318,6 +3407,7 @@ esp_err_t calibration_manager_publish_calibration_result(
     return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION,
                                            payload);
   } else {
+    const calibration_config_t *cfg_other = &s_candidate_config;
     int written = 0;
     if (event_id == 4002) {
       written = snprintf(
@@ -3353,13 +3443,13 @@ esp_err_t calibration_manager_publish_calibration_result(
           status != NULL ? status : "", result_to_publish, progress_id,
           calibration_reason_contract_id(reason_to_publish),
           resq_state_to_string(state), (int)action_id,
-          calibration_pressure_mode_to_string(s_candidate_config.pressure_mode),
-          s_candidate_config.pressure_degraded ? "true" : "false",
-          s_candidate_config.using_last_stable_pressure ? "true" : "false",
-          s_candidate_config.pressure_valid ? "true" : "false",
-          s_candidate_config.hall_valid ? "true" : "false",
+          calibration_pressure_mode_to_string(cfg_other->pressure_mode),
+          cfg_other->pressure_degraded ? "true" : "false",
+          cfg_other->using_last_stable_pressure ? "true" : "false",
+          cfg_other->pressure_valid ? "true" : "false",
+          cfg_other->hall_valid ? "true" : "false",
           pressure_kpa_valid ? "true" : "false", hall_mm_valid ? "true" : "false",
-          s_candidate_config.full_depth_mm,
+          cfg_other->full_depth_mm,
           (long long)(esp_timer_get_time() / 1000),
           snapshot.calibration_storage_status,
           (int)snapshot.schema_version,
@@ -3443,35 +3533,93 @@ static calibration_reason_id_t calibration_validate_pressure_rest_health(
   return CAL_REASON_NONE;
 }
 
-bool calibration_manager_try_reserve_session_start(const char *profile_id, uint32_t profile_version, const char *profile_hash) {
+esp_err_t calibration_manager_try_reserve_session_start(const char *profile_id, uint32_t profile_version, const char *profile_hash) {
   if (profile_id == NULL || profile_hash == NULL) {
-    return false;
+    return ESP_ERR_INVALID_ARG;
   }
-  if (s_manager_mutex == NULL) {
-    s_manager_mutex = xSemaphoreCreateMutex();
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
   }
   LOCK_MGR();
-  if (s_running || s_calibration_task_handle != NULL || s_session_reservation.reserved) {
+  if (s_session_reservation.state != CAL_SESSION_NONE) {
     UNLOCK_MGR();
-    return false;
+    return ESP_ERR_INVALID_STATE;
   }
-  s_session_reservation.reserved = true;
+  if (s_running || s_calibration_task_handle != NULL) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  // Validate committed store snapshot and runtime identity
+  calibration_store_snapshot_t snapshot;
+  memset(&snapshot, 0, sizeof(snapshot));
+  cal_store_outcome_t snap_outcome = config_store_get_snapshot(&snapshot);
+  if (snap_outcome != CAL_STORE_VALID) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (snapshot.profile_version <= 0 || profile_version <= 0) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (strcmp(snapshot.profile_id, profile_id) != 0 ||
+      strcmp(snapshot.profile_hash, profile_hash) != 0 ||
+      snapshot.profile_version != profile_version) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+
+  s_session_reservation.state = CAL_SESSION_START_RESERVED;
   strncpy(s_session_reservation.profile_id, profile_id, sizeof(s_session_reservation.profile_id) - 1);
   s_session_reservation.profile_id[sizeof(s_session_reservation.profile_id) - 1] = '\0';
   s_session_reservation.profile_version = profile_version;
   strncpy(s_session_reservation.profile_hash, profile_hash, sizeof(s_session_reservation.profile_hash) - 1);
   s_session_reservation.profile_hash[sizeof(s_session_reservation.profile_hash) - 1] = '\0';
   UNLOCK_MGR();
-  return true;
+  return ESP_OK;
 }
 
-void calibration_manager_release_session_reservation(void) {
-  if (s_manager_mutex == NULL) {
-    s_manager_mutex = xSemaphoreCreateMutex();
+esp_err_t calibration_manager_notify_session_started(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
   }
   LOCK_MGR();
-  s_session_reservation.reserved = false;
+  if (s_session_reservation.state != CAL_SESSION_START_RESERVED) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_session_reservation.state = CAL_SESSION_ACTIVE;
+  UNLOCK_MGR();
+  return ESP_OK;
+}
+
+esp_err_t calibration_manager_rollback_session_start(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  LOCK_MGR();
+  if (s_session_reservation.state != CAL_SESSION_START_RESERVED) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_session_reservation.state = CAL_SESSION_NONE;
   memset(&s_session_reservation, 0, sizeof(s_session_reservation));
   UNLOCK_MGR();
+  return ESP_OK;
+}
+
+esp_err_t calibration_manager_notify_session_ended(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  LOCK_MGR();
+  if (s_session_reservation.state != CAL_SESSION_ACTIVE) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+  s_session_reservation.state = CAL_SESSION_NONE;
+  memset(&s_session_reservation, 0, sizeof(s_session_reservation));
+  UNLOCK_MGR();
+  return ESP_OK;
 }
 

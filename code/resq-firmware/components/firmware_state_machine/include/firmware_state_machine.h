@@ -28,7 +28,6 @@ typedef struct {
     esp_err_t (*load_network)(network_config_t *config);
     esp_err_t (*load_calibration)(calibration_config_t *config);
     esp_err_t (*save_network)(network_config_t *config);
-    esp_err_t (*save_calibration)(const calibration_config_t *config);
     esp_err_t (*clear_network)(void);
     esp_err_t (*clear_all)(void);
 

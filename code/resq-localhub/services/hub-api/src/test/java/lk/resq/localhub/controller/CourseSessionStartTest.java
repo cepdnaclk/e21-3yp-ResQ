@@ -52,7 +52,8 @@ class CourseSessionStartTest {
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(sqlitePath);
         syncQueueRepository.initialize();
         SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, mapper, new CloudSessionSummaryPayloadMapper());
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
                 "M01",
                 4002,
@@ -79,7 +80,8 @@ class CourseSessionStartTest {
                 new lk.resq.localhub.service.RateEstimatorRegistry(),
                 readinessService,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                identityValidator
         );
         authService = new TestAuthService(authRepository, rosterRepository, mapper);
         controller = new SessionController(sessionService, authService, registry);
@@ -206,6 +208,9 @@ class CourseSessionStartTest {
                 }
             }
             throw new ForbiddenException("Access denied");
+        }
+        @Override
+        public void audit(String actorUserId, String action, String targetType, String targetId, java.util.Map<String, Object> metadata) {
         }
     }
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {

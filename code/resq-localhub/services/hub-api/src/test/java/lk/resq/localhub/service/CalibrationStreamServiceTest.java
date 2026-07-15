@@ -15,11 +15,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CalibrationStreamServiceTest {
 
+    private TestIdentityValidator identityValidator;
     private DeviceReadinessService readinessService;
 
     @BeforeEach
     void setUp() {
-        readinessService = new DeviceReadinessService();
+        identityValidator = new TestIdentityValidator();
+        readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
     }
 
     @Test

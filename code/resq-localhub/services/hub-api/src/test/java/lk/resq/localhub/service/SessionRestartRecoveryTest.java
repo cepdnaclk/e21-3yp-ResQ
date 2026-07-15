@@ -137,7 +137,8 @@ class SessionRestartRecoveryTest {
                 registry,
                 fingerprintService
         );
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         ActiveSessionService service = new ActiveSessionService(
                 registry,
                 publisher,
@@ -160,7 +161,8 @@ class SessionRestartRecoveryTest {
                 1000L,
                 25,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                identityValidator
         );
         return new Fixture(service, runtimeRepository, firmwareRepository, localSessionRepository, syncQueueRepository, readinessService, clock);
     }

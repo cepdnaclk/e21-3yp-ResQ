@@ -12,7 +12,7 @@ import java.util.Locale;
 public class CalibrationProfileFingerprintService {
 
     public String computeHash(String profileId, int profileVersion, int hallDelta, int refPressure, int bladder1Pressure, int bladder2Pressure) {
-        String canonicalString = String.format(Locale.US, "v1;%s;%d;%d;%d;%d;%d",
+        String canonicalString = String.format(Locale.US, "profile_id=%s;profile_version=%d;hall_delta=%d;ref_pressure=%d;bladder_1_pressure=%d;bladder_2_pressure=%d",
                 profileId, profileVersion, hallDelta, refPressure, bladder1Pressure, bladder2Pressure);
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

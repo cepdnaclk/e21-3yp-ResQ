@@ -24,4 +24,5 @@ idf_component_register(
         cjson
         system_button_manager
         error_manager
+        session_command_types
 )

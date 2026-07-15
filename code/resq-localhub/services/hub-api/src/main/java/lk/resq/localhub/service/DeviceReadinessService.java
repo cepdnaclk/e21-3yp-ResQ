@@ -5,6 +5,7 @@ import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
+import lk.resq.localhub.model.firmware.RuntimeOrderingConfidence;
 import lk.resq.localhub.model.firmware.RuntimeMessageApplyResult;
 import lk.resq.localhub.model.firmware.RuntimeMessageDisposition;
 import org.slf4j.Logger;
@@ -21,14 +22,15 @@ public class DeviceReadinessService {
     private static final Logger logger = LoggerFactory.getLogger(DeviceReadinessService.class);
 
     private final DeviceRuntimeStateService runtimeStateService;
-
-    public DeviceReadinessService() {
-        this(new DeviceRuntimeStateService());
-    }
+    private final CalibrationProfileIdentityValidator identityValidator;
 
     @Autowired
-    public DeviceReadinessService(DeviceRuntimeStateService runtimeStateService) {
+    public DeviceReadinessService(
+            DeviceRuntimeStateService runtimeStateService,
+            CalibrationProfileIdentityValidator identityValidator
+    ) {
         this.runtimeStateService = runtimeStateService;
+        this.identityValidator = identityValidator;
     }
 
     public Optional<DeviceRuntimeState> findRuntimeState(String deviceId) {
@@ -43,7 +45,10 @@ public class DeviceReadinessService {
     }
 
     public boolean isReadyForSession(String deviceId) {
-        return runtimeStateService.isReadyForSession(deviceId);
+        if (deviceId == null) {
+            return false;
+        }
+        return findRuntimeState(deviceId).map(this::checkReadyForSession).orElse(false);
     }
 
     public DeviceReadinessState markCalibrationStartRequested(String deviceId, String requestId) {
@@ -124,57 +129,64 @@ public class DeviceReadinessService {
         return result;
     }
 
-    public static DeviceReadinessState toReadinessState(DeviceRuntimeState state) {
-        return toReadinessState(state, state == null ? null : state.lastReplyId());
+    public DeviceReadinessState toReadinessState(DeviceRuntimeState state) {
+        return toReadinessState(state, state == null ? null : state.lastReplyId(), null, null, null);
     }
 
-    private static DeviceReadinessState toReadinessState(DeviceRuntimeState state, String replyId) {
+    private DeviceReadinessState toReadinessState(DeviceRuntimeState state, String replyId) {
         return toReadinessState(state, replyId, null, null, null);
     }
 
-    private static final String SENTINEL_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
-
-    private static boolean deriveReadyForSessionStrict(
-            String firmwareState,
-            boolean calibrated,
-            boolean sessionActive,
-            String storageStatus,
-            Boolean recalibrationRequired,
-            String profileId,
-            Integer profileVersion,
-            String profileHash
-    ) {
-        if (firmwareState == null) return false;
-        String norm = firmwareState.trim().toUpperCase();
-        if (!"READY_FOR_SESSION".equals(norm)) return false;
-        if (!calibrated) return false;
-        if (sessionActive) return false;
-
-        // Legacy fallback: if ALL Phase 8 metadata fields are absent (or only sentinel hash),
-        // this is a pre-Phase-8 report. Fall back to simple readiness.
-        boolean hasMetadata = (storageStatus != null && !storageStatus.isBlank())
-                || (profileId != null && !profileId.isBlank())
-                || (profileVersion != null)
-                || (profileHash != null && !profileHash.isBlank() && !SENTINEL_HASH.equals(profileHash.trim()));
-        if (!hasMetadata) {
-            return true;
+    public boolean checkReadyForSession(DeviceRuntimeState state) {
+        if (state == null) {
+            return false;
         }
 
-        // Full Phase 8 strict checks
-        if (!"VALID".equalsIgnoreCase(storageStatus)) return false;
-        if (recalibrationRequired == null || recalibrationRequired) return false;
-        // When firmware reports the sentinel hash it has no real Phase 8 profile identity — skip
-        // profile identity checks.
-        boolean isSentinel = SENTINEL_HASH.equals(profileHash == null ? null : profileHash.trim());
-        if (!isSentinel) {
-            if (profileId == null || profileId.trim().isEmpty()) return false;
-            if (profileVersion == null || profileVersion <= 0) return false;
-            if (profileHash == null || profileHash.trim().length() != 64 || !profileHash.trim().matches("^[0-9a-fA-F]{64}$")) return false;
+        // 1. connected
+        if (state.lastSeenEpochMs() <= 0) {
+            return false;
         }
-        return true;
+
+        // 2. correct firmware state
+        String firmwareState = state.firmwareState();
+        if (firmwareState == null || !"READY_FOR_SESSION".equalsIgnoreCase(firmwareState.trim())) {
+            return false;
+        }
+
+        // 3. calibrated
+        if (!state.calibrated()) {
+            return false;
+        }
+
+        // 4. no active session
+        if (state.sessionActive()) {
+            return false;
+        }
+
+        // 5. no recalibration requirement
+        if (state.recalibrationRequired() == null || state.recalibrationRequired()) {
+            return false;
+        }
+
+        // 6. accepted ordering (not UNKNOWN)
+        if (state.orderingConfidence() == RuntimeOrderingConfidence.UNKNOWN) {
+            return false;
+        }
+
+        // 7. valid profile identity
+        CalibrationProfileIdentityValidator.ValidationResult valResult = identityValidator.validate(
+                state.calibrationSchemaVersion(),
+                state.calibrationGeneration(),
+                state.calibrationStorageStatus(),
+                state.recalibrationRequired(),
+                state.calibrationProfileId(),
+                state.profileVersion(),
+                state.profileHash()
+        );
+        return valResult.valid();
     }
 
-    private static DeviceReadinessState toReadinessState(
+    private DeviceReadinessState toReadinessState(
             DeviceRuntimeState state,
             String replyId,
             Integer progressId,
@@ -185,16 +197,7 @@ public class DeviceReadinessService {
             return null;
         }
 
-        boolean derivedReady = deriveReadyForSessionStrict(
-                state.firmwareState(),
-                state.calibrated(),
-                state.sessionActive(),
-                state.calibrationStorageStatus(),
-                state.recalibrationRequired(),
-                state.calibrationProfileId(),
-                state.profileVersion(),
-                state.profileHash()
-        );
+        boolean derivedReady = checkReadyForSession(state);
 
         return new DeviceReadinessState(
                 state.deviceId(),

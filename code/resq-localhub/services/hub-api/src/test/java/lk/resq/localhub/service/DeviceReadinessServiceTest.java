@@ -5,13 +5,17 @@ import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.BeforeEach;
+import org.mockito.Mockito;
+
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DeviceReadinessServiceTest {
 
-    private final DeviceReadinessService service = new DeviceReadinessService();
+    private final TestIdentityValidator identityValidator = new TestIdentityValidator();
+    private final DeviceReadinessService service = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
 
     @Test
     void getReadinessReturnsDefaultUnknownStateForNewDevice() {
@@ -157,7 +161,8 @@ class DeviceReadinessServiceTest {
                 0,
                 "READY_FOR_SESSION",
                 1005L,
-                Instant.now()
+                Instant.now(),
+                "adult-basic"
         );
         DeviceReadinessState state = service.handleCalibrationEvent("device-01", passEvent);
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.READY);
@@ -178,7 +183,8 @@ class DeviceReadinessServiceTest {
                 0,
                 "READY_FOR_SESSION",
                 1005L,
-                Instant.now()
+                Instant.now(),
+                "adult-basic"
         );
         DeviceReadinessState state = service.handleCalibrationEvent("device-01", passWithWarningsEvent);
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.READY);

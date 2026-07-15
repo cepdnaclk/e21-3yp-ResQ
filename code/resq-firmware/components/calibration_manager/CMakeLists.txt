@@ -19,5 +19,5 @@ idf_component_register(
         sensor_conversion
         sensor_owner
         esp_timer
-        mbedtls
+        calibration_fingerprint
 )

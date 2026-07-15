@@ -14,6 +14,7 @@ set(TEST_COMPONENTS
     "sensor_conversion"
     "sensor_owner"
     "telemetry_publisher"
+    "calibration_fingerprint"
     CACHE STRING "ResQ components under test"
     FORCE
 )

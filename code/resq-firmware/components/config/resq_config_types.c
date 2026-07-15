@@ -41,10 +41,10 @@ void calibration_config_set_defaults(calibration_config_t *config) {
   config->calibration_sample_count = 60;
   config->calibration_window_ms = 2000;
   config->calibrated_at_ms = 0;
-  config->calibration_schema_version = 1;
+  config->calibration_schema_version = 0;
   config->calibration_generation = 0;
   strcpy(config->calibration_storage_status, "MISSING");
-  config->recalibration_required = false;
+  config->recalibration_required = true;
   config->profile_version = 0;
   config->profile_hash[0] = '\0';
 }

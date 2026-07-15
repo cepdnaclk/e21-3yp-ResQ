@@ -203,5 +203,9 @@ class CourseControllerTest {
             }
             return activeUser;
         }
+
+        @Override
+        public void audit(String actorUserId, String action, String targetType, String targetId, java.util.Map<String, Object> metadata) {
+        }
     }
 }

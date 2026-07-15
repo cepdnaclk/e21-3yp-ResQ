@@ -316,7 +316,7 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
       }
 
       /* Try to atomically reserve session start */
-      if (!calibration_manager_try_reserve_session_start(profile_id, profile_version, profile_hash)) {
+      if (calibration_manager_try_reserve_session_start(profile_id, profile_version, profile_hash) != ESP_OK) {
         runtime_helpers_publish_command_result_from_command(
             network_config, visible_state, &command, "cmd/session/start",
             "NACK", "calibration_not_ready");
@@ -325,7 +325,7 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
 
       esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
       if (stream_stop_err != ESP_OK) {
-        calibration_manager_release_session_reservation();
+        calibration_manager_rollback_session_start();
         runtime_helpers_publish_command_result_from_command(
             network_config, visible_state, &command, "cmd/session/start",
             "NACK", "07102");
@@ -339,13 +339,10 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
           profile_id, &command);
 
       if (start_state == RESQ_STATE_SESSION_ACTIVE) {
-        // Release reservation now that state owner entered active state
-        calibration_manager_release_session_reservation();
         return RESQ_STATE_SESSION_ACTIVE;
       }
 
-      /* otherwise stay in current visible state, release reservation */
-      calibration_manager_release_session_reservation();
+      /* otherwise stay in current visible state; rollback is owned by session_active_manager_start */
       continue;
     }
 

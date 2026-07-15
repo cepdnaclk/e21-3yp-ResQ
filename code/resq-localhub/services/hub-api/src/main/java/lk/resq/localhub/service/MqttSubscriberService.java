@@ -406,7 +406,7 @@ public class MqttSubscriberService {
                         logger.debug("Ignored MQTT status for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                         return;
                     }
-                    DeviceReadinessState readiness = DeviceReadinessService.toReadinessState(applyResult.state());
+                    DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
                     reconcileFirmwareBootChange(parsedTopic.deviceId, applyResult);
@@ -422,7 +422,7 @@ public class MqttSubscriberService {
                         logger.debug("Ignored MQTT heartbeat for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                         return;
                     }
-                    DeviceReadinessState readiness = DeviceReadinessService.toReadinessState(applyResult.state());
+                    DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                     manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
                     reconcileFirmwareBootChange(parsedTopic.deviceId, applyResult);
@@ -524,7 +524,7 @@ public class MqttSubscriberService {
                         logger.debug("Ignored MQTT event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                         return;
                     }
-                    DeviceReadinessState readiness = DeviceReadinessService.toReadinessState(applyResult.state());
+                    DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                     reconcileFirmwareBootChange(parsedTopic.deviceId, applyResult);
                     applyCanonicalEventSideEffects(parsedTopic, payload);
                     manikinRegistryService.updateFromEvent(parsedTopic.deviceId, payload);
@@ -543,7 +543,7 @@ public class MqttSubscriberService {
                             logger.debug("Ignored MQTT calibration event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                             return;
                         }
-                        DeviceReadinessState readiness = DeviceReadinessService.toReadinessState(applyResult.state());
+                        DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                         manikinRegistryService.updateFromCalibrationEvent(parsedTopic.deviceId, payload);
                         deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
                         reconcileFirmwareBootChange(parsedTopic.deviceId, applyResult);

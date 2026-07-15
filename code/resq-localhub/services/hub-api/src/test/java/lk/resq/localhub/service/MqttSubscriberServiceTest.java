@@ -646,7 +646,8 @@ class MqttSubscriberServiceTest {
                 objectMapper,
                 new CloudSessionSummaryPayloadMapper()
         );
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
                 "M01",
                 4002,
@@ -673,7 +674,8 @@ class MqttSubscriberServiceTest {
                 new RateEstimatorRegistry(),
                 readinessService,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                identityValidator
         );
         CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         MqttSubscriberService subscriber = new MqttSubscriberService(
@@ -704,7 +706,8 @@ class MqttSubscriberServiceTest {
         profileRepository.initialize();
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
             Path.of("target", "mqtt-subscriber-live-registry-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
@@ -728,9 +731,13 @@ class MqttSubscriberServiceTest {
                         liveStreamService,
                         traineeRecordsRepository,
                         firmwareCalibrationService,
-                syncQueueService,
-                profileService,
-                fingerprintService
+                        syncQueueService,
+                        null,
+                        new RateEstimatorRegistry(),
+                        readinessService,
+                        profileService,
+                        fingerprintService,
+                        identityValidator
                 ),
                 liveStreamService,
                 repository,

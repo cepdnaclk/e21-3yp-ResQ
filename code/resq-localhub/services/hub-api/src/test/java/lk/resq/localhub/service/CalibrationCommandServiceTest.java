@@ -47,7 +47,8 @@ class CalibrationCommandServiceTest {
         calRepo.initialize();
 
         publisher = new CapturingPublisher(objectMapper, repository);
-        readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         registryService = new ManikinRegistryService(12);
         idGenerator = new CommandRequestIdGenerator("a4f18d2c");
         streamService = new CapturingCalibrationStreamService(readinessService);
@@ -111,7 +112,7 @@ class CalibrationCommandServiceTest {
         CalibrationStartRequest expectedRequest = new CalibrationStartRequest(
                 13500, 20100, 15000, 15000, "adult-basic", 20, 3000,
                 null, null, null, null,
-                1, "833aeb4af4c0c577e917d5e997283a3f259107011a3e0ef8afe275c317805dc0"
+                1, "d9c9747c1ede10bf156a16e33f67f39bc21694d42fc91a35be50df7d7e24ca4a"
         );
         assertThat(publisher.lastStartRequest).isEqualTo(expectedRequest);
 

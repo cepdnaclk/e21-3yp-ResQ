@@ -186,7 +186,10 @@ class StateConsistencyRegressionScenarios {
         registry.updateFromStatus("M01", objectMapper.readTree("""
                 {"state":"PAIRED_IDLE","session_active":false,"calibrated":false,"ts_ms":1}
                 """));
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        CalibrationProfileIdentityValidator identityValidator = org.mockito.Mockito.mock(CalibrationProfileIdentityValidator.class);
+        org.mockito.Mockito.when(identityValidator.validate(org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any(), org.mockito.Mockito.any()))
+                .thenReturn(new CalibrationProfileIdentityValidator.ValidationResult(true, null, null, null));
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         CapturingLiveStreamService liveStreamService = new CapturingLiveStreamService();
         CapturingMqttCommandPublisherService commandPublisher = new CapturingMqttCommandPublisherService(repository);
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
@@ -204,7 +207,8 @@ class StateConsistencyRegressionScenarios {
                 new RateEstimatorRegistry(),
                 readinessService,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                identityValidator
         );
         CapturingCalibrationStreamService calibrationStreamService = new CapturingCalibrationStreamService(readinessService);
         MqttSubscriberService subscriber = new MqttSubscriberService(

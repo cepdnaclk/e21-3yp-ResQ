@@ -26,7 +26,8 @@ class CalibrationPersistenceTest {
         repository = new CalibrationPersistenceRepository(dbPath);
         repository.initialize();
 
-        readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         streamService = new CapturingStreamService(readinessService);
     }
 
@@ -264,6 +265,7 @@ class CalibrationPersistenceTest {
         payload.put("eventId", 4002);
         payload.put("result", "PASS");
         payload.put("firmwareState", "READY_FOR_SESSION");
+        payload.put("profile_id", "adult-basic");
         payload.put("tsMs", 2000L);
 
         sub.handleMessage(
@@ -364,7 +366,10 @@ class CalibrationPersistenceTest {
         repository.saveEvidence(completedEvidence);
 
         // 2. Simulate restart: fresh in-memory DeviceReadinessService (starts UNKNOWN)
-        DeviceReadinessService cleanReadinessService = new DeviceReadinessService();
+        DeviceReadinessService cleanReadinessService = new DeviceReadinessService(
+                new DeviceRuntimeStateService(),
+                new TestIdentityValidator()
+        );
 
         // 3. History IS visible in DB
         Optional<CalibrationEvidence> dbEvidence = repository.findLatestEvidence("DEV-101");

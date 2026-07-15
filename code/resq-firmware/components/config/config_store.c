@@ -1,4 +1,5 @@
 #include "config_store.h"
+#include "calibration_fingerprint.h"
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -225,10 +226,7 @@ _Static_assert(offsetof(calibration_slot_t, crc32) == 272, "offset mismatch");
 static SemaphoreHandle_t s_store_mutex = NULL;
 static bool s_config_store_initialized = false;
 
-/* Candidate RAM fields for diagnostics when recalibration is in progress (Correction 11) */
-static char s_candidate_profile_id[32] = {0};
-static uint32_t s_candidate_profile_version = 0;
-static char s_candidate_profile_hash[65] = {0};
+
 
 static cal_store_outcome_t get_snapshot_locked(nvs_handle_t handle, calibration_store_snapshot_t *out);
 
@@ -593,6 +591,7 @@ exit:
 /* Locked read of metadata */
 static cal_store_outcome_t read_calibration_meta_locked(nvs_handle_t handle, calibration_meta_t *out)
 {
+    memset(out, 0, sizeof(calibration_meta_t));
     size_t len = sizeof(calibration_meta_t);
     esp_err_t err = nvs_get_blob(handle, NVS_KEY_CAL_META, out, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
@@ -613,6 +612,24 @@ static cal_store_outcome_t read_calibration_meta_locked(nvs_handle_t handle, cal
     uint32_t calc_crc = calculate_meta_crc(out);
     if (out->crc32 != calc_crc) {
         return CAL_STORE_CORRUPT;
+    }
+    if (out->reserved[0] != 0 || out->reserved[1] != 0) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (out->recalibration_required != 0 && out->recalibration_required != 1) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (out->active_slot != CALIBRATION_SLOT_NONE && out->active_slot != 0 && out->active_slot != 1) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (out->active_slot == CALIBRATION_SLOT_NONE) {
+        if (out->active_generation != 0) {
+            return CAL_STORE_CORRUPT;
+        }
+    } else {
+        if (out->active_generation == 0) {
+            return CAL_STORE_CORRUPT;
+        }
     }
     return CAL_STORE_VALID;
 }
@@ -743,18 +760,27 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
         return CAL_STORE_CORRUPT;
     }
 
+    if (active_slot_data.profile_version <= 0) {
+        return CAL_STORE_CORRUPT;
+    }
+
     // Validate profile_id: must be null-terminated within 32 bytes and non-empty
     const void *id_null = memchr(active_slot_data.profile_id, '\0', sizeof(active_slot_data.profile_id));
     if (id_null == NULL) {
         return CAL_STORE_CORRUPT;  // no null terminator within buffer
     }
-    size_t id_len = (const char *)id_null - active_slot_data.profile_id;
+    size_t id_len = strlen(active_slot_data.profile_id);
     if (id_len == 0 || id_len >= 32) {
         return CAL_STORE_CORRUPT;
     }
 
     // Validate profile_hash: must have null at exactly index 64, all 64 chars are lowercase hex, not all zero
-    if (active_slot_data.profile_hash[64] != '\0') {
+    const void *hash_null = memchr(active_slot_data.profile_hash, '\0', sizeof(active_slot_data.profile_hash));
+    if (hash_null == NULL) {
+        return CAL_STORE_CORRUPT;
+    }
+    size_t hash_len = strlen(active_slot_data.profile_hash);
+    if (hash_len != 64) {
         return CAL_STORE_CORRUPT;
     }
     bool is_zero_hash = true;
@@ -953,38 +979,85 @@ cal_store_outcome_t config_store_promote_calibration(
         return CAL_STORE_IO_ERROR;
     }
 
-    // 1. Validate candidate profile ID: null-terminated within 32 bytes, non-empty, valid chars
+    if (candidate->profile_version <= 0) {
+        return CAL_STORE_CORRUPT;
+    }
     const void *id_null_ptr = memchr(candidate->profile_id, '\0', 32);
     if (id_null_ptr == NULL) {
-        return CAL_STORE_IO_ERROR;  // no null terminator
+        return CAL_STORE_CORRUPT;
     }
-    size_t id_len = (const char *)id_null_ptr - candidate->profile_id;
+    size_t id_len = strlen(candidate->profile_id);
     if (id_len == 0 || id_len > 31) {
-        return CAL_STORE_IO_ERROR;
+        return CAL_STORE_CORRUPT;
     }
     for (size_t i = 0; i < id_len; i++) {
         char c = candidate->profile_id[i];
         if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')) {
-            return CAL_STORE_IO_ERROR;
+            return CAL_STORE_CORRUPT;
         }
     }
-
-    // Validate candidate profile hash: null at index 64, exactly 64 lowercase hex, not all zero
-    if (candidate->profile_hash[64] != '\0') {
-        return CAL_STORE_IO_ERROR;
+    const void *hash_null_ptr = memchr(candidate->profile_hash, '\0', 65);
+    if (hash_null_ptr == NULL) {
+        return CAL_STORE_CORRUPT;
+    }
+    size_t hash_len = strlen(candidate->profile_hash);
+    if (hash_len != 64) {
+        return CAL_STORE_CORRUPT;
     }
     bool is_zero_hash = true;
     for (size_t i = 0; i < 64; i++) {
         char c = candidate->profile_hash[i];
         if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
-            return CAL_STORE_IO_ERROR;
+            return CAL_STORE_CORRUPT;
         }
         if (c != '0') {
             is_zero_hash = false;
         }
     }
     if (is_zero_hash) {
+        return CAL_STORE_CORRUPT;
+    }
+
+    // Recompute fingerprint immediately before promotion and compare semantically
+    char recomputed_hash[65];
+    esp_err_t fp_err = calibration_fingerprint_calculate(
+        candidate->profile_id,
+        candidate->profile_version,
+        candidate->hall_delta,
+        candidate->ref_pressure,
+        candidate->bladder_1_pressure,
+        candidate->bladder_2_pressure,
+        recomputed_hash,
+        sizeof(recomputed_hash)
+    );
+    if (fp_err != ESP_OK) {
         return CAL_STORE_IO_ERROR;
+    }
+    if (strcmp(recomputed_hash, candidate->profile_hash) != 0) {
+        return CAL_STORE_PROFILE_HASH_MISMATCH;
+    }
+
+    // Validate enum and ranges
+    if (candidate->pressure_mode != CALIBRATION_PRESSURE_REQUIRED &&
+        candidate->pressure_mode != CALIBRATION_PRESSURE_OPTIONAL &&
+        candidate->pressure_mode != CALIBRATION_HALL_ONLY &&
+        candidate->pressure_mode != CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (candidate->hall_delta == 0) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (candidate->full_depth_mm <= 0.0f) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (candidate->calibration_sample_count <= 0 || candidate->calibration_window_ms <= 0) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (candidate->hall_range_raw <= 30) {
+        return CAL_STORE_CORRUPT;
+    }
+    if (!calibration_config_is_valid(candidate)) {
+        return CAL_STORE_CORRUPT;
     }
 
     if (!s_config_store_initialized || s_store_mutex == NULL) {
@@ -1175,12 +1248,10 @@ esp_err_t config_store_mark_recalibration_required(void)
     calibration_meta_t meta;
     cal_store_outcome_t meta_outcome = read_calibration_meta_locked(handle, &meta);
     if (meta_outcome == CAL_STORE_NOT_FOUND) {
-        // If slots exist but no metadata, reject fresh initialization (CORRUPT)
-        calibration_slot_t slot;
-        size_t len = sizeof(calibration_slot_t);
-        esp_err_t err0 = nvs_get_blob(handle, NVS_KEY_SLOT_0, &slot, &len);
-        esp_err_t err1 = nvs_get_blob(handle, NVS_KEY_SLOT_1, &slot, &len);
-        if (err0 == ESP_OK || err1 == ESP_OK) {
+        size_t len = 0;
+        esp_err_t err0 = nvs_get_blob(handle, NVS_KEY_SLOT_0, NULL, &len);
+        esp_err_t err1 = nvs_get_blob(handle, NVS_KEY_SLOT_1, NULL, &len);
+        if (err0 != ESP_ERR_NVS_NOT_FOUND || err1 != ESP_ERR_NVS_NOT_FOUND) {
             nvs_close(handle);
             UNLOCK_STORE();
             return ESP_ERR_INVALID_STATE;
@@ -1210,24 +1281,27 @@ esp_err_t config_store_mark_recalibration_required(void)
 /**
  * @brief Get the recalibration_required flag in NVS.
  */
-esp_err_t config_store_get_recalibration_required(bool *out)
+cal_store_outcome_t config_store_get_recalibration_required(bool *out_required)
 {
-    if (out == NULL) {
-        return ESP_ERR_INVALID_ARG;
+    if (out_required == NULL) {
+        return CAL_STORE_IO_ERROR;
     }
 
     if (!s_config_store_initialized || s_store_mutex == NULL) {
-        *out = true;
-        return ESP_ERR_INVALID_STATE;
+        *out_required = true;
+        return CAL_STORE_IO_ERROR;
     }
     LOCK_STORE();
 
     nvs_handle_t handle;
     esp_err_t err = config_store_open(NVS_READONLY, &handle);
     if (err != ESP_OK) {
-        *out = true;
+        *out_required = true;
         UNLOCK_STORE();
-        return err;
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            return CAL_STORE_NOT_FOUND;
+        }
+        return CAL_STORE_IO_ERROR;
     }
 
     calibration_meta_t meta;
@@ -1235,14 +1309,14 @@ esp_err_t config_store_get_recalibration_required(bool *out)
     nvs_close(handle);
 
     if (outcome == CAL_STORE_VALID) {
-        *out = (meta.recalibration_required == 1);
+        *out_required = (meta.recalibration_required == 1);
         UNLOCK_STORE();
-        return ESP_OK;
+        return CAL_STORE_VALID;
     }
 
-    *out = true;
+    *out_required = true;
     UNLOCK_STORE();
-    return ESP_OK;
+    return outcome;
 }
 
 /* Locked snapshot generation */
@@ -1253,11 +1327,7 @@ static cal_store_outcome_t get_snapshot_locked(nvs_handle_t handle, calibration_
     out->recalibration_required = 1;
     out->committed_record_valid = 0;
 
-    strncpy(out->candidate_profile_id, s_candidate_profile_id, sizeof(out->candidate_profile_id) - 1);
-    out->candidate_profile_id[sizeof(out->candidate_profile_id) - 1] = '\0';
-    out->candidate_profile_version = s_candidate_profile_version;
-    strncpy(out->candidate_profile_hash, s_candidate_profile_hash, sizeof(out->candidate_profile_hash) - 1);
-    out->candidate_profile_hash[sizeof(out->candidate_profile_hash) - 1] = '\0';
+
 
     calibration_config_t config;
     calibration_meta_t meta;
@@ -1384,27 +1454,7 @@ cal_store_outcome_t config_store_get_snapshot(calibration_store_snapshot_t *out)
     return outcome;
 }
 
-/**
- * @brief Set current candidate profile fields (RAM diagnostics only).
- */
-void config_store_set_candidate_profile(const char *profile_id, uint32_t version, const char *hash)
-{
-    LOCK_STORE();
-    if (profile_id) {
-        strncpy(s_candidate_profile_id, profile_id, sizeof(s_candidate_profile_id) - 1);
-        s_candidate_profile_id[sizeof(s_candidate_profile_id) - 1] = '\0';
-    } else {
-        s_candidate_profile_id[0] = '\0';
-    }
-    s_candidate_profile_version = version;
-    if (hash) {
-        strncpy(s_candidate_profile_hash, hash, sizeof(s_candidate_profile_hash) - 1);
-        s_candidate_profile_hash[sizeof(s_candidate_profile_hash) - 1] = '\0';
-    } else {
-        s_candidate_profile_hash[0] = '\0';
-    }
-    UNLOCK_STORE();
-}
+
 
 /**
  * @brief Clear only network/provisioning values.
@@ -1490,9 +1540,7 @@ static esp_err_t clear_calibration_locked(nvs_handle_t handle)
     nvs_erase_key(handle, NVS_KEY_CALIBRATED_AT_MS);
     nvs_erase_key(handle, NVS_KEY_FULL_DEPTH_MM);
 
-    s_candidate_profile_id[0] = '\0';
-    s_candidate_profile_version = 0;
-    s_candidate_profile_hash[0] = '\0';
+
 
     return nvs_commit(handle);
 }

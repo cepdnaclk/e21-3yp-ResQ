@@ -18,7 +18,6 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
            ops->load_network != NULL &&
            ops->load_calibration != NULL &&
            ops->save_network != NULL &&
-           ops->save_calibration != NULL &&
            ops->clear_network != NULL &&
            ops->clear_all != NULL &&
            ops->provisioning_start != NULL &&
@@ -411,10 +410,6 @@ static resq_state_t run_turn_off(resq_fsm_t *fsm)
     esp_err_t result = stop_runtime(fsm);
     result = preserve_first_error(result,
                                   fsm->ops->save_network(&fsm->network_config));
-    if (fsm->calibration_config.calibrated) {
-        result = preserve_first_error(
-            result, fsm->ops->save_calibration(&fsm->calibration_config));
-    }
     if (fsm->ops->mqtt_is_connected()) {
         fsm->ops->mqtt_publish_status(RESQ_STATE_TURN_OFF,
                                       &fsm->network_config,

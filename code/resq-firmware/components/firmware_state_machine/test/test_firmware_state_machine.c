@@ -55,7 +55,6 @@ typedef struct {
     int clear_network_calls;
     int clear_all_calls;
     int save_network_calls;
-    int save_calibration_calls;
     int buzzer_stop_calls;
     int telemetry_stop_calls;
     int session_stop_calls;
@@ -104,12 +103,6 @@ static esp_err_t fake_save_network(network_config_t *config)
 {
     (void)config;
     f.save_network_calls++;
-    return ESP_OK;
-}
-static esp_err_t fake_save_calibration(const calibration_config_t *config)
-{
-    (void)config;
-    f.save_calibration_calls++;
     return ESP_OK;
 }
 static esp_err_t fake_clear_network(void)
@@ -366,7 +359,6 @@ static const resq_fsm_ops_t ops = {
     .load_network = fake_load_network,
     .load_calibration = fake_load_calibration,
     .save_network = fake_save_network,
-    .save_calibration = fake_save_calibration,
     .clear_network = fake_clear_network,
     .clear_all = fake_clear_all,
     .provisioning_start = fake_provisioning_start,
@@ -692,23 +684,17 @@ TEST_CASE("RESETTING cleans runtime and invokes restart", "[fsm]")
     TEST_ASSERT_EQUAL(0, f.restart_calls);
 }
 
-TEST_CASE("TURN_OFF persists only valid calibration and invokes soft off", "[fsm]")
+TEST_CASE("TURN_OFF persists network and invokes soft off", "[fsm]")
 {
     reset_fixture();
     fsm.calibration_config.calibrated = true;
     TEST_ASSERT_EQUAL(RESQ_STATE_TURN_OFF, run_state(RESQ_STATE_TURN_OFF));
     TEST_ASSERT_EQUAL(1, f.save_network_calls);
-    TEST_ASSERT_EQUAL(1, f.save_calibration_calls);
     TEST_ASSERT_EQUAL(1, f.soft_off_calls);
     TEST_ASSERT_EQUAL(1, f.heartbeat_stop_calls);
     TEST_ASSERT_EQUAL(1, f.mqtt_stop_calls);
     TEST_ASSERT_EQUAL(1, f.wifi_disconnect_calls);
     TEST_ASSERT_EQUAL(1, f.status_stop_calls);
-
-    reset_fixture();
-    fsm.calibration_config.calibrated = false;
-    run_state(RESQ_STATE_TURN_OFF);
-    TEST_ASSERT_EQUAL(0, f.save_calibration_calls);
 }
 
 TEST_CASE("Unknown state enters ERROR with unsupported-state reason", "[fsm]")

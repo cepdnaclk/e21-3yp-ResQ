@@ -10,4 +10,5 @@ idf_component_register(
         nvs_flash
         esp_hw_support
         esp_driver_gpio
+        calibration_fingerprint
 )

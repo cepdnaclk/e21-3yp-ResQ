@@ -920,10 +920,10 @@ esp_err_t mqtt_manager_publish_error_status(
     cJSON_AddStringToObject(root, "profile_hash",
                             calibration_config->profile_hash);
   } else {
-    cJSON_AddNumberToObject(root, "calibration_schema_version", 1);
+    cJSON_AddNumberToObject(root, "calibration_schema_version", 0);
     cJSON_AddNumberToObject(root, "calibration_generation", 0);
     cJSON_AddStringToObject(root, "calibration_storage_status", "MISSING");
-    cJSON_AddBoolToObject(root, "recalibration_required", false);
+    cJSON_AddBoolToObject(root, "recalibration_required", true);
     cJSON_AddNumberToObject(root, "profile_version", 0);
     cJSON_AddStringToObject(root, "profile_hash", "");
   }

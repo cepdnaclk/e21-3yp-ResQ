@@ -361,7 +361,27 @@ esp_err_t session_active_manager_init(void) {
   return ESP_OK;
 }
 
+static resq_state_t session_active_manager_start_internal(
+    network_config_t *network_config, calibration_config_t *calibration_config,
+    const char *ip_address, const char *session_id, const char *profile_id,
+    const resq_mqtt_command_t *cmd);
+
 resq_state_t session_active_manager_start(
+    network_config_t *network_config, calibration_config_t *calibration_config,
+    const char *ip_address, const char *session_id, const char *profile_id,
+    const resq_mqtt_command_t *cmd) {
+  resq_state_t state = session_active_manager_start_internal(
+      network_config, calibration_config, ip_address, session_id,
+      profile_id, cmd);
+  if (state == RESQ_STATE_SESSION_ACTIVE) {
+    calibration_manager_notify_session_started();
+  } else {
+    calibration_manager_rollback_session_start();
+  }
+  return state;
+}
+
+static resq_state_t session_active_manager_start_internal(
     network_config_t *network_config, calibration_config_t *calibration_config,
     const char *ip_address, const char *session_id, const char *profile_id,
     const resq_mqtt_command_t *cmd) {
@@ -647,10 +667,25 @@ recover_session_connectivity(network_config_t *network_config,
   return RESQ_STATE_SESSION_INTERRUPTED;
 }
 
-resq_state_t
-session_active_manager_run(network_config_t *network_config,
-                           calibration_config_t *calibration_config,
-                           const char *ip_address) {
+static resq_state_t session_active_manager_run_internal(
+    network_config_t *network_config,
+    calibration_config_t *calibration_config,
+    const char *ip_address);
+
+resq_state_t session_active_manager_run(
+    network_config_t *network_config,
+    calibration_config_t *calibration_config,
+    const char *ip_address) {
+  resq_state_t state = session_active_manager_run_internal(
+      network_config, calibration_config, ip_address);
+  calibration_manager_notify_session_ended();
+  return state;
+}
+
+static resq_state_t session_active_manager_run_internal(
+    network_config_t *network_config,
+    calibration_config_t *calibration_config,
+    const char *ip_address) {
   if (network_config == NULL || calibration_config == NULL) {
     return RESQ_STATE_ERROR;
   }

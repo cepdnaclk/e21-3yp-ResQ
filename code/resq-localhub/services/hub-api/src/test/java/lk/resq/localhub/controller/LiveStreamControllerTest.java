@@ -9,6 +9,9 @@ import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.CalibrationStreamService;
 import lk.resq.localhub.service.DeviceReadinessService;
+import lk.resq.localhub.service.DeviceRuntimeStateService;
+import lk.resq.localhub.service.CalibrationProfileIdentityValidator;
+import lk.resq.localhub.service.TestIdentityValidator;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.LiveStreamService;
 import lk.resq.localhub.service.LocalAuthRepository;
@@ -42,7 +45,8 @@ class LiveStreamControllerTest {
         LiveStreamService liveStreamService = new DummyLiveStreamService();
         ManikinRegistryService registryService = new DummyManikinRegistryService();
         ActiveSessionService sessionService = new DummyActiveSessionService();
-        DeviceReadinessService readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         calibrationStreamService = new CalibrationStreamService(readinessService);
         sensorStreamService = new SensorStreamService();
         
@@ -137,7 +141,7 @@ class LiveStreamControllerTest {
 
     private static final class DummyActiveSessionService extends ActiveSessionService {
         private DummyActiveSessionService() {
-            super(null, null, null, null, null, null, null, null, null);
+            super(null, null, null, null, null, null, null, null, null, null);
         }
 
         @Override

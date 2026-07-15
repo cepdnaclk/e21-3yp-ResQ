@@ -12,6 +12,9 @@ import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CalibrationCommandService;
 import lk.resq.localhub.service.DeviceReadinessService;
+import lk.resq.localhub.service.DeviceRuntimeStateService;
+import lk.resq.localhub.service.CalibrationProfileIdentityValidator;
+import lk.resq.localhub.service.TestIdentityValidator;
 import lk.resq.localhub.service.CalibrationStreamService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.CalibrationPersistenceRepository;
@@ -50,7 +53,8 @@ class CalibrationControllerTest {
         repository.initialize();
         
         DummyPublisher publisher = new DummyPublisher(objectMapper, repository);
-        readinessService = new DeviceReadinessService();
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         ManikinRegistryService registryService = new ManikinRegistryService(12);
         CommandRequestIdGenerator idGenerator = new CommandRequestIdGenerator();
         CalibrationStreamService streamService = new CalibrationStreamService(readinessService);

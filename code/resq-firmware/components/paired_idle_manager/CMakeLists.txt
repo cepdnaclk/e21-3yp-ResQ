@@ -20,4 +20,5 @@ idf_component_register(
         freertos
         error_manager
         system_button_manager
+        session_command_types
 )

@@ -128,18 +128,13 @@ esp_err_t calibration_manager_parse_start_payload(
     const char *payload, calibration_config_t *out_config, char *out_command_id,
     size_t out_command_id_len, calibration_reason_id_t *out_reason);
 
-/**
- * @brief Atomically try to reserve session start under calibration manager lock.
- *
- * If calibration is running, this fails and returns false.
- * Otherwise, blocks calibration starts and returns true.
- */
-bool calibration_manager_try_reserve_session_start(const char *profile_id, uint32_t profile_version, const char *profile_hash);
-
-/**
- * @brief Release the session reservation, enabling calibration starts again.
- */
-void calibration_manager_release_session_reservation(void);
+esp_err_t calibration_manager_try_reserve_session_start(
+    const char *profile_id,
+    uint32_t profile_version,
+    const char *profile_hash);
+esp_err_t calibration_manager_notify_session_started(void);
+esp_err_t calibration_manager_rollback_session_start(void);
+esp_err_t calibration_manager_notify_session_ended(void);
 
 #ifdef __cplusplus
 }
