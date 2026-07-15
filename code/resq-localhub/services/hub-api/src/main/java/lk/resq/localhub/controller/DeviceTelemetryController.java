@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lk.resq.localhub.model.ApiErrorResponse;
 import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.UserRole;
+import lk.resq.localhub.model.firmware.SensorStreamCommandUpdate;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.MqttCommandPublishException;
@@ -87,8 +88,20 @@ public class DeviceTelemetryController {
     ) {
         try {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
+            boolean shouldPublish = "START".equals(action)
+                    ? sensorStreamService.beginStart(deviceId)
+                    : sensorStreamService.beginStop(deviceId);
+            if (!shouldPublish) {
+                return ResponseEntity.accepted().body(controlResponse(
+                        deviceId,
+                        sensorStreamService.latestControl(deviceId).orElse(null),
+                        intervalMs,
+                        true
+                ));
+            }
             MqttCommandPublisherService.FirmwareCommandPublishResult result =
                     mqttCommandPublisherService.publishTelemetryControl(deviceId, action, intervalMs);
+            sensorStreamService.commandPublished(deviceId, result.requestId(), action);
             authService.audit(
                     actor.id(),
                     "FIRMWARE_TELEMETRY_" + action,
@@ -97,25 +110,44 @@ public class DeviceTelemetryController {
                     Map.of("requestId", result.requestId())
             );
 
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("deviceId", deviceId);
-            response.put("device_id", deviceId);
-            response.put("request_id", result.requestId());
-            response.put("action", action);
-            response.put("command", "telemetry/" + action.toLowerCase());
+            Map<String, Object> response = controlResponse(
+                    deviceId,
+                    sensorStreamService.latestControl(deviceId).orElse(null),
+                    intervalMs,
+                    false
+            );
             response.put("topic", result.topic());
-            if (intervalMs != null) {
-                response.put("interval_ms", intervalMs);
-            }
-            response.put("status", "PUBLISHED");
             return ResponseEntity.accepted().body(response);
         } catch (IllegalArgumentException error) {
+            sensorStreamService.commandPublishFailed(deviceId, action, error.getMessage());
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (MqttCommandPublishException error) {
+            sensorStreamService.commandPublishFailed(deviceId, action, error.getMessage());
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(new ApiErrorResponse(error.getMessage()));
         } catch (ForbiddenException error) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
+    }
+
+    private static Map<String, Object> controlResponse(
+            String deviceId,
+            SensorStreamCommandUpdate update,
+            Integer intervalMs,
+            boolean idempotent
+    ) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("deviceId", deviceId);
+        response.put("device_id", deviceId);
+        response.put("request_id", update == null || update.requestId() == null ? "" : update.requestId());
+        response.put("action", update == null || update.action() == null ? "STOP" : update.action());
+        response.put("command", "telemetry/" + String.valueOf(response.get("action")).toLowerCase());
+        if (intervalMs != null) {
+            response.put("interval_ms", intervalMs);
+        }
+        response.put("status", update == null ? "IDLE" : update.status());
+        response.put("stream_state", update == null ? "IDLE" : update.streamState());
+        response.put("idempotent", idempotent);
+        return response;
     }
 
     private static Integer requireInterval(Map<String, Object> body) {

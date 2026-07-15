@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
 import type { DeviceReadinessState, CalibrationState, CalibrationStreamEvent, CalibrationEvidence } from "../../types/manikin";
@@ -6,6 +6,14 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import StatusBadge from "../../components/ui/StatusBadge";
 import { getDeviceStateTone } from "../../utils/userFriendlyLabels";
+import CalibrationTargetTracking from "../../components/cpr/CalibrationTargetTracking";
+import { createSensorStreamClient, startSensorStream, stopSensorStream } from "../../lib/sensorStreamClient";
+import type { SensorStreamCommandUpdate, SensorStreamUiState } from "../../lib/sensorStreamTypes";
+import {
+  buildCalibrationTargets,
+  isUsableRaw,
+  type CalibrationRawSample,
+} from "../../utils/calibrationTargetTracking";
 
 type CalibrationWizardPageProps = {
   deviceId: string;
@@ -174,44 +182,6 @@ function mergeEventIntoReadiness(
   };
 }
 
-function hasLiveMeasurements(event: CalibrationStreamEvent | null): boolean {
-  return Boolean(
-    event &&
-      (
-        event.pressure0Kpa !== undefined ||
-        event.pressure1Kpa !== undefined ||
-        event.pressure2Kpa !== undefined ||
-        event.hallMm !== undefined ||
-        event.fullDepthMm !== undefined
-      ),
-  );
-}
-
-function formatKpa(value: number | null | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)} kPa` : "Unavailable";
-}
-
-function pressureDisplay(event: CalibrationStreamEvent | null, channel: 0 | 1 | 2): string {
-  if (!event) return "Waiting";
-  const mask = event.pressureSaturationMask ?? 0;
-  if ((mask & (1 << channel)) !== 0) {
-    return "Saturated";
-  }
-  const value = channel === 0 ? event.pressure0Kpa : channel === 1 ? event.pressure1Kpa : event.pressure2Kpa;
-  const valid = channel === 0 ? event.pressure0KpaValid : channel === 1 ? event.pressure1KpaValid : event.pressure2KpaValid;
-  return valid === true ? formatKpa(value) : "Unavailable";
-}
-
-function hallDisplay(event: CalibrationStreamEvent | null): { value: string; progress: string } {
-  if (!event || event.sampleHallMmValid !== true) {
-    return { value: "Unavailable", progress: "Unavailable" };
-  }
-  const mm = typeof event.hallMm === "number" && Number.isFinite(event.hallMm) ? `${event.hallMm.toFixed(1)} mm` : "Unavailable";
-  const rawProgress = typeof event.hallProgress === "number" && Number.isFinite(event.hallProgress) ? event.hallProgress : null;
-  const pct = rawProgress === null ? "Unavailable" : `${Math.round((rawProgress <= 1 ? rawProgress * 100 : rawProgress))}%`;
-  return { value: mm, progress: pct };
-}
-
 export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationWizardPageProps) {
   // Form states with defaults
   const [form, setForm] = useState<FormValues>({
@@ -245,8 +215,164 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const [finalEvent, setFinalEvent] = useState<CalibrationStreamEvent | null>(null);
   const [lastCompletedProgressId, setLastCompletedProgressId] = useState<number>(0);
   const [startNotice, setStartNotice] = useState<string | null>(null);
+  const [activeConfig, setActiveConfig] = useState<import("../../types/manikin").CalibrationStartRequest | null>(null);
+  const [rawSample, setRawSample] = useState<CalibrationRawSample | null>(null);
+  const [hallBaselineRaw, setHallBaselineRaw] = useState<number | null>(null);
+  const [fullDepthMm, setFullDepthMm] = useState<number | null>(null);
+  const [maxHallDelta, setMaxHallDelta] = useState<number | null>(null);
+  const [manualStreamState, setManualStreamState] = useState<SensorStreamUiState | "CALIBRATION_OWNED">("IDLE");
+  const [manualStreamReasonId, setManualStreamReasonId] = useState<string | null>(null);
+  const [manualStreamCommand, setManualStreamCommand] = useState<SensorStreamCommandUpdate | null>(null);
+  const [sampleStale, setSampleStale] = useState(false);
+  const [guidanceAnnouncement, setGuidanceAnnouncement] = useState("");
+  const [lastSampleAtMs, setLastSampleAtMs] = useState<number | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const streamStartedRef = useRef(false);
+  const stopRequestedRef = useRef(false);
+  const announcementRef = useRef({ text: "", at: 0 });
+
+  const stopManualStream = useCallback(async () => {
+    if (!streamStartedRef.current || stopRequestedRef.current) return;
+    stopRequestedRef.current = true;
+    setManualStreamState("STOPPING");
+    try {
+      const response = await stopSensorStream(deviceId);
+      if (response.streamState === "IDLE") {
+        setManualStreamState("IDLE");
+      }
+    } catch (error) {
+      setManualStreamState("ERROR");
+      setManualStreamReasonId(error instanceof Error ? error.message : "telemetry_stop_failed");
+    } finally {
+      streamStartedRef.current = false;
+    }
+  }, [deviceId]);
+
+  const startManualStream = useCallback(async () => {
+    if (streamStartedRef.current && (manualStreamState === "STARTING" || manualStreamState === "RUNNING")) return;
+    stopRequestedRef.current = false;
+    streamStartedRef.current = true;
+    setManualStreamState("STARTING");
+    setManualStreamReasonId(null);
+    try {
+      const response = await startSensorStream(deviceId, 200);
+      setManualStreamState(response.streamState);
+    } catch (error) {
+      streamStartedRef.current = false;
+      setManualStreamState("ERROR");
+      setManualStreamReasonId(error instanceof Error ? error.message : "telemetry_start_failed");
+    }
+  }, [deviceId, manualStreamState]);
+
+  const applyCalibrationRawSample = useCallback((event: CalibrationStreamEvent) => {
+    const hasRaw = event.pressure0Raw !== undefined || event.pressure1Raw !== undefined ||
+      event.pressure2Raw !== undefined || event.hallRaw !== undefined;
+    if (!hasRaw) return;
+    const receivedAt = event.receivedAt ?? new Date().toISOString();
+    setRawSample((previous) => ({
+      pressure0Raw: event.pressure0Raw !== undefined ? event.pressure0Raw : previous?.pressure0Raw ?? null,
+      pressure0RawValid: event.pressure0RawValid !== undefined ? event.pressure0RawValid === true : previous?.pressure0RawValid ?? false,
+      pressure1Raw: event.pressure1Raw !== undefined ? event.pressure1Raw : previous?.pressure1Raw ?? null,
+      pressure1RawValid: event.pressure1RawValid !== undefined ? event.pressure1RawValid === true : previous?.pressure1RawValid ?? false,
+      pressure2Raw: event.pressure2Raw !== undefined ? event.pressure2Raw : previous?.pressure2Raw ?? null,
+      pressure2RawValid: event.pressure2RawValid !== undefined ? event.pressure2RawValid === true : previous?.pressure2RawValid ?? false,
+      hallRaw: event.hallRaw !== undefined ? event.hallRaw : previous?.hallRaw ?? null,
+      hallRawValid: event.hallRawValid !== undefined ? event.hallRawValid === true : previous?.hallRawValid ?? false,
+      hallMm: event.hallMm !== undefined ? event.hallMm : previous?.hallMm ?? null,
+      hallMmValid: event.hallMmValid !== undefined ? event.hallMmValid === true : previous?.hallMmValid ?? false,
+      receivedAt,
+    }));
+    if (typeof event.fullDepthMm === "number" && Number.isFinite(event.fullDepthMm) && event.fullDepthMm > 0) {
+      setFullDepthMm(event.fullDepthMm);
+    }
+    if (event.hallBaselineRawValid === true && isUsableRaw(event.hallBaselineRaw, true)) {
+      setHallBaselineRaw(event.hallBaselineRaw);
+    } else if (event.progressId === 8 && isUsableRaw(event.hallRaw, event.hallRawValid)) {
+      setHallBaselineRaw(event.hallRaw);
+    }
+    setLastSampleAtMs(Date.now());
+    setSampleStale(false);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    streamStartedRef.current = false;
+    stopRequestedRef.current = false;
+    setManualStreamState("IDLE");
+    setManualStreamReasonId(null);
+    setManualStreamCommand(null);
+    setActiveConfig(null);
+    setRawSample(null);
+    setHallBaselineRaw(null);
+    setFullDepthMm(null);
+    setMaxHallDelta(null);
+
+    const client = createSensorStreamClient(deviceId, {
+      onOpen: () => {
+        if (!disposed && streamStartedRef.current) setSampleStale(false);
+      },
+      onSnapshot: (snapshot) => {
+        if (disposed) return;
+        setRawSample({
+          pressure0Raw: snapshot.pressure0Raw,
+          pressure0RawValid: snapshot.pressure0RawValid,
+          pressure1Raw: snapshot.pressure1Raw,
+          pressure1RawValid: snapshot.pressure1RawValid,
+          pressure2Raw: snapshot.pressure2Raw,
+          pressure2RawValid: snapshot.pressure2RawValid,
+          hallRaw: snapshot.hallRaw,
+          hallRawValid: snapshot.hallRawValid,
+          hallMm: snapshot.hallMm,
+          hallMmValid: snapshot.hallMmValid,
+          receivedAt: snapshot.receivedAt,
+        });
+        setLastSampleAtMs(Date.now());
+        setSampleStale(false);
+        if (!stopRequestedRef.current) setManualStreamState("RUNNING");
+      },
+      onCommand: (update) => {
+        if (disposed) return;
+        setManualStreamCommand(update);
+        setManualStreamState(update.streamState);
+        setManualStreamReasonId(update.status === "NACK" || update.streamState === "ERROR" ? update.reasonId : null);
+        if (update.streamState === "IDLE") {
+          streamStartedRef.current = false;
+          stopRequestedRef.current = false;
+        }
+      },
+      onError: (error) => {
+        if (disposed || !streamStartedRef.current) return;
+        setSampleStale(true);
+        setManualStreamReasonId(error.message);
+      },
+    });
+    client.start();
+
+    return () => {
+      disposed = true;
+      client.stop();
+      if (streamStartedRef.current && !stopRequestedRef.current) {
+        stopRequestedRef.current = true;
+        void stopSensorStream(deviceId);
+      }
+      streamStartedRef.current = false;
+    };
+  }, [deviceId]);
+
+  useEffect(() => {
+    if (lastSampleAtMs === null || manualStreamState === "IDLE" || manualStreamState === "STOPPING") return;
+    const timer = window.setInterval(() => {
+      if (Date.now() - lastSampleAtMs > 1500) setSampleStale(true);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [lastSampleAtMs, manualStreamState]);
+
+  useEffect(() => {
+    if (hallBaselineRaw === null || !isUsableRaw(rawSample?.hallRaw, rawSample?.hallRawValid)) return;
+    const delta = Math.abs(rawSample!.hallRaw! - hallBaselineRaw);
+    setMaxHallDelta((previous) => previous === null ? delta : Math.max(previous, delta));
+  }, [hallBaselineRaw, rawSample?.hallRaw, rawSample?.hallRawValid]);
 
   const fetchEvidence = async () => {
     try {
@@ -290,6 +416,10 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       setLatestEvent(event);
       setStreamError(null);
       setReadiness((prev) => mergeEventIntoReadiness(event, prev));
+      applyCalibrationRawSample(event);
+      if (event.progressId != null && event.progressId >= 1 && event.progressId <= 10) {
+        setManualStreamState("CALIBRATION_OWNED");
+      }
 
       if (event.eventId === 4000) {
         setCommandEvent(event);
@@ -341,7 +471,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
         eventSourceRef.current.close();
       }
     };
-  }, [deviceId]);
+  }, [deviceId, applyCalibrationRawSample]);
 
   // Form field change handler
   const handleInputChange = (field: keyof FormValues, value: string) => {
@@ -405,6 +535,16 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
     setFinalEvent(null);
     setLastCompletedProgressId(0);
 
+    if (streamStartedRef.current) {
+      await stopManualStream();
+    }
+    setRawSample(null);
+    setHallBaselineRaw(null);
+    setFullDepthMm(null);
+    setMaxHallDelta(null);
+    setLastSampleAtMs(null);
+    setSampleStale(false);
+
     // Transit state to STARTING locally to show immediate response
     setReadiness((prev) => ({
       deviceId,
@@ -424,11 +564,15 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
         calibration_window_ms: form.calibration_window_ms ? Number(form.calibration_window_ms) : undefined,
       };
 
+      setActiveConfig(reqPayload);
+      await startManualStream();
       await startCalibration(deviceId, reqPayload);
-      setStartNotice("Start command published");
+      setStartNotice("Calibration started; live tracking will use calibration-owned raw samples while firmware owns the sensors.");
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Failed to start calibration.");
       setIsSubmitting(false);
+      setActiveConfig(null);
+      await stopManualStream();
       // Revert status
       setReadiness((prev) => (prev?.calibrationState === "STARTING" ? null : prev));
     }
@@ -446,9 +590,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
     try {
       await cancelCalibration(deviceId);
+      await stopManualStream();
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Failed to cancel calibration.");
       setIsCancelling(false);
+      await stopManualStream();
     }
   };
 
@@ -462,6 +608,17 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const isFailure = terminalResult === "FAIL" || calState === "FAILED" || progressId === 12;
   const isInterrupted = calState === "INTERRUPTED" || progressId === 13;
   const isCancelled = terminalResult === "CANCELLED" || terminalResult === "CANCELED" || calState === "CANCELLED";
+
+  useEffect(() => {
+    if (isSuccess || isFailure || isInterrupted || isCancelled) {
+      void stopManualStream();
+    }
+  }, [isSuccess, isFailure, isInterrupted, isCancelled, stopManualStream]);
+
+  const handleBack = async () => {
+    await stopManualStream();
+    onBack();
+  };
 
   // Determine current active stepper step
   let activeStep = 0;
@@ -618,9 +775,42 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const instruction = getProgressInstructions(progressId);
   const reasonDetail = readiness?.lastReasonId ? REASON_DETAILS[readiness.lastReasonId] : null;
   const actionMsg = reasonDetail?.action ?? getActionMessage(readiness?.lastActionId);
-  const sensorEvent = progressEvent;
-  const hall = hallDisplay(sensorEvent);
   const resultEvent = finalEvent ?? commandEvent;
+  const resolvedConfig = useMemo(() => {
+    if (activeConfig) return activeConfig;
+    if (!latestEvidence) return null;
+    if ([latestEvidence.hallDelta, latestEvidence.refPressure, latestEvidence.bladder1Pressure, latestEvidence.bladder2Pressure].some((value) => typeof value !== "number")) {
+      return null;
+    }
+    return {
+      hall_delta: latestEvidence.hallDelta as number,
+      ref_pressure: latestEvidence.refPressure as number,
+      bladder_1_pressure: latestEvidence.bladder1Pressure as number,
+      bladder_2_pressure: latestEvidence.bladder2Pressure as number,
+      profile_id: latestEvidence.profileId ?? undefined,
+      sample_interval_ms: latestEvidence.sampleIntervalMs ?? undefined,
+      calibration_window_ms: latestEvidence.calibrationWindowMs ?? undefined,
+    };
+  }, [activeConfig, latestEvidence]);
+  const targets = useMemo(() => buildCalibrationTargets({
+    config: resolvedConfig,
+    sample: rawSample,
+    progressId,
+    lastCompletedProgressId,
+    reasonId: readiness?.lastReasonId ?? null,
+    hallBaselineRaw,
+    fullDepthMm,
+    maxHallDelta,
+  }), [resolvedConfig, rawSample, progressId, lastCompletedProgressId, readiness?.lastReasonId, hallBaselineRaw, fullDepthMm, maxHallDelta]);
+
+  useEffect(() => {
+    const next = targets.find((target) => target.active)?.guidance ?? "";
+    const now = Date.now();
+    if (next && next !== announcementRef.current.text && now - announcementRef.current.at >= 2000) {
+      announcementRef.current = { text: next, at: now };
+      setGuidanceAnnouncement(next);
+    }
+  }, [targets]);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -662,7 +852,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
             Device ID: <strong className="font-mono text-slate-600">{deviceId}</strong>
           </p>
         </div>
-        <Button type="button" variant="secondary" onClick={onBack}>
+        <Button type="button" variant="secondary" onClick={() => void handleBack()}>
           Back to Dashboard
         </Button>
       </div>
@@ -730,49 +920,15 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
             </div>
           </Card>
 
-          <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Live Sensor Measurements
-              </h4>
-              {sensorEvent?.pressureKpaValid === false && (
-                <span className="text-[10px] font-bold text-amber-600">Pressure aggregate degraded</span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {[0, 1, 2].map((channel) => (
-                <div
-                  key={channel}
-                  role="group"
-                  aria-label={`Pressure ${channel}`}
-                  className="rounded-xl border border-slate-100 bg-slate-50/60 p-3"
-                >
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Pressure {channel}
-                  </div>
-                  <div className="mt-1 text-lg font-extrabold text-slate-800">
-                    {pressureDisplay(sensorEvent, channel as 0 | 1 | 2)}
-                  </div>
-                  <div className="mt-1 text-[10px] font-medium text-slate-400">
-                    {sensorEvent ? "Converted kPa" : "Waiting for 4001"}
-                  </div>
-                </div>
-              ))}
-
-              <div role="group" aria-label="Hall" className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Hall</div>
-                <div className="mt-1 text-lg font-extrabold text-slate-800">{hall.value}</div>
-                <div className="mt-1 text-[10px] font-medium text-slate-400">Progress: {hall.progress}</div>
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-[11px] font-medium text-slate-500">
-              <span>Sample pressure valid: {sensorEvent?.samplePressureKpaValid === true ? "TRUE" : sensorEvent?.samplePressureKpaValid === false ? "FALSE" : "N/A"}</span>
-              <span>Full depth: {typeof sensorEvent?.fullDepthMm === "number" ? `${sensorEvent.fullDepthMm.toFixed(1)} mm` : "N/A"}</span>
-            </div>
-            {!hasLiveMeasurements(sensorEvent) && (
-              <p className="mt-3 text-xs text-slate-400">Waiting for calibration progress event 4001.</p>
-            )}
-          </Card>
+          <CalibrationTargetTracking
+            targets={targets}
+            streamState={manualStreamState}
+            streamReasonId={manualStreamReasonId}
+            commandUpdate={manualStreamCommand}
+            stale={sampleStale}
+            lastUpdatedAt={rawSample?.receivedAt ?? null}
+            guidanceAnnouncement={guidanceAnnouncement}
+          />
 
           {/* Form / Actions Panel */}
           <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6">
@@ -790,7 +946,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                   Calibration complete. Device is ready for session.
                 </p>
                 <div className="flex gap-3 justify-center pt-4">
-                  <Button type="button" variant="primary" onClick={onBack}>
+                  <Button type="button" variant="primary" onClick={() => void handleBack()}>
                     Start Session
                   </Button>
                 </div>

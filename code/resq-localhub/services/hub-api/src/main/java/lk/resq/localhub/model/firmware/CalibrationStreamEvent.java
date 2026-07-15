@@ -32,7 +32,17 @@ public record CalibrationStreamEvent(
         Boolean samplePressureKpaValid,
         Boolean sampleHallMmValid,
         Integer pressureSaturationMask,
-        Double fullDepthMm
+        Double fullDepthMm,
+        Integer pressure0Raw,
+        Boolean pressure0RawValid,
+        Integer pressure1Raw,
+        Boolean pressure1RawValid,
+        Integer pressure2Raw,
+        Boolean pressure2RawValid,
+        Integer hallRaw,
+        Boolean hallRawValid,
+        Integer hallBaselineRaw,
+        Boolean hallBaselineRawValid
 ) {
 
     public static CalibrationStreamEvent snapshot(String deviceId, DeviceReadinessState readiness) {
@@ -76,7 +86,8 @@ public record CalibrationStreamEvent(
                 null,
                 null,
                 null,
-                null
+                null,
+                null, null, null, null, null, null, null, null, null, null
         );
     }
 
@@ -142,7 +153,17 @@ public record CalibrationStreamEvent(
                 event.samplePressureKpaValid(),
                 event.sampleHallMmValid(),
                 event.pressureSaturationMask(),
-                event.fullDepthMm()
+                event.fullDepthMm(),
+                event.pressure0Raw(),
+                event.pressure0RawValid(),
+                event.pressure1Raw(),
+                event.pressure1RawValid(),
+                event.pressure2Raw(),
+                event.pressure2RawValid(),
+                event.hallRaw(),
+                event.hallRawValid(),
+                event.hallBaselineRaw(),
+                event.hallBaselineRawValid()
         );
     }
 
@@ -177,7 +198,8 @@ public record CalibrationStreamEvent(
                 null,
                 null,
                 null,
-                null
+                null,
+                null, null, null, null, null, null, null, null, null, null
         );
     }
 }

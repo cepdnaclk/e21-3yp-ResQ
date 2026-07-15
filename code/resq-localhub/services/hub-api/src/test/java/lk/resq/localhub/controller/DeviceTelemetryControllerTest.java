@@ -50,6 +50,21 @@ class DeviceTelemetryControllerTest {
     }
 
     @Test
+    void duplicateStartIsIdempotentAndDoesNotPublishTwice() {
+        Fixture fixture = newFixture();
+
+        ResponseEntity<?> first = fixture.controller.startTelemetry(null, "M01", Map.of("interval_ms", 200));
+        ResponseEntity<?> duplicate = fixture.controller.startTelemetry(null, "M01", Map.of("interval_ms", 200));
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(duplicate.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(fixture.publisher.publishCount).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> duplicateBody = (Map<String, Object>) duplicate.getBody();
+        assertThat(duplicateBody).containsEntry("idempotent", true);
+    }
+
+    @Test
     void stopTelemetryPublishesStopWithoutSessionFields() {
         Fixture fixture = newFixture();
 
@@ -68,6 +83,14 @@ class DeviceTelemetryControllerTest {
                 "M01",
                 "SENSOR_STREAM",
                 "PAIRED_IDLE",
+                1244088,
+                true,
+                3279680,
+                true,
+                -999999,
+                false,
+                2783,
+                true,
                 0.82,
                 true,
                 1.44,
@@ -116,6 +139,7 @@ class DeviceTelemetryControllerTest {
     private static final class CapturingPublisher extends MqttCommandPublisherService {
         private String lastTopic;
         private Map<String, Object> lastPayload;
+        private int publishCount;
 
         private CapturingPublisher(ObjectMapper objectMapper, FirmwarePersistenceRepository repository) {
             super(objectMapper, repository, "tcp://127.0.0.1:1", "test-publisher");
@@ -138,6 +162,7 @@ class DeviceTelemetryControllerTest {
                 FirmwareCommandTypeId commandTypeId
         ) {
             this.lastPayload = Map.copyOf(payload);
+            this.publishCount++;
             return super.publishFirmwareCommand(topic, payload, action, commandTypeId);
         }
     }

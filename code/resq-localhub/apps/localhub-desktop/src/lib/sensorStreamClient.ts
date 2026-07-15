@@ -2,14 +2,17 @@ import { createSseClient, type SseClient } from "./sseLiveClient";
 import { getHubApiBaseUrl } from "./hubApiUrl";
 import {
   parseSensorStreamSnapshot,
+  parseSensorStreamCommandUpdate,
   type LatestSensorStreamResponse,
   type SensorStreamCommandResponse,
+  type SensorStreamCommandUpdate,
   type SensorStreamSnapshot,
 } from "./sensorStreamTypes";
 
 export type SensorStreamClientCallbacks = {
   onOpen(): void;
   onSnapshot(snapshot: SensorStreamSnapshot): void;
+  onCommand?(update: SensorStreamCommandUpdate): void;
   onError(error: Error): void;
 };
 
@@ -24,6 +27,9 @@ type RawCommandResponse = {
   intervalMs?: number;
   interval_ms?: number;
   status?: string;
+  streamState?: string;
+  stream_state?: string;
+  idempotent?: boolean;
 };
 
 type RawLatestResponse = {
@@ -102,15 +108,18 @@ export function createSensorStreamClient(deviceId: string, callbacks: SensorStre
       onError: callbacks.onError,
     },
     (eventName, raw) => {
-      if (eventName !== "sensor-stream") {
-        return [];
-      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(raw);
       } catch {
         return [];
       }
+      if (eventName === "sensor-stream-command") {
+        const update = parseSensorStreamCommandUpdate(parsed, deviceId);
+        if (update) callbacks.onCommand?.(update);
+        return [];
+      }
+      if (eventName !== "sensor-stream") return [];
       const snapshot = parseSensorStreamSnapshot(parsed, deviceId);
       return snapshot ? [snapshot] : [];
     },
@@ -127,5 +136,7 @@ function mapCommandResponse(raw: RawCommandResponse, deviceId: string, fallbackA
     topic: raw.topic ?? "",
     intervalMs: raw.intervalMs ?? raw.interval_ms,
     status: raw.status ?? "PUBLISHED",
+    streamState: (raw.streamState ?? raw.stream_state ?? (action === "START" ? "STARTING" : "STOPPING")) as SensorStreamCommandResponse["streamState"],
+    idempotent: raw.idempotent ?? false,
   };
 }

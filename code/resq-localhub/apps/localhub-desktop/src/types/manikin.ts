@@ -177,6 +177,16 @@ export type CalibrationStreamEvent = {
   sampleHallMmValid?: boolean | null;
   pressureSaturationMask?: number | null;
   fullDepthMm?: number | null;
+  pressure0Raw?: number | null;
+  pressure0RawValid?: boolean | null;
+  pressure1Raw?: number | null;
+  pressure1RawValid?: boolean | null;
+  pressure2Raw?: number | null;
+  pressure2RawValid?: boolean | null;
+  hallRaw?: number | null;
+  hallRawValid?: boolean | null;
+  hallBaselineRaw?: number | null;
+  hallBaselineRawValid?: boolean | null;
 };
 
 export type CalibrationEvidence = {

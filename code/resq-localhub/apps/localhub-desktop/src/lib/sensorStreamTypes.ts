@@ -15,6 +15,14 @@ export type SensorStreamSnapshot = {
   deviceId: string;
   telemetryMode: "SENSOR_STREAM";
   state: string;
+  pressure0Raw: number;
+  pressure0RawValid: boolean;
+  pressure1Raw: number;
+  pressure1RawValid: boolean;
+  pressure2Raw: number;
+  pressure2RawValid: boolean;
+  hallRaw: number;
+  hallRawValid: boolean;
   pressure0Kpa: number;
   pressure0KpaValid: boolean;
   pressure1Kpa: number;
@@ -39,6 +47,20 @@ export type SensorStreamCommandResponse = {
   topic: string;
   intervalMs?: number;
   status: string;
+  streamState: SensorStreamUiState;
+  idempotent: boolean;
+};
+
+export type SensorStreamCommandUpdate = {
+  type: "sensor_stream_command";
+  deviceId: string;
+  requestId: string | null;
+  action: "START" | "STOP";
+  status: string;
+  reasonId: string | null;
+  firmwareState: string | null;
+  streamState: SensorStreamUiState | "CALIBRATION_OWNED";
+  receivedAt: string;
 };
 
 export type LatestSensorStreamResponse = {
@@ -88,6 +110,14 @@ export function parseSensorStreamSnapshot(raw: unknown, expectedDeviceId?: strin
     deviceId,
     telemetryMode,
     state: text(raw.state) ?? "-",
+    pressure0Raw: integer(raw.pressure0Raw ?? raw.pressure_0_raw),
+    pressure0RawValid: requiredBoolean(raw.pressure0RawValid ?? raw.pressure_0_raw_valid),
+    pressure1Raw: integer(raw.pressure1Raw ?? raw.pressure_1_raw),
+    pressure1RawValid: requiredBoolean(raw.pressure1RawValid ?? raw.pressure_1_raw_valid),
+    pressure2Raw: integer(raw.pressure2Raw ?? raw.pressure_2_raw),
+    pressure2RawValid: requiredBoolean(raw.pressure2RawValid ?? raw.pressure_2_raw_valid),
+    hallRaw: integer(raw.hallRaw ?? raw.hall_raw),
+    hallRawValid: requiredBoolean(raw.hallRawValid ?? raw.hall_raw_valid),
     pressure0Kpa: finiteNumber(raw.pressure0Kpa ?? raw.pressure_0_kpa),
     pressure0KpaValid: requiredBoolean(raw.pressure0KpaValid ?? raw.pressure_0_kpa_valid),
     pressure1Kpa: finiteNumber(raw.pressure1Kpa ?? raw.pressure_1_kpa),
@@ -112,6 +142,27 @@ export function parseSensorStreamSnapshot(raw: unknown, expectedDeviceId?: strin
   } catch {
     return null;
   }
+}
+
+export function parseSensorStreamCommandUpdate(raw: unknown, expectedDeviceId?: string | null): SensorStreamCommandUpdate | null {
+  if (!isRecord(raw)) return null;
+  const deviceId = text(raw.deviceId) ?? text(raw.device_id);
+  const action = text(raw.action);
+  const streamState = text(raw.streamState) ?? text(raw.stream_state);
+  if (!deviceId || (expectedDeviceId && deviceId !== expectedDeviceId)) return null;
+  if (action !== "START" && action !== "STOP") return null;
+  if (!streamState) return null;
+  return {
+    type: "sensor_stream_command",
+    deviceId,
+    requestId: text(raw.requestId) ?? text(raw.request_id),
+    action,
+    status: text(raw.status) ?? "UNKNOWN",
+    reasonId: text(raw.reasonId) ?? text(raw.reason_id),
+    firmwareState: text(raw.firmwareState) ?? text(raw.firmware_state),
+    streamState: streamState as SensorStreamCommandUpdate["streamState"],
+    receivedAt: text(raw.receivedAt) ?? new Date().toISOString(),
+  };
 }
 
 export function isSensorStreamTelemetry(raw: unknown): boolean {

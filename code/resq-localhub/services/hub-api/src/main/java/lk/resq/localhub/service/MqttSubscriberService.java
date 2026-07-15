@@ -538,6 +538,9 @@ public class MqttSubscriberService {
                 case "events/calibration" -> {
                     CalibrationMqttEvent calEvent = parseCalibrationMqttEvent(parsedTopic.deviceId, payload);
                     if (calEvent != null) {
+                        if (calEvent.progressId() != null && calEvent.progressId() >= 1 && calEvent.progressId() <= 10) {
+                            sensorStreamService.markCalibrationOwned(parsedTopic.deviceId, calEvent.firmwareState());
+                        }
                         RuntimeMessageApplyResult applyResult = deviceReadinessService.handleCalibrationEventResult(parsedTopic.deviceId, calEvent);
                         if (!applyResult.domainMutationAllowed()) {
                             logger.debug("Ignored MQTT calibration event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
@@ -704,6 +707,14 @@ public class MqttSubscriberService {
         );
 
         if (replyId != null) {
+            sensorStreamService.handleCommandReply(
+                    parsedTopic.deviceId,
+                    eventId,
+                    replyId,
+                    status,
+                    reasonId != null ? reasonId : reason,
+                    firmwareState
+            );
             boolean handledStart = activeSessionService.handleSessionStartFirmwareReply(
                     parsedTopic.deviceId,
                     eventId,
@@ -814,6 +825,17 @@ public class MqttSubscriberService {
                 integer(payload, "pressure_saturation_mask", "pressureSaturationMask"),
                 doubleValue(payload, "full_depth_mm", "fullDepthMm"),
                 firstText(payload, "profile_id", "profileId")
+        ).withRawTelemetry(
+                integer(payload, "pressure_0_raw", "pressure0Raw"),
+                booleanValue(payload, "pressure_0_raw_valid", "pressure0RawValid"),
+                integer(payload, "pressure_1_raw", "pressure1Raw"),
+                booleanValue(payload, "pressure_1_raw_valid", "pressure1RawValid"),
+                integer(payload, "pressure_2_raw", "pressure2Raw"),
+                booleanValue(payload, "pressure_2_raw_valid", "pressure2RawValid"),
+                integer(payload, "hall_raw", "hallRaw"),
+                booleanValue(payload, "hall_raw_valid", "hallRawValid"),
+                integer(payload, "hall_baseline_raw", "hallBaselineRaw"),
+                booleanValue(payload, "hall_baseline_raw_valid", "hallBaselineRawValid")
         ).withOrdering(
                 firstText(payload, "boot_id", "bootId"),
                 longValue(payload, "state_seq", "stateSeq")

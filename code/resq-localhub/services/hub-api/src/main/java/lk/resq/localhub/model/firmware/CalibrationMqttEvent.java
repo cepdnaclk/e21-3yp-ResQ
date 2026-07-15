@@ -30,7 +30,17 @@ public record CalibrationMqttEvent(
         Double fullDepthMm,
         String profileId,
         String bootId,
-        Long stateSeq
+        Long stateSeq,
+        Integer pressure0Raw,
+        Boolean pressure0RawValid,
+        Integer pressure1Raw,
+        Boolean pressure1RawValid,
+        Integer pressure2Raw,
+        Boolean pressure2RawValid,
+        Integer hallRaw,
+        Boolean hallRawValid,
+        Integer hallBaselineRaw,
+        Boolean hallBaselineRawValid
 ) {
     public CalibrationMqttEvent(
             String deviceId,
@@ -87,7 +97,8 @@ public record CalibrationMqttEvent(
                 fullDepthMm,
                 null,
                 null,
-                null
+                null,
+                null, null, null, null, null, null, null, null, null, null
         );
     }
 
@@ -147,7 +158,8 @@ public record CalibrationMqttEvent(
                 fullDepthMm,
                 profileId,
                 null,
-                null
+                null,
+                null, null, null, null, null, null, null, null, null, null
         );
     }
 
@@ -222,7 +234,8 @@ public record CalibrationMqttEvent(
                 null,
                 profileId,
                 null,
-                null
+                null,
+                null, null, null, null, null, null, null, null, null, null
         );
     }
 
@@ -255,7 +268,42 @@ public record CalibrationMqttEvent(
                 fullDepthMm,
                 profileId,
                 bootId,
-                stateSeq
+                stateSeq,
+                pressure0Raw,
+                pressure0RawValid,
+                pressure1Raw,
+                pressure1RawValid,
+                pressure2Raw,
+                pressure2RawValid,
+                hallRaw,
+                hallRawValid,
+                hallBaselineRaw,
+                hallBaselineRawValid
+        );
+    }
+
+    public CalibrationMqttEvent withRawTelemetry(
+            Integer pressure0Raw,
+            Boolean pressure0RawValid,
+            Integer pressure1Raw,
+            Boolean pressure1RawValid,
+            Integer pressure2Raw,
+            Boolean pressure2RawValid,
+            Integer hallRaw,
+            Boolean hallRawValid,
+            Integer hallBaselineRaw,
+            Boolean hallBaselineRawValid
+    ) {
+        return new CalibrationMqttEvent(
+                deviceId, eventId, replyId, status, progressId, result, reasonId, actionId,
+                firmwareState, tsMs, receivedAt, pressure0Kpa, pressure0KpaValid,
+                pressure1Kpa, pressure1KpaValid, pressure2Kpa, pressure2KpaValid,
+                pressureKpaValid, hallMm, hallProgress, hallMmValid,
+                samplePressureKpaValid, sampleHallMmValid, pressureSaturationMask,
+                fullDepthMm, profileId, bootId, stateSeq,
+                pressure0Raw, pressure0RawValid, pressure1Raw, pressure1RawValid,
+                pressure2Raw, pressure2RawValid, hallRaw, hallRawValid,
+                hallBaselineRaw, hallBaselineRawValid
         );
     }
 }
