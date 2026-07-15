@@ -14,5 +14,6 @@ idf_component_register(
         hall_sensor
         sensor_conversion
         sensor_owner
+        io_mode_manager
         esp_driver_gpio
 )

@@ -12,5 +12,6 @@ idf_component_register(
         esp_timer
         runtime
         runtime_identity
+        io_mode_manager
         freertos
 )

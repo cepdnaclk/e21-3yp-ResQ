@@ -26,9 +26,15 @@ typedef enum {
 
 typedef enum {
     SYSTEM_BUTTON_ACTION_NONE = 0,
+    SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE,
+    SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE,
     SYSTEM_BUTTON_ACTION_TURN_OFF,
     SYSTEM_BUTTON_ACTION_FACTORY_RESET
 } system_button_action_t;
+
+typedef void (*system_button_mode_action_handler_t)(
+    system_button_action_t action,
+    resq_state_t current_state);
 
 typedef struct {
     system_button_id_t button_id;
@@ -57,12 +63,20 @@ esp_err_t system_button_manager_wait_event(system_button_event_t *event,
  */
 bool system_button_manager_take_event(system_button_event_t *event);
 
+/** Pure event-to-action mapping used by the centralized dispatcher. */
+system_button_action_t system_button_manager_action_for_event(
+    const system_button_event_t *event);
+
+/** Register the single global handler for reboot-based mode selection. */
+void system_button_manager_set_mode_action_handler(
+    system_button_mode_action_handler_t handler);
+
 /*
- * Backward-compatible API for existing global long-press actions.
- * This should only return:
+ * Centralized API for global button actions:
+ *   BUTTON_1 short press -> REQUEST_USB_MODE
+ *   BUTTON_2 short press -> REQUEST_SENSOR_MODE
  *   BUTTON_1 long press -> TURN_OFF
  *   BUTTON_2 long press -> FACTORY_RESET
- * Short presses return SYSTEM_BUTTON_ACTION_NONE.
  */
 system_button_action_t system_button_manager_poll(resq_state_t current_state);
 

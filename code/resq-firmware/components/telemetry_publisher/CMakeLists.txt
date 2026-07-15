@@ -15,6 +15,7 @@ idf_component_register(
         hx710
         sensor_conversion
         sensor_owner
+        io_mode_manager
         esp_timer
         freertos
 )

@@ -51,6 +51,7 @@ static QueueHandle_t s_event_queue = NULL;
 static TaskHandle_t s_button_task_handle = NULL;
 static volatile uint32_t s_missed_edge_mask;
 static volatile uint32_t s_dropped_edge_count;
+static system_button_mode_action_handler_t s_mode_action_handler;
 
 static button_runtime_t s_button_1 = {
     .gpio = BUTTON_1,
@@ -108,6 +109,10 @@ const char *system_button_press_type_to_string(system_button_press_type_t press_
 const char *system_button_action_to_string(system_button_action_t action)
 {
     switch (action) {
+    case SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE:
+        return "REQUEST_USB_MODE";
+    case SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE:
+        return "REQUEST_SENSOR_MODE";
     case SYSTEM_BUTTON_ACTION_TURN_OFF:
         return "TURN_OFF";
     case SYSTEM_BUTTON_ACTION_FACTORY_RESET:
@@ -125,7 +130,9 @@ static bool turn_off_allowed_in_state(resq_state_t state)
     case RESQ_STATE_PAIRED_IDLE:
     case RESQ_STATE_READY_FOR_SESSION:
     case RESQ_STATE_CALIBRATING:
+    case RESQ_STATE_CALIBRATION_FAIL:
     case RESQ_STATE_SESSION_ACTIVE:
+    case RESQ_STATE_ERROR:
         return true;
 
     default:
@@ -140,7 +147,9 @@ static bool factory_reset_allowed_in_state(resq_state_t state)
     case RESQ_STATE_PAIRED_IDLE:
     case RESQ_STATE_READY_FOR_SESSION:
     case RESQ_STATE_CALIBRATING:
+    case RESQ_STATE_CALIBRATION_FAIL:
     case RESQ_STATE_SESSION_ACTIVE:
+    case RESQ_STATE_ERROR:
         return true;
 
     default:
@@ -150,6 +159,10 @@ static bool factory_reset_allowed_in_state(resq_state_t state)
 
 static bool action_allowed_in_state(resq_state_t state, system_button_action_t action)
 {
+    if (action == SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE ||
+        action == SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE) {
+        return state != RESQ_STATE_RESETTING && state != RESQ_STATE_TURN_OFF;
+    }
     if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
         return turn_off_allowed_in_state(state);
     }
@@ -278,6 +291,36 @@ static void system_button_task(void *arg)
     }
 }
 
+system_button_action_t system_button_manager_action_for_event(
+    const system_button_event_t *event)
+{
+    if (event == NULL) {
+        return SYSTEM_BUTTON_ACTION_NONE;
+    }
+    if (event->press_type == SYSTEM_BUTTON_PRESS_SHORT) {
+        if (event->button_id == SYSTEM_BUTTON_ID_1) {
+            return SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE;
+        }
+        if (event->button_id == SYSTEM_BUTTON_ID_2) {
+            return SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE;
+        }
+    } else if (event->press_type == SYSTEM_BUTTON_PRESS_LONG) {
+        if (event->button_id == SYSTEM_BUTTON_ID_1) {
+            return SYSTEM_BUTTON_ACTION_TURN_OFF;
+        }
+        if (event->button_id == SYSTEM_BUTTON_ID_2) {
+            return SYSTEM_BUTTON_ACTION_FACTORY_RESET;
+        }
+    }
+    return SYSTEM_BUTTON_ACTION_NONE;
+}
+
+void system_button_manager_set_mode_action_handler(
+    system_button_mode_action_handler_t handler)
+{
+    s_mode_action_handler = handler;
+}
+
 uint32_t system_button_manager_get_dropped_edge_count(void)
 {
     return __atomic_load_n(&s_dropped_edge_count, __ATOMIC_RELAXED);
@@ -394,7 +437,7 @@ void system_button_manager_drain_events(resq_state_t current_state)
 
 void system_button_manager_drain_actions(resq_state_t current_state)
 {
-    system_button_manager_drain_events(current_state);
+    (void)system_button_manager_poll(current_state);
 }
 
 system_button_action_t system_button_manager_poll(resq_state_t current_state)
@@ -407,25 +450,12 @@ system_button_action_t system_button_manager_poll(resq_state_t current_state)
     system_button_action_t selected_action = SYSTEM_BUTTON_ACTION_NONE;
 
     while (system_button_manager_take_event(&event)) {
-        if (event.press_type != SYSTEM_BUTTON_PRESS_LONG) {
-            ESP_LOGI(TAG,
-                     "Ignoring short press in global action path button=%s state=%s",
-                     system_button_id_to_string(event.button_id),
-                     resq_state_to_string(current_state));
-            continue;
-        }
-
-        system_button_action_t action = SYSTEM_BUTTON_ACTION_NONE;
-
-        if (event.button_id == SYSTEM_BUTTON_ID_1) {
-            action = SYSTEM_BUTTON_ACTION_TURN_OFF;
-        } else if (event.button_id == SYSTEM_BUTTON_ID_2) {
-            action = SYSTEM_BUTTON_ACTION_FACTORY_RESET;
-        }
+        system_button_action_t action =
+            system_button_manager_action_for_event(&event);
 
         if (!action_allowed_in_state(current_state, action)) {
             ESP_LOGW(TAG,
-                     "Ignoring long press action=%s in state=%s",
+                     "Ignoring button action=%s in state=%s",
                      system_button_action_to_string(action),
                      resq_state_to_string(current_state));
             continue;
@@ -433,6 +463,11 @@ system_button_action_t system_button_manager_poll(resq_state_t current_state)
 
         if (selected_action == SYSTEM_BUTTON_ACTION_NONE) {
             selected_action = action;
+            if ((action == SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE ||
+                 action == SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE) &&
+                s_mode_action_handler != NULL) {
+                s_mode_action_handler(action, current_state);
+            }
         }
     }
 

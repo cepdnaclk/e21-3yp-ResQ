@@ -11,6 +11,7 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
 {
     return ops != NULL &&
            ops->initialize_components != NULL &&
+           ops->sensor_mode_enabled != NULL &&
            ops->network_set_defaults != NULL &&
            ops->calibration_set_defaults != NULL &&
            ops->network_validate != NULL &&
@@ -185,6 +186,9 @@ static resq_state_t run_boot(resq_fsm_t *fsm)
     if (!fsm->ops->calibration_validate(&fsm->calibration_config)) {
         fsm->calibration_config.calibrated = false;
     }
+    if (!fsm->ops->sensor_mode_enabled()) {
+        fsm->calibration_config.calibrated = false;
+    }
     return RESQ_STATE_CONFIG_CHECK;
 }
 
@@ -282,7 +286,9 @@ static resq_state_t run_mqtt_connecting(resq_fsm_t *fsm)
     fsm->ops->calibration_validate(&fsm->calibration_config);
 
     resq_state_t next_state;
-    if (fsm->ops->session_has_pending_interruption()) {
+    if (!fsm->ops->sensor_mode_enabled()) {
+        next_state = RESQ_STATE_PAIRED_IDLE;
+    } else if (fsm->ops->session_has_pending_interruption()) {
         next_state = RESQ_STATE_SESSION_INTERRUPTED;
     } else {
         next_state = fsm->calibration_config.calibrated
@@ -329,6 +335,9 @@ static resq_state_t run_idle(resq_fsm_t *fsm, resq_state_t state)
 
 static resq_state_t run_session_interrupted(resq_fsm_t *fsm)
 {
+    if (!fsm->ops->sensor_mode_enabled()) {
+        return RESQ_STATE_PAIRED_IDLE;
+    }
     fsm->ops->status_set_state(RESQ_STATE_SESSION_INTERRUPTED);
     if (!fsm->ops->wifi_is_connected()) {
         return RESQ_STATE_WIFI_CONNECTING;
@@ -452,6 +461,9 @@ static resq_state_t dispatch_state(resq_fsm_t *fsm)
     case RESQ_STATE_PAIRED_IDLE:
         return run_idle(fsm, RESQ_STATE_PAIRED_IDLE);
     case RESQ_STATE_CALIBRATING:
+        if (!fsm->ops->sensor_mode_enabled()) {
+            return RESQ_STATE_PAIRED_IDLE;
+        }
         return fsm->ops->calibration_run(&fsm->network_config,
                                          &fsm->calibration_config,
                                          fsm->ip_address);
@@ -462,6 +474,9 @@ static resq_state_t dispatch_state(resq_fsm_t *fsm)
     case RESQ_STATE_READY_FOR_SESSION:
         return run_idle(fsm, RESQ_STATE_READY_FOR_SESSION);
     case RESQ_STATE_SESSION_ACTIVE:
+        if (!fsm->ops->sensor_mode_enabled()) {
+            return RESQ_STATE_PAIRED_IDLE;
+        }
         return fsm->ops->session_active_run(&fsm->network_config,
                                             &fsm->calibration_config,
                                             fsm->ip_address);

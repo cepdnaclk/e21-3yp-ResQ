@@ -215,8 +215,8 @@ static const calibration_action_entry_t ACTION_TABLE[] = {
     },
     {
         CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE,
-        "BUTTON_1_RETRY_BUTTON_2_IDLE",
-        "Press BUTTON_1 to retry calibration, or BUTTON_2 to return to paired idle"
+        "RETRY_OR_RETURN_IDLE_VIA_MQTT",
+        "Send cmd/calibration/start to retry, or cmd/calibration/cancel to return to paired idle"
     },
     {
         CAL_ACTION_CHECK_SENSOR_AND_RETRY,
@@ -225,8 +225,8 @@ static const calibration_action_entry_t ACTION_TABLE[] = {
     },
     {
         CAL_ACTION_BUTTON_1_CONTINUE_BUTTON_2_IDLE,
-        "BUTTON_1_CONTINUE_BUTTON_2_IDLE",
-        "Press BUTTON_1 to continue or retry from the last safe process, or BUTTON_2 to return to paired idle"
+        "CONTINUE_OR_RETURN_IDLE_VIA_MQTT",
+        "Use the correlated MQTT calibration commands to continue, retry, or return to paired idle"
     },
     {
         CAL_ACTION_MOVE_TO_PAIRED_IDLE_DROP_TEMP,

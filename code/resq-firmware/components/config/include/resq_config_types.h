@@ -23,6 +23,11 @@ extern "C" {
 #define RESQ_DEVICE_ID_MAX_LEN 32
 #define CALIBRATION_STORAGE_STATUS_MAX_LEN 32
 
+typedef enum {
+  RESQ_IO_MODE_SENSOR = 0,
+  RESQ_IO_MODE_USB = 1
+} resq_io_mode_t;
+
 /* =========================================================
  * Network configuration
  *

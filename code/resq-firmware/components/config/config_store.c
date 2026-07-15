@@ -28,6 +28,7 @@ static const char *TAG = "config_store";
 #define NVS_KEY_DEVICE_MAC     "dev_mac" /* legacy */
 #define NVS_KEY_DEVICE_ID      "dev_id" /* legacy */
 #define NVS_KEY_PROVISIONED    "provisioned"
+#define NVS_KEY_IO_MODE        "io_mode"
 
 /* Calibration NVS keys */
 #define NVS_KEY_HALL_BASELINE       "hall_base"
@@ -425,6 +426,73 @@ esp_err_t config_store_init(void)
         s_config_store_initialized = true;
     }
 
+    UNLOCK_STORE();
+    return err;
+}
+
+esp_err_t config_store_load_io_mode(resq_io_mode_t *out_mode)
+{
+    if (out_mode == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_mode = RESQ_IO_MODE_SENSOR;
+    if (!s_config_store_initialized || s_store_mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    LOCK_STORE();
+    nvs_handle_t handle;
+    esp_err_t err = config_store_open(NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        UNLOCK_STORE();
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        UNLOCK_STORE();
+        return err;
+    }
+
+    uint8_t stored = (uint8_t)RESQ_IO_MODE_SENSOR;
+    err = nvs_get_u8(handle, NVS_KEY_IO_MODE, &stored);
+    nvs_close(handle);
+    UNLOCK_STORE();
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (stored == (uint8_t)RESQ_IO_MODE_SENSOR ||
+        stored == (uint8_t)RESQ_IO_MODE_USB) {
+        *out_mode = (resq_io_mode_t)stored;
+    } else {
+        ESP_LOGW(TAG, "Invalid stored io_mode=%u; using SENSOR", stored);
+    }
+    return ESP_OK;
+}
+
+esp_err_t config_store_save_io_mode(resq_io_mode_t mode)
+{
+    if (mode != RESQ_IO_MODE_SENSOR && mode != RESQ_IO_MODE_USB) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_config_store_initialized || s_store_mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    LOCK_STORE();
+    nvs_handle_t handle = 0;
+    esp_err_t err = config_store_open(NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        UNLOCK_STORE();
+        return err;
+    }
+    err = nvs_set_u8(handle, NVS_KEY_IO_MODE, (uint8_t)mode);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
     UNLOCK_STORE();
     return err;
 }
@@ -1595,6 +1663,7 @@ esp_err_t config_store_clear_all(void)
     nvs_erase_key(handle, NVS_KEY_BACKEND_REGISTERED);
     nvs_erase_key(handle, NVS_KEY_DEVICE_ID);
     nvs_erase_key(handle, NVS_KEY_PROVISIONED);
+    nvs_erase_key(handle, NVS_KEY_IO_MODE);
     nvs_commit(handle);
 
     err = clear_calibration_locked(handle);

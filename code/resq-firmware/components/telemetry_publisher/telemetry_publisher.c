@@ -20,6 +20,7 @@
 #include "board_config.h"
 #include "hall_sensor.h"
 #include "hx710.h"
+#include "io_mode_manager.h"
 #include "sensor_conversion.h"
 #include "sensor_owner.h"
 
@@ -754,7 +755,7 @@ esp_err_t telemetry_publisher_start(void)
 
 esp_err_t telemetry_publisher_stop(void)
 {
-    if (s_mutex == NULL || s_task_events == NULL) return ESP_ERR_INVALID_STATE;
+    if (s_mutex == NULL || s_task_events == NULL) return ESP_OK;
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     if (s_task == NULL) {
@@ -810,6 +811,9 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
                                                   resq_state_t state,
                                                   const calibration_config_t *calibration_config)
 {
+    if (!io_mode_manager_is_sensor()) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_mutex == NULL || s_task_events == NULL || calibration_config == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -886,7 +890,7 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
 esp_err_t telemetry_publisher_stop_sensor_stream(void)
 {
     if (s_mutex == NULL || s_task_events == NULL) {
-        return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
     }
 
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
@@ -959,6 +963,13 @@ esp_err_t telemetry_publisher_handle_sensor_stream_command(const network_config_
                                                             stop_err == ESP_OK ? "ACK" : "NACK",
                                                             stop_err == ESP_OK ? NULL : SENSOR_STREAM_RUNTIME_REASON_ID);
         return stop_err;
+    }
+
+    if (!io_mode_manager_is_sensor()) {
+        runtime_helpers_publish_command_result_from_command(
+            network_config, state, command, RESQ_SUFFIX_CMD_TELEMETRY,
+            "NACK", RESQ_REASON_SENSOR_MODE_REQUIRED);
+        return ESP_ERR_INVALID_STATE;
     }
 
     if (!allow_start) {

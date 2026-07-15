@@ -19,6 +19,7 @@ extern "C" {
 
 typedef struct {
     esp_err_t (*initialize_components)(void);
+    bool (*sensor_mode_enabled)(void);
 
     void (*network_set_defaults)(network_config_t *config);
     void (*calibration_set_defaults)(calibration_config_t *config);

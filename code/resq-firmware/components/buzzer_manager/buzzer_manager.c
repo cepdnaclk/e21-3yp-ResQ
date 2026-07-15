@@ -134,7 +134,7 @@ esp_err_t buzzer_manager_start_metronome(int target_cpm)
 
 esp_err_t buzzer_manager_stop(void)
 {
-    if (s_mutex == NULL || s_task_events == NULL) return ESP_ERR_INVALID_STATE;
+    if (s_mutex == NULL || s_task_events == NULL) return ESP_OK;
 
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return ESP_ERR_TIMEOUT;
 

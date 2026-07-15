@@ -26,6 +26,9 @@ idf_component_register(
         calibration_fail_manager
         calibration_state_manager
         system_button_manager
+        io_mode_manager
+        hx710
+        sensor_owner
         firmware_state_machine
         nvs_flash
         esp_event

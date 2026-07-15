@@ -15,10 +15,19 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "io_mode_manager.h"
 #include "mqtt_client.h"
 #include "runtime_identity.h"
 
 static const char *TAG = "mqtt_manager";
+
+static void add_io_mode_fields(cJSON *root)
+{
+  bool pressure_enabled = io_mode_manager_is_sensor();
+  cJSON_AddStringToObject(root, "io_mode",
+                         io_mode_to_string(io_mode_manager_get()));
+  cJSON_AddBoolToObject(root, "pressure_sensor_enabled", pressure_enabled);
+}
 
 static const char *
 calibration_pressure_mode_to_string(calibration_pressure_mode_t mode) {
@@ -817,10 +826,12 @@ esp_err_t mqtt_manager_publish_status(
   cJSON_AddNumberToObject(root, "event_id", 1001);
   cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
   cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
+  add_io_mode_fields(root);
   cJSON_AddBoolToObject(root, "session_active", session_active);
   cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
 
-  bool calibrated = (calibration_config && calibration_config->calibrated);
+  bool calibrated = io_mode_manager_is_sensor() &&
+                    calibration_config && calibration_config->calibrated;
   cJSON_AddBoolToObject(root, "calibrated", calibrated);
 
   if (calibration_config) {
@@ -842,7 +853,8 @@ esp_err_t mqtt_manager_publish_status(
     cJSON_AddBoolToObject(root, "using_last_stable_pressure",
                           calibration_config->using_last_stable_pressure);
     cJSON_AddBoolToObject(root, "pressure_valid",
-                          calibration_config->pressure_valid);
+                          io_mode_manager_is_sensor() &&
+                              calibration_config->pressure_valid);
     cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
     add_conversion_readiness_fields(root, calibration_config);
     cJSON_AddBoolToObject(root, "ready_for_session",
@@ -884,10 +896,12 @@ esp_err_t mqtt_manager_publish_error_status(
 
   cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
   cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
+  add_io_mode_fields(root);
   cJSON_AddBoolToObject(root, "session_active", session_active);
   cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
 
-  bool calibrated = (calibration_config && calibration_config->calibrated);
+  bool calibrated = io_mode_manager_is_sensor() &&
+                    calibration_config && calibration_config->calibrated;
   cJSON_AddBoolToObject(root, "calibrated", calibrated);
   if (calibration_config) {
     cJSON_AddStringToObject(
@@ -898,7 +912,8 @@ esp_err_t mqtt_manager_publish_error_status(
     cJSON_AddBoolToObject(root, "using_last_stable_pressure",
                           calibration_config->using_last_stable_pressure);
     cJSON_AddBoolToObject(root, "pressure_valid",
-                          calibration_config->pressure_valid);
+                          io_mode_manager_is_sensor() &&
+                              calibration_config->pressure_valid);
     cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
     add_conversion_readiness_fields(root, calibration_config);
     cJSON_AddBoolToObject(root, "ready_for_session",
@@ -1004,6 +1019,7 @@ mqtt_manager_publish_heartbeat(const network_config_t *network_config,
 
   cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
   cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
+  add_io_mode_fields(root);
 
   bool wifi_connected = (ip && ip[0] != '\0');
   cJSON_AddBoolToObject(root, "wifi_connected", wifi_connected);
@@ -1013,10 +1029,12 @@ mqtt_manager_publish_heartbeat(const network_config_t *network_config,
   cJSON_AddBoolToObject(root, "backend_registered", backend_registered);
 
   cJSON_AddBoolToObject(root, "session_active", session_active);
-  cJSON_AddBoolToObject(root, "sensor_running", sensor_running);
+  cJSON_AddBoolToObject(root, "sensor_running",
+                        io_mode_manager_is_sensor() && sensor_running);
   cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
 
-  bool calibrated = (calibration_config && calibration_config->calibrated);
+  bool calibrated = io_mode_manager_is_sensor() &&
+                    calibration_config && calibration_config->calibrated;
   cJSON_AddBoolToObject(root, "calibrated", calibrated);
   if (calibration_config) {
     cJSON_AddStringToObject(
@@ -1027,7 +1045,8 @@ mqtt_manager_publish_heartbeat(const network_config_t *network_config,
     cJSON_AddBoolToObject(root, "using_last_stable_pressure",
                           calibration_config->using_last_stable_pressure);
     cJSON_AddBoolToObject(root, "pressure_valid",
-                          calibration_config->pressure_valid);
+                          io_mode_manager_is_sensor() &&
+                              calibration_config->pressure_valid);
     cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
     add_conversion_readiness_fields(root, calibration_config);
     cJSON_AddBoolToObject(root, "ready_for_session",

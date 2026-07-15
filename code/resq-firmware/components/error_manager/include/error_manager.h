@@ -18,8 +18,8 @@ esp_err_t error_manager_init(void);
 /**
  * @brief Run ERROR state.
  *
- * ERROR state waits for BUTTON_1 press, clears saved configuration,
- * and returns RESQ_STATE_PROVISIONING.
+ * ERROR state accepts the global mode/long-press button actions and correlated
+ * MQTT recovery commands. Short presses never have ERROR-specific meanings.
  */
 resq_state_t error_manager_run(network_config_t *network_config,
                                calibration_config_t *calibration_config,

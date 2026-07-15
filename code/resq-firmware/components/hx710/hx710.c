@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "io_mode_manager.h"
 
 /* Timeout is expressed in wall-clock milliseconds, independent of RTOS tick
  * frequency. */
@@ -12,6 +13,9 @@
 
 esp_err_t hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
 {
+  if (!io_mode_manager_is_sensor()) {
+    return ESP_ERR_INVALID_STATE;
+  }
   esp_err_t err;
 
   /* Validate GPIO arguments */
@@ -57,8 +61,22 @@ esp_err_t hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin)
   return ESP_OK;
 }
 
+esp_err_t hx710_hold_sck_low(gpio_num_t sck_pin)
+{
+  if (!io_mode_manager_is_sensor()) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (!GPIO_IS_VALID_OUTPUT_GPIO(sck_pin)) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  return gpio_set_level(sck_pin, 0);
+}
+
 int32_t hx710_read(gpio_num_t sck_pin, gpio_num_t dout_pin)
 {
+  if (!io_mode_manager_is_sensor()) {
+    return HX710_ERROR_TIMEOUT;
+  }
   int timeout_ticks = 0;
   const TickType_t max_wait_ticks = pdMS_TO_TICKS(HX710_READY_TIMEOUT_MS);
 
@@ -160,6 +178,10 @@ esp_err_t hx710_read_3_shared_sck_valid(gpio_num_t sck_pin,
   *out1 = HX710_ERROR_TIMEOUT;
   *out2 = HX710_ERROR_TIMEOUT;
   *out_valid_mask = 0;
+
+  if (!io_mode_manager_is_sensor()) {
+    return ESP_ERR_INVALID_STATE;
+  }
 
   if (!GPIO_IS_VALID_OUTPUT_GPIO(sck_pin) ||
       !GPIO_IS_VALID_GPIO(dout0_pin) ||
@@ -290,6 +312,9 @@ esp_err_t hx710_read_3_shared_sck_valid(gpio_num_t sck_pin,
   err = ESP_OK;
 
 _cleanup:
+  if (GPIO_IS_VALID_OUTPUT_GPIO(sck_pin)) {
+    (void)gpio_set_level(sck_pin, 0);
+  }
   xSemaphoreGive(s_hx710_mutex);
   return err;
 }

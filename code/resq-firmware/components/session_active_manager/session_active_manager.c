@@ -198,7 +198,7 @@ static esp_err_t session_sensor_task_start(void) {
 
 static esp_err_t session_sensor_task_stop(void) {
   if (s_mutex == NULL || s_sensor_task_events == NULL) {
-    return ESP_ERR_INVALID_STATE;
+    return ESP_OK;
   }
 
   if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
@@ -248,6 +248,10 @@ static esp_err_t stop_runtime_components(cpr_metrics_snapshot_t *out_snapshot) {
   }
 
   return first_error;
+}
+
+esp_err_t session_active_manager_stop_sensor_acquisition(void) {
+  return stop_runtime_components(NULL);
 }
 
 static esp_err_t

@@ -3,3 +3,8 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_OFFSET=0x8000
 CONFIG_PARTITION_TABLE_MD5=y
+
+# Keep the ESP32-C3 native USB Serial/JTAG console compiled into the single
+# firmware image. Sensor mode claims GPIO19 at runtime; USB mode leaves it free.
+CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y

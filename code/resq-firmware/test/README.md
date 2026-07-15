@@ -84,8 +84,10 @@ RAW_SENSOR,ALL,sample=0,hall_raw=2031,pressure_1_raw=10142,pressure_2_raw=10088,
 
 | Tag | Coverage |
 |---|---|
-| `[fsm]` | All 16 states, entry behavior, buttons, recovery and terminal actions |
-| `[config]` | Defaults, validation boundaries, state names |
+| `[fsm]` | All 16 states, entry behavior, USB-mode sensor-state suppression, recovery and terminal actions |
+| `[config]` | Defaults, validation boundaries, state names, I/O-mode NVS persistence and reset behavior |
+| `[io_mode]` | Reboot-only mode changes, no-op active-mode requests, USB sensor gating, and fallback behavior |
+| `[buttons]` | Short USB/SENSOR mode selection and preserved long TURN_OFF/factory-reset mappings |
 | `[error]` | Firmware error code/action mappings |
 | `[mqtt]` | Topic construction and request ID parsing |
 | `[session]` | Session start, stop, mismatch, interruption and restart |

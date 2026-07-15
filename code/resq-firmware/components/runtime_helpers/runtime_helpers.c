@@ -13,6 +13,7 @@
 #include "config_store.h"
 #include "board_config.h"
 #include "hx710.h"
+#include "io_mode_manager.h"
 #include "hall_sensor.h"
 #include "sensor_conversion.h"
 #include "sensor_owner.h"
@@ -416,6 +417,9 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
 {
     if (network_config == NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (!io_mode_manager_is_sensor()) {
+        return ESP_ERR_INVALID_STATE;
     }
 
     sensor_owner_t owner;

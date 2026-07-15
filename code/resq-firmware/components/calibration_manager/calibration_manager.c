@@ -2711,7 +2711,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
         host_params->calibration_window_ms;
   }
 
-  /* save host params so BUTTON_1 retry can reuse them */
+  /* Save host parameters so a correlated MQTT retry can reuse them. */
   memcpy(&s_last_host_params, host_params, sizeof(s_last_host_params));
   s_has_last_host_params = true;
   s_last_failure_reason = CAL_REASON_NONE;
@@ -2784,7 +2784,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
 
 esp_err_t calibration_manager_cancel(void) {
   if (!s_initialized || s_manager_mutex == NULL) {
-    return ESP_ERR_INVALID_STATE;
+    return ESP_OK;
   }
   LOCK_MGR();
   if (!s_running && s_calibration_task_handle == NULL) {

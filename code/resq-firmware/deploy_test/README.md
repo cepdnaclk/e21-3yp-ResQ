@@ -36,8 +36,8 @@ Use an ESP32-C3 ResQ board with the production pin assignment:
 | State LED | GPIO7 |
 | Activity LED | GPIO6 |
 | Buzzer | GPIO18 |
-| BUTTON_1 / turn off | GPIO4 |
-| BUTTON_2 / factory reset | GPIO5 |
+| BUTTON_1 / short USB mode, long turn off | GPIO4 |
+| BUTTON_2 / short SENSOR mode, long factory reset | GPIO5 |
 
 Prepare the real pressure bladders, hall sensor/chest mechanism, a known
 reference pressure, USB data cable, and a way to power-cycle the board. Do not
@@ -153,7 +153,9 @@ The runner performs these phases in order:
 4. **Protocol:** status and heartbeat schemas, registered device identity,
    request/reply IDs, debug sensor payload, unknown-command NACK and malformed
    JSON handling.
-5. **Hardware:** guided LED, sensor movement and button debounce checks.
+5. **Hardware:** guided LED and sensor movement checks. Rebooting short-press
+   mode selection is validated separately using the firmware README acceptance
+   procedure.
 6. **Calibration:** real rest/reference/full-compression workflow and
    `READY_FOR_SESSION` confirmation.
 7. **Session:** start, guided compressions, telemetry, buzzer/metronome,

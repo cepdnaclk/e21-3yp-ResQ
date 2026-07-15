@@ -25,6 +25,9 @@ extern "C" {
  */
 esp_err_t hx710_init(gpio_num_t sck_pin, gpio_num_t dout_pin);
 
+/** Keep the shared SCK line LOW without moving GPIO ownership out of HX710. */
+esp_err_t hx710_hold_sck_low(gpio_num_t sck_pin);
+
 /**
  * @brief Read one signed 24-bit raw sample from HX710.
  *

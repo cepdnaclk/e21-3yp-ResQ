@@ -12,22 +12,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "board_config.h"
 #include "system_button_manager.h"
 #include "config_store.h"
 #include "mqtt_manager.h"
 #include "mqtt_topics.h"
+#include "io_mode_manager.h"
 #include "runtime_helpers.h"
 #include "status_indicator.h"
 #include "telemetry_publisher.h"
-
-#ifndef BUTTON_1
-#define BUTTON_1 GPIO_NUM_9
-#endif
-
-#ifndef BUTTON_2
-#define BUTTON_2 GPIO_NUM_1
-#endif
 
 static const char *TAG = "error_manager";
 static bool s_initialized = false;
@@ -40,8 +32,7 @@ esp_err_t error_manager_init(void)
     if (s_initialized) {
         return ESP_OK;
     }
-    /* BUTTON_1 and BUTTON_2 GPIOs are owned and configured by system_button_manager.
-     * Do not reconfigure them here to avoid ISR/interrupt conflicts. */
+    /* Button GPIOs are owned and configured by system_button_manager. */
     s_initialized = true;
     ESP_LOGI(TAG, "Error manager initialized (button GPIOs managed by system_button_manager)");
 
@@ -152,52 +143,13 @@ resq_state_t error_manager_run(network_config_t *network_config,
 
     /* Wait for user button or system commands */
     while (true) {
-        system_button_event_t button_event = {0};
-
-        if (system_button_manager_wait_event(&button_event, pdMS_TO_TICKS(50)) == ESP_OK) {
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
-                button_event.button_id == SYSTEM_BUTTON_ID_1) {
-
-                ESP_LOGW(TAG,
-                         "BUTTON_1 short press in ERROR: retry/recover duration=%lu ms",
-                         (unsigned long)button_event.duration_ms);
-
-                if (mqtt_manager_is_connected() && network_config != NULL) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_ERROR,
-                                                           "button/retry",
-                                                           "ACK",
-                                                           "retry_error_recovery");
-                }
-
-                return error_manager_get_retry_state();
-            }
-
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
-                button_event.button_id == SYSTEM_BUTTON_ID_2) {
-
-                ESP_LOGW(TAG,
-                         "BUTTON_2 short press in ERROR: flush/idle path duration=%lu ms",
-                         (unsigned long)button_event.duration_ms);
-
-                if (mqtt_manager_is_connected() && network_config != NULL) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_ERROR,
-                                                           "button/provisioning",
-                                                           "ACK",
-                                                           "clear_config_and_provision");
-                }
-
-                return RESQ_STATE_FLUSH_CONFIG;
-            }
-
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG) {
-                if (button_event.button_id == SYSTEM_BUTTON_ID_1) {
-                    ESP_LOGW(TAG, "BUTTON_1 long press in ERROR ignored or mapped to retry policy");
-                } else if (button_event.button_id == SYSTEM_BUTTON_ID_2) {
-                    ESP_LOGW(TAG, "BUTTON_2 long press in ERROR ignored; use system command for reset");
-                }
-            }
+        system_button_action_t button_action =
+            system_button_manager_poll(RESQ_STATE_ERROR);
+        if (button_action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
+            return RESQ_STATE_TURN_OFF;
+        }
+        if (button_action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
+            return RESQ_STATE_RESETTING;
         }
 
         /* Handle MQTT commands while in ERROR if connected */
@@ -219,6 +171,17 @@ resq_state_t error_manager_run(network_config_t *network_config,
                 }
 
                 ESP_LOGI(TAG, "ERROR state command=%s", suffix);
+
+                if (!io_mode_manager_is_sensor() &&
+                    (strcmp(suffix, "cmd/debug") == 0 ||
+                     strcmp(suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0 ||
+                     strcmp(suffix, "cmd/calibration/start") == 0 ||
+                     strcmp(suffix, "cmd/session/start") == 0)) {
+                    runtime_helpers_publish_command_result_from_command(
+                        network_config, RESQ_STATE_ERROR, &command, suffix,
+                        "NACK", RESQ_REASON_SENSOR_MODE_REQUIRED);
+                    continue;
+                }
 
                 if (strcmp(suffix, "cmd/system/retry") == 0) {
                     char reply_id[128] = {0};

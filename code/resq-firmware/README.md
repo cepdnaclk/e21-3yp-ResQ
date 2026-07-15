@@ -13,6 +13,7 @@ testing the firmware.
 - [What the firmware does](#what-the-firmware-does)
 - [Requirements](#requirements)
 - [Hardware connections](#hardware-connections)
+- [Persistent I/O modes](#persistent-io-modes)
 - [Build and flash](#build-and-flash)
 - [First-boot provisioning](#first-boot-provisioning)
 - [Runtime state machine](#runtime-state-machine)
@@ -27,8 +28,8 @@ testing the firmware.
 
 The firmware coordinates the complete device lifecycle:
 
-1. Initializes NVS, sensors, networking, indicators, buttons, session services,
-   telemetry, and the firmware state machine.
+1. Initializes NVS, loads the persistent I/O mode, and starts only the services
+   that are safe in that mode.
 2. Loads saved network and calibration data from NVS.
 3. Starts a provisioning SoftAP when no valid network configuration exists.
 4. Connects to Wi-Fi and registers the device with the configured backend.
@@ -99,6 +100,47 @@ The production pin assignment is defined in
 All three HX710 devices share one clock line and must be sampled as one
 synchronized transaction. Do not rewrite the pressure path to read the devices
 sequentially using the shared clock.
+
+GPIO18 and GPIO19 are also the ESP32-C3 native USB D- and D+ pins. The firmware
+therefore treats native USB and the ResQ pressure/buzzer wiring as mutually
+exclusive runtime configurations; it never switches those pins live.
+
+## Persistent I/O modes
+
+The device has two persistent, reboot-applied modes:
+
+| Mode | Behavior |
+|---|---|
+| `SENSOR` | Normal ResQ operation. GPIO19 is the shared HX710 clock and is held LOW while idle; GPIO18 is available to the buzzer. Calibration, pressure debug, manual sensor streaming, and CPR sessions are enabled. |
+| `USB` | GPIO18/GPIO19 are reserved for native USB Serial/JTAG. HX710, pressure acquisition, calibration/session sensor services, and the buzzer are not initialized. Wi-Fi, provisioning, backend registration, MQTT, status, heartbeat, events, and logs remain active. |
+
+`SENSOR` is the safe default when the NVS `io_mode` key is absent or invalid.
+The selected mode survives ordinary restarts, soft-off, and network-only config
+clears. Factory reset and `erase-flash` remove it, so the next boot uses
+`SENSOR`.
+
+Button actions are global in every operational state:
+
+| Input | Action |
+|---|---|
+| Short BUTTON_1 press | Persist `USB`, publish a final mode-switch event when MQTT is connected, then restart |
+| Short BUTTON_2 press | Persist `SENSOR`, publish a final mode-switch event when MQTT is connected, then restart |
+| BUTTON_1 press for at least 3 seconds | `TURN_OFF` |
+| BUTTON_2 press for at least 3 seconds | Factory reset |
+
+Selecting the already-active mode is a no-op. A SENSOR-to-USB switch first
+stops sensor tasks and telemetry, releases sensor ownership, stops the buzzer,
+and drives the HX710 clock LOW. The mode is written to NVS before restart. This
+reboot boundary is required because GPIO19 is shared with native USB D+ and
+cannot safely remain under the HX710 GPIO driver while USB is active.
+
+ESP-IDF is configured with USB Serial/JTAG enabled as a secondary console. In
+`SENSOR` mode, native USB availability is not promised because GPIO18/GPIO19
+belong to the ResQ hardware; use MQTT for live diagnostics and telemetry. In
+`USB` mode, any electrical disturbance seen by the attached HX710 hardware from
+USB D+ activity is intentionally ignored because no pressure acquisition runs.
+Use the board's ROM download procedure described under troubleshooting if the
+running application is not reachable.
 
 ## Build and flash
 
@@ -213,8 +255,10 @@ request succeeds. It then stops the SoftAP, joins the configured Wi-Fi network,
 registers at `<backend_base_url>/api/devices/register`, and uses the returned
 device ID, MQTT host, and MQTT port.
 
-Network and valid calibration data persist in NVS across ordinary restarts and
-soft-off. A factory reset or `erase-flash` removes them.
+Network, valid calibration data, and the I/O mode persist in NVS across ordinary
+restarts and soft-off. Clearing only network configuration preserves the I/O
+mode. A factory reset or `erase-flash` removes all three and restores the
+default `SENSOR` mode.
 
 ## Runtime state machine
 
@@ -280,6 +324,12 @@ The firmware subscribes to `cmd/#` at QoS 1. ESP-MQTT DATA fragments are
 reassembled by `total_data_len` and `current_data_offset`; payloads larger than
 the bounded command buffer are rejected rather than truncated.
 
+In `USB` mode, `cmd/debug`, `cmd/calibration/start`, `cmd/session/start`, and a
+manual sensor-stream `START` receive a normal correlated NACK with reason
+`SENSOR_MODE_REQUIRED`. These rejections occur before any pressure GPIO or
+sensor-owner access. Commands that stop already-idle sensor work remain safe and
+idempotent.
+
 `cmd/calibration/start` stores `hall_delta` internally as
 `hall_delta_adc_counts`: the absolute Hall movement from the captured baseline
 in averaged raw ADC counts. New clients should send the averaged value directly,
@@ -309,8 +359,8 @@ commands for healthy idle states.
 
 | Topic suffix | Contents |
 |---|---|
-| `status` | Retained state, session, calibration, profile, thresholds, and IP |
-| `heartbeat` | Connectivity, registration, session, sensor, RSSI, and uptime |
+| `status` | Retained state, I/O mode, pressure-sensor enablement, session, calibration, profile, thresholds, and IP |
+| `heartbeat` | I/O mode, pressure-sensor enablement, connectivity, registration, session, sensor, RSSI, and uptime |
 | `telemetry` | Live CPR measurements and quality metrics |
 | `debug` | Raw pressure and hall readings |
 | `events` | Identity, command replies, and session events |
@@ -320,6 +370,11 @@ commands for healthy idle states.
 The heartbeat task publishes every five seconds while MQTT is connected.
 Session telemetry is more frequent and is emitted only while a valid session
 is active.
+
+Both status and heartbeat payloads include `io_mode` (`SENSOR` or `USB`) and
+`pressure_sensor_enabled`. In USB mode, pressure validity/running and calibrated
+or ready-for-session fields are reported false rather than implying that sensor
+hardware is available.
 
 ## Pressure saturation handling
 
@@ -376,8 +431,9 @@ serve different purposes.
 
 The Unity application under `test/` covers deterministic behavior without
 using real Wi-Fi, MQTT transport, ADC, HX710 devices, or buttons. It tests the
-state machine, configuration boundaries, error/calibration mappings, topics,
-request IDs, session lifecycle, and CPR metrics.
+state machine, I/O-mode persistence and fallback, all four button mappings, USB
+sensor-command gating, configuration boundaries, error/calibration mappings,
+topics, request IDs, session lifecycle, and CPR metrics.
 
 Build the Unity image:
 
@@ -493,11 +549,11 @@ This table contains one factory application partition and no OTA slots.
 - **Recovery deadline:** an active session attempts to recover connectivity for
   30 seconds. Once that deadline expires, runtime services stop and a terminal
   session interruption is retained for deferred publication.
-- **BUTTON_1:** a long press of at least three seconds requests TURN_OFF in
-  normal states. Some internal failure states give short presses specialized
-  retry behavior.
-- **BUTTON_2:** a long press of at least three seconds requests factory reset
-  in normal states. Reset clears network and calibration data before restart.
+- **BUTTON_1:** a short press selects USB mode and restarts; a press of at least
+  three seconds requests TURN_OFF.
+- **BUTTON_2:** a short press selects SENSOR mode and restarts; a press of at
+  least three seconds requests factory reset. Reset clears network,
+  calibration, and I/O-mode data before restarting in SENSOR mode.
 - **Soft-off is not deep sleep or power isolation.** The current implementation
   stops runtime work and remains in a delay loop. Reset or power-cycle the
   device to start it again.
@@ -566,6 +622,8 @@ Do not manually edit generated files under `build/`.
 
 ### Sensor debug or calibration fails
 
+- Confirm status reports `"io_mode":"SENSOR"`; pressure-dependent commands are
+  intentionally rejected with `SENSOR_MODE_REQUIRED` in USB mode.
 - Check the shared GPIO19 HX710 clock and all three DOUT connections.
 - Check sensor power and common ground.
 - Send `cmd/debug` with a valid `request_id` and inspect all raw values.

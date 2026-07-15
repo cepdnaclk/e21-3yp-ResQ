@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "telemetry_publisher.h"
+#include "io_mode_manager.h"
 #include "unity.h"
 
 static void assert_contains(const char *payload, const char *field)
@@ -378,4 +379,23 @@ TEST_CASE("Sensor stream payload preserves calibrated converted values", "[telem
     assert_contains(payload, "\"hall_mm\":24.500");
     assert_contains(payload, "\"hall_progress\":0.490");
     assert_contains(payload, "\"hall_mm_valid\":true");
+}
+
+TEST_CASE("USB mode rejects manual SENSOR_STREAM start", "[telemetry][io_mode]")
+{
+    io_mode_manager_set_for_test(RESQ_IO_MODE_USB);
+    network_config_t network = {0};
+    calibration_config_t calibration = {0};
+    resq_mqtt_command_t command = {0};
+    strcpy(command.topic, "resq/test/cmd/telemetry");
+    strcpy(command.payload,
+           "{\"request_id\":\"usb-stream-1\",\"action\":\"START\"}");
+    command.payload_len = (int)strlen(command.payload);
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
+                      telemetry_publisher_handle_sensor_stream_command(
+                          &network, RESQ_STATE_PAIRED_IDLE, &calibration,
+                          &command, true));
+    TEST_ASSERT_FALSE(telemetry_publisher_is_sensor_stream_running());
+    io_mode_manager_set_for_test(RESQ_IO_MODE_SENSOR);
 }

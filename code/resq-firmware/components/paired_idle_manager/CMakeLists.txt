@@ -14,6 +14,7 @@ idf_component_register(
         mqtt_manager
         wifi_manager
         hx710
+        io_mode_manager
         hall_sensor
         cjson
         esp_timer

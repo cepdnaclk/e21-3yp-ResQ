@@ -26,6 +26,7 @@ typedef struct {
     esp_err_t pending_publish_result;
     bool pending_interruption;
     bool sensor_running;
+    bool sensor_mode_enabled;
     bool network_valid;
     bool calibration_valid;
     resq_state_t paired_idle_result;
@@ -68,6 +69,7 @@ static fake_t f;
 static resq_fsm_t fsm;
 
 static esp_err_t fake_initialize(void) { return f.initialize_result; }
+static bool fake_sensor_mode_enabled(void) { return f.sensor_mode_enabled; }
 static void fake_network_defaults(network_config_t *config)
 {
     memset(config, 0, sizeof(*config));
@@ -352,6 +354,7 @@ static void fake_soft_off(void) { f.soft_off_calls++; }
 
 static const resq_fsm_ops_t ops = {
     .initialize_components = fake_initialize,
+    .sensor_mode_enabled = fake_sensor_mode_enabled,
     .network_set_defaults = fake_network_defaults,
     .calibration_set_defaults = fake_calibration_defaults,
     .network_validate = fake_network_validate,
@@ -428,6 +431,7 @@ static void reset_fixture(void)
     f.identity_result = ESP_OK;
     f.heartbeat_result = ESP_OK;
     f.pending_publish_result = ESP_OK;
+    f.sensor_mode_enabled = true;
     f.paired_idle_result = RESQ_STATE_PAIRED_IDLE;
     f.calibration_result = RESQ_STATE_READY_FOR_SESSION;
     f.calibration_fail_result = RESQ_STATE_PAIRED_IDLE;
@@ -751,4 +755,20 @@ TEST_CASE("Button ownership table covers all internal states", "[fsm]")
         RESQ_STATE_ERROR));
     TEST_ASSERT_FALSE(resq_fsm_state_handles_buttons_internally(
         RESQ_STATE_WIFI_CONNECTING));
+}
+
+TEST_CASE("USB mode suppresses readiness and sensor states", "[fsm][io_mode]")
+{
+    reset_fixture();
+    f.sensor_mode_enabled = false;
+    TEST_ASSERT_EQUAL(RESQ_STATE_CONFIG_CHECK, run_state(RESQ_STATE_BOOT));
+    TEST_ASSERT_FALSE(fsm.calibration_config.calibrated);
+
+    f.pending_interruption = true;
+    TEST_ASSERT_EQUAL(RESQ_STATE_PAIRED_IDLE,
+                      run_state(RESQ_STATE_MQTT_CONNECTING));
+    TEST_ASSERT_EQUAL(RESQ_STATE_PAIRED_IDLE,
+                      run_state(RESQ_STATE_CALIBRATING));
+    TEST_ASSERT_EQUAL(RESQ_STATE_PAIRED_IDLE,
+                      run_state(RESQ_STATE_SESSION_ACTIVE));
 }

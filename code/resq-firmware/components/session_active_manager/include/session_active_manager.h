@@ -27,6 +27,9 @@ resq_state_t session_active_manager_run(network_config_t *network_config,
 
 bool session_active_manager_is_sensor_running(void);
 
+/** Stop session acquisition, CPR telemetry, and buzzer; safe when idle. */
+esp_err_t session_active_manager_stop_sensor_acquisition(void);
+
 bool session_active_manager_has_pending_interruption(void);
 
 esp_err_t session_active_manager_publish_pending_interruption(

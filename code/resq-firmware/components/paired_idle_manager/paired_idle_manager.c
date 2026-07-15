@@ -18,6 +18,7 @@
 #include "error_manager.h"
 #include "hall_sensor.h"
 #include "hx710.h"
+#include "io_mode_manager.h"
 #include "mqtt_manager.h"
 #include "mqtt_topics.h"
 #include "runtime_helpers.h"
@@ -148,7 +149,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
     return RESQ_STATE_ERROR;
   }
 
-  resq_state_t visible_state = calibration_config->calibrated
+  resq_state_t visible_state = io_mode_manager_is_sensor() &&
+                                       calibration_config->calibrated
                                    ? RESQ_STATE_READY_FOR_SESSION
                                    : RESQ_STATE_PAIRED_IDLE;
 
@@ -171,7 +173,8 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
       telemetry_publisher_stop_sensor_stream();
       return RESQ_STATE_RESETTING;
     }
-    visible_state = calibration_config->calibrated
+    visible_state = io_mode_manager_is_sensor() &&
+                            calibration_config->calibrated
                         ? RESQ_STATE_READY_FOR_SESSION
                         : RESQ_STATE_PAIRED_IDLE;
 
@@ -224,6 +227,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
     }
 
     if (strcmp(command_suffix, "cmd/debug") == 0) {
+      if (!io_mode_manager_is_sensor()) {
+        runtime_helpers_publish_command_result_from_command(
+            network_config, visible_state, &command, command_suffix, "NACK",
+            RESQ_REASON_SENSOR_MODE_REQUIRED);
+        continue;
+      }
       esp_err_t debug_err =
           runtime_helpers_publish_debug_snapshot(network_config);
 
@@ -267,6 +276,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
     }
 
     if (strcmp(command_suffix, "cmd/session/start") == 0) {
+      if (!io_mode_manager_is_sensor()) {
+        runtime_helpers_publish_command_result_from_command(
+            network_config, visible_state, &command, command_suffix, "NACK",
+            RESQ_REASON_SENSOR_MODE_REQUIRED);
+        continue;
+      }
       char reply_id[128] = {0};
       if (resq_command_extract_request_id(command.payload, reply_id,
                                           sizeof(reply_id)) != ESP_OK) {
@@ -347,6 +362,12 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
     }
 
     if (strcmp(command_suffix, "cmd/calibration/start") == 0) {
+      if (!io_mode_manager_is_sensor()) {
+        runtime_helpers_publish_command_result_from_command(
+            network_config, visible_state, &command, command_suffix, "NACK",
+            RESQ_REASON_SENSOR_MODE_REQUIRED);
+        continue;
+      }
       char reply_id[128] = {0};
       if (resq_command_extract_request_id(command.payload, reply_id,
                                           sizeof(reply_id)) != ESP_OK) {

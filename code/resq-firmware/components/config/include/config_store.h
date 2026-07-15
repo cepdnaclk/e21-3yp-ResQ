@@ -44,6 +44,18 @@ typedef struct {
 esp_err_t config_store_init(void);
 
 /**
+ * @brief Load the persistent hardware I/O mode.
+ *
+ * A missing or invalid value safely resolves to RESQ_IO_MODE_SENSOR.
+ */
+esp_err_t config_store_load_io_mode(resq_io_mode_t *out_mode);
+
+/**
+ * @brief Persist the hardware I/O mode for the next boot.
+ */
+esp_err_t config_store_save_io_mode(resq_io_mode_t mode);
+
+/**
  * @brief Read ESP hardware MAC and write it as a string.
  *
  * Output format:
