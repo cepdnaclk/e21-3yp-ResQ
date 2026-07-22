@@ -106,60 +106,78 @@ static esp_err_t receive_full_body(httpd_req_t *req, char *body,
     return ESP_OK;
 }
 
-/**
- * @brief Convert URL-encoded character pair to byte.
- */
-static char hex_to_char(char high, char low)
+typedef enum {
+    FORM_VALUE_NOT_FOUND = 0,
+    FORM_VALUE_OK,
+    FORM_VALUE_INVALID,
+} form_value_result_t;
+
+static bool hex_value(char input, uint8_t *out)
 {
-    int h = 0;
-    int l = 0;
-
-    if (high >= '0' && high <= '9') {
-        h = high - '0';
-    } else if (high >= 'A' && high <= 'F') {
-        h = high - 'A' + 10;
-    } else if (high >= 'a' && high <= 'f') {
-        h = high - 'a' + 10;
+    if (out == NULL) {
+        return false;
     }
-
-    if (low >= '0' && low <= '9') {
-        l = low - '0';
-    } else if (low >= 'A' && low <= 'F') {
-        l = low - 'A' + 10;
-    } else if (low >= 'a' && low <= 'f') {
-        l = low - 'a' + 10;
+    if (input >= '0' && input <= '9') {
+        *out = (uint8_t)(input - '0');
+        return true;
     }
-
-    return (char)((h << 4) | l);
+    if (input >= 'A' && input <= 'F') {
+        *out = (uint8_t)(input - 'A' + 10);
+        return true;
+    }
+    if (input >= 'a' && input <= 'f') {
+        *out = (uint8_t)(input - 'a' + 10);
+        return true;
+    }
+    return false;
 }
 
 /**
- * @brief Decode basic URL-encoded form value.
+ * @brief Decode exactly one URL-encoded form value without truncation.
  */
-static void url_decode(char *dst, size_t dst_len, const char *src)
+static esp_err_t url_decode_range(char *dst,
+                                  size_t dst_len,
+                                  const char *src,
+                                  const char *src_end)
 {
     size_t di = 0;
-    size_t si = 0;
 
-    if (dst == NULL || dst_len == 0 || src == NULL) {
-        return;
+    if (dst == NULL || dst_len == 0 || src == NULL || src_end == NULL ||
+        src_end < src) {
+        return ESP_ERR_INVALID_ARG;
     }
 
-    while (src[si] != '\0' && di < dst_len - 1) {
-        if (src[si] == '+') {
+    while (src < src_end) {
+        if (di >= dst_len - 1) {
+            dst[0] = '\0';
+            return ESP_ERR_INVALID_SIZE;
+        }
+
+        if (*src == '+') {
             dst[di++] = ' ';
-            si++;
-        } else if (src[si] == '%' &&
-                   src[si + 1] != '\0' &&
-                   src[si + 2] != '\0') {
-            dst[di++] = hex_to_char(src[si + 1], src[si + 2]);
-            si += 3;
+            src++;
+        } else if (*src == '%') {
+            uint8_t high = 0;
+            uint8_t low = 0;
+            if ((size_t)(src_end - src) < 3 ||
+                !hex_value(src[1], &high) || !hex_value(src[2], &low)) {
+                dst[0] = '\0';
+                return ESP_ERR_INVALID_ARG;
+            }
+            uint8_t decoded = (uint8_t)((high << 4) | low);
+            if (decoded == 0) {
+                dst[0] = '\0';
+                return ESP_ERR_INVALID_ARG;
+            }
+            dst[di++] = (char)decoded;
+            src += 3;
         } else {
-            dst[di++] = src[si++];
+            dst[di++] = *src++;
         }
     }
 
     dst[di] = '\0';
+    return ESP_OK;
 }
 
 /**
@@ -168,13 +186,13 @@ static void url_decode(char *dst, size_t dst_len, const char *src)
  * Example body:
  * wifi_ssid=ABC&wifi_pass=123&mqtt_port=1883
  */
-static bool form_get_value(const char *body,
-                           const char *key,
-                           char *out,
-                           size_t out_len)
+static form_value_result_t form_get_value(const char *body,
+                                          const char *key,
+                                          char *out,
+                                          size_t out_len)
 {
     if (body == NULL || key == NULL || out == NULL || out_len == 0) {
-        return false;
+        return FORM_VALUE_INVALID;
     }
 
     size_t key_len = strlen(key);
@@ -185,26 +203,12 @@ static bool form_get_value(const char *body,
             const char *value_start = p + key_len + 1;
             const char *value_end = strchr(value_start, '&');
 
-            size_t value_len = value_end
-                ? (size_t)(value_end - value_start)
-                : strlen(value_start);
-
-            if (value_len >= out_len) {
-                value_len = out_len - 1;
+            if (value_end == NULL) {
+                value_end = value_start + strlen(value_start);
             }
-
-            char encoded[160] = {0};
-
-            if (value_len >= sizeof(encoded)) {
-                value_len = sizeof(encoded) - 1;
-            }
-
-            memcpy(encoded, value_start, value_len);
-            encoded[value_len] = '\0';
-
-            url_decode(out, out_len, encoded);
-
-            return true;
+            return url_decode_range(out, out_len, value_start, value_end) == ESP_OK
+                ? FORM_VALUE_OK
+                : FORM_VALUE_INVALID;
         }
 
         p = strchr(p, '&');
@@ -216,7 +220,7 @@ static bool form_get_value(const char *body,
         p++;
     }
 
-    return false;
+    return FORM_VALUE_NOT_FOUND;
 }
 
 /**
@@ -311,33 +315,31 @@ static esp_err_t parse_form_payload(const char *body,
         return ESP_ERR_INVALID_ARG;
     }
 
-    bool ok = true;
-    char temp[160] = {0};
-
-    ok &= form_get_value(body,
-                         "wifi_ssid",
-                         config->wifi_ssid,
-                         sizeof(config->wifi_ssid));
+    if (form_get_value(body,
+                       "wifi_ssid",
+                       config->wifi_ssid,
+                       sizeof(config->wifi_ssid)) != FORM_VALUE_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
     /*
      * Password is allowed to be empty,
      * so do not fail if wifi_pass is missing.
      */
-    if (form_get_value(body,
-                       "wifi_pass",
-                       temp,
-                       sizeof(temp))) {
-        copy_string_safe(config->wifi_pass,
-                         sizeof(config->wifi_pass),
-                         temp);
+    form_value_result_t password_result = form_get_value(
+        body, "wifi_pass", config->wifi_pass, sizeof(config->wifi_pass));
+    if (password_result == FORM_VALUE_INVALID) {
+        return ESP_ERR_INVALID_SIZE;
     }
 
-    ok &= form_get_value(body,
-                         "backend_base_url",
-                         config->backend_base_url,
-                         sizeof(config->backend_base_url));
+    if (form_get_value(body,
+                       "backend_base_url",
+                       config->backend_base_url,
+                       sizeof(config->backend_base_url)) != FORM_VALUE_OK) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    return ok ? ESP_OK : ESP_ERR_INVALID_ARG;
+    return ESP_OK;
 }
 
 /**
@@ -347,30 +349,35 @@ static esp_err_t parse_form_payload(const char *body,
  * - JSON body
  * - application/x-www-form-urlencoded body
  */
-static esp_err_t parse_provisioning_payload(const char *body,
-                                            network_config_t *config)
+esp_err_t provisioning_manager_parse_payload(const char *body,
+                                             network_config_t *config)
 {
     if (body == NULL || config == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    network_config_set_defaults(config);
+    network_config_t candidate;
+    network_config_set_defaults(&candidate);
 
     /*
      * Try JSON first.
      */
-    esp_err_t err = parse_json_payload(body, config);
+    esp_err_t err = parse_json_payload(body, &candidate);
 
     if (err == ESP_OK) {
+        memcpy(config, &candidate, sizeof(candidate));
         return ESP_OK;
     }
 
     /*
      * If JSON parsing fails, try form-urlencoded.
      */
-    network_config_set_defaults(config);
-
-    return parse_form_payload(body, config);
+    network_config_set_defaults(&candidate);
+    err = parse_form_payload(body, &candidate);
+    if (err == ESP_OK) {
+        memcpy(config, &candidate, sizeof(candidate));
+    }
+    return err;
 }
 
 /**
@@ -489,12 +496,7 @@ static void generate_ack_id(char *buffer, size_t buffer_len)
  * HTTP handlers
  * ========================================================= */
 
-/**
- * @brief Simple provisioning page.
- */
-static esp_err_t root_get_handler(httpd_req_t *req)
-{
-    const char *html =
+static const char s_provisioning_page_html[] =
         "<!DOCTYPE html>"
         "<html>"
         "<head>"
@@ -521,7 +523,7 @@ static esp_err_t root_get_handler(httpd_req_t *req)
         "<label for='wifi_ssid'>Wi-Fi SSID</label>"
         "<input id='wifi_ssid' name='wifi_ssid' required>"
         "<label for='wifi_pass'>Wi-Fi Password</label>"
-        "<input id='wifi_pass' name='wifi_pass' type='password'>"
+        "<input id='wifi_pass' name='wifi_pass' type='password' autocomplete='current-password'>"
         "<label for='backend_base_url'>Backend Base URL</label>"
         "<input id='backend_base_url' name='backend_base_url' placeholder='http://192.168.8.100:18080' required>"
         "<button id='submitBtn' type='submit'>Save Configuration</button>"
@@ -541,12 +543,23 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 
         "  function applyQueryParams(){"
         "    const params = new URLSearchParams(window.location.search);"
-        "    const fields = ['wifi_ssid','backend_base_url'];"
+        "    const fields = {"
+        "      wifi_ssid: ['wifi_ssid','ssid'],"
+        "      wifi_pass: ['wifi_pass','wifi_password','password'],"
+        "      backend_base_url: ['backend_base_url','backend_url','hub_url']"
+        "    };"
         "    let filled = 0;"
-        "    fields.forEach(function(id){"
-        "      const value = params.get(id);"
+        "    Object.keys(fields).forEach(function(id){"
         "      const el = document.getElementById(id);"
-        "      if(el && value !== null){ el.value = value; filled++; }"
+        "      if(!el){ return; }"
+        "      const aliases = fields[id];"
+        "      for(let i = 0; i < aliases.length; i++){"
+        "        if(params.has(aliases[i])){"
+        "          el.value = params.get(aliases[i]);"
+        "          filled++;"
+        "          break;"
+        "        }"
+        "      }"
         "    });"
         "    if(filled > 0){ setMessage('Provisioning values loaded from QR. Review and press Save Configuration.', false); }"
         "  }"
@@ -610,6 +623,18 @@ static esp_err_t root_get_handler(httpd_req_t *req)
         "</body>"
         "</html>";
 
+const char *provisioning_manager_get_page_html(void)
+{
+    return s_provisioning_page_html;
+}
+
+/**
+ * @brief Simple provisioning page.
+ */
+static esp_err_t root_get_handler(httpd_req_t *req)
+{
+    const char *html = provisioning_manager_get_page_html();
+
     httpd_resp_set_type(req, "text/html");
 
     return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
@@ -672,7 +697,7 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
     network_config_t config;
     network_config_set_defaults(&config);
 
-    esp_err_t err = parse_provisioning_payload(body, &config);
+    esp_err_t err = provisioning_manager_parse_payload(body, &config);
 
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Provisioning payload parse failed");
@@ -753,7 +778,7 @@ static esp_err_t provision_ack_post_handler(httpd_req_t *req)
     bool has_ack = form_get_value(body,
                                   "ack_id",
                                   received_ack_id,
-                                  sizeof(received_ack_id));
+                                  sizeof(received_ack_id)) == FORM_VALUE_OK;
 
     /*
      * Support JSON body:

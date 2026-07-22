@@ -23,7 +23,7 @@ Real firmware should still provision in two stages:
 
 	`http://192.168.4.1/?wifi_ssid=<encoded>&wifi_pass=<encoded>&backend_base_url=<encoded>&auto=1`
 
-3. The firmware receives only `wifi_ssid`, `wifi_pass`, and `backend_base_url` from the provisioning URL query.
+3. The firmware receives canonical `wifi_ssid`, `wifi_pass`, and `backend_base_url` values from the provisioning URL query. It temporarily accepts `ssid`; `wifi_password` or `password`; and `backend_url` or `hub_url` as compatibility aliases.
 4. If firmware supports `auto=1`, it can save and connect automatically; otherwise the user presses `Save Configuration` manually in the portal.
 5. The firmware connects to Wi-Fi and calls `POST /api/devices/register`.
 6. The backend returns the runtime connection details the device needs for MQTT.
@@ -34,6 +34,13 @@ The backend registration endpoint is tolerant and local-only. It returns:
 - `device_id`
 - `mqtt_host`
 - `mqtt_port`
+
+The QR generators use `URLSearchParams`, including an explicit empty
+`wifi_pass` for open networks, and preserve password whitespace and special
+characters. The firmware field remains masked and editable. Firmware
+registration sends the existing `device_mac` and `firmware_version` fields;
+the backend accepts `device_mac` as an alias of its canonical `mac` request
+property.
 
 The service-info endpoint returns the LAN-oriented setup information used by the desktop and demo scripts:
 

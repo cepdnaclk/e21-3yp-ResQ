@@ -25,7 +25,10 @@ typedef struct {
     int wifi_rssi;
     esp_err_t backend_result;
     backend_registration_result_t backend_data;
+    int backend_register_calls;
+    network_config_t backend_config;
     esp_err_t mqtt_start_result;
+    int mqtt_start_calls;
     bool mqtt_connected;
     esp_err_t identity_result;
     esp_err_t heartbeat_result;
@@ -106,7 +109,9 @@ static esp_err_t fake_load_network(network_config_t *config)
 {
     if (f.load_network_result == ESP_OK) {
         strcpy(config->wifi_ssid, "resq-test");
+        strcpy(config->wifi_pass, "saved pass +&%");
         strcpy(config->backend_base_url, "http://test");
+        config->provisioned = true;
     }
     return f.load_network_result;
 }
@@ -182,7 +187,8 @@ static int fake_wifi_get_rssi(void) { return f.wifi_rssi; }
 static esp_err_t fake_backend_register(const network_config_t *config,
                                        backend_registration_result_t *result)
 {
-    (void)config;
+    f.backend_register_calls++;
+    f.backend_config = *config;
     *result = f.backend_data;
     return f.backend_result;
 }
@@ -193,6 +199,7 @@ static esp_err_t fake_mqtt_start(const char *device_id,
     (void)device_id;
     (void)host;
     (void)port;
+    f.mqtt_start_calls++;
     return f.mqtt_start_result;
 }
 static esp_err_t fake_mqtt_stop(void)
@@ -750,6 +757,7 @@ TEST_CASE("BACKEND_REGISTERING validates the runtime result", "[fsm]")
     TEST_ASSERT_EQUAL(RESQ_STATE_MQTT_CONNECTING,
                       run_state(RESQ_STATE_BACKEND_REGISTERING));
     TEST_ASSERT_EQUAL_STRING("device-1", fsm.backend_result.device_id);
+    TEST_ASSERT_EQUAL(1, f.backend_register_calls);
 
     reset_fixture();
     f.backend_result = ESP_FAIL;
@@ -758,10 +766,54 @@ TEST_CASE("BACKEND_REGISTERING validates the runtime result", "[fsm]")
     TEST_ASSERT_EQUAL(FW_ERROR_BACKEND_REGISTER_FAILED, f.last_error);
 
     reset_fixture();
+    f.backend_result = ESP_ERR_INVALID_RESPONSE;
+    TEST_ASSERT_EQUAL(RESQ_STATE_ERROR,
+                      run_state(RESQ_STATE_BACKEND_REGISTERING));
+    TEST_ASSERT_EQUAL(FW_ERROR_BACKEND_INVALID_RESPONSE, f.last_error);
+
+    reset_fixture();
     f.backend_data.device_id[0] = '\0';
     TEST_ASSERT_EQUAL(RESQ_STATE_ERROR,
                       run_state(RESQ_STATE_BACKEND_REGISTERING));
     TEST_ASSERT_EQUAL(FW_ERROR_BACKEND_INVALID_RESPONSE, f.last_error);
+}
+
+TEST_CASE("Configured startup registers exactly once in USB and Sensor modes",
+          "[fsm][backend_register][io_mode]")
+{
+    for (int sensor_mode = 0; sensor_mode <= 1; ++sensor_mode) {
+        reset_fixture();
+        f.sensor_mode_enabled = sensor_mode != 0;
+        f.active_io_mode = sensor_mode != 0
+            ? RESQ_IO_MODE_SENSOR
+            : RESQ_IO_MODE_USB;
+
+        TEST_ASSERT_EQUAL(RESQ_STATE_CONFIG_CHECK,
+                          run_state(RESQ_STATE_BOOT));
+        TEST_ASSERT_EQUAL(RESQ_STATE_WIFI_CONNECTING,
+                          run_state(RESQ_STATE_CONFIG_CHECK));
+        TEST_ASSERT_EQUAL(RESQ_STATE_BACKEND_REGISTERING,
+                          run_state(RESQ_STATE_WIFI_CONNECTING));
+        TEST_ASSERT_EQUAL(0, f.backend_register_calls);
+
+        TEST_ASSERT_EQUAL(RESQ_STATE_MQTT_CONNECTING,
+                          run_state(RESQ_STATE_BACKEND_REGISTERING));
+        TEST_ASSERT_EQUAL(1, f.backend_register_calls);
+        TEST_ASSERT_EQUAL_STRING("resq-test", f.backend_config.wifi_ssid);
+        TEST_ASSERT_EQUAL_STRING("saved pass +&%", f.backend_config.wifi_pass);
+        TEST_ASSERT_EQUAL_STRING("http://test",
+                                 f.backend_config.backend_base_url);
+
+        resq_state_t expected = sensor_mode != 0
+            ? RESQ_STATE_READY_FOR_SESSION
+            : RESQ_STATE_PAIRED_IDLE;
+        TEST_ASSERT_EQUAL(expected, run_state(RESQ_STATE_MQTT_CONNECTING));
+        TEST_ASSERT_EQUAL(1, f.backend_register_calls);
+        TEST_ASSERT_EQUAL(1, f.mqtt_start_calls);
+        TEST_ASSERT_EQUAL(1, f.identity_calls);
+        TEST_ASSERT_EQUAL(1, f.heartbeat_calls);
+        TEST_ASSERT_EQUAL(1, f.heartbeat_start_calls);
+    }
 }
 
 TEST_CASE("MQTT_CONNECTING selects all destinations", "[fsm]")

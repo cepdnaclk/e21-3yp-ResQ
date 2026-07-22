@@ -40,19 +40,13 @@ static bool response_string_valid(const char *value, size_t capacity,
     return true;
 }
 
-static esp_err_t backend_register_build_request_body(const network_config_t *config,
+esp_err_t backend_register_client_build_request_body(const char *device_mac,
                                                      char *buffer,
                                                      size_t buffer_len)
 {
-    if (config == NULL || buffer == NULL || buffer_len == 0) {
+    if (device_mac == NULL || device_mac[0] == '\0' || buffer == NULL ||
+        buffer_len == 0) {
         return ESP_ERR_INVALID_ARG;
-    }
-
-    /* Read hardware MAC at runtime */
-    char mac[RESQ_DEVICE_MAC_MAX_LEN] = {0};
-    esp_err_t merr = config_store_get_device_mac(mac, sizeof(mac));
-    if (merr != ESP_OK) {
-        return merr;
     }
 
     int written = snprintf(
@@ -62,7 +56,7 @@ static esp_err_t backend_register_build_request_body(const network_config_t *con
             "\"device_mac\":\"%s\"," 
             "\"firmware_version\":\"0.1.0\""
         "}",
-        mac
+        device_mac
     );
 
     if (written <= 0 || written >= (int)buffer_len) {
@@ -70,6 +64,104 @@ static esp_err_t backend_register_build_request_body(const network_config_t *con
     }
 
     return ESP_OK;
+}
+
+esp_err_t backend_register_client_build_url(const char *backend_base_url,
+                                            char *out_url,
+                                            size_t out_url_len)
+{
+    if (backend_base_url == NULL || out_url == NULL || out_url_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    size_t base_len = strnlen(backend_base_url,
+                              RESQ_BACKEND_BASE_URL_MAX_LEN);
+    if (base_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (base_len >= RESQ_BACKEND_BASE_URL_MAX_LEN) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    while (base_len > 0 && backend_base_url[base_len - 1] == '/') {
+        base_len--;
+    }
+    if (base_len == 0 || base_len + strlen(BACKEND_REGISTER_PATH) >= out_url_len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    int written = snprintf(out_url, out_url_len, "%.*s%s", (int)base_len,
+                           backend_base_url, BACKEND_REGISTER_PATH);
+    return written > 0 && (size_t)written < out_url_len
+        ? ESP_OK
+        : ESP_ERR_INVALID_SIZE;
+}
+
+esp_err_t backend_register_client_parse_response(
+    const char *response_json,
+    backend_registration_result_t *out_result)
+{
+    if (response_json == NULL || out_result == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    cJSON *root = cJSON_Parse(response_json);
+    if (root == NULL) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    backend_registration_result_t candidate = {0};
+    cJSON *device_id = cJSON_GetObjectItemCaseSensitive(root, "device_id");
+    cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(root, "mqtt_host");
+    cJSON *mqtt_port = cJSON_GetObjectItemCaseSensitive(root, "mqtt_port");
+
+    bool valid = cJSON_IsString(device_id) &&
+                 response_string_valid(device_id->valuestring,
+                                       sizeof(candidate.device_id), false) &&
+                 cJSON_IsString(mqtt_host) &&
+                 response_string_valid(mqtt_host->valuestring,
+                                       sizeof(candidate.mqtt_host), true) &&
+                 cJSON_IsNumber(mqtt_port) &&
+                 isfinite(mqtt_port->valuedouble) &&
+                 floor(mqtt_port->valuedouble) == mqtt_port->valuedouble &&
+                 mqtt_port->valuedouble >= 1.0 &&
+                 mqtt_port->valuedouble <= 65535.0;
+    if (!valid) {
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    memcpy(candidate.device_id, device_id->valuestring,
+           strlen(device_id->valuestring) + 1);
+    memcpy(candidate.mqtt_host, mqtt_host->valuestring,
+           strlen(mqtt_host->valuestring) + 1);
+    candidate.mqtt_port = (uint16_t)mqtt_port->valuedouble;
+    cJSON_Delete(root);
+
+    memcpy(out_result, &candidate, sizeof(candidate));
+    return ESP_OK;
+}
+
+static void sanitize_url_for_log(const char *url, char *out, size_t out_len)
+{
+    if (url == NULL || out == NULL || out_len == 0) {
+        return;
+    }
+    snprintf(out, out_len, "%s", url);
+
+    char *query = strpbrk(out, "?#");
+    if (query != NULL) {
+        *query = '\0';
+    }
+
+    char *scheme = strstr(out, "://");
+    char *authority = scheme != NULL ? scheme + 3 : out;
+    char *path = strchr(authority, '/');
+    char *authority_end = path != NULL ? path : out + strlen(out);
+    char *at = memchr(authority, '@', (size_t)(authority_end - authority));
+    if (at != NULL) {
+        memmove(authority, at + 1, strlen(at + 1) + 1);
+    }
 }
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
@@ -119,12 +211,14 @@ esp_err_t backend_register_client_register(const network_config_t *config,
         return ESP_ERR_INVALID_ARG;
     }
 
-    out_result->device_id[0] = '\0';
-    out_result->mqtt_host[0] = '\0';
-    out_result->mqtt_port = 0;
-
     char body_buf[256];
-    esp_err_t berr = backend_register_build_request_body(config, body_buf, sizeof(body_buf));
+    char mac[RESQ_DEVICE_MAC_MAX_LEN] = {0};
+    esp_err_t berr = config_store_get_device_mac(mac, sizeof(mac));
+    if (berr != ESP_OK) {
+        return berr;
+    }
+    berr = backend_register_client_build_request_body(mac, body_buf,
+                                                      sizeof(body_buf));
     if (berr != ESP_OK) {
         return berr;
     }
@@ -136,48 +230,13 @@ esp_err_t backend_register_client_register(const network_config_t *config,
     resp.written = 0;
 
 
-    /* Build register URL from backend base URL. Trim trailing slash. */
     char register_url[256] = {0};
-    static const char register_path[] = "/api/devices/register";
-
-    size_t base_len = strnlen(config->backend_base_url,
-                            sizeof(config->backend_base_url));
-
-    if (base_len == 0) {
-        return ESP_ERR_INVALID_ARG;
+    berr = backend_register_client_build_url(config->backend_base_url,
+                                             register_url,
+                                             sizeof(register_url));
+    if (berr != ESP_OK) {
+        return berr;
     }
-
-    if (base_len >= sizeof(config->backend_base_url)) {
-        ESP_LOGE(TAG, "Backend base URL is not null-terminated");
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    /* Copy backend base URL safely into larger register_url buffer. */
-    int written = snprintf(register_url,
-                        sizeof(register_url),
-                        "%s",
-                        config->backend_base_url);
-
-    if (written <= 0 || written >= (int)sizeof(register_url)) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    /* Trim trailing slash, if present. */
-    size_t url_len = strlen(register_url);
-    while (url_len > 0 && register_url[url_len - 1] == '/') {
-        register_url[url_len - 1] = '\0';
-        url_len--;
-    }
-
-    /* Append fixed registration endpoint safely. */
-    if (url_len + strlen(register_path) >= sizeof(register_url)) {
-        ESP_LOGE(TAG, "Register URL is too long");
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    strncat(register_url,
-            register_path,
-            sizeof(register_url) - strlen(register_url) - 1);
 
     esp_http_client_config_t http_cfg = {
         .url = register_url,
@@ -187,7 +246,10 @@ esp_err_t backend_register_client_register(const network_config_t *config,
         .timeout_ms = BACKEND_REGISTER_TIMEOUT_MS,
     };
 
-    ESP_LOGI(TAG, "Sending registration to: %s", register_url);
+    char safe_register_url[sizeof(register_url)] = {0};
+    sanitize_url_for_log(register_url, safe_register_url,
+                         sizeof(safe_register_url));
+    ESP_LOGI(TAG, "Sending registration to: %s", safe_register_url);
 
     esp_err_t err = ESP_FAIL;
 
@@ -226,64 +288,22 @@ esp_err_t backend_register_client_register(const network_config_t *config,
                 ESP_LOGE(TAG, "Registration response exceeds %d bytes",
                          resp.buffer_len - 1);
                 esp_http_client_cleanup(client_attempt);
-                err = ESP_ERR_INVALID_SIZE;
+                err = ESP_ERR_INVALID_RESPONSE;
                 vTaskDelay(pdMS_TO_TICKS(1000));
                 continue;
             }
-            if (resp.written == 0) {
-                ESP_LOGW(TAG, "Empty registration response");
-            }
-
-            /* Parse response and require device_id */
-            cJSON *resp_json = cJSON_Parse(resp.buffer);
-            if (!resp_json) {
-                ESP_LOGE(TAG, "Failed to parse registration response: %s", resp.buffer);
-                esp_http_client_cleanup(client_attempt);
-                err = ESP_FAIL;
-                vTaskDelay(pdMS_TO_TICKS(1000));
-                continue;
-            }
-
-            cJSON *device_id = cJSON_GetObjectItemCaseSensitive(resp_json, "device_id");
-            if (!cJSON_IsString(device_id) ||
-                !response_string_valid(device_id->valuestring,
-                                       sizeof(out_result->device_id), false)) {
-                ESP_LOGE(TAG, "Backend response has invalid device_id");
-                cJSON_Delete(resp_json);
-                esp_http_client_cleanup(client_attempt);
-                err = ESP_FAIL;
-                vTaskDelay(pdMS_TO_TICKS(1000));
-                continue;
-            }
-
-            cJSON *mqtt_host = cJSON_GetObjectItemCaseSensitive(resp_json, "mqtt_host");
-            cJSON *mqtt_port = cJSON_GetObjectItemCaseSensitive(resp_json, "mqtt_port");
-
-            if (!cJSON_IsString(mqtt_host) ||
-                !response_string_valid(mqtt_host->valuestring,
-                                       sizeof(out_result->mqtt_host), true) ||
-                !cJSON_IsNumber(mqtt_port) ||
-                !isfinite(mqtt_port->valuedouble) ||
-                floor(mqtt_port->valuedouble) != mqtt_port->valuedouble ||
-                mqtt_port->valuedouble < 1.0 ||
-                mqtt_port->valuedouble > 65535.0) {
-                ESP_LOGE(TAG, "Backend response has invalid MQTT endpoint");
-                cJSON_Delete(resp_json);
+            esp_err_t parse_err = backend_register_client_parse_response(
+                resp.buffer, out_result);
+            if (parse_err != ESP_OK) {
+                ESP_LOGE(TAG, "Registration response parsing failed");
                 esp_http_client_cleanup(client_attempt);
                 err = ESP_ERR_INVALID_RESPONSE;
                 vTaskDelay(pdMS_TO_TICKS(1000));
                 continue;
             }
-
-            memcpy(out_result->device_id, device_id->valuestring,
-                   strlen(device_id->valuestring) + 1);
-            memcpy(out_result->mqtt_host, mqtt_host->valuestring,
-                   strlen(mqtt_host->valuestring) + 1);
-            out_result->mqtt_port = (uint16_t)mqtt_port->valuedouble;
-
-            cJSON_Delete(resp_json);
             esp_http_client_cleanup(client_attempt);
 
+            ESP_LOGI(TAG, "Registration response parsed successfully");
             ESP_LOGI(TAG, "Registration complete device_id=%s mqtt_host=%s mqtt_port=%d",
                      out_result->device_id,
                      out_result->mqtt_host,

@@ -1,5 +1,6 @@
 package lk.resq.localhub.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.DeviceRegistrationRequest;
 import lk.resq.localhub.model.DeviceRegistrationResponse;
 import lk.resq.localhub.model.HubServiceInfoResponse;
@@ -14,6 +15,22 @@ import org.springframework.http.ResponseEntity;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DeviceRegistrationControllerTest {
+
+    @Test
+    void firmwareDeviceMacFieldMapsToCanonicalMac() throws Exception {
+        DeviceRegistrationRequest request = new ObjectMapper().readValue(
+                "{\"device_mac\":\"A0:B1:C2:D3:E4:F5\",\"firmware_version\":\"0.1.0\"}",
+                DeviceRegistrationRequest.class
+        );
+
+        assertThat(request.mac()).isEqualTo("A0:B1:C2:D3:E4:F5");
+        DeviceRegistrationResponse response = newFixture().deviceController
+                .registerDevice(request)
+                .getBody();
+        assertThat(response).isNotNull();
+        assertThat(response.deviceId()).startsWith("M");
+        assertThat(response.deviceId()).isNotEqualTo("M-DEV");
+    }
 
     @Test
     void registerDeviceAcceptsMinimalBodyWithoutManikinId() {

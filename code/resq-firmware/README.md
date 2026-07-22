@@ -254,15 +254,44 @@ The HTTP API is:
 }
 ```
 
+The provisioning page also accepts URL-encoded QR query parameters. Canonical
+names are `wifi_ssid`, `wifi_pass`, and `backend_base_url`. Compatibility
+aliases are `ssid`; `wifi_password` or `password`; and `backend_url` or
+`hub_url`, respectively. Canonical names take precedence when both forms are
+present. For example, using placeholder values:
+
+```text
+http://192.168.4.1/?wifi_ssid=ExampleLab&wifi_pass=example%26password%3D123&backend_base_url=http%3A%2F%2F192.0.2.10%3A18080
+```
+
+The page decodes each value once with `URLSearchParams`. A QR-populated
+password remains editable and visually masked. It is optional: an empty value
+represents an open network, and provisioning adds no minimum length or
+complexity rules. Password characters, including leading/trailing spaces, are
+preserved and the password is not logged, echoed in HTTP responses, published
+to MQTT, or included in backend registration.
+
 The device saves the configuration only after the second acknowledgement
 request succeeds. It then stops the SoftAP, joins the configured Wi-Fi network,
 registers at `<backend_base_url>/api/devices/register`, and uses the returned
 device ID, MQTT host, and MQTT port.
 
+Every configured startup advances from `WIFI_CONNECTING` to
+`BACKEND_REGISTERING`, in both `USB` and `SENSOR` modes. Registration sends the
+hardware `device_mac` and `firmware_version`; returned `device_id`, `mqtt_host`,
+and `mqtt_port` remain runtime-only and are passed to MQTT setup. USB mode skips
+pressure-dependent services only—it still registers, connects to MQTT, and
+publishes identity, status, and heartbeat data.
+
 Network, valid calibration data, and the I/O mode persist in NVS across ordinary
 restarts and soft-off. Clearing only network configuration preserves the I/O
 mode. A factory reset or `erase-flash` removes all three and restores the
 default `SENSOR` mode.
+
+Saving a confirmed I/O-mode change writes only `io_mode`; it does not erase the
+SSID, optional password, backend URL, provisioning state, or calibration. If a
+mode selection is pending, completed network provisioning remains saved but the
+FSM stays in `PROVISIONING` until that selection is confirmed or cancelled.
 
 ## Runtime state machine
 

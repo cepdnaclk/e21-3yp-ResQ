@@ -15,7 +15,7 @@ Phase 7 narrows the real firmware provisioning QR to only:
 ```json
 {
   "wifi_ssid": "training-wifi",
-  "wifi_password": "password",
+  "wifi_pass": "password",
   "backend_base_url": "http://192.168.8.187:18080"
 }
 ```

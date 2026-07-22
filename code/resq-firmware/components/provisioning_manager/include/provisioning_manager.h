@@ -51,6 +51,19 @@ bool provisioning_manager_has_saved_config(void);
  */
 esp_err_t provisioning_manager_get_network_config(network_config_t *out_config);
 
+/**
+ * @brief Parse a JSON or form-urlencoded provisioning payload transactionally.
+ *
+ * Empty Wi-Fi passwords are valid. On failure, @p out_config is unchanged.
+ */
+esp_err_t provisioning_manager_parse_payload(const char *body,
+                                             network_config_t *out_config);
+
+/**
+ * @brief Return the embedded provisioning page.
+ */
+const char *provisioning_manager_get_page_html(void);
+
 #ifdef __cplusplus
 }
 #endif

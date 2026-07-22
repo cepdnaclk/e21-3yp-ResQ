@@ -17,6 +17,8 @@ set(TEST_COMPONENTS
     "system_button_manager"
     "io_mode_manager"
     "calibration_fingerprint"
+    "provisioning_manager"
+    "backend_register_client"
     CACHE STRING "ResQ components under test"
     FORCE
 )

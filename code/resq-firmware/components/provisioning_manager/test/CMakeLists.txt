@@ -1,0 +1,9 @@
+idf_component_register(
+    SRCS
+        "test_provisioning_manager.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        unity
+        provisioning_manager
+)

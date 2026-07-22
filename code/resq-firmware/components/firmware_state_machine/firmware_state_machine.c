@@ -425,9 +425,15 @@ static resq_state_t run_wifi_connecting(resq_fsm_t *fsm)
 
 static resq_state_t run_backend_registering(resq_fsm_t *fsm)
 {
+    ESP_LOGI(TAG, "Backend registration start mode=%s",
+             fsm->ops->sensor_mode_enabled() ? "SENSOR" : "USB");
     backend_registration_result_t result = {0};
-    if (fsm->ops->backend_register(&fsm->network_config, &result) != ESP_OK) {
-        fsm->ops->error_set(FW_ERROR_BACKEND_REGISTER_FAILED);
+    esp_err_t registration_err = fsm->ops->backend_register(
+        &fsm->network_config, &result);
+    if (registration_err != ESP_OK) {
+        fsm->ops->error_set(registration_err == ESP_ERR_INVALID_RESPONSE
+            ? FW_ERROR_BACKEND_INVALID_RESPONSE
+            : FW_ERROR_BACKEND_REGISTER_FAILED);
         return RESQ_STATE_ERROR;
     }
     if (result.device_id[0] == '\0') {

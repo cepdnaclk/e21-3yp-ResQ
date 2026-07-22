@@ -3,6 +3,7 @@
 
 #include "esp_err.h"
 #include "resq_config_types.h"
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -11,6 +12,7 @@ extern "C" {
 
 #define BACKEND_REGISTER_MAX_RETRIES     3
 #define BACKEND_REGISTER_TIMEOUT_MS      5000
+#define BACKEND_REGISTER_PATH            "/api/devices/register"
 
 esp_err_t backend_register_client_init(void);
 
@@ -21,26 +23,32 @@ typedef struct {
 } backend_registration_result_t;
 
 /**
- * @brief Register ESP device with LocalHub backend.
- *
- * Uses:
- * - config->backend_base_url (will POST to base + "/api/devices/register")
- * - config->device_mac
- *
- * Sends (JSON request):
- * {
- *   "device_mac": "...",
- *   "device_id": "...",
- *   "firmware_version": "0.1.0"
- * }
- *
- * Requires backend response to contain:
- * - device_id (non-empty string)
- *
- * Optionally updates if response contains:
- * - mqtt_host
- * - mqtt_port
+ * @brief Compose the configured base URL with the registration path.
  */
+esp_err_t backend_register_client_build_url(const char *backend_base_url,
+                                            char *out_url,
+                                            size_t out_url_len);
+
+/**
+ * @brief Build the current registration JSON contract.
+ *
+ * The request preserves the existing `device_mac` and `firmware_version`
+ * fields. The Wi-Fi password is never included.
+ */
+esp_err_t backend_register_client_build_request_body(const char *device_mac,
+                                                     char *out_body,
+                                                     size_t out_body_len);
+
+/**
+ * @brief Parse a registration response transactionally.
+ *
+ * Requires valid `device_id`, `mqtt_host`, and `mqtt_port` fields. On failure,
+ * @p out_result is unchanged.
+ */
+esp_err_t backend_register_client_parse_response(
+    const char *response_json,
+    backend_registration_result_t *out_result);
+
 /**
  * @brief Register ESP device with LocalHub backend.
  *
