@@ -40,8 +40,8 @@ import {
   cancelCalibration,
   getReadiness,
   startCalibration,
-  type FirmwareCalibrationStartPayload,
-  type FirmwareReadinessResponse,
+  type CalibrationStartRequest,
+  type DeviceReadinessState,
 } from "../lib/browserFirmwareApi";
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
@@ -398,7 +398,7 @@ export default function InstructorDashboard({
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
   const [sessionActionByDevice, setSessionActionByDevice] = useState<Record<string, SessionActionState>>({});
   const [calibrationActionByDevice, setCalibrationActionByDevice] = useState<Record<string, CalibrationActionState>>({});
-  const [readinessByDevice, setReadinessByDevice] = useState<Record<string, FirmwareReadinessResponse | null>>({});
+  const [readinessByDevice, setReadinessByDevice] = useState<Record<string, DeviceReadinessState | null>>({});
   const [sessionMessageByDevice, setSessionMessageByDevice] = useState<Record<string, string | null>>({});
   const [recentSessions, setRecentSessions] = useState<CompletedSession[]>([]);
   const [recentSessionsLoading, setRecentSessionsLoading] = useState(true);
@@ -722,11 +722,11 @@ export default function InstructorDashboard({
     return `${value.toFixed(1)} ${suffix}`;
   }
 
-  function readinessKnown(readiness: FirmwareReadinessResponse | null | undefined): boolean {
-    return Boolean(readiness?.firmwareState || readiness?.latestResult);
+  function readinessKnown(readiness: DeviceReadinessState | null | undefined): boolean {
+    return Boolean(readiness?.firmwareState || readiness?.lastResult);
   }
 
-  function startBlockedByReadiness(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+  function startBlockedByReadiness(readiness: DeviceReadinessState | null | undefined): boolean {
     if (!readinessKnown(readiness)) {
       return false;
     }
@@ -1004,7 +1004,7 @@ export default function InstructorDashboard({
     }
   }
 
-  async function handleRunCalibration(deviceId: string, payload: FirmwareCalibrationStartPayload) {
+  async function handleRunCalibration(deviceId: string, payload: CalibrationStartRequest) {
     setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "starting" }));
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
@@ -1719,7 +1719,7 @@ export default function InstructorDashboard({
                   || !sessionDraft.traineeId;
                 const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
                 const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
-                const calibrationProgress = progressFromId(readiness?.progressId);
+                const calibrationProgress = progressFromId(readiness?.currentProgressId);
                 const isCalibrating = effectiveFirmwareState === "CALIBRATING";
 
                 return (
@@ -1736,7 +1736,7 @@ export default function InstructorDashboard({
                         <div className="device-card__chips">
                           <Chip icon={<DeviceMetricIcon kind="id" />}>{manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}</Chip>
                           <Chip icon={<DeviceMetricIcon kind="seen" />}>{manikin.lastSeen ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}` : "Never seen"}</Chip>
-                          <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.calibrated ? "Calibrated" : "Not calibrated"}</Chip>
+                          <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.readyForSession ? "Calibrated" : "Not calibrated"}</Chip>
                         </div>
                       </div>
                       <div className="device-card__status-row">
@@ -1769,11 +1769,11 @@ export default function InstructorDashboard({
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#475569", fontSize: "0.82rem" }}>
                         <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
-                        <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
-                        <span>Result: {readiness?.latestResult ?? "-"}</span>
-                        <span>Progress: {readiness?.progressId ?? "-"}</span>
-                        <span>Reason: {readiness?.reasonId ?? "-"}</span>
-                        <span>Action: {readiness?.actionId ?? "-"}</span>
+                        <span>Calibrated: {readiness ? readiness.readyForSession ? "Yes" : "No" : "-"}</span>
+                        <span>Result: {readiness?.lastResult ?? "-"}</span>
+                        <span>Progress: {readiness?.currentProgressId ?? "-"}</span>
+                        <span>Reason: {readiness?.lastReasonId ?? "-"}</span>
+                        <span>Action: {readiness?.lastActionId ?? "-"}</span>
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         <button
@@ -1952,11 +1952,11 @@ export default function InstructorDashboard({
                         <div style={{ display: "grid", gap: 4, fontSize: "0.84rem", color: "#334155" }}>
                           <div>Device ID: {manikin.deviceId}</div>
                           <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
-                          <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
-                          <div>Progress ID: {readiness?.progressId ?? "-"}</div>
+                          <div>Calibrated: {readiness?.readyForSession ? "Yes" : "No"}</div>
+                          <div>Progress ID: {readiness?.currentProgressId ?? "-"}</div>
                           <div>Firmware state: {readiness?.firmwareState ?? "-"}</div>
-                          <div>Reason: {readiness?.reasonId ?? "-"}</div>
-                          <div>Action: {readiness?.actionId ?? "-"}</div>
+                          <div>Reason: {readiness?.lastReasonId ?? "-"}</div>
+                          <div>Action: {readiness?.lastActionId ?? "-"}</div>
                         </div>
                       </div>
                     </div>

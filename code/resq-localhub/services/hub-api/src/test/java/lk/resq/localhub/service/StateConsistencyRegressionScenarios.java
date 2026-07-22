@@ -201,7 +201,6 @@ class StateConsistencyRegressionScenarios {
                 new InMemoryLocalSessionRepository(),
                 liveStreamService,
                 new TraineeRecordsRepository(),
-                new AllowingFirmwareCalibrationService(repository, registry, commandPublisher, profileService, fingerprintService),
                 new NoopSyncQueueService(),
                 null,
                 new RateEstimatorRegistry(),
@@ -303,29 +302,6 @@ class StateConsistencyRegressionScenarios {
         public void publishSessionStart(SessionStartCommandPayload payload) {
             publishedSessionStarts.add(payload);
             super.publishSessionStart(payload);
-        }
-    }
-
-    private static final class AllowingFirmwareCalibrationService extends FirmwareCalibrationService {
-        private AllowingFirmwareCalibrationService(
-                FirmwarePersistenceRepository repository,
-                ManikinRegistryService registry,
-                MqttCommandPublisherService publisher,
-                CalibrationProfileService profileService,
-                CalibrationProfileFingerprintService fingerprintService
-        ) {
-            super(
-                    publisher,
-                    repository,
-                    profileService,
-                    registry,
-                    fingerprintService
-            );
-        }
-
-        @Override
-        public Optional<String> sessionStartBlockReason(String deviceId) {
-            return Optional.empty();
         }
     }
 

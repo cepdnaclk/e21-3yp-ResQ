@@ -126,6 +126,12 @@ export type DeviceReadinessState = {
   lastReplyId?: string | null;
   readyForSession: boolean;
   lastUpdatedAt?: string | null;
+  calibrationSchemaVersion?: number | null;
+  calibrationGeneration?: number | null;
+  calibrationStorageStatus?: string | null;
+  recalibrationRequired?: boolean | null;
+  profileVersion?: number | null;
+  profileHash?: string | null;
 };
 
 export type CalibrationStartRequest = {
@@ -136,6 +142,12 @@ export type CalibrationStartRequest = {
   profile_id?: string;
   sample_interval_ms?: number;
   calibration_window_ms?: number;
+  full_depth_mm?: number;
+  pressure_0_kpa_per_count?: number;
+  pressure_1_kpa_per_count?: number;
+  pressure_2_kpa_per_count?: number;
+  profile_version?: number;
+  profile_hash?: string;
 };
 
 export type CalibrationCommandResponse = {

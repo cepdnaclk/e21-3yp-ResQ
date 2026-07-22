@@ -12,15 +12,15 @@ import lk.resq.localhub.model.firmware.FirmwareDebugSnapshotRecord;
 import lk.resq.localhub.model.firmware.FirmwareDeviceDiagnosticsResponse;
 import lk.resq.localhub.model.firmware.FirmwareEventRecord;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
+import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.service.AuthService;
-import lk.resq.localhub.service.CalibrationProfileRepository;
-import lk.resq.localhub.service.CalibrationProfileService;
-import lk.resq.localhub.service.CalibrationProfileFingerprintService;
-import lk.resq.localhub.service.FirmwareCalibrationService;
+import lk.resq.localhub.service.DeviceReadinessService;
+import lk.resq.localhub.service.DeviceRuntimeStateService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LocalAuthRepository;
 import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttCommandPublisherService;
+import lk.resq.localhub.service.TestIdentityValidator;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 
@@ -89,6 +89,20 @@ class FirmwareDiagnosticsControllerTest {
             }
             """));
         seedCalibration(fixture.repository, "M01", "PASS", true, "READY_FOR_SESSION", 4002, "req-400-0001");
+        fixture.readinessService.handleCalibrationEvent("M01", new CalibrationMqttEvent(
+                "M01",
+                4002,
+                "req-400-0001",
+                "ACK",
+                11,
+                "PASS",
+                "00000",
+                0,
+                "READY_FOR_SESSION",
+                5000L,
+                Instant.now(),
+                "adult-basic"
+        ));
         seedCommands(fixture.repository, "M01", 1);
         seedEvent(fixture.repository, "M01", 2000, "events", "SESSION_ACTIVE");
         seedDebugSnapshot(fixture.repository, "M01", 1, 2, 3, 4, 5000L);
@@ -129,23 +143,18 @@ class FirmwareDiagnosticsControllerTest {
                 Path.of("target", "firmware-diagnostics-controller-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         repository.initialize();
-        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
-            Path.of("target", "firmware-diagnostics-controller-profile-" + UUID.randomUUID() + ".sqlite").toString()
-        );
-        profileRepository.initialize();
-        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
-        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
         CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository);
         ManikinRegistryService registry = new ManikinRegistryService(12);
-        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, repository, profileService, registry, fingerprintService);
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         FirmwareDiagnosticsController controller = new FirmwareDiagnosticsController(
                 new AllowingAuthService(objectMapper),
-                calibrationService,
+                readinessService,
                 repository,
                 publisher,
                 registry
         );
-        return new Fixture(objectMapper, repository, publisher, registry, controller);
+        return new Fixture(objectMapper, repository, publisher, registry, readinessService, controller);
     }
 
     private static void seedCommands(FirmwarePersistenceRepository repository, String deviceId, int count) {
@@ -279,6 +288,6 @@ class FirmwareDiagnosticsControllerTest {
         }
     }
 
-    private record Fixture(ObjectMapper objectMapper, FirmwarePersistenceRepository repository, CapturingPublisher publisher, ManikinRegistryService registry, FirmwareDiagnosticsController controller) {
+    private record Fixture(ObjectMapper objectMapper, FirmwarePersistenceRepository repository, CapturingPublisher publisher, ManikinRegistryService registry, DeviceReadinessService readinessService, FirmwareDiagnosticsController controller) {
     }
 }

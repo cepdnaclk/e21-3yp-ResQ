@@ -2,7 +2,7 @@
  * ReadinessChecklist.tsx — Device readiness checklist shown before a session.
  * Displays in plain medical language. No firmware codes shown to instructor.
  */
-import type { FirmwareReadinessResponse } from "../../types/firmware";
+import type { DeviceReadinessState } from "../../types/firmware";
 import type { ManikinLiveSummary } from "../../types/manikin";
 
 type CheckItem = {
@@ -12,7 +12,7 @@ type CheckItem = {
 };
 
 type ReadinessChecklistProps = {
-  readiness: FirmwareReadinessResponse | null;
+  readiness: DeviceReadinessState | null;
   liveSummary?: ManikinLiveSummary | null;
   loading?: boolean;
 };
@@ -29,8 +29,8 @@ export function ReadinessChecklist({ readiness, liveSummary, loading }: Readines
   }
 
   const online = liveSummary?.online ?? false;
-  const calibrated = readiness?.calibrated ?? false;
-  const ready = readiness?.ready ?? false;
+  const calibrated = readiness?.readyForSession ?? false;
+  const ready = readiness?.readyForSession ?? false;
 
   const items: CheckItem[] = [
     {

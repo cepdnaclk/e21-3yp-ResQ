@@ -5,7 +5,7 @@ import { fetchDeviceReadiness } from "../../api/firmwareApi";
 import { startSession } from "../../api/sessionsApi";
 import type { Course, CourseStudent } from "../../types/course";
 import type { ManikinLiveSummary } from "../../types/manikin";
-import type { FirmwareReadinessResponse } from "../../types/firmware";
+import type { DeviceReadinessState } from "../../types/firmware";
 import Card, { CardHeader } from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
@@ -35,7 +35,7 @@ export function StartSessionWizardPage() {
   const [starting, setStarting] = useState(false);
 
   // Cached device readiness details (fetched on-demand)
-  const [deviceReadiness, setDeviceReadiness] = useState<Record<string, FirmwareReadinessResponse | null>>({});
+  const [deviceReadiness, setDeviceReadiness] = useState<Record<string, DeviceReadinessState | null>>({});
   const [loadingReadiness, setLoadingReadiness] = useState<Record<string, boolean>>({});
 
   // Helper to extract query parameters

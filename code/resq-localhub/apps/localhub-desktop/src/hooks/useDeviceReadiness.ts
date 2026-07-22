@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { fetchDeviceReadiness } from "../api/firmwareApi";
-import type { FirmwareReadinessResponse } from "../types/firmware";
+import type { DeviceReadinessState } from "../types/firmware";
 
 export function useDeviceReadiness(deviceId: string | null, isCalibrating: boolean) {
-  const [readiness, setReadiness] = useState<FirmwareReadinessResponse | null>(null);
+  const [readiness, setReadiness] = useState<DeviceReadinessState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

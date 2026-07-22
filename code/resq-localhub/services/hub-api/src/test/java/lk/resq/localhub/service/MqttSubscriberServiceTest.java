@@ -638,13 +638,6 @@ class MqttSubscriberServiceTest {
         profileRepository.initialize();
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
-        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
-                commandPublisher,
-                repository,
-            profileService,
-                registry,
-                fingerprintService
-        );
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
             Path.of("target", "mqtt-subscriber-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
@@ -676,7 +669,6 @@ class MqttSubscriberServiceTest {
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-                firmwareCalibrationService,
                 syncQueueService,
                 null,
                 new RateEstimatorRegistry(),
@@ -722,13 +714,6 @@ class MqttSubscriberServiceTest {
         );
         syncQueueRepository.initialize();
         SyncQueueService syncQueueService = new SyncQueueService(syncQueueRepository, objectMapper, new CloudSessionSummaryPayloadMapper());
-        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
-            commandPublisher,
-            repository,
-            profileService,
-            registry,
-            fingerprintService
-        );
         MqttSubscriberService subscriber = new MqttSubscriberService(
                 objectMapper,
                 registry,
@@ -738,7 +723,6 @@ class MqttSubscriberServiceTest {
                         sessionRepository,
                         liveStreamService,
                         traineeRecordsRepository,
-                        firmwareCalibrationService,
                         syncQueueService,
                         null,
                         new RateEstimatorRegistry(),

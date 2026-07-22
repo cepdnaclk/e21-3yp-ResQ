@@ -18,7 +18,6 @@ import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.CalibrationProfileFingerprintService;
-import lk.resq.localhub.service.FirmwareCalibrationService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LiveStreamService;
 import lk.resq.localhub.service.LocalAuthRepository;
@@ -229,7 +228,6 @@ class SessionControllerTest {
         profileRepository.initialize();
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
-        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(publisher, firmwareRepository, profileService, registry, fingerprintService);
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(Path.of("target", "session-controller-sync-" + UUID.randomUUID() + ".sqlite").toString());
         syncQueueRepository.initialize();
         SyncQueueService syncQueueService = new SyncQueueService(
@@ -259,7 +257,6 @@ class SessionControllerTest {
                 sessionRepository,
                 new NoopLiveStreamService(),
                 new TraineeRecordsRepository(),
-                calibrationService,
                 syncQueueService,
                 null,
                 new lk.resq.localhub.service.RateEstimatorRegistry(),

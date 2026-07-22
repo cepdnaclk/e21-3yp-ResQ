@@ -60,7 +60,6 @@ public class ActiveSessionService {
     private final LocalSessionRepository localSessionRepository;
     private final LiveStreamService liveStreamService;
     private final TraineeRecordsRepository traineeRecordsRepository;
-    private final FirmwareCalibrationService firmwareCalibrationService;
     private final SyncQueueService syncQueueService;
     private final RosterCacheRepository rosterRepository;
     private final RateEstimatorRegistry rateEstimatorRegistry;
@@ -87,7 +86,6 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
@@ -106,7 +104,7 @@ public class ActiveSessionService {
             CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
-                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                traineeRecordsRepository, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, Clock.systemUTC(),
                 requestIdGenerator, sessionRuntimeRepository, firmwarePersistenceRepository, objectMapper,
                 recoveryGraceMs, runtimeCheckpointMs, runtimeCheckpointSamples, calibrationProfileService, fingerprintService,
@@ -119,7 +117,6 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
@@ -132,7 +129,7 @@ public class ActiveSessionService {
             CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
-                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                traineeRecordsRepository, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, clock,
                 new CommandRequestIdGenerator(), null, null, null, 15000L, 1000L, 25,
                 calibrationProfileService, fingerprintService, identityValidator);
@@ -144,7 +141,6 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
@@ -158,7 +154,7 @@ public class ActiveSessionService {
             CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
-                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                traineeRecordsRepository, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, stopAckTimeoutMs, clock,
                 requestIdGenerator, null, null, null, 15000L, 1000L, 25,
                 calibrationProfileService, fingerprintService, identityValidator);
@@ -170,7 +166,6 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
@@ -194,7 +189,6 @@ public class ActiveSessionService {
         this.localSessionRepository = localSessionRepository;
         this.liveStreamService = liveStreamService;
         this.traineeRecordsRepository = traineeRecordsRepository;
-        this.firmwareCalibrationService = firmwareCalibrationService;
         this.syncQueueService = syncQueueService;
         this.rosterRepository = rosterRepository;
         this.rateEstimatorRegistry = rateEstimatorRegistry;
@@ -220,7 +214,6 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
@@ -232,7 +225,7 @@ public class ActiveSessionService {
             CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
-                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                traineeRecordsRepository, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, startAckTimeoutMs, 7000L, clock,
                 calibrationProfileService, fingerprintService, identityValidator);
     }
@@ -243,7 +236,6 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             RateEstimatorRegistry rateEstimatorRegistry,
@@ -253,26 +245,24 @@ public class ActiveSessionService {
             CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
-                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                traineeRecordsRepository, syncQueueService, rosterRepository,
                 rateEstimatorRegistry, deviceReadinessService, 7000L, 7000L, Clock.systemUTC(),
                 calibrationProfileService, fingerprintService, identityValidator);
     }
 
-    // Overload for backward compatibility / tests
     public ActiveSessionService(
             ManikinRegistryService manikinRegistryService,
             MqttCommandPublisherService mqttCommandPublisherService,
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             CalibrationProfileService calibrationProfileService,
             CalibrationProfileFingerprintService fingerprintService,
             CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
-                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, null,
+                traineeRecordsRepository, syncQueueService, null,
                 new RateEstimatorRegistry(), new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator),
                 calibrationProfileService, fingerprintService, identityValidator);
     }
@@ -283,7 +273,6 @@ public class ActiveSessionService {
             LocalSessionRepository localSessionRepository,
             LiveStreamService liveStreamService,
             TraineeRecordsRepository traineeRecordsRepository,
-            FirmwareCalibrationService firmwareCalibrationService,
             SyncQueueService syncQueueService,
             RosterCacheRepository rosterRepository,
             CalibrationProfileService calibrationProfileService,
@@ -291,7 +280,7 @@ public class ActiveSessionService {
             CalibrationProfileIdentityValidator identityValidator
     ) {
         this(manikinRegistryService, mqttCommandPublisherService, localSessionRepository, liveStreamService,
-                traineeRecordsRepository, firmwareCalibrationService, syncQueueService, rosterRepository,
+                traineeRecordsRepository, syncQueueService, rosterRepository,
                 new RateEstimatorRegistry(), new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator),
                 calibrationProfileService, fingerprintService, identityValidator);
     }
@@ -814,10 +803,6 @@ public class ActiveSessionService {
             );
         }
 
-        firmwareCalibrationService.sessionStartBlockReason(deviceId)
-                .ifPresent(reason -> {
-                    throw new IllegalStateException(reason);
-                });
         return valResult.profile();
     }
 

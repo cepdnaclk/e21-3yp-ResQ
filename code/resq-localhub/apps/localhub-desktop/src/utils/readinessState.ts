@@ -1,4 +1,4 @@
-import type { FirmwareReadinessResponse } from "../types/firmware";
+import type { DeviceReadinessState } from "../types/firmware";
 import type { ManikinLiveSummary } from "../types/manikin";
 
 export type ReadinessUiState =
@@ -52,7 +52,7 @@ export function getFriendlyAction(actionId: number | null | undefined): string {
 
 export function deriveReadinessUiState(
   liveSummary: ManikinLiveSummary | null | undefined,
-  readiness: FirmwareReadinessResponse | null | undefined
+  readiness: DeviceReadinessState | null | undefined
 ): ReadinessUiState {
   const readinessFirmwareState = readiness?.firmwareState?.toUpperCase();
 
@@ -66,8 +66,8 @@ export function deriveReadinessUiState(
   if (
     readinessFirmwareState === "CALIBRATION_FAIL" ||
     readinessFirmwareState === "CALIBRATION_CANCELLED" ||
-    readiness?.latestResult?.toUpperCase() === "FAIL" ||
-    readiness?.latestResult?.toUpperCase() === "CANCELLED"
+    readiness?.lastResult?.toUpperCase() === "FAIL" ||
+    readiness?.lastResult?.toUpperCase() === "CANCELLED"
   ) {
     return "FAILED";
   }
@@ -87,7 +87,7 @@ export function deriveReadinessUiState(
     return "ACTIVE_SESSION";
   }
 
-  if (state === "READY_FOR_SESSION" && (readiness?.readyForSession || readiness?.ready)) {
+  if (state === "READY_FOR_SESSION" && readiness?.readyForSession) {
     return "READY";
   }
 
@@ -104,14 +104,14 @@ export function deriveReadinessUiState(
   }
 
   if (state === "PAIRED_IDLE") {
-    if (readiness?.readyForSession || readiness?.ready) {
+    if (readiness?.readyForSession) {
       return "READY";
     }
     return "CALIBRATION_REQUIRED";
   }
 
   // Fallback to check readiness fields
-  if (readiness?.readyForSession || readiness?.ready) {
+  if (readiness?.readyForSession) {
     return "READY";
   }
   if (readinessFirmwareState === "CALIBRATING") {

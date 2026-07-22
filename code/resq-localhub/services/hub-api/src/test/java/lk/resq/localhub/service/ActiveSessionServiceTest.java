@@ -789,13 +789,6 @@ class ActiveSessionServiceTest {
         profileRepository.initialize();
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
-        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
-                commandPublisher,
-                firmwareRepository,
-                profileService,
-                registry,
-                fingerprintService
-        );
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
           Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
@@ -813,7 +806,6 @@ class ActiveSessionServiceTest {
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-                firmwareCalibrationService,
                 syncQueueService,
                 null,
                 new RateEstimatorRegistry(),
@@ -873,13 +865,6 @@ class ActiveSessionServiceTest {
         ));
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
-        FirmwareCalibrationService firmwareCalibrationService = new FirmwareCalibrationService(
-                commandPublisher,
-                firmwareRepository,
-                profileService,
-                registry,
-                fingerprintService
-        );
         SyncQueueRepository syncQueueRepository = new SyncQueueRepository(
           Path.of("target", "active-session-sync-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
@@ -926,7 +911,6 @@ class ActiveSessionServiceTest {
                 sessionRepository,
                 liveStreamService,
                 traineeRecordsRepository,
-                firmwareCalibrationService,
                 syncQueueService,
                 null,
                 new RateEstimatorRegistry(),

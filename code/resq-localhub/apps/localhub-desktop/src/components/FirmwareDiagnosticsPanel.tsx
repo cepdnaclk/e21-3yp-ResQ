@@ -5,7 +5,7 @@ import {
   getFirmwareDiagnostics,
   requestFirmwareDebugSnapshot,
   type FirmwareDeviceDiagnosticsResponse,
-  type FirmwareReadinessResponse,
+  type DeviceReadinessState,
 } from "../lib/browserFirmwareApi";
 import {
   createSensorStreamClient,
@@ -25,7 +25,7 @@ import {
 
 type FirmwareDiagnosticsPanelProps = {
   deviceId: string;
-  readiness?: FirmwareReadinessResponse | null;
+  readiness?: DeviceReadinessState | null;
   liveSummary?: ManikinLiveSummary | null;
 };
 
@@ -35,7 +35,7 @@ export function FirmwareDiagnosticsPanel({ deviceId, readiness, liveSummary }: F
   const [refreshing, setRefreshing] = useState(false);
   const [debugRequestState, setDebugRequestState] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [polledReadiness, setPolledReadiness] = useState<FirmwareReadinessResponse | null>(null);
+  const [polledReadiness, setPolledReadiness] = useState<DeviceReadinessState | null>(null);
   const [glowReady, setGlowReady] = useState(false);
   const [retryBounce, setRetryBounce] = useState(false);
   const [liveTail, setLiveTail] = useState(true);
@@ -136,8 +136,8 @@ export function FirmwareDiagnosticsPanel({ deviceId, readiness, liveSummary }: F
   const latestDebugSnapshot = recentDebugSnapshots[0] ?? null;
   const latestLiveSummary = liveSummary ?? diagnostics?.liveSummary ?? null;
   const calibrationNeeded = Boolean(currentReadiness && !currentReadiness.readyForSession);
-  const calibrationProgress = mapProgressId(currentReadiness?.progressId ?? null);
-  const readinessTimelineStep = mapTimelineStep(currentReadiness?.progressId ?? null);
+  const calibrationProgress = mapProgressId(currentReadiness?.currentProgressId ?? null);
+  const readinessTimelineStep = mapTimelineStep(currentReadiness?.currentProgressId ?? null);
   const commandGroups = useMemo(() => groupCommandsByHour(recentCommands), [recentCommands]);
 
   useEffect(() => {
@@ -303,7 +303,7 @@ function ReadinessBlock({
   retryBounce,
   onRetryCalibration,
 }: {
-  readiness: FirmwareReadinessResponse | null;
+  readiness: DeviceReadinessState | null;
   calibrationNeeded: boolean;
   calibrationProgress: number;
   readinessTimelineStep: number;
@@ -336,7 +336,7 @@ function ReadinessBlock({
 
       <div style={{ display: "grid", gap: 10 }}>
         <Timeline
-          progressId={readiness?.progressId ?? null}
+          progressId={readiness?.currentProgressId ?? null}
           step={readinessTimelineStep}
           progress={calibrationProgress}
         />
@@ -354,9 +354,9 @@ function ReadinessBlock({
             <span style={readinessInfoLabelStyle}>Raw IDs</span>
             <div className="readiness-cube-row__cube-wrap">
               <div className="readiness-cube" aria-label="Raw readiness IDs cube">
-                <div className="readiness-cube__face">progress_id: {readiness?.progressId ?? "-"}</div>
-                <div className="readiness-cube__face">reason_id: {readiness?.reasonId ?? "-"}</div>
-                <div className="readiness-cube__face">action_id: {readiness?.actionId ?? "-"}</div>
+                <div className="readiness-cube__face">progress_id: {readiness?.currentProgressId ?? "-"}</div>
+                <div className="readiness-cube__face">reason_id: {readiness?.lastReasonId ?? "-"}</div>
+                <div className="readiness-cube__face">action_id: {readiness?.lastActionId ?? "-"}</div>
                 <div className="readiness-cube__face">{ready ? "ready" : "not ready"}</div>
               </div>
             </div>

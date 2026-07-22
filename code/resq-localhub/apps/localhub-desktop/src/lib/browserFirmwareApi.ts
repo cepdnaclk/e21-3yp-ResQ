@@ -1,12 +1,7 @@
 import { getHubApiBaseUrl } from "./hubApiUrl";
+import type { CalibrationCommandResponse, CalibrationStartRequest, DeviceReadinessState } from "../types/manikin";
 
-export type FirmwareCalibrationStartPayload = {
-  hallDelta?: number | null;
-  refPressure?: number | null;
-  bladder1Pressure?: number | null;
-  bladder2Pressure?: number | null;
-  profileId?: string | null;
-};
+export type { CalibrationCommandResponse, CalibrationStartRequest, DeviceReadinessState };
 
 export type CalibrationProfileRequest = {
   name: string;
@@ -31,32 +26,6 @@ export type CalibrationProfileResponse = {
   defaultProfile: boolean;
   createdAt: string;
   updatedAt: string;
-};
-
-export type FirmwareCalibrationCommandResponse = {
-  deviceId: string;
-  requestId: string;
-  topic: string;
-  status: string;
-  message?: string | null;
-};
-
-export type FirmwareReadinessResponse = {
-  deviceId: string;
-  firmwareState: string | null;
-  calibrated: boolean;
-  readyForSession: boolean;
-  latestResult: string | null;
-  progressId: number | null;
-  reasonId: string | null;
-  actionId: number | null;
-  tsMs: number | null;
-  receivedAt: string | null;
-  sessionId?: string | null;
-  lastErrorId?: string | null;
-  bootId?: string | null;
-  stateSeq?: number | null;
-  orderingConfidence?: "SEQUENCED" | "LEGACY" | "UNKNOWN" | null;
 };
 
 export type FirmwareCommandRequestRecord = {
@@ -123,7 +92,7 @@ export type FirmwareCommandPublishResponse = {
 
 export type FirmwareDeviceDiagnosticsResponse = {
   deviceId: string;
-  readiness: FirmwareReadinessResponse;
+  readiness: DeviceReadinessState;
   latestCalibration: {
     id: number;
     deviceId: string;
@@ -194,8 +163,12 @@ export type FirmwareDeviceDiagnosticsResponse = {
   recentDebugSnapshots: FirmwareDebugSnapshotRecord[];
 };
 
+function getDeviceUrl(deviceId: string): string {
+  return `${getHubApiBaseUrl()}/api/devices/${encodeURIComponent(deviceId)}`;
+}
+
 function getFirmwareDeviceUrl(deviceId: string): string {
-  return `${getHubApiBaseUrl()}/api/firmware/devices/${encodeURIComponent(deviceId)}`;
+  return `${getHubApiBaseUrl()}/api/devices/${encodeURIComponent(deviceId)}/firmware`;
 }
 
 function getCalibrationProfilesUrl(): string {
@@ -261,26 +234,26 @@ export function deactivateCalibrationProfile(profileId: string): Promise<Calibra
 
 export function startCalibration(
   deviceId: string,
-  payload: FirmwareCalibrationStartPayload = {},
-): Promise<FirmwareCalibrationCommandResponse> {
-  return requestJson<FirmwareCalibrationCommandResponse>(`${getFirmwareDeviceUrl(deviceId)}/calibration/start`, {
+  payload: CalibrationStartRequest,
+): Promise<CalibrationCommandResponse> {
+  return requestJson<CalibrationCommandResponse>(`${getDeviceUrl(deviceId)}/calibration/start`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export function cancelCalibration(deviceId: string): Promise<FirmwareCalibrationCommandResponse> {
-  return requestJson<FirmwareCalibrationCommandResponse>(`${getFirmwareDeviceUrl(deviceId)}/calibration/cancel`, {
+export function cancelCalibration(deviceId: string): Promise<CalibrationCommandResponse> {
+  return requestJson<CalibrationCommandResponse>(`${getDeviceUrl(deviceId)}/calibration/cancel`, {
     method: "POST",
   });
 }
 
-export function getLatestCalibration(deviceId: string): Promise<FirmwareReadinessResponse> {
-  return requestJson<FirmwareReadinessResponse>(`${getFirmwareDeviceUrl(deviceId)}/calibration/latest`);
+export function getLatestCalibration(deviceId: string): Promise<unknown> {
+  return requestJson<unknown>(`${getDeviceUrl(deviceId)}/calibration/latest`);
 }
 
-export function getReadiness(deviceId: string): Promise<FirmwareReadinessResponse> {
-  return requestJson<FirmwareReadinessResponse>(`${getFirmwareDeviceUrl(deviceId)}/readiness`);
+export function getReadiness(deviceId: string): Promise<DeviceReadinessState> {
+  return requestJson<DeviceReadinessState>(`${getDeviceUrl(deviceId)}/readiness`);
 }
 
 export function getFirmwareCommands(deviceId: string, limit?: number): Promise<FirmwareCommandRequestRecord[]> {

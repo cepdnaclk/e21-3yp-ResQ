@@ -152,68 +152,6 @@ public class MqttCommandPublisherService {
         );
     }
 
-    public FirmwareCommandPublishResult publishCalibrationStartCommand(
-            String deviceId,
-            Integer hallDelta,
-            Integer refPressure,
-            Integer bladder1Pressure,
-            Integer bladder2Pressure
-    ) {
-        return publishCalibrationStartCommand(deviceId, hallDelta, refPressure, bladder1Pressure, bladder2Pressure, null, null, null);
-    }
-
-    public FirmwareCommandPublishResult publishCalibrationStartCommand(
-            String deviceId,
-            Integer hallDelta,
-            Integer refPressure,
-            Integer bladder1Pressure,
-            Integer bladder2Pressure,
-            String profileId
-    ) {
-        return publishCalibrationStartCommand(deviceId, hallDelta, refPressure, bladder1Pressure, bladder2Pressure, profileId, null, null);
-    }
-
-    public FirmwareCommandPublishResult publishCalibrationStartCommand(
-            String deviceId,
-            Integer hallDelta,
-            Integer refPressure,
-            Integer bladder1Pressure,
-            Integer bladder2Pressure,
-            String profileId,
-            Integer profileVersion,
-            String profileHash
-    ) {
-        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.CALIBRATION_START, null);
-        payload.put("hall_delta", hallDelta);
-        payload.put("ref_pressure", refPressure);
-        payload.put("bladder_1_pressure", bladder1Pressure);
-        payload.put("bladder_2_pressure", bladder2Pressure);
-        if (profileId != null && !profileId.isBlank()) {
-            payload.put("profile_id", profileId.trim());
-        }
-        if (profileVersion != null) {
-            payload.put("profile_version", profileVersion);
-        }
-        if (profileHash != null && !profileHash.isBlank()) {
-            payload.put("profile_hash", profileHash.trim());
-        }
-        return publishFirmwareCommand(
-                FirmwareTopics.calibrationStartCommandTopic(deviceId),
-                payload,
-                "calibration start",
-                FirmwareCommandTypeId.CALIBRATION_START
-        );
-    }
-
-    public FirmwareCommandPublishResult publishCalibrationCancelCommand(String deviceId) {
-        return publishFirmwareCommand(
-                FirmwareTopics.calibrationCancelCommandTopic(deviceId),
-                requestPayload(FirmwareCommandTypeId.CALIBRATION_CANCEL, null),
-                "calibration cancel",
-                FirmwareCommandTypeId.CALIBRATION_CANCEL
-        );
-    }
-
     public FirmwareCommandPublishResult publishCalibrationStart(
             String deviceId,
             String requestId,

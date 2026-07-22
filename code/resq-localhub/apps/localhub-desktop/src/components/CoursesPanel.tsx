@@ -12,12 +12,12 @@ import {
   type SyncStateRecord,
 } from "../lib/browserRosterSyncApi";
 import { type ManikinLiveSummary } from "../lib/browserManikinsApi";
-import { type FirmwareReadinessResponse } from "../lib/browserFirmwareApi";
+import { type DeviceReadinessState } from "../lib/browserFirmwareApi";
 
 type CoursesPanelProps = {
   role: "ADMIN" | "INSTRUCTOR" | "TRAINEE";
   manikins?: ManikinLiveSummary[];
-  readinessByDevice?: Record<string, FirmwareReadinessResponse | null>;
+  readinessByDevice?: Record<string, DeviceReadinessState | null>;
   onStartSession?: (deviceId: string, courseId: string, traineeId: string) => Promise<void>;
 };
 
@@ -117,7 +117,7 @@ export function CoursesPanel({
     }
   };
 
-  const startBlockedByReadiness = (readiness: FirmwareReadinessResponse | null | undefined): boolean => {
+  const startBlockedByReadiness = (readiness: DeviceReadinessState | null | undefined): boolean => {
     if (!readiness) return false;
     const state = readiness.firmwareState ?? "";
     if (state === "READY_FOR_SESSION") return false;

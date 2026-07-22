@@ -20,7 +20,7 @@ import { ReadinessChecklist } from "./ReadinessChecklist";
 import { CalibrationProfileCard } from "./CalibrationProfileCard";
 import { CalibrationProgressStepper } from "./CalibrationProgressStepper";
 import { CalibrationResultCard } from "./CalibrationResultCard";
-import type { FirmwareReadinessResponse } from "../../types/firmware";
+import type { DeviceReadinessState } from "../../types/firmware";
 
 type DeviceReadinessPanelProps = {
   deviceId: string;
@@ -33,29 +33,24 @@ type DeviceReadinessPanelProps = {
 
 function mergeCalibrationEventIntoReadiness(
   event: CalibrationStreamEvent,
-  current: FirmwareReadinessResponse | null,
-): FirmwareReadinessResponse {
+  current: DeviceReadinessState | null,
+): DeviceReadinessState {
   const ready =
     event.readiness?.readyForSession ??
     event.readyForSession ??
     current?.readyForSession ??
-    current?.ready ??
     false;
 
   return {
     deviceId: event.readiness?.deviceId ?? current?.deviceId ?? event.deviceId,
+    calibrationState: event.readiness?.calibrationState ?? current?.calibrationState ?? "UNKNOWN",
     firmwareState: event.readiness?.firmwareState ?? event.firmwareState ?? current?.firmwareState ?? null,
-    calibrated: event.result === "PASS" || event.readiness?.readyForSession === true || current?.calibrated === true,
     readyForSession: ready,
-    ready,
-    latestResult: event.readiness?.lastResult ?? event.result ?? current?.latestResult ?? null,
-    progressId: event.readiness?.currentProgressId ?? event.progressId ?? current?.progressId ?? null,
-    reasonId: event.readiness?.lastReasonId ?? event.reasonId ?? current?.reasonId ?? null,
-    actionId: event.readiness?.lastActionId ?? event.actionId ?? current?.actionId ?? null,
-    tsMs: event.tsMs ?? current?.tsMs ?? null,
-    receivedAt: event.receivedAt ?? current?.receivedAt ?? null,
-    sessionId: current?.sessionId ?? null,
-    lastErrorId: current?.lastErrorId ?? null,
+    lastResult: event.readiness?.lastResult ?? event.result ?? current?.lastResult ?? null,
+    currentProgressId: event.readiness?.currentProgressId ?? event.progressId ?? current?.currentProgressId ?? null,
+    lastReasonId: event.readiness?.lastReasonId ?? event.reasonId ?? current?.lastReasonId ?? null,
+    lastActionId: event.readiness?.lastActionId ?? event.actionId ?? current?.lastActionId ?? null,
+    lastUpdatedAt: event.receivedAt ?? current?.lastUpdatedAt ?? null,
   };
 }
 
@@ -210,11 +205,11 @@ export function DeviceReadinessPanel({
     setOptimisticStatus("Command sent");
     try {
       const payload = {
-        profileId: activeProfile?.profileId || null,
-        hallDelta: Number(customValues.hallDelta),
-        refPressure: Number(customValues.refPressure),
-        bladder1Pressure: Number(customValues.bladder1Pressure),
-        bladder2Pressure: Number(customValues.bladder2Pressure),
+        profile_id: activeProfile?.profileId || undefined,
+        hall_delta: Number(customValues.hallDelta),
+        ref_pressure: Number(customValues.refPressure),
+        bladder_1_pressure: Number(customValues.bladder1Pressure),
+        bladder_2_pressure: Number(customValues.bladder2Pressure),
       };
       await startCalibration(deviceId, payload);
       refetch();
@@ -306,7 +301,7 @@ export function DeviceReadinessPanel({
                 </p>
               </div>
             </div>
-            <CalibrationProgressStepper progressId={readiness?.progressId} />
+            <CalibrationProgressStepper progressId={readiness?.currentProgressId} />
             <Button
               type="button"
               variant="danger"
@@ -333,9 +328,9 @@ export function DeviceReadinessPanel({
       case "FAILED":
         return (
           <CalibrationResultCard
-            reasonId={readiness?.reasonId}
-            actionId={readiness?.actionId}
-            lastErrorId={readiness?.lastErrorId}
+            reasonId={readiness?.lastReasonId}
+            actionId={readiness?.lastActionId}
+            lastErrorId={readiness?.lastReasonId}
             onRetry={handleStartCalibration}
             onRequestDebug={handleRequestDebug}
             debugLoading={debugLoading}
@@ -351,9 +346,9 @@ export function DeviceReadinessPanel({
                 <p className="text-xs text-rose-600 mt-1 font-semibold leading-relaxed">
                   The device reported a system error. Please review the recovery options or request diagnostic logs.
                 </p>
-                {readiness?.lastErrorId && (
+                {readiness?.lastReasonId && (
                   <p className="text-[10px] text-rose-500 mt-1.5 font-semibold">
-                    Last error ID: {readiness.lastErrorId}
+                    Last error ID: {readiness.lastReasonId}
                   </p>
                 )}
               </div>

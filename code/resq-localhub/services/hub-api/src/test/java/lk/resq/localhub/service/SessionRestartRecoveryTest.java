@@ -130,13 +130,6 @@ class SessionRestartRecoveryTest {
         profileRepository.initialize();
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
-        FirmwareCalibrationService calibrationService = new FirmwareCalibrationService(
-                publisher,
-                firmwareRepository,
-                profileService,
-                registry,
-                fingerprintService
-        );
         TestIdentityValidator identityValidator = new TestIdentityValidator();
         DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         ActiveSessionService service = new ActiveSessionService(
@@ -145,7 +138,6 @@ class SessionRestartRecoveryTest {
                 localSessionRepository,
                 new NoopLiveStreamService(),
                 new TraineeRecordsRepository(),
-                calibrationService,
                 syncQueueService,
                 null,
                 new RateEstimatorRegistry(),

@@ -5,7 +5,7 @@ import {
   requestDebugSnapshot,
 } from "../../api/firmwareApi";
 import { fetchLiveManikin } from "../../api/manikinsApi";
-import type { FirmwareReadinessResponse, FirmwareDeviceDiagnosticsResponse } from "../../types/firmware";
+import type { DeviceReadinessState, FirmwareDeviceDiagnosticsResponse } from "../../types/firmware";
 import type { ManikinLiveSummary } from "../../types/manikin";
 import Card, { CardHeader } from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
@@ -37,7 +37,7 @@ function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageP
   const [activeTab, setActiveTab] = useState<"setup" | "readiness">("setup");
 
   // API Live Data State
-  const [readiness, setReadiness] = useState<FirmwareReadinessResponse | null>(null);
+  const [readiness, setReadiness] = useState<DeviceReadinessState | null>(null);
   const [liveSummary, setLiveSummary] = useState<ManikinLiveSummary | null>(null);
   const [diagnostics, setDiagnostics] = useState<FirmwareDeviceDiagnosticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
