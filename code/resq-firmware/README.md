@@ -119,20 +119,24 @@ The selected mode survives ordinary restarts, soft-off, and network-only config
 clears. Factory reset and `erase-flash` remove it, so the next boot uses
 `SENSOR`.
 
-Button actions are global in every operational state:
+I/O-mode selection is available only while the device is in `PROVISIONING`:
 
 | Input | Action |
 |---|---|
-| Short BUTTON_1 press | Persist `USB`, publish a final mode-switch event when MQTT is connected, then restart |
-| Short BUTTON_2 press | Persist `SENSOR`, publish a final mode-switch event when MQTT is connected, then restart |
-| BUTTON_1 press for at least 3 seconds | `TURN_OFF` |
-| BUTTON_2 press for at least 3 seconds | Factory reset |
+| Short BUTTON_1 press | Select `USB` in RAM; do not save or restart yet |
+| Short BUTTON_2 press | Select `SENSOR` in RAM; do not save or restart yet |
+| Either button for at least 3 seconds while a different mode is pending | Save the pending mode and restart |
+| BUTTON_1 for at least 3 seconds with no pending mode | `TURN_OFF` |
+| BUTTON_2 for at least 3 seconds with no pending mode | Factory reset |
 
-Selecting the already-active mode is a no-op. A SENSOR-to-USB switch first
-stops sensor tasks and telemetry, releases sensor ownership, stops the buzzer,
-and drives the HX710 clock LOW. The mode is written to NVS before restart. This
-reboot boundary is required because GPIO19 is shared with native USB D+ and
-cannot safely remain under the HX710 GPIO driver while USB is active.
+Both LEDs remain continuously ON while a different mode awaits confirmation.
+Selecting the already-active mode is a no-op and also cancels any pending
+change. If network provisioning completes while a selection is pending, the
+device stays in provisioning until the selection is confirmed or cancelled.
+The mode is written to NVS only after long-press confirmation and is applied on
+the next boot. No GPIO ownership is changed live. Outside provisioning, short
+presses retain their state-specific recovery behavior and never change the I/O
+mode.
 
 ESP-IDF is configured with USB Serial/JTAG enabled as a secondary console. In
 `SENSOR` mode, native USB availability is not promised because GPIO18/GPIO19
@@ -431,7 +435,8 @@ serve different purposes.
 
 The Unity application under `test/` covers deterministic behavior without
 using real Wi-Fi, MQTT transport, ADC, HX710 devices, or buttons. It tests the
-state machine, I/O-mode persistence and fallback, all four button mappings, USB
+  state machine, provisioning-only I/O-mode selection and confirmation,
+  I/O-mode persistence and fallback, long-press button mappings, USB
 sensor-command gating, configuration boundaries, error/calibration mappings,
 topics, request IDs, session lifecycle, and CPR metrics.
 
@@ -549,11 +554,15 @@ This table contains one factory application partition and no OTA slots.
 - **Recovery deadline:** an active session attempts to recover connectivity for
   30 seconds. Once that deadline expires, runtime services stop and a terminal
   session interruption is retained for deferred publication.
-- **BUTTON_1:** a short press selects USB mode and restarts; a press of at least
-  three seconds requests TURN_OFF.
-- **BUTTON_2:** a short press selects SENSOR mode and restarts; a press of at
-  least three seconds requests factory reset. Reset clears network,
-  calibration, and I/O-mode data before restarting in SENSOR mode.
+- **Provisioning buttons:** short BUTTON_1 selects USB; short BUTTON_2 selects
+  SENSOR. Both LEDs continuously ON means a different mode awaits confirmation.
+  Long-press either button to save and restart. A short press never writes NVS.
+- **No pending mode:** in provisioning, long BUTTON_1 requests TURN_OFF and long
+  BUTTON_2 requests factory reset. Reset clears network, calibration, and
+  I/O-mode data before restarting in SENSOR mode.
+- **Other states:** short presses keep their state-specific behavior; they do
+  not select an I/O mode. Existing long BUTTON_1 TURN_OFF and long BUTTON_2
+  factory-reset actions remain available where supported.
 - **Soft-off is not deep sleep or power isolation.** The current implementation
   stops runtime work and remains in a delay loop. Reset or power-cycle the
   device to start it again.

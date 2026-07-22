@@ -143,13 +143,45 @@ resq_state_t error_manager_run(network_config_t *network_config,
 
     /* Wait for user button or system commands */
     while (true) {
-        system_button_action_t button_action =
-            system_button_manager_poll(RESQ_STATE_ERROR);
-        if (button_action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
-            return RESQ_STATE_TURN_OFF;
-        }
-        if (button_action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
-            return RESQ_STATE_RESETTING;
+        system_button_event_t button_event = {0};
+
+        if (system_button_manager_wait_event(&button_event,
+                                             pdMS_TO_TICKS(50)) == ESP_OK) {
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                button_event.button_id == SYSTEM_BUTTON_ID_1) {
+                ESP_LOGW(TAG,
+                         "BUTTON_1 short press in ERROR: retry/recover duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
+                if (mqtt_manager_is_connected() && network_config != NULL) {
+                    runtime_helpers_publish_command_result(
+                        network_config, RESQ_STATE_ERROR, "button/retry",
+                        "ACK", "retry_error_recovery");
+                }
+                return error_manager_get_retry_state();
+            }
+
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                button_event.button_id == SYSTEM_BUTTON_ID_2) {
+                ESP_LOGW(TAG,
+                         "BUTTON_2 short press in ERROR: flush configuration duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
+                if (mqtt_manager_is_connected() && network_config != NULL) {
+                    runtime_helpers_publish_command_result(
+                        network_config, RESQ_STATE_ERROR,
+                        "button/provisioning", "ACK",
+                        "clear_config_and_provision");
+                }
+                return RESQ_STATE_FLUSH_CONFIG;
+            }
+
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
+                button_event.button_id == SYSTEM_BUTTON_ID_1) {
+                return RESQ_STATE_TURN_OFF;
+            }
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
+                button_event.button_id == SYSTEM_BUTTON_ID_2) {
+                return RESQ_STATE_RESETTING;
+            }
         }
 
         /* Handle MQTT commands while in ERROR if connected */

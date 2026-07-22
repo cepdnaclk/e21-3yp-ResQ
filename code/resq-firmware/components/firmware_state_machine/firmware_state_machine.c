@@ -24,6 +24,8 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
            ops->provisioning_start != NULL &&
            ops->provisioning_stop != NULL &&
            ops->provisioning_has_saved_config != NULL &&
+           ops->io_mode_get != NULL &&
+           ops->io_mode_request != NULL &&
            ops->wifi_connect != NULL &&
            ops->wifi_disconnect != NULL &&
            ops->wifi_is_connected != NULL &&
@@ -55,8 +57,11 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
            ops->telemetry_stop != NULL &&
            ops->calibration_cancel != NULL &&
            ops->status_set_state != NULL &&
+           ops->status_set_both_leds_on != NULL &&
            ops->status_stop != NULL &&
            ops->button_poll != NULL &&
+           ops->button_take_event != NULL &&
+           ops->button_drain_events != NULL &&
            ops->button_drain_actions != NULL &&
            ops->delay_ms != NULL &&
            ops->restart != NULL &&
@@ -199,24 +204,184 @@ static resq_state_t run_config_check(resq_fsm_t *fsm)
         : RESQ_STATE_PROVISIONING;
 }
 
+static const char *io_mode_name(resq_io_mode_t mode)
+{
+    return mode == RESQ_IO_MODE_USB ? "USB" : "SENSOR";
+}
+
+static void clear_provisioning_io_mode_request(resq_fsm_t *fsm)
+{
+    fsm->provisioning_io_mode_request.pending = false;
+    fsm->provisioning_io_mode_request.target = fsm->ops->io_mode_get();
+    fsm->provisioning_io_mode_request.confirmation_in_progress = false;
+    fsm->ops->status_set_both_leds_on(false);
+}
+
+static void select_provisioning_io_mode(resq_fsm_t *fsm,
+                                        resq_io_mode_t requested_mode)
+{
+    provisioning_io_mode_request_t *request =
+        &fsm->provisioning_io_mode_request;
+    resq_io_mode_t active_mode = fsm->ops->io_mode_get();
+
+    if (requested_mode == active_mode) {
+        bool cancelled = request->pending;
+        clear_provisioning_io_mode_request(fsm);
+        if (cancelled) {
+            ESP_LOGI(TAG,
+                     "Provisioning I/O mode selection cancelled; %s is already active",
+                     io_mode_name(active_mode));
+        } else {
+            ESP_LOGI(TAG,
+                     "Provisioning I/O mode %s is already active; no change pending",
+                     io_mode_name(active_mode));
+        }
+        return;
+    }
+
+    if (request->pending && request->target == requested_mode) {
+        ESP_LOGI(TAG, "Provisioning I/O mode %s is already pending",
+                 io_mode_name(requested_mode));
+        return;
+    }
+
+    request->pending = true;
+    request->target = requested_mode;
+    request->confirmation_in_progress = false;
+    fsm->ops->status_set_both_leds_on(true);
+    ESP_LOGI(TAG,
+             "Provisioning I/O mode selected: active=%s pending=%s; long-press either button to save and restart",
+             io_mode_name(active_mode), io_mode_name(requested_mode));
+}
+
 static resq_state_t run_provisioning(resq_fsm_t *fsm)
 {
+    bool mode_retry_required = false;
+    bool network_config_saved = false;
+    clear_provisioning_io_mode_request(fsm);
     if (fsm->ops->provisioning_start() != ESP_OK) {
+        clear_provisioning_io_mode_request(fsm);
         fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
         return RESQ_STATE_ERROR;
     }
 
-    while (!fsm->ops->provisioning_has_saved_config()) {
-        system_button_action_t action =
-            fsm->ops->button_poll(RESQ_STATE_PROVISIONING);
-        if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
-            fsm->ops->provisioning_stop();
-            return RESQ_STATE_TURN_OFF;
+    while (true) {
+        system_button_event_t event = {0};
+        while (fsm->ops->button_take_event(&event)) {
+            provisioning_io_mode_request_t *request =
+                &fsm->provisioning_io_mode_request;
+
+            if (event.press_type == SYSTEM_BUTTON_PRESS_SHORT) {
+                if (event.button_id == SYSTEM_BUTTON_ID_1) {
+                    mode_retry_required = false;
+                    select_provisioning_io_mode(fsm, RESQ_IO_MODE_USB);
+                } else if (event.button_id == SYSTEM_BUTTON_ID_2) {
+                    mode_retry_required = false;
+                    select_provisioning_io_mode(fsm, RESQ_IO_MODE_SENSOR);
+                }
+                continue;
+            }
+
+            if (event.press_type != SYSTEM_BUTTON_PRESS_LONG) {
+                continue;
+            }
+
+            if (request->pending) {
+                if (request->confirmation_in_progress) {
+                    ESP_LOGW(TAG, "Ignoring duplicate I/O mode confirmation");
+                    continue;
+                }
+
+                request->confirmation_in_progress = true;
+                resq_io_mode_t target = request->target;
+                resq_io_mode_t active = fsm->ops->io_mode_get();
+                ESP_LOGW(TAG,
+                         "Confirming provisioning I/O mode switch: active=%s requested=%s",
+                         io_mode_name(active), io_mode_name(target));
+
+                if (fsm->ops->provisioning_has_saved_config()) {
+                    network_config_saved = true;
+                }
+                esp_err_t stop_err = fsm->ops->provisioning_stop();
+                if (stop_err != ESP_OK) {
+                    ESP_LOGE(TAG,
+                             "I/O mode switch aborted because provisioning could not stop: %s",
+                             esp_err_to_name(stop_err));
+                    clear_provisioning_io_mode_request(fsm);
+                    fsm->ops->button_drain_events(RESQ_STATE_PROVISIONING);
+                    mode_retry_required = true;
+                    if (fsm->ops->provisioning_start() != ESP_OK) {
+                        fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
+                        return RESQ_STATE_ERROR;
+                    }
+                    continue;
+                }
+
+                esp_err_t save_err = fsm->ops->io_mode_request(target);
+                if (save_err != ESP_OK) {
+                    ESP_LOGE(TAG,
+                             "I/O mode switch aborted because NVS save failed: %s",
+                             esp_err_to_name(save_err));
+                    clear_provisioning_io_mode_request(fsm);
+                    fsm->ops->button_drain_events(RESQ_STATE_PROVISIONING);
+                    mode_retry_required = true;
+                    if (fsm->ops->provisioning_start() != ESP_OK) {
+                        fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
+                        return RESQ_STATE_ERROR;
+                    }
+                    continue;
+                }
+
+                /* Keep the override active until the reboot takes effect. */
+                fsm->ops->status_set_both_leds_on(true);
+                fsm->ops->button_drain_events(RESQ_STATE_PROVISIONING);
+                fsm->ops->delay_ms(200);
+                ESP_LOGW(TAG, "Restarting into %s I/O mode",
+                         io_mode_name(target));
+                fsm->ops->restart();
+                return RESQ_STATE_PROVISIONING;
+            }
+
+            resq_state_t next_state = RESQ_STATE_PROVISIONING;
+            if (event.button_id == SYSTEM_BUTTON_ID_1) {
+                next_state = RESQ_STATE_TURN_OFF;
+            } else if (event.button_id == SYSTEM_BUTTON_ID_2) {
+                next_state = RESQ_STATE_RESETTING;
+            } else {
+                continue;
+            }
+
+            esp_err_t stop_err = fsm->ops->provisioning_stop();
+            clear_provisioning_io_mode_request(fsm);
+            fsm->ops->button_drain_events(RESQ_STATE_PROVISIONING);
+            if (stop_err != ESP_OK) {
+                ESP_LOGE(TAG, "Provisioning stop failed: %s",
+                         esp_err_to_name(stop_err));
+                fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
+                return RESQ_STATE_ERROR;
+            }
+            return next_state;
+        }
+
+        /* Button events are deliberately polled before this exit check. */
+        if (fsm->ops->provisioning_has_saved_config()) {
+            network_config_saved = true;
+        }
+        if (network_config_saved &&
+            !fsm->provisioning_io_mode_request.pending &&
+            !mode_retry_required) {
+            break;
         }
         fsm->ops->delay_ms(50);
     }
 
-    fsm->ops->provisioning_stop();
+    esp_err_t stop_err = fsm->ops->provisioning_stop();
+    clear_provisioning_io_mode_request(fsm);
+    fsm->ops->button_drain_events(RESQ_STATE_PROVISIONING);
+    if (stop_err != ESP_OK) {
+        fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
+        return RESQ_STATE_ERROR;
+    }
     fsm->ops->network_set_defaults(&fsm->network_config);
     if (fsm->ops->load_network(&fsm->network_config) != ESP_OK) {
         return RESQ_STATE_ERROR;

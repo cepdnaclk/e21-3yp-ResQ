@@ -1,6 +1,8 @@
 #ifndef STATUS_INDICATOR_H
 #define STATUS_INDICATOR_H
 
+#include <stdbool.h>
+
 #include "esp_err.h"
 #include "states.h"
 
@@ -32,6 +34,15 @@ void status_indicator_set_state(resq_state_t state);
  * @brief Get the currently indicated firmware state.
  */
 resq_state_t status_indicator_get_state(void);
+
+/**
+ * Override the state pattern and hold both LEDs continuously on.
+ * Intended for an in-progress provisioning I/O mode selection.
+ */
+void status_indicator_set_both_leds_on(bool enabled);
+
+/** Return whether the both-LED override is active. */
+bool status_indicator_are_both_leds_overridden_on(void);
 
 /**
  * @brief Optional short buzzer beep for important events.

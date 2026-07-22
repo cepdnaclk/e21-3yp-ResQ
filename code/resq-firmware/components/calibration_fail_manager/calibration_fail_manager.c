@@ -70,15 +70,62 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
     }
 
     while (true) {
-        system_button_action_t button_action =
-            system_button_manager_poll(RESQ_STATE_CALIBRATION_FAIL);
-        if (button_action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
-            telemetry_publisher_stop_sensor_stream();
-            return RESQ_STATE_TURN_OFF;
-        }
-        if (button_action == SYSTEM_BUTTON_ACTION_FACTORY_RESET) {
-            telemetry_publisher_stop_sensor_stream();
-            return RESQ_STATE_RESETTING;
+        system_button_event_t button_event = {0};
+
+        if (system_button_manager_wait_event(&button_event,
+                                             pdMS_TO_TICKS(50)) == ESP_OK) {
+            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                button_event.button_id == SYSTEM_BUTTON_ID_1) {
+                ESP_LOGW(TAG,
+                         "BUTTON_1 short press: retry calibration duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
+
+                esp_err_t retry_err =
+                    calibration_manager_retry_last(network_config);
+                if (retry_err == ESP_OK) {
+                    runtime_helpers_publish_command_result(
+                        network_config, RESQ_STATE_CALIBRATION_FAIL,
+                        "button/retry", "ACK", "retry_calibration");
+                    return RESQ_STATE_CALIBRATING;
+                }
+
+                calibration_reason_id_t reason =
+                    CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE;
+                calibration_action_id_t action =
+                    CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE;
+                if (retry_err == ESP_ERR_NOT_FOUND) {
+                    reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
+                    action = CAL_ACTION_SEND_VALID_PAYLOAD;
+                } else if (retry_err == ESP_ERR_INVALID_STATE) {
+                    reason = CAL_REASON_CALIBRATION_ALREADY_RUNNING;
+                    action = CAL_ACTION_WAIT_OR_CANCEL;
+                }
+
+                runtime_helpers_publish_command_result(
+                    network_config, RESQ_STATE_CALIBRATION_FAIL,
+                    "button/retry", "NACK", "retry_failed");
+                calibration_manager_publish_progress_event(
+                    reason, RESQ_STATE_CALIBRATION_FAIL, action, 12);
+            } else if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
+                       button_event.button_id == SYSTEM_BUTTON_ID_2) {
+                ESP_LOGW(TAG,
+                         "BUTTON_2 short press: return to paired idle duration=%lu ms",
+                         (unsigned long)button_event.duration_ms);
+                telemetry_publisher_stop_sensor_stream();
+                calibration_manager_drop_temporary_values();
+                runtime_helpers_publish_command_result(
+                    network_config, RESQ_STATE_CALIBRATION_FAIL,
+                    "button/idle", "ACK", "returning_to_paired_idle");
+                return RESQ_STATE_PAIRED_IDLE;
+            } else if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
+                       button_event.button_id == SYSTEM_BUTTON_ID_1) {
+                telemetry_publisher_stop_sensor_stream();
+                return RESQ_STATE_TURN_OFF;
+            } else if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
+                       button_event.button_id == SYSTEM_BUTTON_ID_2) {
+                telemetry_publisher_stop_sensor_stream();
+                return RESQ_STATE_RESETTING;
+            }
         }
 
         if (!wifi_manager_is_connected()) {

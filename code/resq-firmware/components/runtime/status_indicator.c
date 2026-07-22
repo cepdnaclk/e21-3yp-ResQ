@@ -53,6 +53,9 @@ static volatile resq_state_t s_current_state = RESQ_STATE_BOOT;
  */
 static volatile bool s_task_running = false;
 
+/* Provisioning-owned temporary override. Accessed atomically across tasks. */
+static bool s_both_leds_on_override = false;
+
 /* Convert a blink pattern to a FreeRTOS tick delay used by vTaskDelay.
  * For non-blinking patterns a default short delay is returned so the task
  * loop still yields occasionally.
@@ -176,6 +179,14 @@ static void status_indicator_task(void *arg)
 
     while (s_task_running)
     {
+        if (__atomic_load_n(&s_both_leds_on_override, __ATOMIC_ACQUIRE))
+        {
+            gpio_set_level(BOARD_STATE_LED, 1);
+            gpio_set_level(BOARD_ACTIVITY_LED, 1);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
         status_led_pattern_t pattern = get_state_pattern(s_current_state);
 
         apply_static_pattern(BOARD_STATE_LED, pattern.state_led);
@@ -213,6 +224,7 @@ static void status_indicator_task(void *arg)
 
     gpio_set_level(BOARD_STATE_LED, 0);
     gpio_set_level(BOARD_ACTIVITY_LED, 0);
+    __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
     s_status_task_handle = NULL;
     vTaskDelete(NULL);
 }
@@ -242,6 +254,7 @@ esp_err_t status_indicator_init(void)
     gpio_set_level(BOARD_STATE_LED, 0);
     gpio_set_level(BOARD_ACTIVITY_LED, 0);
     s_current_state = RESQ_STATE_BOOT;
+    __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
 
     return ESP_OK;
 }
@@ -278,6 +291,7 @@ esp_err_t status_indicator_start(void)
  */
 void status_indicator_stop(void)
 {
+    __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
     s_task_running = false;
 }
 
@@ -286,6 +300,9 @@ void status_indicator_stop(void)
  */
 void status_indicator_set_state(resq_state_t state)
 {
+    if (state != RESQ_STATE_PROVISIONING) {
+        __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
+    }
     s_current_state = state;
     ESP_LOGI(TAG, "State indicator changed to %s", resq_state_to_string(state));
 }
@@ -294,6 +311,22 @@ void status_indicator_set_state(resq_state_t state)
 resq_state_t status_indicator_get_state(void)
 {
     return s_current_state;
+}
+
+void status_indicator_set_both_leds_on(bool enabled)
+{
+    __atomic_store_n(&s_both_leds_on_override, enabled, __ATOMIC_RELEASE);
+    if (enabled) {
+        gpio_set_level(BOARD_STATE_LED, 1);
+        gpio_set_level(BOARD_ACTIVITY_LED, 1);
+    }
+    ESP_LOGI(TAG, "Both-LED provisioning override %s",
+             enabled ? "enabled" : "cleared");
+}
+
+bool status_indicator_are_both_leds_overridden_on(void)
+{
+    return __atomic_load_n(&s_both_leds_on_override, __ATOMIC_ACQUIRE);
 }
 
 /* Produce a single short beep on the buzzer (blocking for ~100ms). */

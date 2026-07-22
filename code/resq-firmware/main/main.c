@@ -26,13 +26,11 @@
 #include "hx710.h"
 #include "io_mode_manager.h"
 #include "mqtt_manager.h"
-#include "mqtt_topics.h"
 #include "paired_idle_manager.h"
 #include "provisioning_manager.h"
 #include "runtime_identity.h"
 #include "session_active_manager.h"
 #include "session_manager.h"
-#include "sensor_owner.h"
 #include "status_indicator.h"
 #include "system_button_manager.h"
 #include "telemetry_publisher.h"
@@ -45,7 +43,6 @@
 
 static const char *TAG = "resq_main";
 static bool s_components_initialized;
-static volatile bool s_mode_switch_in_progress;
 static TaskHandle_t s_heartbeat_task;
 static volatile bool s_heartbeat_running;
 static resq_fsm_t s_fsm;
@@ -170,91 +167,6 @@ static esp_err_t initialize_components_once(void)
     s_components_initialized = true;
     ESP_LOGI(TAG, "Core firmware components initialized");
     return ESP_OK;
-}
-
-static esp_err_t preserve_first_error(esp_err_t current, esp_err_t candidate)
-{
-    return current == ESP_OK && candidate != ESP_OK ? candidate : current;
-}
-
-static void handle_mode_button_action(system_button_action_t action,
-                                      resq_state_t current_state)
-{
-    (void)current_state;
-    resq_io_mode_t requested_mode;
-    if (action == SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE) {
-        requested_mode = RESQ_IO_MODE_USB;
-    } else if (action == SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE) {
-        requested_mode = RESQ_IO_MODE_SENSOR;
-    } else {
-        return;
-    }
-
-    if (requested_mode == io_mode_manager_get()) {
-        ESP_LOGI(TAG, "Requested I/O mode %s is already active; no restart",
-                 io_mode_to_string(requested_mode));
-        return;
-    }
-    if (__atomic_exchange_n(&s_mode_switch_in_progress, true,
-                            __ATOMIC_ACQ_REL)) {
-        ESP_LOGW(TAG, "Ignoring duplicate I/O mode request while switching");
-        return;
-    }
-
-    esp_err_t cleanup_err = ESP_OK;
-    if (io_mode_manager_is_sensor() && requested_mode == RESQ_IO_MODE_USB) {
-        cleanup_err = preserve_first_error(cleanup_err,
-                                           telemetry_publisher_stop_all());
-        cleanup_err = preserve_first_error(cleanup_err,
-                                           calibration_manager_cancel());
-        cleanup_err = preserve_first_error(
-            cleanup_err, session_active_manager_stop_sensor_acquisition());
-        if (session_manager_is_active()) {
-            char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
-            if (session_manager_get_session_id(session_id, sizeof(session_id)) == ESP_OK) {
-                cleanup_err = preserve_first_error(
-                    cleanup_err, session_manager_stop(session_id));
-            }
-        }
-        cleanup_err = preserve_first_error(cleanup_err, buzzer_manager_stop());
-        cleanup_err = preserve_first_error(
-            cleanup_err, sensor_owner_wait_until_free(pdMS_TO_TICKS(1000)));
-        cleanup_err = preserve_first_error(
-            cleanup_err, hx710_hold_sck_low(BOARD_HX710_SHARED_SCK));
-        if (cleanup_err != ESP_OK) {
-            ESP_LOGW(TAG, "Sensor cleanup before USB switch reported: %s",
-                     esp_err_to_name(cleanup_err));
-        }
-    }
-
-    esp_err_t save_err = io_mode_manager_request(requested_mode);
-    if (save_err != ESP_OK) {
-        ESP_LOGE(TAG, "I/O mode switch aborted because NVS save failed: %s",
-                 esp_err_to_name(save_err));
-        __atomic_store_n(&s_mode_switch_in_progress, false, __ATOMIC_RELEASE);
-        return;
-    }
-
-    if (mqtt_manager_is_connected()) {
-        char payload[160];
-        int written = snprintf(payload, sizeof(payload),
-                               "{\"event_type\":\"io_mode_switch\","
-                               "\"requested_mode\":\"%s\",\"rebooting\":true}",
-                               io_mode_to_string(requested_mode));
-        if (written > 0 && written < (int)sizeof(payload)) {
-            esp_err_t publish_err =
-                mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS, payload);
-            if (publish_err != ESP_OK) {
-                ESP_LOGW(TAG, "Mode-switch event publish failed: %s",
-                         esp_err_to_name(publish_err));
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(300));
-    }
-
-    ESP_LOGW(TAG, "Restarting into %s I/O mode",
-             io_mode_to_string(requested_mode));
-    esp_restart();
 }
 
 static void get_heartbeat_session(bool *active,
@@ -400,6 +312,8 @@ static const resq_fsm_ops_t s_fsm_ops = {
     .provisioning_start = provisioning_manager_start,
     .provisioning_stop = provisioning_manager_stop,
     .provisioning_has_saved_config = provisioning_manager_has_saved_config,
+    .io_mode_get = io_mode_manager_get,
+    .io_mode_request = io_mode_manager_request,
     .wifi_connect = wifi_manager_connect,
     .wifi_disconnect = wifi_manager_disconnect,
     .wifi_is_connected = wifi_manager_is_connected,
@@ -433,8 +347,11 @@ static const resq_fsm_ops_t s_fsm_ops = {
     .telemetry_stop = telemetry_publisher_stop_all,
     .calibration_cancel = calibration_manager_cancel,
     .status_set_state = status_indicator_set_state,
+    .status_set_both_leds_on = status_indicator_set_both_leds_on,
     .status_stop = status_indicator_stop,
     .button_poll = system_button_manager_poll,
+    .button_take_event = system_button_manager_take_event,
+    .button_drain_events = system_button_manager_drain_events,
     .button_drain_actions = system_button_manager_drain_actions,
     .delay_ms = delay_ms,
     .restart = restart_device,
@@ -461,7 +378,6 @@ void app_main(void)
         ESP_LOGW(TAG, "system_button_manager_init early init failed: %s",
                  esp_err_to_name(err));
     }
-    system_button_manager_set_mode_action_handler(handle_mode_button_action);
     err = error_manager_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "error_manager_init early init failed: %s",

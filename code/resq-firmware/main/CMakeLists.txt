@@ -28,7 +28,6 @@ idf_component_register(
         system_button_manager
         io_mode_manager
         hx710
-        sensor_owner
         firmware_state_machine
         nvs_flash
         esp_event

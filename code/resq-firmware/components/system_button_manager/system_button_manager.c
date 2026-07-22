@@ -51,7 +51,6 @@ static QueueHandle_t s_event_queue = NULL;
 static TaskHandle_t s_button_task_handle = NULL;
 static volatile uint32_t s_missed_edge_mask;
 static volatile uint32_t s_dropped_edge_count;
-static system_button_mode_action_handler_t s_mode_action_handler;
 
 static button_runtime_t s_button_1 = {
     .gpio = BUTTON_1,
@@ -109,10 +108,6 @@ const char *system_button_press_type_to_string(system_button_press_type_t press_
 const char *system_button_action_to_string(system_button_action_t action)
 {
     switch (action) {
-    case SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE:
-        return "REQUEST_USB_MODE";
-    case SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE:
-        return "REQUEST_SENSOR_MODE";
     case SYSTEM_BUTTON_ACTION_TURN_OFF:
         return "TURN_OFF";
     case SYSTEM_BUTTON_ACTION_FACTORY_RESET:
@@ -159,10 +154,6 @@ static bool factory_reset_allowed_in_state(resq_state_t state)
 
 static bool action_allowed_in_state(resq_state_t state, system_button_action_t action)
 {
-    if (action == SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE ||
-        action == SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE) {
-        return state != RESQ_STATE_RESETTING && state != RESQ_STATE_TURN_OFF;
-    }
     if (action == SYSTEM_BUTTON_ACTION_TURN_OFF) {
         return turn_off_allowed_in_state(state);
     }
@@ -212,9 +203,7 @@ static void publish_event_for_button(button_runtime_t *button, TickType_t releas
     uint32_t duration_ms = (uint32_t)((now - button->press_start_tick) * portTICK_PERIOD_MS);
 
     system_button_press_type_t press_type =
-        (duration_ms >= SYSTEM_BUTTON_LONG_PRESS_MS)
-            ? SYSTEM_BUTTON_PRESS_LONG
-            : SYSTEM_BUTTON_PRESS_SHORT;
+        system_button_manager_classify_duration(duration_ms);
 
     system_button_event_t event = {
         .button_id = button->button_id,
@@ -238,6 +227,14 @@ static void publish_event_for_button(button_runtime_t *button, TickType_t releas
     }
 
     button->press_start_tick = 0;
+}
+
+system_button_press_type_t system_button_manager_classify_duration(
+    uint32_t duration_ms)
+{
+    return duration_ms >= SYSTEM_BUTTON_LONG_PRESS_MS
+               ? SYSTEM_BUTTON_PRESS_LONG
+               : SYSTEM_BUTTON_PRESS_SHORT;
 }
 
 static void update_button_state_from_edge(gpio_num_t gpio)
@@ -297,14 +294,7 @@ system_button_action_t system_button_manager_action_for_event(
     if (event == NULL) {
         return SYSTEM_BUTTON_ACTION_NONE;
     }
-    if (event->press_type == SYSTEM_BUTTON_PRESS_SHORT) {
-        if (event->button_id == SYSTEM_BUTTON_ID_1) {
-            return SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE;
-        }
-        if (event->button_id == SYSTEM_BUTTON_ID_2) {
-            return SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE;
-        }
-    } else if (event->press_type == SYSTEM_BUTTON_PRESS_LONG) {
+    if (event->press_type == SYSTEM_BUTTON_PRESS_LONG) {
         if (event->button_id == SYSTEM_BUTTON_ID_1) {
             return SYSTEM_BUTTON_ACTION_TURN_OFF;
         }
@@ -313,12 +303,6 @@ system_button_action_t system_button_manager_action_for_event(
         }
     }
     return SYSTEM_BUTTON_ACTION_NONE;
-}
-
-void system_button_manager_set_mode_action_handler(
-    system_button_mode_action_handler_t handler)
-{
-    s_mode_action_handler = handler;
 }
 
 uint32_t system_button_manager_get_dropped_edge_count(void)
@@ -463,11 +447,6 @@ system_button_action_t system_button_manager_poll(resq_state_t current_state)
 
         if (selected_action == SYSTEM_BUTTON_ACTION_NONE) {
             selected_action = action;
-            if ((action == SYSTEM_BUTTON_ACTION_REQUEST_USB_MODE ||
-                 action == SYSTEM_BUTTON_ACTION_REQUEST_SENSOR_MODE) &&
-                s_mode_action_handler != NULL) {
-                s_mode_action_handler(action, current_state);
-            }
         }
     }
 

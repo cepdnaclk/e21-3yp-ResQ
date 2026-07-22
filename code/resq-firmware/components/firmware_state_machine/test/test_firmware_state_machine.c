@@ -11,8 +11,14 @@ typedef struct {
     esp_err_t clear_all_result;
     esp_err_t provisioning_start_result;
     esp_err_t provisioning_stop_result;
+    int provisioning_start_calls;
     int provisioning_saved_after;
     int provisioning_checks;
+    resq_io_mode_t active_io_mode;
+    esp_err_t io_mode_request_result;
+    resq_io_mode_t requested_io_mode;
+    int io_mode_request_calls;
+    bool io_request_happened_after_stop;
     esp_err_t wifi_connect_result;
     esp_err_t wifi_get_ip_result;
     bool wifi_connected;
@@ -37,11 +43,19 @@ typedef struct {
     system_button_action_t button_actions[4];
     size_t button_action_count;
     size_t button_action_index;
+    system_button_event_t button_events[8];
+    size_t button_event_count;
+    size_t button_event_index;
+    bool inject_button_event_on_delay;
+    system_button_event_t delayed_button_event;
     bool session_active;
     session_state_t session_state;
     const char *session_id;
     firmware_error_reason_id_t last_error;
     int status_calls;
+    int status_override_on_calls;
+    int status_override_off_calls;
+    bool status_override_on;
     int publish_status_calls;
     int heartbeat_calls;
     int identity_calls;
@@ -119,6 +133,7 @@ static esp_err_t fake_clear_all(void)
 }
 static esp_err_t fake_provisioning_start(void)
 {
+    f.provisioning_start_calls++;
     return f.provisioning_start_result;
 }
 static esp_err_t fake_provisioning_stop(void)
@@ -130,6 +145,14 @@ static bool fake_provisioning_has_saved(void)
 {
     f.provisioning_checks++;
     return f.provisioning_checks > f.provisioning_saved_after;
+}
+static resq_io_mode_t fake_io_mode_get(void) { return f.active_io_mode; }
+static esp_err_t fake_io_mode_request(resq_io_mode_t mode)
+{
+    f.io_mode_request_calls++;
+    f.requested_io_mode = mode;
+    f.io_request_happened_after_stop = f.provisioning_stop_calls > 0;
+    return f.io_mode_request_result;
 }
 static esp_err_t fake_wifi_connect(const char *ssid,
                                    const char *password,
@@ -330,6 +353,15 @@ static void fake_status_set(resq_state_t state)
     (void)state;
     f.status_calls++;
 }
+static void fake_status_override(bool enabled)
+{
+    f.status_override_on = enabled;
+    if (enabled) {
+        f.status_override_on_calls++;
+    } else {
+        f.status_override_off_calls++;
+    }
+}
 static void fake_status_stop(void) { f.status_stop_calls++; }
 static system_button_action_t fake_button_poll(resq_state_t state)
 {
@@ -344,10 +376,27 @@ static void fake_button_drain(resq_state_t state)
     (void)state;
     f.drain_calls++;
 }
+static bool fake_button_take_event(system_button_event_t *event)
+{
+    if (f.button_event_index >= f.button_event_count) {
+        return false;
+    }
+    *event = f.button_events[f.button_event_index++];
+    return true;
+}
+static void fake_button_drain_events(resq_state_t state)
+{
+    (void)state;
+    f.button_event_index = f.button_event_count;
+}
 static void fake_delay(uint32_t delay_ms)
 {
     f.delay_calls++;
     f.last_delay_ms = delay_ms;
+    if (f.inject_button_event_on_delay) {
+        f.inject_button_event_on_delay = false;
+        f.button_events[f.button_event_count++] = f.delayed_button_event;
+    }
 }
 static void fake_restart(void) { f.restart_calls++; }
 static void fake_soft_off(void) { f.soft_off_calls++; }
@@ -367,6 +416,8 @@ static const resq_fsm_ops_t ops = {
     .provisioning_start = fake_provisioning_start,
     .provisioning_stop = fake_provisioning_stop,
     .provisioning_has_saved_config = fake_provisioning_has_saved,
+    .io_mode_get = fake_io_mode_get,
+    .io_mode_request = fake_io_mode_request,
     .wifi_connect = fake_wifi_connect,
     .wifi_disconnect = fake_wifi_disconnect,
     .wifi_is_connected = fake_wifi_is_connected,
@@ -398,8 +449,11 @@ static const resq_fsm_ops_t ops = {
     .telemetry_stop = fake_telemetry_stop,
     .calibration_cancel = fake_calibration_cancel,
     .status_set_state = fake_status_set,
+    .status_set_both_leds_on = fake_status_override,
     .status_stop = fake_status_stop,
     .button_poll = fake_button_poll,
+    .button_take_event = fake_button_take_event,
+    .button_drain_events = fake_button_drain_events,
     .button_drain_actions = fake_button_drain,
     .delay_ms = fake_delay,
     .restart = fake_restart,
@@ -416,6 +470,8 @@ static void reset_fixture(void)
     f.clear_all_result = ESP_OK;
     f.provisioning_start_result = ESP_OK;
     f.provisioning_stop_result = ESP_OK;
+    f.active_io_mode = RESQ_IO_MODE_SENSOR;
+    f.io_mode_request_result = ESP_OK;
     f.wifi_connect_result = ESP_OK;
     f.wifi_get_ip_result = ESP_OK;
     f.wifi_connected = true;
@@ -445,6 +501,17 @@ static resq_state_t run_state(resq_state_t state)
 {
     resq_fsm_enter(&fsm, state);
     return resq_fsm_step(&fsm);
+}
+
+static void queue_button_event(system_button_id_t button,
+                               system_button_press_type_t press)
+{
+    TEST_ASSERT_LESS_THAN(sizeof(f.button_events) / sizeof(f.button_events[0]),
+                          f.button_event_count);
+    f.button_events[f.button_event_count++] = (system_button_event_t) {
+        .button_id = button,
+        .press_type = press,
+    };
 }
 
 TEST_CASE("FSM rejects missing dependencies", "[fsm]")
@@ -488,7 +555,7 @@ TEST_CASE("CONFIG_CHECK selects provisioning or Wi-Fi", "[fsm]")
                       run_state(RESQ_STATE_CONFIG_CHECK));
 }
 
-TEST_CASE("PROVISIONING covers start save validation and turn off", "[fsm]")
+TEST_CASE("PROVISIONING covers start save validation and system exits", "[fsm]")
 {
     reset_fixture();
     TEST_ASSERT_EQUAL(RESQ_STATE_WIFI_CONNECTING,
@@ -509,12 +576,134 @@ TEST_CASE("PROVISIONING covers start save validation and turn off", "[fsm]")
                       run_state(RESQ_STATE_PROVISIONING));
 
     reset_fixture();
-    f.provisioning_saved_after = 2;
-    f.button_actions[0] = SYSTEM_BUTTON_ACTION_FACTORY_RESET;
-    f.button_actions[1] = SYSTEM_BUTTON_ACTION_TURN_OFF;
-    f.button_action_count = 2;
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_LONG);
     TEST_ASSERT_EQUAL(RESQ_STATE_TURN_OFF,
                       run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(1, f.provisioning_stop_calls);
+
+    reset_fixture();
+    queue_button_event(SYSTEM_BUTTON_ID_2, SYSTEM_BUTTON_PRESS_LONG);
+    TEST_ASSERT_EQUAL(RESQ_STATE_RESETTING,
+                      run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(1, f.provisioning_stop_calls);
+}
+
+TEST_CASE("PROVISIONING short-selects and either long press confirms USB", "[fsm][io_mode]")
+{
+    for (int button = SYSTEM_BUTTON_ID_1; button <= SYSTEM_BUTTON_ID_2;
+         ++button) {
+        reset_fixture();
+        queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_SHORT);
+        queue_button_event((system_button_id_t)button,
+                           SYSTEM_BUTTON_PRESS_LONG);
+
+        TEST_ASSERT_EQUAL(RESQ_STATE_PROVISIONING,
+                          run_state(RESQ_STATE_PROVISIONING));
+        TEST_ASSERT_EQUAL(1, f.io_mode_request_calls);
+        TEST_ASSERT_EQUAL(RESQ_IO_MODE_USB, f.requested_io_mode);
+        TEST_ASSERT_TRUE(f.io_request_happened_after_stop);
+        TEST_ASSERT_EQUAL(1, f.restart_calls);
+        TEST_ASSERT_TRUE(f.status_override_on);
+    }
+}
+
+TEST_CASE("PROVISIONING short-selects and either long press confirms SENSOR", "[fsm][io_mode]")
+{
+    for (int button = SYSTEM_BUTTON_ID_1; button <= SYSTEM_BUTTON_ID_2;
+         ++button) {
+        reset_fixture();
+        f.active_io_mode = RESQ_IO_MODE_USB;
+        queue_button_event(SYSTEM_BUTTON_ID_2, SYSTEM_BUTTON_PRESS_SHORT);
+        queue_button_event((system_button_id_t)button,
+                           SYSTEM_BUTTON_PRESS_LONG);
+
+        TEST_ASSERT_EQUAL(RESQ_STATE_PROVISIONING,
+                          run_state(RESQ_STATE_PROVISIONING));
+        TEST_ASSERT_EQUAL(1, f.io_mode_request_calls);
+        TEST_ASSERT_EQUAL(RESQ_IO_MODE_SENSOR, f.requested_io_mode);
+        TEST_ASSERT_EQUAL(1, f.restart_calls);
+    }
+}
+
+TEST_CASE("PROVISIONING selecting active mode cancels pending change", "[fsm][io_mode]")
+{
+    reset_fixture();
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_SHORT);
+    queue_button_event(SYSTEM_BUTTON_ID_2, SYSTEM_BUTTON_PRESS_SHORT);
+
+    TEST_ASSERT_EQUAL(RESQ_STATE_WIFI_CONNECTING,
+                      run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(0, f.io_mode_request_calls);
+    TEST_ASSERT_EQUAL(0, f.restart_calls);
+    TEST_ASSERT_FALSE(f.status_override_on);
+    TEST_ASSERT_GREATER_THAN(0, f.status_override_on_calls);
+}
+
+TEST_CASE("PROVISIONING selecting already active mode is a no-op", "[fsm][io_mode]")
+{
+    reset_fixture();
+    queue_button_event(SYSTEM_BUTTON_ID_2, SYSTEM_BUTTON_PRESS_SHORT);
+
+    TEST_ASSERT_EQUAL(RESQ_STATE_WIFI_CONNECTING,
+                      run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(0, f.io_mode_request_calls);
+    TEST_ASSERT_EQUAL(0, f.restart_calls);
+    TEST_ASSERT_EQUAL(0, f.status_override_on_calls);
+    TEST_ASSERT_FALSE(f.status_override_on);
+}
+
+TEST_CASE("PROVISIONING repeated pending selection is idempotent", "[fsm][io_mode]")
+{
+    reset_fixture();
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_SHORT);
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_SHORT);
+    queue_button_event(SYSTEM_BUTTON_ID_2, SYSTEM_BUTTON_PRESS_LONG);
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_LONG);
+
+    TEST_ASSERT_EQUAL(RESQ_STATE_PROVISIONING,
+                      run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(1, f.io_mode_request_calls);
+    TEST_ASSERT_EQUAL(1, f.restart_calls);
+}
+
+TEST_CASE("PROVISIONING save failure restores portal without restart", "[fsm][io_mode]")
+{
+    reset_fixture();
+    f.io_mode_request_result = ESP_FAIL;
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_SHORT);
+    queue_button_event(SYSTEM_BUTTON_ID_2, SYSTEM_BUTTON_PRESS_LONG);
+    f.inject_button_event_on_delay = true;
+    f.delayed_button_event = (system_button_event_t) {
+        .button_id = SYSTEM_BUTTON_ID_1,
+        .press_type = SYSTEM_BUTTON_PRESS_LONG,
+    };
+
+    TEST_ASSERT_EQUAL(RESQ_STATE_TURN_OFF,
+                      run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(1, f.io_mode_request_calls);
+    TEST_ASSERT_EQUAL(0, f.restart_calls);
+    TEST_ASSERT_EQUAL(2, f.provisioning_start_calls);
+    TEST_ASSERT_FALSE(f.status_override_on);
+    TEST_ASSERT_EQUAL(RESQ_IO_MODE_SENSOR, f.active_io_mode);
+}
+
+TEST_CASE("PROVISIONING saved network waits for pending mode decision", "[fsm][io_mode]")
+{
+    reset_fixture();
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_SHORT);
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_LONG);
+
+    TEST_ASSERT_EQUAL(RESQ_STATE_PROVISIONING,
+                      run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(1, f.io_mode_request_calls);
+    TEST_ASSERT_EQUAL(1, f.restart_calls);
+
+    reset_fixture();
+    queue_button_event(SYSTEM_BUTTON_ID_1, SYSTEM_BUTTON_PRESS_SHORT);
+    queue_button_event(SYSTEM_BUTTON_ID_2, SYSTEM_BUTTON_PRESS_SHORT);
+    TEST_ASSERT_EQUAL(RESQ_STATE_WIFI_CONNECTING,
+                      run_state(RESQ_STATE_PROVISIONING));
+    TEST_ASSERT_EQUAL(0, f.io_mode_request_calls);
 }
 
 TEST_CASE("FLUSH_CONFIG shuts down and clears network config", "[fsm]")

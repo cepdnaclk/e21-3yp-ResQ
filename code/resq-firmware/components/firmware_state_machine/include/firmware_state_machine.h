@@ -35,6 +35,8 @@ typedef struct {
     esp_err_t (*provisioning_start)(void);
     esp_err_t (*provisioning_stop)(void);
     bool (*provisioning_has_saved_config)(void);
+    resq_io_mode_t (*io_mode_get)(void);
+    esp_err_t (*io_mode_request)(resq_io_mode_t mode);
 
     esp_err_t (*wifi_connect)(const char *ssid,
                               const char *password,
@@ -106,8 +108,11 @@ typedef struct {
     esp_err_t (*calibration_cancel)(void);
 
     void (*status_set_state)(resq_state_t state);
+    void (*status_set_both_leds_on)(bool enabled);
     void (*status_stop)(void);
     system_button_action_t (*button_poll)(resq_state_t state);
+    bool (*button_take_event)(system_button_event_t *event);
+    void (*button_drain_events)(resq_state_t state);
     void (*button_drain_actions)(resq_state_t state);
 
     void (*delay_ms)(uint32_t delay_ms);
@@ -116,12 +121,19 @@ typedef struct {
 } resq_fsm_ops_t;
 
 typedef struct {
+    bool pending;
+    resq_io_mode_t target;
+    bool confirmation_in_progress;
+} provisioning_io_mode_request_t;
+
+typedef struct {
     resq_state_t current_state;
     bool has_entered_state;
     network_config_t network_config;
     calibration_config_t calibration_config;
     backend_registration_result_t backend_result;
     char ip_address[16];
+    provisioning_io_mode_request_t provisioning_io_mode_request;
     const resq_fsm_ops_t *ops;
 } resq_fsm_t;
 
