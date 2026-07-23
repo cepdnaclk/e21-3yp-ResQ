@@ -9,6 +9,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::{io::AsRawHandle, process::CommandExt};
@@ -123,8 +124,12 @@ pub fn runtime_pid_file(app: &tauri::AppHandle, service_name: &str) -> Result<Pa
         .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
         .join("runtime")
         .join("pids");
-    fs::create_dir_all(&runtime_dir)
-        .map_err(|error| format!("Failed to create PID metadata directory at {}: {error}", runtime_dir.display()))?;
+    fs::create_dir_all(&runtime_dir).map_err(|error| {
+        format!(
+            "Failed to create PID metadata directory at {}: {error}",
+            runtime_dir.display()
+        )
+    })?;
     Ok(runtime_dir.join(format!("{service_name}.json")))
 }
 
@@ -137,14 +142,23 @@ pub fn persist_metadata(process: &ManagedProcess) -> Result<(), String> {
     };
 
     if let Some(parent) = pid_file.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create PID metadata directory at {}: {error}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create PID metadata directory at {}: {error}",
+                parent.display()
+            )
+        })?;
     }
 
     let body = serde_json::to_string_pretty(&metadata)
         .map_err(|error| format!("Failed to serialize {} PID metadata: {error}", process.name))?;
-    fs::write(pid_file, body)
-        .map_err(|error| format!("Failed to write {} PID metadata at {}: {error}", process.name, pid_file.display()))
+    fs::write(pid_file, body).map_err(|error| {
+        format!(
+            "Failed to write {} PID metadata at {}: {error}",
+            process.name,
+            pid_file.display()
+        )
+    })
 }
 
 pub fn remove_pid_file(pid_file: &Path) {
@@ -268,7 +282,8 @@ pub fn verified_stale_owner(pid_file: &Path, owner_info: &ProcessInfo) -> bool {
     };
 
     let root_matches = process_matches_metadata(&metadata, &root_info);
-    root_matches && (owner_info.pid == metadata.pid || is_descendant_of(owner_info.pid, metadata.pid))
+    root_matches
+        && (owner_info.pid == metadata.pid || is_descendant_of(owner_info.pid, metadata.pid))
 }
 
 fn process_matches_metadata(metadata: &ProcessMetadata, process: &ProcessInfo) -> bool {
@@ -295,7 +310,21 @@ fn same_path(left: &Path, right: &Path) -> bool {
             .replace('/', "\\")
             .to_ascii_lowercase()
     }
-    normalize(left) == normalize(right)
+    if normalize(left) == normalize(right) {
+        return true;
+    }
+
+    if right.components().count() == 1 {
+        return left
+            .file_name()
+            .zip(right.file_name())
+            .is_some_and(|(left, right)| {
+                left.to_string_lossy()
+                    .eq_ignore_ascii_case(&right.to_string_lossy())
+            });
+    }
+
+    false
 }
 
 fn is_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
@@ -313,7 +342,9 @@ fn is_descendant_of(pid: u32, ancestor_pid: u32) -> bool {
 }
 
 pub fn terminate_managed_process(process: &mut ManagedProcess) -> Result<(), String> {
-    let pid = process.pid.or_else(|| process.child.as_ref().map(Child::id));
+    let pid = process
+        .pid
+        .or_else(|| process.child.as_ref().map(Child::id));
     eprintln!("Stopping service: {} pid={pid:?}", process.name);
 
     if let Some(child) = process.child.as_mut() {
@@ -403,7 +434,9 @@ pub fn terminate_process_tree(pid: u32, service_name: &str) -> Result<(), String
     if status.success() {
         Ok(())
     } else {
-        Err(format!("kill failed for {service_name} pid={pid} with status {status}"))
+        Err(format!(
+            "kill failed for {service_name} pid={pid} with status {status}"
+        ))
     }
 }
 
@@ -426,7 +459,9 @@ fn taskkill(pid: u32, force: bool) -> Result<(), String> {
     if status.success() || process_info(pid).is_none() {
         Ok(())
     } else {
-        Err(format!("taskkill failed for pid {pid} with status {status}"))
+        Err(format!(
+            "taskkill failed for pid {pid} with status {status}"
+        ))
     }
 }
 
@@ -513,6 +548,9 @@ pub fn assign_child_to_job(child: &Child, service_name: &str) -> Result<(), Stri
     #[cfg(target_os = "windows")]
     {
         let job = job_object()?;
+        let job = job
+            .lock()
+            .map_err(|_| "Failed to lock Windows Job Object".to_string())?;
         job.assign(child, service_name)
     }
 
@@ -545,7 +583,10 @@ impl WindowsJobObject {
     fn new() -> Result<Self, String> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
         if handle.0.is_null() {
-            return Err(format!("Failed to create Windows Job Object: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "Failed to create Windows Job Object: {}",
+                std::io::Error::last_os_error()
+            ));
         }
 
         let mut info = JobObjectExtendedLimitInformation::default();
@@ -553,7 +594,7 @@ impl WindowsJobObject {
         let ok = unsafe {
             SetInformationJobObject(
                 handle,
-                JobObjectExtendedLimitInformationClass,
+                JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
                 &mut info as *mut _ as *mut _,
                 std::mem::size_of::<JobObjectExtendedLimitInformation>() as u32,
             )
@@ -569,14 +610,12 @@ impl WindowsJobObject {
         }
 
         eprintln!("Created LocalHub Windows Job Object with kill-on-close");
-        Ok(Self {
-            handle: Handle(handle),
-        })
+        Ok(Self { handle })
     }
 
     fn assign(&self, child: &Child, service_name: &str) -> Result<(), String> {
         let process_handle = Handle(child.as_raw_handle() as *mut _);
-        let ok = unsafe { AssignProcessToJobObject(self.handle.0, process_handle) };
+        let ok = unsafe { AssignProcessToJobObject(self.handle, process_handle) };
         if ok == 0 {
             return Err(format!(
                 "Failed to assign service {service_name} pid={} to Windows Job Object: {}",
@@ -598,13 +637,14 @@ impl WindowsJobObject {
 impl Drop for WindowsJobObject {
     fn drop(&mut self) {
         unsafe {
-            CloseHandle(self.handle.0);
+            CloseHandle(self.handle);
         }
     }
 }
 
 #[cfg(target_os = "windows")]
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 struct Handle(*mut std::ffi::c_void);
 
 #[cfg(target_os = "windows")]
@@ -620,7 +660,7 @@ type Bool = i32;
 const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
 
 #[cfg(target_os = "windows")]
-const JobObjectExtendedLimitInformationClass: i32 = 9;
+const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS: i32 = 9;
 
 #[cfg(target_os = "windows")]
 #[repr(C)]
@@ -664,10 +704,7 @@ struct JobObjectExtendedLimitInformation {
 #[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
 extern "system" {
-    fn CreateJobObjectW(
-        lp_job_attributes: *mut std::ffi::c_void,
-        lp_name: *const u16,
-    ) -> Handle;
+    fn CreateJobObjectW(lp_job_attributes: *mut std::ffi::c_void, lp_name: *const u16) -> Handle;
     fn SetInformationJobObject(
         h_job: Handle,
         job_object_information_class: i32,

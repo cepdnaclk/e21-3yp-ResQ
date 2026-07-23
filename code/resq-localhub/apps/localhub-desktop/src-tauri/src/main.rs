@@ -3,10 +3,12 @@
 mod api_service;
 mod broker_service;
 mod commands;
+mod process_lifecycle;
 
 use tauri::Manager;
 
 fn stop_managed_services(app_handle: &tauri::AppHandle) {
+    eprintln!("Stopping all LocalHub managed services");
     let api_state = app_handle.state::<api_service::ApiServiceState>();
     if let Err(error) = api_state.stop() {
         eprintln!("Failed to stop backend during shutdown: {error}");
@@ -16,6 +18,7 @@ fn stop_managed_services(app_handle: &tauri::AppHandle) {
     if let Err(error) = broker_state.stop() {
         eprintln!("Failed to stop MQTT broker during shutdown: {error}");
     }
+    eprintln!("All LocalHub services stopped");
 }
 
 fn main() {
@@ -48,6 +51,8 @@ fn main() {
                 }
                 Err(error) => {
                     eprintln!("Failed to auto-start backend: {error}");
+                    eprintln!("Backend startup failed; rolling back services started earlier");
+                    stop_managed_services(&app_handle);
                 }
             }
 
@@ -77,9 +82,10 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
 
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
             stop_managed_services(app_handle);
         }
+        _ => {}
     });
 }

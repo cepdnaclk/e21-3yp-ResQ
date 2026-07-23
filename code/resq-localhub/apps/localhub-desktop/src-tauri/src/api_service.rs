@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     env, fs,
-    net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Mutex,
@@ -9,13 +8,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde::Serialize;
-use tauri::{Manager, State};
-use crate::commands;
 use crate::process_lifecycle::{
     assign_child_to_job, ensure_port_available_or_recover_stale, hide_window, persist_metadata,
     runtime_pid_file, terminate_managed_process, ManagedProcess,
 };
+use serde::Serialize;
+use tauri::{Manager, State};
 
 #[derive(Default)]
 pub struct ApiServiceState {
@@ -54,7 +52,10 @@ impl ApiServiceState {
         let backend_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(BACKEND_RELATIVE_PATH);
 
         if !backend_dir.exists() {
-            return Err(format!("Backend project not found at {}", backend_dir.display()));
+            return Err(format!(
+                "Backend project not found at {}",
+                backend_dir.display()
+            ));
         }
 
         Ok(backend_dir)
@@ -135,8 +136,14 @@ impl ApiServiceState {
         let default_envs = [
             ("RESQ_CLOUD_SYNC_ENABLED", "true"),
             ("RESQ_ROSTER_SYNC_ENABLED", "true"),
-            ("RESQ_CLOUD_SYNC_BASE_URL", "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com"),
-            ("RESQ_ROSTER_SYNC_BASE_URL", "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com"),
+            (
+                "RESQ_CLOUD_SYNC_BASE_URL",
+                "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com",
+            ),
+            (
+                "RESQ_ROSTER_SYNC_BASE_URL",
+                "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com",
+            ),
             ("RESQ_ROSTER_SYNC_HUB_ID", "hub-dev-01"),
             ("RESQ_ROSTER_SYNC_HUB_KEY", "dev-localhub-key-2026"),
             ("RESQ_CLOUD_SYNC_FIXED_DELAY_MS", "60000"),
@@ -213,7 +220,8 @@ impl ApiServiceState {
                 pid: process.pid,
                 state: "starting".to_string(),
                 message: "Backend process is running.".to_string(),
-                details: "The backend process is active but health has not been confirmed yet.".to_string(),
+                details: "The backend process is active but health has not been confirmed yet."
+                    .to_string(),
                 log_path: None,
             },
             None => ApiServiceStatus {
@@ -264,11 +272,7 @@ impl ApiServiceState {
                 command.arg("spring-boot:run");
                 command.current_dir(backend_dir);
                 command.stdin(Stdio::null());
-                return (
-                    command,
-                    wrapper,
-                    vec!["spring-boot:run".to_string()],
-                );
+                return (command, wrapper, vec!["spring-boot:run".to_string()]);
             }
 
             let mut command = Command::new("mvn");
@@ -304,7 +308,9 @@ impl ApiServiceState {
         }
     }
 
-    fn validate_packaged_resources(resource_dir: &Path) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    fn validate_packaged_resources(
+        resource_dir: &Path,
+    ) -> Result<(PathBuf, PathBuf, PathBuf), String> {
         let jar_path = resource_dir.join("hub-api").join("resq-hub-api.jar");
         let config_path = resource_dir
             .join("config")
@@ -314,10 +320,16 @@ impl ApiServiceState {
         let missing = [
             ("backend JAR", jar_path.is_file(), jar_path.clone()),
             ("release config", config_path.is_file(), config_path.clone()),
-            ("bundled Java runtime", java_path.is_file(), java_path.clone()),
+            (
+                "bundled Java runtime",
+                java_path.is_file(),
+                java_path.clone(),
+            ),
         ]
         .into_iter()
-        .filter_map(|(label, present, path)| (!present).then(|| format!("{label}: {}", path.display())))
+        .filter_map(|(label, present, path)| {
+            (!present).then(|| format!("{label}: {}", path.display()))
+        })
         .collect::<Vec<_>>();
 
         if !missing.is_empty() {
@@ -336,36 +348,32 @@ impl ApiServiceState {
             .app_local_data_dir()
             .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
             .join("logs");
-        fs::create_dir_all(&log_dir)
-            .map_err(|error| format!("Failed to create backend log directory at {}: {error}", log_dir.display()))?;
+        fs::create_dir_all(&log_dir).map_err(|error| {
+            format!(
+                "Failed to create backend log directory at {}: {error}",
+                log_dir.display()
+            )
+        })?;
 
         let log_path = log_dir.join("hub-api.log");
         let file = fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)
-            .map_err(|error| format!("Failed to open backend log file at {}: {error}", log_path.display()))?;
+            .map_err(|error| {
+                format!(
+                    "Failed to open backend log file at {}: {error}",
+                    log_path.display()
+                )
+            })?;
 
         Ok((file, log_path))
     }
 
-    fn check_port_available(port: u16, service_name: &str) -> Result<(), String> {
-        let socket_addr = format!("127.0.0.1:{port}")
-            .to_socket_addrs()
-            .map_err(|error| format!("Failed to resolve localhost for port check: {error}"))?
-            .next()
-            .ok_or_else(|| format!("Failed to resolve localhost for port {port}"))?;
-
-        if TcpStream::connect_timeout(&socket_addr, Duration::from_millis(400)).is_ok() {
-            return Err(format!(
-                "Port {port} is already in use. {service_name} needs this port. Close the conflicting process or change the configured port."
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn wait_for_health_ready(child_slot: &mut Option<ManagedProcess>, port: u16) -> Result<(), String> {
+    fn wait_for_health_ready(
+        child_slot: &mut Option<ManagedProcess>,
+        port: u16,
+    ) -> Result<(), String> {
         let health_url = Self::backend_health_url(port);
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut delay = Duration::from_millis(400);
@@ -373,7 +381,9 @@ impl ApiServiceState {
         loop {
             if let Some(process) = child_slot.as_mut() {
                 let Some(child) = process.child.as_mut() else {
-                    return Err("Backend process handle was missing while waiting for health.".to_string());
+                    return Err(
+                        "Backend process handle was missing while waiting for health.".to_string(),
+                    );
                 };
                 if let Ok(Some(status)) = child.try_wait() {
                     return Err(format!(
@@ -382,7 +392,10 @@ impl ApiServiceState {
                 }
             }
 
-            match ureq::get(&health_url).timeout(Duration::from_secs(2)).call() {
+            match ureq::get(&health_url)
+                .timeout(Duration::from_secs(2))
+                .call()
+            {
                 Ok(response) if response.status() < 500 => return Ok(()),
                 Ok(response) => {
                     let status = response.status();
@@ -402,7 +415,9 @@ impl ApiServiceState {
             }
 
             if Instant::now() >= deadline {
-                return Err(format!("Timed out waiting for backend health at {health_url}"));
+                return Err(format!(
+                    "Timed out waiting for backend health at {health_url}"
+                ));
             }
 
             thread::sleep(delay);
@@ -410,7 +425,9 @@ impl ApiServiceState {
         }
     }
 
-    fn build_packaged_command(app: &tauri::AppHandle) -> Result<(Command, PathBuf, Vec<String>), String> {
+    fn build_packaged_command(
+        app: &tauri::AppHandle,
+    ) -> Result<(Command, PathBuf, Vec<String>), String> {
         let resource_dir = app
             .path()
             .resource_dir()
@@ -425,11 +442,14 @@ impl ApiServiceState {
             .try_clone()
             .map_err(|error| format!("Failed to clone backend log file handle: {error}"))?;
 
-        let mut command = Command::new(clean_java);
+        let mut command = Command::new(&clean_java);
         command
             .arg("-jar")
             .arg(&clean_jar)
-            .arg(format!("--spring.config.location={}", clean_config.display()))
+            .arg(format!(
+                "--spring.config.location={}",
+                clean_config.display()
+            ))
             .current_dir(&resource_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
@@ -503,7 +523,9 @@ impl ApiServiceState {
             pid: None,
             state: "starting".to_string(),
             message: "Backend is starting.".to_string(),
-            details: format!("Waiting for the backend health endpoint on port {backend_port} to respond."),
+            details: format!(
+                "Waiting for the backend health endpoint on port {backend_port} to respond."
+            ),
             log_path: None,
         };
 
@@ -519,27 +541,24 @@ impl ApiServiceState {
 
         self.set_status(status.clone());
 
-        let child = command
-            .spawn()
-            .map_err(|error| {
-                let failed_status = ApiServiceStatus {
-                    running: false,
-                    pid: None,
-                    state: "failed".to_string(),
-                    message: "Failed to start the backend process.".to_string(),
-                    details: format!("Failed to start backend: {error}"),
-                    log_path: status.log_path.clone(),
-                };
-                self.set_status(failed_status.clone());
-                format!("Failed to start backend: {error}")
-            })?;
+        let child = command.spawn().map_err(|error| {
+            let failed_status = ApiServiceStatus {
+                running: false,
+                pid: None,
+                state: "failed".to_string(),
+                message: "Failed to start the backend process.".to_string(),
+                details: format!("Failed to start backend: {error}"),
+                log_path: status.log_path.clone(),
+            };
+            self.set_status(failed_status.clone());
+            format!("Failed to start backend: {error}")
+        })?;
 
         let pid = child.id();
         eprintln!("Started service: backend pid={}", pid);
-        assign_child_to_job(&child, "backend")?;
         let mut full_command_line = vec![command.get_program().to_string_lossy().to_string()];
         full_command_line.extend(command_line);
-        let managed = ManagedProcess::from_child(
+        let mut managed = ManagedProcess::from_child(
             "backend",
             child,
             executable_path,
@@ -547,7 +566,19 @@ impl ApiServiceState {
             Some(backend_pid_file.clone()),
             vec![backend_port],
         );
-        persist_metadata(&managed)?;
+
+        let child_ref = managed
+            .child
+            .as_ref()
+            .ok_or_else(|| "Backend process handle was missing after spawn.".to_string())?;
+        if let Err(error) = assign_child_to_job(child_ref, "backend") {
+            let _ = terminate_managed_process(&mut managed);
+            return Err(error);
+        }
+        if let Err(error) = persist_metadata(&managed) {
+            let _ = terminate_managed_process(&mut managed);
+            return Err(error);
+        }
         *child_slot = Some(managed);
 
         let mut current_status = ApiServiceStatus {
@@ -555,7 +586,10 @@ impl ApiServiceState {
             pid: Some(pid),
             state: "starting".to_string(),
             message: "Backend process started; waiting for health endpoint.".to_string(),
-            details: format!("Waiting for backend health at {}", Self::backend_health_url(backend_port)),
+            details: format!(
+                "Waiting for backend health at {}",
+                Self::backend_health_url(backend_port)
+            ),
             log_path: status.log_path.clone(),
         };
         self.set_status(current_status.clone());
@@ -564,11 +598,15 @@ impl ApiServiceState {
             Ok(()) => {
                 current_status.state = "ready".to_string();
                 current_status.message = "Backend is ready.".to_string();
-                current_status.details = format!("Health endpoint responded on port {backend_port}.");
+                current_status.details =
+                    format!("Health endpoint responded on port {backend_port}.");
                 self.set_status(current_status.clone());
                 Ok(current_status)
             }
             Err(error) => {
+                if let Some(mut process) = child_slot.take() {
+                    let _ = terminate_managed_process(&mut process);
+                }
                 let failed_status = ApiServiceStatus {
                     running: false,
                     pid: None,
@@ -577,7 +615,6 @@ impl ApiServiceState {
                     details: error,
                     log_path: status.log_path.clone(),
                 };
-                *child_slot = None;
                 self.set_status(failed_status.clone());
                 Err(format!("{}", failed_status.details))
             }
@@ -646,16 +683,7 @@ pub fn get_api_service_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, net::TcpListener, time::SystemTime};
-
-    #[test]
-    fn port_check_reports_conflict_when_port_is_busy() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
-        let port = listener.local_addr().expect("local addr").port();
-
-        let result = ApiServiceState::check_port_available(port, "Test service");
-        assert!(result.is_err());
-    }
+    use std::{fs, time::SystemTime};
 
     #[test]
     fn packaged_resource_validation_reports_missing_paths() {

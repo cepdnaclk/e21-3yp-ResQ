@@ -1,13 +1,13 @@
+use serde::Serialize;
 use std::{
     fs,
     net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::Mutex,
     thread,
     time::{Duration, Instant},
 };
-use serde::Serialize;
 use tauri::{Manager, State};
 
 use crate::process_lifecycle::{
@@ -47,14 +47,27 @@ impl BrokerServiceState {
     }
 
     fn copy_runtime_broker_files(source_dir: &Path, working_dir: &Path) -> Result<(), String> {
-        fs::create_dir_all(working_dir)
-            .map_err(|error| format!("Failed to create broker runtime directory at {}: {error}", working_dir.display()))?;
+        fs::create_dir_all(working_dir).map_err(|error| {
+            format!(
+                "Failed to create broker runtime directory at {}: {error}",
+                working_dir.display()
+            )
+        })?;
 
-        for entry in fs::read_dir(source_dir)
-            .map_err(|error| format!("Failed to read Mosquitto resource directory {}: {error}", source_dir.display()))?
-        {
-            let entry = entry.map_err(|error| format!("Failed to read Mosquitto resource entry: {error}"))?;
-            let file_type = entry.file_type().map_err(|error| format!("Failed to inspect Mosquitto resource entry {}: {error}", entry.path().display()))?;
+        for entry in fs::read_dir(source_dir).map_err(|error| {
+            format!(
+                "Failed to read Mosquitto resource directory {}: {error}",
+                source_dir.display()
+            )
+        })? {
+            let entry = entry
+                .map_err(|error| format!("Failed to read Mosquitto resource entry: {error}"))?;
+            let file_type = entry.file_type().map_err(|error| {
+                format!(
+                    "Failed to inspect Mosquitto resource entry {}: {error}",
+                    entry.path().display()
+                )
+            })?;
             if !file_type.is_file() {
                 continue;
             }
@@ -78,15 +91,24 @@ impl BrokerServiceState {
             .app_local_data_dir()
             .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
             .join("logs");
-        fs::create_dir_all(&log_dir)
-            .map_err(|error| format!("Failed to create broker log directory at {}: {error}", log_dir.display()))?;
+        fs::create_dir_all(&log_dir).map_err(|error| {
+            format!(
+                "Failed to create broker log directory at {}: {error}",
+                log_dir.display()
+            )
+        })?;
 
         let log_path = log_dir.join("mosquitto.log");
         let file = fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)
-            .map_err(|error| format!("Failed to open broker log file at {}: {error}", log_path.display()))?;
+            .map_err(|error| {
+                format!(
+                    "Failed to open broker log file at {}: {error}",
+                    log_path.display()
+                )
+            })?;
 
         Ok((file, log_path))
     }
@@ -104,33 +126,25 @@ impl BrokerServiceState {
     }
 
     fn packaged_broker_path(resource_dir: &Path) -> PathBuf {
-        resource_dir.join("mosquitto").join(Self::broker_executable_name())
+        resource_dir
+            .join("mosquitto")
+            .join(Self::broker_executable_name())
     }
 
-    fn check_port_available(port: u16, service_name: &str) -> Result<(), String> {
-        let socket_addr = format!("127.0.0.1:{port}")
-            .to_socket_addrs()
-            .map_err(|error| format!("Failed to resolve localhost for port check: {error}"))?
-            .next()
-            .ok_or_else(|| format!("Failed to resolve localhost for port {port}"))?;
-
-        if TcpStream::connect_timeout(&socket_addr, Duration::from_millis(400)).is_ok() {
-            return Err(format!(
-                "Port {port} is already in use. {service_name} needs this port. Close the conflicting process or change the configured port."
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn wait_for_broker_ready(child_slot: &mut Option<ManagedProcess>, ports: &[u16]) -> Result<(), String> {
+    fn wait_for_broker_ready(
+        child_slot: &mut Option<ManagedProcess>,
+        ports: &[u16],
+    ) -> Result<(), String> {
         let deadline = Instant::now() + Duration::from_secs(15);
         let mut delay = Duration::from_millis(400);
 
         loop {
             if let Some(process) = child_slot.as_mut() {
                 let Some(child) = process.child.as_mut() else {
-                    return Err("Mosquitto process handle was missing while waiting for readiness.".to_string());
+                    return Err(
+                        "Mosquitto process handle was missing while waiting for readiness."
+                            .to_string(),
+                    );
                 };
                 if let Ok(Some(status)) = child.try_wait() {
                     return Err(format!(
@@ -143,7 +157,9 @@ impl BrokerServiceState {
             for port in ports {
                 let socket_addr = format!("127.0.0.1:{port}")
                     .to_socket_addrs()
-                    .map_err(|error| format!("Failed to resolve localhost for port check: {error}"))?
+                    .map_err(|error| {
+                        format!("Failed to resolve localhost for port check: {error}")
+                    })?
                     .next()
                     .ok_or_else(|| format!("Failed to resolve localhost for port {port}"))?;
 
@@ -159,7 +175,11 @@ impl BrokerServiceState {
             if Instant::now() >= deadline {
                 return Err(format!(
                     "Timed out waiting for Mosquitto TCP listeners on ports {}",
-                    ports.iter().map(|port| port.to_string()).collect::<Vec<_>>().join(", ")
+                    ports
+                        .iter()
+                        .map(|port| port.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
 
@@ -168,21 +188,36 @@ impl BrokerServiceState {
         }
     }
 
-    fn validate_packaged_resources(resource_dir: &Path) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    fn validate_packaged_resources(
+        resource_dir: &Path,
+    ) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
         let mosquitto_dir = resource_dir.join("mosquitto");
         let executable_path = Self::packaged_broker_path(resource_dir);
         let config_path = mosquitto_dir.join("mosquitto.conf");
 
         let missing = [
-            ("Mosquitto executable", executable_path.is_file(), executable_path.clone()),
-            ("Mosquitto config", config_path.is_file(), config_path.clone()),
+            (
+                "Mosquitto executable",
+                executable_path.is_file(),
+                executable_path.clone(),
+            ),
+            (
+                "Mosquitto config",
+                config_path.is_file(),
+                config_path.clone(),
+            ),
         ]
         .into_iter()
-        .filter_map(|(label, present, path)| (!present).then(|| format!("{label}: {}", path.display())))
+        .filter_map(|(label, present, path)| {
+            (!present).then(|| format!("{label}: {}", path.display()))
+        })
         .collect::<Vec<_>>();
 
         if !missing.is_empty() {
-            return Err(format!("Missing packaged Mosquitto resources: {}", missing.join("; ")));
+            return Err(format!(
+                "Missing packaged Mosquitto resources: {}",
+                missing.join("; ")
+            ));
         }
 
         Ok((executable_path, config_path))
@@ -199,10 +234,9 @@ impl BrokerServiceState {
             return Ok(status);
         }
 
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|error| format!("Failed to resolve application resource directory: {error}"))?;
+        let resource_dir = app.path().resource_dir().map_err(|error| {
+            format!("Failed to resolve application resource directory: {error}")
+        })?;
 
         let resource_status = match Self::validate_packaged_resources(&resource_dir) {
             Ok(paths) => paths,
@@ -222,7 +256,9 @@ impl BrokerServiceState {
         let _ = resource_status;
 
         let broker_pid_file = runtime_pid_file(app, "mosquitto")?;
-        if let Err(error) = ensure_port_available_or_recover_stale(1883, "The MQTT broker", &broker_pid_file) {
+        if let Err(error) =
+            ensure_port_available_or_recover_stale(1883, "The MQTT broker", &broker_pid_file)
+        {
             let failed_status = BrokerServiceStatus {
                 running: false,
                 pid: None,
@@ -236,7 +272,11 @@ impl BrokerServiceState {
         }
 
         let websocket_pid_file = broker_pid_file.clone();
-        if let Err(error) = ensure_port_available_or_recover_stale(9001, "The MQTT websocket listener", &websocket_pid_file) {
+        if let Err(error) = ensure_port_available_or_recover_stale(
+            9001,
+            "The MQTT websocket listener",
+            &websocket_pid_file,
+        ) {
             let failed_status = BrokerServiceStatus {
                 running: false,
                 pid: None,
@@ -278,7 +318,8 @@ impl BrokerServiceState {
             pid: None,
             state: "starting".to_string(),
             message: "Mosquitto is starting.".to_string(),
-            details: "Waiting for the MQTT TCP listener on port 1883 to become reachable.".to_string(),
+            details: "Waiting for the MQTT TCP listener on port 1883 to become reachable."
+                .to_string(),
             log_path: Some(log_path.display().to_string()),
         };
         self.set_status(starting_status.clone());
@@ -300,9 +341,7 @@ impl BrokerServiceState {
 
         let pid = child.id();
         eprintln!("Started service: mosquitto pid={}", pid);
-        assign_child_to_job(&child, "mosquitto")?;
-
-        let managed = ManagedProcess::from_child(
+        let mut managed = ManagedProcess::from_child(
             "mosquitto",
             child,
             runtime_executable_path.clone(),
@@ -314,7 +353,19 @@ impl BrokerServiceState {
             Some(broker_pid_file.clone()),
             vec![1883, 9001],
         );
-        persist_metadata(&managed)?;
+
+        let child_ref = managed
+            .child
+            .as_ref()
+            .ok_or_else(|| "Mosquitto process handle was missing after spawn.".to_string())?;
+        if let Err(error) = assign_child_to_job(child_ref, "mosquitto") {
+            let _ = terminate_managed_process(&mut managed);
+            return Err(error);
+        }
+        if let Err(error) = persist_metadata(&managed) {
+            let _ = terminate_managed_process(&mut managed);
+            return Err(error);
+        }
         *child_slot = Some(managed);
 
         match Self::wait_for_broker_ready(&mut child_slot, &[1883, 9001]) {
@@ -331,7 +382,9 @@ impl BrokerServiceState {
                 Ok(ready_status)
             }
             Err(error) => {
-                *child_slot = None;
+                if let Some(mut process) = child_slot.take() {
+                    let _ = terminate_managed_process(&mut process);
+                }
                 let failed_status = BrokerServiceStatus {
                     running: false,
                     pid: None,
@@ -407,7 +460,9 @@ impl BrokerServiceState {
 
     fn child_is_running(child_slot: &mut Option<ManagedProcess>) -> Result<bool, String> {
         let has_exited = match child_slot.as_mut() {
-            Some(process) => process.child.as_mut()
+            Some(process) => process
+                .child
+                .as_mut()
                 .ok_or_else(|| "Broker process handle is missing".to_string())?
                 .try_wait()
                 .map_err(|error| format!("Failed to query broker status: {error}"))?
@@ -432,11 +487,15 @@ pub fn start_broker_service(
 }
 
 #[tauri::command]
-pub fn stop_broker_service(state: State<'_, BrokerServiceState>) -> Result<BrokerServiceStatus, String> {
+pub fn stop_broker_service(
+    state: State<'_, BrokerServiceState>,
+) -> Result<BrokerServiceStatus, String> {
     state.stop()
 }
 
 #[tauri::command]
-pub fn get_broker_service_status(state: State<'_, BrokerServiceState>) -> Result<BrokerServiceStatus, String> {
+pub fn get_broker_service_status(
+    state: State<'_, BrokerServiceState>,
+) -> Result<BrokerServiceStatus, String> {
     state.is_running()
 }
