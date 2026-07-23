@@ -325,7 +325,6 @@ export default function App() {
       {currentRoute.name === "instructor" && (
         <V2InstructorDashboardPage
           onStartSession={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
-          onRunReadinessCheck={(did) => navigate(`/instructor/manikins/${did}/readiness`)}
           onRunCalibration={(did) => navigate(`/instructor/manikins/${did}/calibration`)}
           onPairNewManikin={() => navigate("/instructor/pair")}
           onViewRecentSessions={() => navigate("/sessions")}

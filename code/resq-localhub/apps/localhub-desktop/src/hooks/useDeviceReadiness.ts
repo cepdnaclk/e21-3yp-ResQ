@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchDeviceReadiness } from "../api/firmwareApi";
-import type { DeviceReadinessState } from "../types/firmware";
+import { getDeviceReadiness } from "../api/manikinsApi";
+import type { DeviceReadinessState } from "../types/manikin";
 
 export function useDeviceReadiness(deviceId: string | null, isCalibrating: boolean) {
   const [readiness, setReadiness] = useState<DeviceReadinessState | null>(null);
@@ -12,7 +12,7 @@ export function useDeviceReadiness(deviceId: string | null, isCalibrating: boole
     if (showLoading) setLoading(true);
 
     try {
-      const res = await fetchDeviceReadiness(deviceId);
+      const res = await getDeviceReadiness(deviceId);
       setReadiness(res);
       setError(null);
     } catch {

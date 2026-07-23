@@ -22,7 +22,6 @@ import { isDeviceReady, isSessionActive } from "../../utils/userFriendlyLabels";
 
 type InstructorDashboardPageProps = {
   onStartSession: (sessionId: string) => void;
-  onRunReadinessCheck: (deviceId: string) => void;
   onRunCalibration: (deviceId: string) => void;
   onPairNewManikin: () => void;
   onViewRecentSessions: () => void;
@@ -30,7 +29,6 @@ type InstructorDashboardPageProps = {
 
 export function InstructorDashboardPage({
   onStartSession,
-  onRunReadinessCheck,
   onRunCalibration,
   onPairNewManikin,
   onViewRecentSessions,
@@ -252,7 +250,6 @@ export function InstructorDashboardPage({
               <DeviceCard
                 key={m.deviceId}
                 manikin={m}
-                onRunReadinessCheck={onRunReadinessCheck}
                 onRunCalibration={onRunCalibration}
                 onOpenStartModal={(did) => {
                   setStartingForDevice(did);

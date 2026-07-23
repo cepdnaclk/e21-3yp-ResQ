@@ -3,7 +3,7 @@ use std::{
     env, fs,
     net::{TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::Mutex,
     thread,
     time::{Duration, Instant},
@@ -12,10 +12,14 @@ use std::{
 use serde::Serialize;
 use tauri::{Manager, State};
 use crate::commands;
+use crate::process_lifecycle::{
+    assign_child_to_job, ensure_port_available_or_recover_stale, hide_window, persist_metadata,
+    runtime_pid_file, terminate_managed_process, ManagedProcess,
+};
 
 #[derive(Default)]
 pub struct ApiServiceState {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<ManagedProcess>>,
     status: Mutex<ApiServiceStatus>,
 }
 
@@ -29,12 +33,6 @@ pub struct ApiServiceStatus {
     pub details: String,
     pub log_path: Option<String>,
 }
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
 const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
@@ -191,17 +189,28 @@ impl ApiServiceState {
             .unwrap_or_default()
     }
 
-    fn snapshot_status(child_slot: &mut Option<Child>) -> ApiServiceStatus {
-        if let Some(child) = child_slot.as_mut() {
+    fn snapshot_status(child_slot: &mut Option<ManagedProcess>) -> ApiServiceStatus {
+        if let Some(process) = child_slot.as_mut() {
+            let Some(child) = process.child.as_mut() else {
+                *child_slot = None;
+                return ApiServiceStatus {
+                    running: false,
+                    pid: None,
+                    state: "stopped".to_string(),
+                    message: "Backend is stopped.".to_string(),
+                    details: "No backend process is currently active.".to_string(),
+                    log_path: None,
+                };
+            };
             if matches!(child.try_wait(), Ok(Some(_))) {
                 *child_slot = None;
             }
         }
 
         match child_slot.as_ref() {
-            Some(child) => ApiServiceStatus {
+            Some(process) => ApiServiceStatus {
                 running: true,
-                pid: Some(child.id()),
+                pid: process.pid,
                 state: "starting".to_string(),
                 message: "Backend process is running.".to_string(),
                 details: "The backend process is active but health has not been confirmed yet.".to_string(),
@@ -218,7 +227,7 @@ impl ApiServiceState {
         }
     }
 
-    fn build_dev_command(backend_dir: &Path) -> Command {
+    fn build_dev_command(backend_dir: &Path) -> (Command, PathBuf, Vec<String>) {
         #[cfg(target_os = "windows")]
         {
             let wrapper = backend_dir.join("mvnw.cmd");
@@ -228,14 +237,22 @@ impl ApiServiceState {
                 command.args(["/C", "mvnw.cmd", "spring-boot:run"]);
                 command.current_dir(backend_dir);
                 command.stdin(Stdio::null());
-                return command;
+                return (
+                    command,
+                    PathBuf::from("cmd.exe"),
+                    vec!["mvnw.cmd".to_string(), "spring-boot:run".to_string()],
+                );
             }
 
             let mut command = Command::new("mvn");
             command.arg("spring-boot:run");
             command.current_dir(backend_dir);
             command.stdin(Stdio::null());
-            return command;
+            return (
+                command,
+                PathBuf::from("mvn"),
+                vec!["spring-boot:run".to_string()],
+            );
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -247,14 +264,22 @@ impl ApiServiceState {
                 command.arg("spring-boot:run");
                 command.current_dir(backend_dir);
                 command.stdin(Stdio::null());
-                return command;
+                return (
+                    command,
+                    wrapper,
+                    vec!["spring-boot:run".to_string()],
+                );
             }
 
             let mut command = Command::new("mvn");
             command.arg("spring-boot:run");
             command.current_dir(backend_dir);
             command.stdin(Stdio::null());
-            command
+            (
+                command,
+                PathBuf::from("mvn"),
+                vec!["spring-boot:run".to_string()],
+            )
         }
     }
 
@@ -340,13 +365,16 @@ impl ApiServiceState {
         Ok(())
     }
 
-    fn wait_for_health_ready(child_slot: &mut Option<Child>, port: u16) -> Result<(), String> {
+    fn wait_for_health_ready(child_slot: &mut Option<ManagedProcess>, port: u16) -> Result<(), String> {
         let health_url = Self::backend_health_url(port);
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut delay = Duration::from_millis(400);
 
         loop {
-            if let Some(child) = child_slot.as_mut() {
+            if let Some(process) = child_slot.as_mut() {
+                let Some(child) = process.child.as_mut() else {
+                    return Err("Backend process handle was missing while waiting for health.".to_string());
+                };
                 if let Ok(Some(status)) = child.try_wait() {
                     return Err(format!(
                         "Backend process exited before it became healthy (exit status: {status})"
@@ -382,7 +410,7 @@ impl ApiServiceState {
         }
     }
 
-    fn build_packaged_command(app: &tauri::AppHandle) -> Result<Command, String> {
+    fn build_packaged_command(app: &tauri::AppHandle) -> Result<(Command, PathBuf, Vec<String>), String> {
         let resource_dir = app
             .path()
             .resource_dir()
@@ -408,14 +436,15 @@ impl ApiServiceState {
             .stderr(Stdio::from(log_file_err));
 
         eprintln!("Backend log path: {}", log_path.display());
-        Ok(command)
-    }
-
-    fn hide_window(command: &mut Command) {
-        #[cfg(target_os = "windows")]
-        {
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
+        Ok((
+            command,
+            clean_java,
+            vec![
+                "-jar".to_string(),
+                clean_jar.display().to_string(),
+                format!("--spring.config.location={}", clean_config.display()),
+            ],
+        ))
     }
 
     pub fn start_with_app(&self, app: &tauri::AppHandle) -> Result<ApiServiceStatus, String> {
@@ -431,15 +460,17 @@ impl ApiServiceState {
 
         let is_debug = cfg!(debug_assertions);
         let backend_port = Self::backend_port();
-        let mut command = if is_debug {
+        let backend_pid_file = runtime_pid_file(app, "backend")?;
+        ensure_port_available_or_recover_stale(backend_port, "The backend API", &backend_pid_file)?;
+
+        let (mut command, executable_path, command_line) = if is_debug {
             let backend_dir = Self::backend_dir()?;
             eprintln!("Backend dev project directory: {}", backend_dir.display());
-            let mut cmd = Self::build_dev_command(&backend_dir);
+            let (mut cmd, exe, args) = Self::build_dev_command(&backend_dir);
             cmd.stdout(Stdio::inherit());
             cmd.stderr(Stdio::inherit());
-            cmd
+            (cmd, exe, args)
         } else {
-            Self::check_port_available(backend_port, "The backend API")?;
             Self::build_packaged_command(app)?
         };
 
@@ -450,8 +481,9 @@ impl ApiServiceState {
         }
 
         command.env("HUB_API_PORT", backend_port.to_string());
+        command.env("RESQ_LOCALHUB_MANAGED_SERVICE", "backend");
         Self::apply_cloud_sync_environment(&mut command);
-        Self::hide_window(&mut command);
+        hide_window(&mut command);
 
         eprintln!(
             "Backend working directory: {}",
@@ -503,8 +535,20 @@ impl ApiServiceState {
             })?;
 
         let pid = child.id();
-        eprintln!("Backend process spawned successfully with PID: {}", pid);
-        *child_slot = Some(child);
+        eprintln!("Started service: backend pid={}", pid);
+        assign_child_to_job(&child, "backend")?;
+        let mut full_command_line = vec![command.get_program().to_string_lossy().to_string()];
+        full_command_line.extend(command_line);
+        let managed = ManagedProcess::from_child(
+            "backend",
+            child,
+            executable_path,
+            full_command_line,
+            Some(backend_pid_file.clone()),
+            vec![backend_port],
+        );
+        persist_metadata(&managed)?;
+        *child_slot = Some(managed);
 
         let mut current_status = ApiServiceStatus {
             running: true,
@@ -548,8 +592,8 @@ impl ApiServiceState {
 
         Self::snapshot_status(&mut child_slot);
 
-        if let Some(mut child) = child_slot.take() {
-            Self::terminate_child(&mut child)?;
+        if let Some(mut process) = child_slot.take() {
+            terminate_managed_process(&mut process)?;
         }
 
         let stopped = ApiServiceStatus {
@@ -562,49 +606,6 @@ impl ApiServiceState {
         };
         self.set_status(stopped.clone());
         Ok(stopped)
-    }
-
-    fn terminate_child(child: &mut Child) -> Result<(), String> {
-        if child
-            .try_wait()
-            .map_err(|error| format!("Failed to query backend status: {error}"))?
-            .is_none()
-        {
-            Self::kill_child(child)?;
-        }
-
-        child
-            .wait()
-            .map_err(|error| format!("Failed to wait for backend shutdown: {error}"))?;
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    fn kill_child(child: &mut Child) -> Result<(), String> {
-        let pid = child.id().to_string();
-        let mut taskkill = Command::new("taskkill");
-        taskkill
-            .args(["/PID", &pid, "/T", "/F"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        Self::hide_window(&mut taskkill);
-        let taskkill_result = taskkill.status();
-
-        if matches!(taskkill_result, Ok(status) if status.success()) {
-            return Ok(());
-        }
-
-        child
-            .kill()
-            .map_err(|error| format!("Failed to stop backend: {error}"))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn kill_child(child: &mut Child) -> Result<(), String> {
-        child
-            .kill()
-            .map_err(|error| format!("Failed to stop backend: {error}"))
     }
 }
 

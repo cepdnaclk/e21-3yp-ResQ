@@ -12,7 +12,7 @@ import {
   type SyncStateRecord,
 } from "../lib/browserRosterSyncApi";
 import { type ManikinLiveSummary } from "../lib/browserManikinsApi";
-import { type DeviceReadinessState } from "../lib/browserFirmwareApi";
+import { type DeviceReadinessState } from "../types/manikin";
 
 type CoursesPanelProps = {
   role: "ADMIN" | "INSTRUCTOR" | "TRAINEE";

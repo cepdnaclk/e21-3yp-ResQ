@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  fetchDeviceReadiness,
   fetchDeviceDiagnostics,
   requestDebugSnapshot,
 } from "../../api/firmwareApi";
-import { fetchLiveManikin } from "../../api/manikinsApi";
-import type { DeviceReadinessState, FirmwareDeviceDiagnosticsResponse } from "../../types/firmware";
-import type { ManikinLiveSummary } from "../../types/manikin";
+import { fetchLiveManikin, getDeviceReadiness } from "../../api/manikinsApi";
+import type { FirmwareDeviceDiagnosticsResponse } from "../../types/firmware";
+import type { DeviceReadinessState, ManikinLiveSummary } from "../../types/manikin";
 import Card, { CardHeader } from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
@@ -96,7 +95,7 @@ function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageP
     async function loadData() {
       try {
         const [readinessRes, liveRes, diagRes] = await Promise.all([
-          fetchDeviceReadiness(deviceId),
+          getDeviceReadiness(deviceId),
           fetchLiveManikin(deviceId).catch(() => null),
           fetchDeviceDiagnostics(deviceId).catch(() => null),
         ]);
@@ -278,7 +277,7 @@ function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageP
     <div className="max-w-5xl mx-auto space-y-8 select-none">
       <PageHeader
         title="Manikin Setup & Readiness"
-        subtitle={`Configure the air-bladder levels and test training readiness for device: ${deviceId}`}
+        subtitle={`Configure calibration targets and view device readiness for device: ${deviceId}`}
         back={{ label: "Back to Dashboard", onClick: onBack }}
       />
 
@@ -304,7 +303,7 @@ function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageP
               : "border-transparent text-slate-400 hover:text-slate-600"
           }`}
         >
-          2. Readiness Check
+          2. Device Readiness
         </button>
       </div>
 
@@ -316,7 +315,7 @@ function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageP
             <div className="space-y-6">
               <CardHeader
                 title="Chest Pressure Setup"
-                subtitle="Calibrate chamber pressures prior to starting readiness checks."
+                subtitle="Set chamber pressure targets before running calibration."
               />
 
               <div className="space-y-4">
@@ -698,7 +697,7 @@ function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageP
           </div>
         </div>
       ) : (
-        // TAB 2: Readiness Check
+        // TAB 2: Device Readiness
         <DeviceReadinessPanel
           deviceId={deviceId}
           liveSummary={liveSummary}

@@ -6,7 +6,7 @@
  * Do NOT render these on normal instructor/trainee screens.
  */
 
-import type { CalibrationCommandResponse, CalibrationStartRequest, DeviceReadinessState } from "./manikin";
+import type { DeviceReadinessState } from "./manikin";
 
 export type FirmwareCommandRecord = {
   id: string;
@@ -58,6 +58,14 @@ export type FirmwareDeviceDiagnosticsResponse = {
   debugSnapshots: FirmwareDebugSnapshotRecord[];
 };
 
+export type FirmwareCommandPublishResponse = {
+  deviceId: string;
+  requestId: string;
+  topic: string;
+  status: string;
+  message?: string | null;
+};
+
 export type CalibrationProfileRequest = {
   name: string;
   hallDelta: number;
@@ -82,5 +90,3 @@ export type CalibrationProfileResponse = {
   createdAt: string;
   updatedAt: string;
 };
-
-export type { CalibrationCommandResponse, CalibrationStartRequest, DeviceReadinessState };

@@ -90,7 +90,6 @@ describe("InstructorDashboardPage V2", () => {
     render(
       <InstructorDashboardPage
         onStartSession={vi.fn()}
-        onRunReadinessCheck={vi.fn()}
         onRunCalibration={vi.fn()}
         onPairNewManikin={vi.fn()}
         onViewRecentSessions={vi.fn()}
@@ -138,7 +137,6 @@ describe("InstructorDashboardPage V2", () => {
     render(
       <InstructorDashboardPage
         onStartSession={vi.fn()}
-        onRunReadinessCheck={vi.fn()}
         onRunCalibration={vi.fn()}
         onPairNewManikin={vi.fn()}
         onViewRecentSessions={vi.fn()}

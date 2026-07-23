@@ -12,7 +12,6 @@ import {
 
 type DeviceCardProps = {
   manikin: ManikinLiveSummary;
-  onRunReadinessCheck: (deviceId: string) => void;
   onRunCalibration: (deviceId: string) => void;
   onOpenStartModal: (deviceId: string) => void;
   onViewSession: (sessionId: string) => void;
@@ -23,7 +22,6 @@ type DeviceCardProps = {
 
 export function DeviceCard({
   manikin,
-  onRunReadinessCheck,
   onRunCalibration,
   onOpenStartModal,
   onViewSession,
@@ -44,7 +42,7 @@ export function DeviceCard({
     } else if (isReadyDevice) {
       statusMessage = "All systems active. Manikin is ready for a training session.";
     } else {
-      statusMessage = "Readiness check or calibration required before starting training.";
+      statusMessage = "Calibration required before starting training.";
     }
   }
 
@@ -93,15 +91,7 @@ export function DeviceCard({
             size="sm"
             onClick={() => onRunCalibration(manikin.deviceId)}
           >
-            Run Calibration
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => onRunReadinessCheck(manikin.deviceId)}
-          >
-            Readiness Check
+            {isCalibrationReady ? "Recalibrate" : "Start Calibration"}
           </Button>
           {isReadyDevice && (
             <Button

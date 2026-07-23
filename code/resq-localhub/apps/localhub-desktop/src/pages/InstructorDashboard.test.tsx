@@ -10,7 +10,7 @@ import {
   startSession,
 } from "../lib/browserSessionsApi";
 import { fetchCourses, fetchCourseStudents } from "../lib/browserCoursesApi";
-import { getReadiness } from "../lib/browserFirmwareApi";
+import { getDeviceReadiness } from "../api/manikinsApi";
 import { listCourses, listCourseStudents } from "../lib/browserRosterSyncApi";
 import { useLiveSession } from "../hooks/useLiveSession";
 
@@ -84,8 +84,8 @@ vi.mock("../lib/browserCoursesApi", () => ({
   fetchCourseStudents: vi.fn(),
 }));
 
-vi.mock("../lib/browserFirmwareApi", () => ({
-  getReadiness: vi.fn(),
+vi.mock("../api/manikinsApi", () => ({
+  getDeviceReadiness: vi.fn(),
   startCalibration: vi.fn(),
   cancelCalibration: vi.fn(),
 }));
@@ -181,7 +181,7 @@ describe("InstructorDashboard", () => {
         enrolledAt: new Date().toISOString(),
       },
     ]);
-    vi.mocked(getReadiness).mockResolvedValue({
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
       deviceId: "MAN-01",
       firmwareState: null,
       calibrated: false,
@@ -223,6 +223,10 @@ describe("InstructorDashboard", () => {
     render(<InstructorDashboard embeddedInDesktop />);
 
     expect(screen.getByRole("heading", { name: "Instructor Dashboard" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchLiveManikins).toHaveBeenCalled());
+    await waitFor(() => expect(fetchCourses).toHaveBeenCalled());
+    await waitFor(() => expect(listCourses).toHaveBeenCalled());
+    await waitFor(() => expect(fetchCompletedSessions).toHaveBeenCalled());
   });
 
   // EventSource no longer used; stream client is fetch-based and requires a token.
@@ -262,7 +266,7 @@ describe("InstructorDashboard", () => {
 
   it("enables session start when firmware is ready despite stale calibration status", async () => {
     vi.mocked(fetchLiveManikins).mockResolvedValue([{ ...baseManikin, state: "READY_FOR_SESSION" }]);
-    vi.mocked(getReadiness).mockResolvedValue({
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
       deviceId: "MAN-01",
       firmwareState: "READY_FOR_SESSION",
       calibrated: false,
@@ -279,7 +283,7 @@ describe("InstructorDashboard", () => {
 
     render(<InstructorDashboard embeddedInDesktop />);
 
-    await waitFor(() => expect(getReadiness).toHaveBeenCalledWith("MAN-01"));
+    await waitFor(() => expect(getDeviceReadiness).toHaveBeenCalledWith("MAN-01"));
     await userEvent.selectOptions(screen.getByLabelText("Course"), "course-101");
     await screen.findByRole("option", { name: "Ami Trainee (ami.trainee@example.com)" });
     await userEvent.selectOptions(screen.getByLabelText("Enrolled Trainee"), "trainee-man-01");

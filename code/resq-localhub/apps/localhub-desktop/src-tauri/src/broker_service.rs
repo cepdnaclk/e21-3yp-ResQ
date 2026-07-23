@@ -10,15 +10,14 @@ use std::{
 use serde::Serialize;
 use tauri::{Manager, State};
 
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use crate::process_lifecycle::{
+    assign_child_to_job, ensure_port_available_or_recover_stale, hide_window, persist_metadata,
+    runtime_pid_file, terminate_managed_process, ManagedProcess,
+};
 
 #[derive(Default)]
 pub struct BrokerServiceState {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<ManagedProcess>>,
     status: Mutex<BrokerServiceStatus>,
 }
 
@@ -124,12 +123,15 @@ impl BrokerServiceState {
         Ok(())
     }
 
-    fn wait_for_broker_ready(child_slot: &mut Option<Child>, ports: &[u16]) -> Result<(), String> {
+    fn wait_for_broker_ready(child_slot: &mut Option<ManagedProcess>, ports: &[u16]) -> Result<(), String> {
         let deadline = Instant::now() + Duration::from_secs(15);
         let mut delay = Duration::from_millis(400);
 
         loop {
-            if let Some(child) = child_slot.as_mut() {
+            if let Some(process) = child_slot.as_mut() {
+                let Some(child) = process.child.as_mut() else {
+                    return Err("Mosquitto process handle was missing while waiting for readiness.".to_string());
+                };
                 if let Ok(Some(status)) = child.try_wait() {
                     return Err(format!(
                         "Mosquitto exited before the expected ports became reachable (exit status: {status})"
@@ -219,7 +221,8 @@ impl BrokerServiceState {
         };
         let _ = resource_status;
 
-        if let Err(error) = Self::check_port_available(1883, "The MQTT broker") {
+        let broker_pid_file = runtime_pid_file(app, "mosquitto")?;
+        if let Err(error) = ensure_port_available_or_recover_stale(1883, "The MQTT broker", &broker_pid_file) {
             let failed_status = BrokerServiceStatus {
                 running: false,
                 pid: None,
@@ -232,7 +235,8 @@ impl BrokerServiceState {
             return Err(failed_status.details);
         }
 
-        if let Err(error) = Self::check_port_available(9001, "The MQTT websocket listener") {
+        let websocket_pid_file = broker_pid_file.clone();
+        if let Err(error) = ensure_port_available_or_recover_stale(9001, "The MQTT websocket listener", &websocket_pid_file) {
             let failed_status = BrokerServiceStatus {
                 running: false,
                 pid: None,
@@ -288,16 +292,30 @@ impl BrokerServiceState {
             .stdout(Stdio::from(log_file))
             .stderr(Stdio::from(log_file_err));
 
-        Self::hide_window(&mut command);
+        hide_window(&mut command);
 
         let child = command
             .spawn()
             .map_err(|error| format!("Failed to start Mosquitto broker: {error}"))?;
 
         let pid = child.id();
-        eprintln!("Broker process spawned with PID: {}", pid);
+        eprintln!("Started service: mosquitto pid={}", pid);
+        assign_child_to_job(&child, "mosquitto")?;
 
-        *child_slot = Some(child);
+        let managed = ManagedProcess::from_child(
+            "mosquitto",
+            child,
+            runtime_executable_path.clone(),
+            vec![
+                runtime_executable_path.display().to_string(),
+                "-c".to_string(),
+                runtime_config_path.display().to_string(),
+            ],
+            Some(broker_pid_file.clone()),
+            vec![1883, 9001],
+        );
+        persist_metadata(&managed)?;
+        *child_slot = Some(managed);
 
         match Self::wait_for_broker_ready(&mut child_slot, &[1883, 9001]) {
             Ok(()) => {
@@ -334,8 +352,8 @@ impl BrokerServiceState {
             .lock()
             .map_err(|_| "Failed to lock broker state".to_string())?;
 
-        if let Some(child) = child_slot.as_mut() {
-            Self::terminate_child(child)?;
+        if let Some(process) = child_slot.as_mut() {
+            terminate_managed_process(process)?;
         }
 
         *child_slot = None;
@@ -387,9 +405,10 @@ impl BrokerServiceState {
         Ok(stopped_status)
     }
 
-    fn child_is_running(child_slot: &mut Option<Child>) -> Result<bool, String> {
+    fn child_is_running(child_slot: &mut Option<ManagedProcess>) -> Result<bool, String> {
         let has_exited = match child_slot.as_mut() {
-            Some(child) => child
+            Some(process) => process.child.as_mut()
+                .ok_or_else(|| "Broker process handle is missing".to_string())?
                 .try_wait()
                 .map_err(|error| format!("Failed to query broker status: {error}"))?
                 .is_some(),
@@ -401,60 +420,6 @@ impl BrokerServiceState {
         }
 
         Ok(child_slot.is_some())
-    }
-
-    fn hide_window(command: &mut Command) {
-        #[cfg(target_os = "windows")]
-        {
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-    }
-
-    fn terminate_child(child: &mut Child) -> Result<(), String> {
-        if child
-            .try_wait()
-            .map_err(|error| format!("Failed to query broker status: {error}"))?
-            .is_none()
-        {
-            Self::kill_child(child)?;
-        }
-
-        child
-            .wait()
-            .map_err(|error| format!("Failed to wait for broker shutdown: {error}"))?;
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    fn kill_child(child: &mut Child) -> Result<(), String> {
-        let pid = child.id().to_string();
-
-        let mut taskkill = Command::new("taskkill");
-        taskkill
-            .args(["/PID", &pid, "/T", "/F"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-
-        Self::hide_window(&mut taskkill);
-
-        let taskkill_result = taskkill.status();
-
-        if matches!(taskkill_result, Ok(status) if status.success()) {
-            return Ok(());
-        }
-
-        child
-            .kill()
-            .map_err(|error| format!("Failed to stop broker: {error}"))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn kill_child(child: &mut Child) -> Result<(), String> {
-        child
-            .kill()
-            .map_err(|error| format!("Failed to stop broker: {error}"))
     }
 }
 

@@ -1149,11 +1149,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
           </Card>
         </div>
 
-        {/* Right: Device Readiness & Event details */}
+        {/* Right: Calibration status & event details */}
         <div className="lg:col-span-1 space-y-6">
           <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-5">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-              Device Readiness State
+              Calibration Status
             </h3>
             {loadingReadiness && !readiness ? (
               <p className="text-xs text-slate-400">Loading readiness info...</p>

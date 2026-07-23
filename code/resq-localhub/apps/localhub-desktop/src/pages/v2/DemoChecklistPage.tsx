@@ -74,14 +74,14 @@ export function V2DemoChecklistPage({ navigate }: DemoChecklistPageProps) {
   const checkTelemetry = health?.mqtt_connected === true;
   const checkRoster = courses.length > 0;
   const checkManikinOnline = onlineManikins.length > 0;
-  const checkReadinessPassed = readyManikins.length > 0;
-  const checkFlowReady = checkRoster && checkReadinessPassed;
+  const deviceReadinessReady = readyManikins.length > 0;
+  const checkFlowReady = checkRoster && deviceReadinessReady;
   const checkReportsSaving = reportsOk === true;
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       <PageHeader
-        title="Demo Readiness Checklist"
+        title="Demo Readiness"
         subtitle="Verify the end-to-end simulation setup, roster replication, and local hub operational state."
         actions={
           <Button type="button" variant="secondary" loading={refreshing} onClick={handleRefresh}>
@@ -234,24 +234,24 @@ export function V2DemoChecklistPage({ navigate }: DemoChecklistPageProps) {
           )}
         </Card>
 
-        {/* 4. Readiness check passed */}
+        {/* 4. Device readiness */}
         <Card padding="lg" className="flex flex-col justify-between hover:shadow-md transition-shadow">
           <div>
             <div className="flex justify-between items-start">
               <div>
-                <h3 className="text-base font-black text-slate-800">Readiness Check</h3>
-                <p className="text-xs text-slate-400 mt-1">Calibration status and readiness tests of trainer sensors.</p>
+                <h3 className="text-base font-black text-slate-800">Device Readiness</h3>
+                <p className="text-xs text-slate-400 mt-1">Canonical calibration status reported by the manikin.</p>
               </div>
               <span
                 className={`px-3 py-1 rounded-full border text-xs font-bold ${
-                  checkReadinessPassed
+                  deviceReadinessReady
                     ? "bg-emerald-50 text-emerald-700 border-emerald-100"
                     : failedManikins.length > 0
                     ? "bg-rose-50 text-rose-700 border-rose-100"
                     : "bg-amber-50 text-amber-700 border-amber-100"
                 }`}
               >
-                {checkReadinessPassed
+                {deviceReadinessReady
                   ? "Passed"
                   : failedManikins.length > 0
                   ? "Calibration Failed"
@@ -263,7 +263,7 @@ export function V2DemoChecklistPage({ navigate }: DemoChecklistPageProps) {
               <div className="flex items-center gap-2.5">
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    checkReadinessPassed
+                    deviceReadinessReady
                       ? "bg-emerald-500"
                       : failedManikins.length > 0
                       ? "bg-rose-500"
@@ -271,7 +271,7 @@ export function V2DemoChecklistPage({ navigate }: DemoChecklistPageProps) {
                   }`}
                 />
                 <span>
-                  {checkReadinessPassed
+                  {deviceReadinessReady
                     ? "Manikin is calibrated and ready for session"
                     : failedManikins.length > 0
                     ? "Calibration error detected. Re-calibrate hardware."
@@ -281,7 +281,7 @@ export function V2DemoChecklistPage({ navigate }: DemoChecklistPageProps) {
             </div>
           </div>
 
-          {onlineManikins.length > 0 && !checkReadinessPassed && (
+          {onlineManikins.length > 0 && !deviceReadinessReady && (
             <div className="pt-6 border-t border-slate-100 mt-6 flex justify-end">
               <Button
                 type="button"
@@ -290,7 +290,7 @@ export function V2DemoChecklistPage({ navigate }: DemoChecklistPageProps) {
                 onClick={() => navigate(`/instructor/manikins/${onlineManikins[0].deviceId}/readiness`)}
                 className="font-bold text-xs"
               >
-                Run Readiness Check
+                Open Calibration
               </Button>
             </div>
           )}

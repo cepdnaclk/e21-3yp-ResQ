@@ -1,4 +1,4 @@
-import type { DeviceReadinessState } from "../types/firmware";
+import type { DeviceReadinessState } from "../types/manikin";
 import type { ManikinLiveSummary } from "../types/manikin";
 
 export type ReadinessUiState =

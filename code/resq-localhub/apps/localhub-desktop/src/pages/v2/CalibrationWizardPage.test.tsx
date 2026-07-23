@@ -604,17 +604,17 @@ describe("CalibrationWizardPage", () => {
     });
   });
 
-  it("evidence panel does not show readyForSession as live readiness label", async () => {
+  it("evidence panel does not show readyForSession as current device status", async () => {
     vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(MOCK_EVIDENCE);
 
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
     await screen.findByText("Historical Calibration Evidence");
 
-    // The historical panel heading must never read "Device Readiness State" or "Live Readiness"
-    const headings = screen.queryAllByText(/live readiness/i);
+    // The historical panel heading must not be presented as current device status.
+    const headings = screen.queryAllByText(/current device status/i);
     expect(headings).toHaveLength(0);
 
-    // The evidence header title must be "Historical Calibration Evidence", not a live-readiness label
+    // The evidence header title stays historical, not a current status label.
     expect(screen.getByText("Historical Calibration Evidence")).toBeInTheDocument();
   });
 });

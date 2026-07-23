@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  startCalibration,
-  cancelCalibration,
   requestDebugSnapshot,
 } from "../../api/firmwareApi";
+import { startCalibration, cancelCalibration } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
 import { useDeviceReadiness } from "../../hooks/useDeviceReadiness";
 import { useCalibrationProfiles } from "../../hooks/useCalibrationProfiles";
@@ -12,7 +11,7 @@ import {
   getFriendlyReason,
   getFriendlyAction,
 } from "../../utils/readinessState";
-import type { CalibrationStreamEvent, ManikinLiveSummary } from "../../types/manikin";
+import type { CalibrationStreamEvent, DeviceReadinessState, ManikinLiveSummary } from "../../types/manikin";
 import Card, { CardHeader } from "../ui/Card";
 import Button from "../ui/Button";
 import StatusBadge from "../ui/StatusBadge";
@@ -20,7 +19,6 @@ import { ReadinessChecklist } from "./ReadinessChecklist";
 import { CalibrationProfileCard } from "./CalibrationProfileCard";
 import { CalibrationProgressStepper } from "./CalibrationProgressStepper";
 import { CalibrationResultCard } from "./CalibrationResultCard";
-import type { DeviceReadinessState } from "../../types/firmware";
 
 type DeviceReadinessPanelProps = {
   deviceId: string;
@@ -583,7 +581,7 @@ export function DeviceReadinessPanel({
             )}
           </div>
 
-          {/* Start Pre-check Action */}
+          {/* Calibration action */}
           {derivedState !== "CALIBRATING" && (
             <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col gap-2.5">
               <Button
@@ -599,7 +597,7 @@ export function DeviceReadinessPanel({
                   profilesLoading
                 }
               >
-                Run Calibration Pre-Check
+                {derivedState === "READY" ? "Recalibrate" : derivedState === "FAILED" ? "Retry Calibration" : "Start Calibration"}
               </Button>
               {optimisticStatus && (
                 <span className="text-[10px] text-teal-600 font-bold uppercase tracking-wider text-center animate-pulse">
@@ -625,11 +623,11 @@ export function DeviceReadinessPanel({
           {/* Checklist */}
           <Card className="p-6">
             <CardHeader
-              title="Readiness Checklist"
+              title="Device Readiness"
               subtitle={
                 derivedState === "CALIBRATING"
-                  ? "Precheck in progress... Keep chest clear."
-                  : "Wireless and hardware sensor checkpoints."
+                  ? "Calibration in progress. Keep chest clear."
+                  : "Wireless and hardware sensor status."
               }
             />
             <div className="mt-4">

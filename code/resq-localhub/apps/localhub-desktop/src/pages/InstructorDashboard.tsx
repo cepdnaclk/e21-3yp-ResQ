@@ -36,13 +36,8 @@ import {
   fetchManikinRegistry,
   type ManikinRegistryEntry,
 } from "../lib/browserManikinRegistryApi";
-import {
-  cancelCalibration,
-  getReadiness,
-  startCalibration,
-  type CalibrationStartRequest,
-  type DeviceReadinessState,
-} from "../lib/browserFirmwareApi";
+import { cancelCalibration, getDeviceReadiness, startCalibration } from "../api/manikinsApi";
+import type { CalibrationStartRequest, DeviceReadinessState } from "../types/manikin";
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
@@ -662,7 +657,7 @@ export default function InstructorDashboard({
       const entries = await Promise.all(
         deviceIds.map(async (deviceId) => {
           try {
-            const readiness = await getReadiness(deviceId);
+            const readiness = await getDeviceReadiness(deviceId);
             return [deviceId, readiness] as const;
           } catch {
             return [deviceId, null] as const;
@@ -997,7 +992,7 @@ export default function InstructorDashboard({
 
   async function refreshDeviceReadiness(deviceId: string) {
     try {
-      const readiness = await getReadiness(deviceId);
+      const readiness = await getDeviceReadiness(deviceId);
       setReadinessByDevice((current) => ({ ...current, [deviceId]: readiness }));
     } catch {
       setReadinessByDevice((current) => ({ ...current, [deviceId]: null }));

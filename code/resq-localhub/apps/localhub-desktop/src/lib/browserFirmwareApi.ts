@@ -1,7 +1,5 @@
 import { getHubApiBaseUrl } from "./hubApiUrl";
-import type { CalibrationCommandResponse, CalibrationStartRequest, DeviceReadinessState } from "../types/manikin";
-
-export type { CalibrationCommandResponse, CalibrationStartRequest, DeviceReadinessState };
+import type { DeviceReadinessState } from "../types/manikin";
 
 export type CalibrationProfileRequest = {
   name: string;
@@ -163,10 +161,6 @@ export type FirmwareDeviceDiagnosticsResponse = {
   recentDebugSnapshots: FirmwareDebugSnapshotRecord[];
 };
 
-function getDeviceUrl(deviceId: string): string {
-  return `${getHubApiBaseUrl()}/api/devices/${encodeURIComponent(deviceId)}`;
-}
-
 function getFirmwareDeviceUrl(deviceId: string): string {
   return `${getHubApiBaseUrl()}/api/devices/${encodeURIComponent(deviceId)}/firmware`;
 }
@@ -230,30 +224,6 @@ export function deactivateCalibrationProfile(profileId: string): Promise<Calibra
   return requestJson<CalibrationProfileResponse>(`${getCalibrationProfilesUrl()}/${encodeURIComponent(profileId)}`, {
     method: "DELETE",
   });
-}
-
-export function startCalibration(
-  deviceId: string,
-  payload: CalibrationStartRequest,
-): Promise<CalibrationCommandResponse> {
-  return requestJson<CalibrationCommandResponse>(`${getDeviceUrl(deviceId)}/calibration/start`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function cancelCalibration(deviceId: string): Promise<CalibrationCommandResponse> {
-  return requestJson<CalibrationCommandResponse>(`${getDeviceUrl(deviceId)}/calibration/cancel`, {
-    method: "POST",
-  });
-}
-
-export function getLatestCalibration(deviceId: string): Promise<unknown> {
-  return requestJson<unknown>(`${getDeviceUrl(deviceId)}/calibration/latest`);
-}
-
-export function getReadiness(deviceId: string): Promise<DeviceReadinessState> {
-  return requestJson<DeviceReadinessState>(`${getDeviceUrl(deviceId)}/readiness`);
 }
 
 export function getFirmwareCommands(deviceId: string, limit?: number): Promise<FirmwareCommandRequestRecord[]> {

@@ -5,10 +5,8 @@
 
 import { getJson, postJson } from "./localHubClient";
 import type {
-  DeviceReadinessState,
-  CalibrationCommandResponse,
+  FirmwareCommandPublishResponse,
   FirmwareDeviceDiagnosticsResponse,
-  CalibrationStartRequest,
   CalibrationProfileResponse,
 } from "../types/firmware";
 
@@ -22,38 +20,8 @@ export async function getDefaultCalibrationProfile(): Promise<CalibrationProfile
   return getJson<CalibrationProfileResponse | null>("/api/firmware/calibration-profiles/default");
 }
 
-function devicePath(deviceId: string, suffix: string): string {
-  return `/api/devices/${encodeURIComponent(deviceId)}${suffix}`;
-}
-
 function firmwareDevicePath(deviceId: string, suffix: string): string {
   return `/api/devices/${encodeURIComponent(deviceId)}/firmware${suffix}`;
-}
-
-/** GET /api/devices/{deviceId}/readiness */
-export async function fetchDeviceReadiness(deviceId: string): Promise<DeviceReadinessState> {
-  return getJson<DeviceReadinessState>(devicePath(deviceId, "/readiness"));
-}
-
-/** GET /api/devices/{deviceId}/calibration/latest */
-export async function fetchLatestCalibration(deviceId: string): Promise<unknown> {
-  return getJson<unknown>(devicePath(deviceId, "/calibration/latest"));
-}
-
-/** POST /api/devices/{deviceId}/calibration/start */
-export async function startCalibration(
-  deviceId: string,
-  request: CalibrationStartRequest,
-): Promise<CalibrationCommandResponse> {
-  return postJson<CalibrationCommandResponse>(
-    devicePath(deviceId, "/calibration/start"),
-    request,
-  );
-}
-
-/** POST /api/devices/{deviceId}/calibration/cancel */
-export async function cancelCalibration(deviceId: string): Promise<CalibrationCommandResponse> {
-  return postJson<CalibrationCommandResponse>(devicePath(deviceId, "/calibration/cancel"));
 }
 
 /** GET /api/devices/{deviceId}/firmware/diagnostics — full diagnostics bundle */
@@ -92,6 +60,6 @@ export async function fetchDeviceDiagnostics(deviceId: string): Promise<Firmware
 }
 
 /** POST /api/devices/{deviceId}/firmware/debug — request a debug snapshot from device */
-export async function requestDebugSnapshot(deviceId: string): Promise<CalibrationCommandResponse> {
-  return postJson<CalibrationCommandResponse>(firmwareDevicePath(deviceId, "/debug"));
+export async function requestDebugSnapshot(deviceId: string): Promise<FirmwareCommandPublishResponse> {
+  return postJson<FirmwareCommandPublishResponse>(firmwareDevicePath(deviceId, "/debug"));
 }

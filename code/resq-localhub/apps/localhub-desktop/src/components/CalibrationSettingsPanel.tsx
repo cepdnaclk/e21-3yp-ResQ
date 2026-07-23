@@ -5,14 +5,13 @@ import {
   deactivateCalibrationProfile,
   getCalibrationProfiles,
   getDefaultCalibrationProfile,
-  getReadiness,
   setDefaultCalibrationProfile,
   updateCalibrationProfile,
   type CalibrationProfileRequest,
   type CalibrationProfileResponse,
-  type CalibrationStartRequest,
-  type DeviceReadinessState,
 } from "../lib/browserFirmwareApi";
+import { getDeviceReadiness } from "../api/manikinsApi";
+import type { CalibrationStartRequest, DeviceReadinessState } from "../types/manikin";
 
 type CalibrationSettingsPanelProps = {
   devices: ManikinLiveSummary[];
@@ -232,7 +231,7 @@ export function CalibrationSettingsPanel({
       }
 
       try {
-        const readiness = await getReadiness(selectedDeviceId);
+        const readiness = await getDeviceReadiness(selectedDeviceId);
         if (!cancelled) {
           setLiveReadiness(readiness);
         }

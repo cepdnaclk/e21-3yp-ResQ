@@ -5,8 +5,8 @@ import {
   getFirmwareDiagnostics,
   requestFirmwareDebugSnapshot,
   type FirmwareDeviceDiagnosticsResponse,
-  type DeviceReadinessState,
 } from "../lib/browserFirmwareApi";
+import type { DeviceReadinessState } from "../types/manikin";
 import {
   createSensorStreamClient,
   getLatestSensorStream,

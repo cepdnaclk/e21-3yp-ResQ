@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { fetchCourses, fetchCourseStudents } from "../../api/coursesApi";
 import { fetchLiveManikins } from "../../api/manikinsApi";
-import { fetchDeviceReadiness } from "../../api/firmwareApi";
+import { getDeviceReadiness } from "../../api/manikinsApi";
 import { startSession } from "../../api/sessionsApi";
 import type { Course, CourseStudent } from "../../types/course";
 import type { ManikinLiveSummary } from "../../types/manikin";
-import type { DeviceReadinessState } from "../../types/firmware";
+import type { DeviceReadinessState } from "../../types/manikin";
 import Card, { CardHeader } from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
@@ -165,7 +165,7 @@ export function StartSessionWizardPage() {
     setError(null);
 
     try {
-      const readiness = await fetchDeviceReadiness(selectedManikin.deviceId);
+      const readiness = await getDeviceReadiness(selectedManikin.deviceId);
       const isReady = readiness.firmwareState === "READY_FOR_SESSION" && readiness.readyForSession === true;
       if (!isReady) {
         setError("Cannot start training: manikin must be in READY_FOR_SESSION state and successfully calibrated.");
@@ -390,7 +390,7 @@ export function StartSessionWizardPage() {
                           {ready ? (
                             <StatusBadge tone="success" label="Ready" dot={true} />
                           ) : online ? (
-                            <StatusBadge tone="warning" label="Needs Pre-Check" dot={true} />
+                            <StatusBadge tone="warning" label="Not Calibrated" dot={true} />
                           ) : (
                             <StatusBadge tone="muted" label="Offline" dot={false} />
                           )}
@@ -401,7 +401,7 @@ export function StartSessionWizardPage() {
                       </div>
                       {!ready && online && (
                         <p className="text-[9px] text-amber-600 font-bold mt-1">
-                          Pre-check pre-requisite. Setup and calibrate in the next step.
+                          Calibration required. Set up and calibrate in the next step.
                         </p>
                       )}
                     </Card>

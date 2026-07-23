@@ -2,7 +2,7 @@
  * ReadinessChecklist.tsx — Device readiness checklist shown before a session.
  * Displays in plain medical language. No firmware codes shown to instructor.
  */
-import type { DeviceReadinessState } from "../../types/firmware";
+import type { DeviceReadinessState } from "../../types/manikin";
 import type { ManikinLiveSummary } from "../../types/manikin";
 
 type CheckItem = {
