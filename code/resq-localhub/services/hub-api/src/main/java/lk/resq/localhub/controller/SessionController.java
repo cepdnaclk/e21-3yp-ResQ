@@ -41,6 +41,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.NoSuchElementException;
 import java.util.Map;
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/sessions")
@@ -329,6 +330,37 @@ public class SessionController {
                     .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                             .body(new ApiErrorResponse("Session " + sessionId + " was not found or is not active")));
         } catch (ForbiddenException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
+        }
+    }
+
+    @GetMapping("/{sessionId}/review")
+    public ResponseEntity<?> getSessionReview(HttpServletRequest request, @PathVariable String sessionId) {
+        try {
+            AuthUser actor = authService.requireAuth(request);
+            return activeSessionService.findCompletedSession(sessionId)
+                    .<ResponseEntity<?>>map(session -> {
+                        if (actor.role() == UserRole.TRAINEE && (session.traineeId() == null || 
+                            (!session.traineeId().equalsIgnoreCase(actor.id()) && 
+                             !session.traineeId().equalsIgnoreCase(actor.username())))) {
+                            throw new ForbiddenException("You can only view your own session results.");
+                        }
+
+                        Optional<CprSessionSummaryResponse> cprSession = localSessionRepository.findCprSessionById(sessionId);
+                        if (cprSession.isEmpty()) {
+                            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                                    .body(new ApiErrorResponse("CPR Session data not found for session " + sessionId));
+                        }
+
+                        return ResponseEntity.ok(cprPerformanceAnalyzer.analyze(cprSession.get()));
+                    })
+                    .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                            .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
+        } catch (ForbiddenException error) {
+            authService.maybeAuth(request).ifPresentOrElse(
+                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "review", Map.of("sessionId", sessionId)),
+                    () -> authService.audit(null, "ACCESS_DENIED", "session", "review", Map.of("sessionId", sessionId))
+            );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }

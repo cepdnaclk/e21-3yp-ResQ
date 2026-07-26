@@ -49,6 +49,9 @@ class CprSampleDataSeederTest {
         List<CprSessionSummaryResponse> sessions = sessionRepository.findCprSessions(query);
         
         assertThat(sessions).hasSize(14);
+        for (CprSessionSummaryResponse s : sessions) {
+            assertThat(s.dataSource()).isEqualTo("DEV_SEED");
+        }
 
         // Idempotence test: seeding again shouldn't duplicate
         seeder.seed();

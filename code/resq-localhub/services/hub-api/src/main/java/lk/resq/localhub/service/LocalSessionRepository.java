@@ -14,7 +14,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -29,10 +32,26 @@ public class LocalSessionRepository {
 
     private final Path databasePath;
     private final String jdbcUrl;
+    private final Environment environment;
+    private final boolean isDevOrTest;
 
-    public LocalSessionRepository(@Value("${resq.storage.sqlite-path:${user.home}/.resq-localhub/hub-api.sqlite}") String sqlitePath) {
+    public LocalSessionRepository(String sqlitePath) {
+        this(sqlitePath, null);
+    }
+
+    @Autowired
+    public LocalSessionRepository(
+            @Value("${resq.storage.sqlite-path:${user.home}/.resq-localhub/hub-api.sqlite}") String sqlitePath,
+            @Autowired(required = false) Environment environment
+    ) {
         this.databasePath = Path.of(sqlitePath).toAbsolutePath();
         this.jdbcUrl = "jdbc:sqlite:" + this.databasePath.toString().replace("\\", "/");
+        this.environment = environment;
+        if (environment == null) {
+            this.isDevOrTest = true;
+        } else {
+            this.isDevOrTest = environment.acceptsProfiles(Profiles.of("dev", "test"));
+        }
     }
 
     @PostConstruct
@@ -130,6 +149,7 @@ public class LocalSessionRepository {
                 ensureColumn(connection, "sessions", "trainee_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "course_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "instructor_id", "TEXT NULL");
+                ensureColumn(connection, "sessions", "data_source", "TEXT NULL");
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize local SQLite store at " + databasePath, error);
@@ -141,8 +161,8 @@ public class LocalSessionRepository {
             connection.setAutoCommit(false);
 
             try (PreparedStatement sessionStatement = connection.prepareStatement("""
-                                        INSERT INTO sessions (session_id, device_id, user_id, trainee_id, started_at, ended_at, scenario, notes, created_at, duration_seconds, avg_depth_mm, min_depth_mm, max_depth_mm, depth_accuracy_percent, avg_rate_cpm, rate_accuracy_percent, recoil_error_percent, pause_count, longest_pause_seconds, consistency_score, fatigue_drop_percent, overall_score, course_id, instructor_id)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        INSERT INTO sessions (session_id, device_id, user_id, trainee_id, started_at, ended_at, scenario, notes, created_at, duration_seconds, avg_depth_mm, min_depth_mm, max_depth_mm, depth_accuracy_percent, avg_rate_cpm, rate_accuracy_percent, recoil_error_percent, pause_count, longest_pause_seconds, consistency_score, fatigue_drop_percent, overall_score, course_id, instructor_id, data_source)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
                       device_id = excluded.device_id,
                                             user_id = excluded.user_id,
@@ -166,7 +186,8 @@ public class LocalSessionRepository {
                                             fatigue_drop_percent = excluded.fatigue_drop_percent,
                                             overall_score = excluded.overall_score,
                       course_id = excluded.course_id,
-                      instructor_id = excluded.instructor_id
+                      instructor_id = excluded.instructor_id,
+                      data_source = excluded.data_source
                     """);
                  PreparedStatement metricsStatement = connection.prepareStatement("""
                     INSERT INTO session_metrics (
@@ -221,6 +242,11 @@ public class LocalSessionRepository {
                 sessionStatement.setInt(22, summary.score());
                 sessionStatement.setString(23, session.courseId());
                 sessionStatement.setString(24, session.instructorId());
+                String ds = session.dataSource();
+                if (ds == null || ds.isBlank()) {
+                    ds = "REAL_SENSOR";
+                }
+                sessionStatement.setString(25, ds);
                 sessionStatement.executeUpdate();
 
                 metricsStatement.setString(1, summary.sessionId());
@@ -274,6 +300,7 @@ public class LocalSessionRepository {
                        s.notes,
                        s.course_id,
                        s.instructor_id,
+                       s.data_source,
                        m.sample_count,
                        m.total_compressions,
                        m.valid_compressions,
@@ -306,7 +333,11 @@ public class LocalSessionRepository {
                     return Optional.empty();
                 }
 
-                return Optional.of(mapRow(resultSet));
+                SessionEndResponse res = mapRow(resultSet);
+                if (!isDevOrTest && "DEV_SEED".equals(res.dataSource())) {
+                    return Optional.empty();
+                }
+                return Optional.of(res);
             }
         } catch (SQLException error) {
             throw new IllegalStateException("Failed to load session " + sessionId, error);
@@ -314,8 +345,8 @@ public class LocalSessionRepository {
     }
 
     public synchronized List<SessionEndResponse> findAll() {
-        try (Connection connection = openConnection();
-             PreparedStatement statement = connection.prepareStatement("""
+        try (Connection connection = openConnection()) {
+            String sql = """
                      SELECT
                        s.session_id,
                        s.device_id,
@@ -326,6 +357,7 @@ public class LocalSessionRepository {
                        s.notes,
                        s.course_id,
                        s.instructor_id,
+                       s.data_source,
                        m.sample_count,
                        m.total_compressions,
                        m.valid_compressions,
@@ -349,15 +381,18 @@ public class LocalSessionRepository {
                        m.latest_flags
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
+                     """ + (!isDevOrTest ? " WHERE (s.data_source IS NULL OR s.data_source != 'DEV_SEED') " : "") + """
                      ORDER BY s.ended_at DESC
-                     """)) {
-            List<SessionEndResponse> sessions = new ArrayList<>();
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    sessions.add(mapRow(resultSet));
+                     """;
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                List<SessionEndResponse> sessions = new ArrayList<>();
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        sessions.add(mapRow(resultSet));
+                    }
                 }
+                return sessions;
             }
-            return sessions;
         } catch (SQLException error) {
             throw new IllegalStateException("Failed to load completed sessions", error);
         }
@@ -376,6 +411,7 @@ public class LocalSessionRepository {
                        s.notes,
                        s.course_id,
                        s.instructor_id,
+                       s.data_source,
                        m.sample_count,
                        m.total_compressions,
                        m.valid_compressions,
@@ -399,7 +435,7 @@ public class LocalSessionRepository {
                        m.latest_flags
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
-                     WHERE 1=0
+                     WHERE (1=0
                      """);
             
             List<String> params = new ArrayList<>();
@@ -414,6 +450,11 @@ public class LocalSessionRepository {
             if (email != null && !email.isBlank()) {
                 sql.append(" OR LOWER(s.trainee_id) = ?");
                 params.add(email.trim().toLowerCase());
+            }
+            
+            sql.append(")");
+            if (!isDevOrTest) {
+                sql.append(" AND (s.data_source IS NULL OR s.data_source != 'DEV_SEED')");
             }
             
             sql.append(" ORDER BY s.ended_at DESC");
@@ -463,8 +504,9 @@ public class LocalSessionRepository {
                        fatigue_drop_percent,
                        overall_score,
                        course_id,
-                       instructor_id
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       instructor_id,
+                       data_source
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                      ON CONFLICT(session_id) DO UPDATE SET
                        device_id = excluded.device_id,
                        user_id = excluded.user_id,
@@ -486,7 +528,8 @@ public class LocalSessionRepository {
                        longest_pause_seconds = excluded.longest_pause_seconds,
                        consistency_score = excluded.consistency_score,
                        fatigue_drop_percent = excluded.fatigue_drop_percent,
-                       overall_score = excluded.overall_score
+                       overall_score = excluded.overall_score,
+                       data_source = excluded.data_source
                      """)) {
             statement.setString(1, request.id());
             statement.setString(2, request.manikinId());
@@ -512,6 +555,11 @@ public class LocalSessionRepository {
             statement.setInt(22, request.overallScore());
             statement.setNull(23, java.sql.Types.VARCHAR);
             statement.setNull(24, java.sql.Types.VARCHAR);
+            String ds = request.dataSource();
+            if (ds == null || ds.isBlank()) {
+                ds = "REAL_SENSOR";
+            }
+            statement.setString(25, ds);
             statement.executeUpdate();
         } catch (SQLException error) {
             throw new IllegalStateException("Failed to persist CPR session " + request.id(), error);
@@ -541,7 +589,8 @@ public class LocalSessionRepository {
                        longest_pause_seconds,
                        consistency_score,
                        fatigue_drop_percent,
-                       overall_score
+                       overall_score,
+                       data_source
                      FROM sessions
                      WHERE session_id = ?
                      """)) {
@@ -550,7 +599,11 @@ public class LocalSessionRepository {
                 if (!resultSet.next()) {
                     return Optional.empty();
                 }
-                return Optional.of(mapCprSession(resultSet));
+                CprSessionSummaryResponse res = mapCprSession(resultSet);
+                if (!isDevOrTest && "DEV_SEED".equals(res.dataSource())) {
+                    return Optional.empty();
+                }
+                return Optional.of(res);
             }
         } catch (SQLException error) {
             throw new IllegalStateException("Failed to load CPR session " + id, error);
@@ -580,7 +633,8 @@ public class LocalSessionRepository {
                       longest_pause_seconds,
                       consistency_score,
                       fatigue_drop_percent,
-                      overall_score
+                      overall_score,
+                      data_source
                     FROM sessions
                     WHERE 1 = 1
                     """);
@@ -609,6 +663,9 @@ public class LocalSessionRepository {
             if (hasText(query.manikinId())) {
                 sql.append(" AND LOWER(device_id) = ?");
                 parameters.add(query.manikinId().trim().toLowerCase());
+            }
+            if (!isDevOrTest) {
+                sql.append(" AND (data_source IS NULL OR data_source != 'DEV_SEED')");
             }
 
             sql.append(" ORDER BY COALESCE(NULLIF(created_at, ''), ended_at) DESC, session_id DESC");
@@ -662,6 +719,11 @@ public class LocalSessionRepository {
                 resultSet.getDouble("fatigue_drop_percent")
         );
 
+        String ds = resultSet.getString("data_source");
+        if (ds == null || ds.isBlank()) {
+            ds = "REAL_SENSOR";
+        }
+
         return new SessionEndResponse(
                 resultSet.getString("session_id"),
                 resultSet.getString("device_id"),
@@ -673,7 +735,8 @@ public class LocalSessionRepository {
                 resultSet.getString("notes"),
                 summary,
                 resultSet.getString("course_id"),
-                resultSet.getString("instructor_id")
+                resultSet.getString("instructor_id"),
+                ds
         );
     }
 
@@ -707,6 +770,10 @@ public class LocalSessionRepository {
     }
 
     private static CprSessionSummaryResponse mapCprSession(ResultSet resultSet) throws SQLException {
+        String ds = resultSet.getString("data_source");
+        if (ds == null || ds.isBlank()) {
+            ds = "REAL_SENSOR";
+        }
         return new CprSessionSummaryResponse(
                 resultSet.getString("session_id"),
                 resultSet.getString("user_id"),
@@ -727,7 +794,8 @@ public class LocalSessionRepository {
                 resultSet.getDouble("consistency_score"),
                 resultSet.getDouble("fatigue_drop_percent"),
                 resultSet.getInt("overall_score"),
-                parseInstant(resultSet.getString("created_at"))
+                parseInstant(resultSet.getString("created_at")),
+                ds
         );
     }
 

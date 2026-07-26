@@ -141,6 +141,54 @@ class LocalSessionRepositoryTest {
                 .hasMessageContaining("fatigueDropPercent");
     }
 
+    @Test
+    void filtersOutSeededSessionsWhenNotDevOrTest() {
+        org.springframework.core.env.Environment env = org.mockito.Mockito.mock(org.springframework.core.env.Environment.class);
+        org.mockito.Mockito.when(env.acceptsProfiles(org.mockito.Mockito.any(org.springframework.core.env.Profiles.class))).thenReturn(false);
+
+        String dbPath = Path.of("target", "local-session-repository-test-prod-" + UUID.randomUUID() + ".sqlite").toString();
+        LocalSessionRepository repository = new LocalSessionRepository(dbPath, env);
+        repository.initialize();
+
+        Instant startedAt = Instant.parse("2026-06-08T08:00:00Z");
+        Instant endedAt = Instant.parse("2026-06-08T08:01:10Z");
+
+        SessionSummary summarySeed = new SessionSummary(
+                "session-seed", "M01", "trainee-1", startedAt, endedAt, 70, 12, 10, 9, 52.4, 0.84, 111.2, 88.5, 8, 1, 3, 91, "DEPTH_OK",
+                48.0, 56.5, 75.0, 82.0, 11.5, 4.2, 86.0, 7.5
+        );
+        SessionSummary summaryReal = new SessionSummary(
+                "session-real", "M01", "trainee-1", startedAt, endedAt, 70, 12, 10, 9, 52.4, 0.84, 111.2, 88.5, 8, 1, 3, 91, "DEPTH_OK",
+                48.0, 56.5, 75.0, 82.0, 11.5, 4.2, 86.0, 7.5
+        );
+
+        repository.save(new SessionEndResponse(
+                summarySeed.sessionId(), summarySeed.deviceId(), summarySeed.traineeId(),
+                startedAt, true, endedAt, "adult-cpr", "Notes", summarySeed,
+                "course-1", "instructor-1", "DEV_SEED"
+        ));
+
+        repository.save(new SessionEndResponse(
+                summaryReal.sessionId(), summaryReal.deviceId(), summaryReal.traineeId(),
+                startedAt, true, endedAt, "adult-cpr", "Notes", summaryReal,
+                "course-1", "instructor-1", "REAL_SENSOR"
+        ));
+
+        assertThat(repository.findById("session-seed")).isEmpty();
+        assertThat(repository.findById("session-real")).isPresent();
+
+        assertThat(repository.findAll()).hasSize(1);
+        assertThat(repository.findAll().get(0).sessionId()).isEqualTo("session-real");
+
+        assertThat(repository.findCprSessionById("session-seed")).isEmpty();
+        assertThat(repository.findCprSessionById("session-real")).isPresent();
+
+        lk.resq.localhub.model.cpr.CprSessionSummaryQueryRequest query = 
+            new lk.resq.localhub.model.cpr.CprSessionSummaryQueryRequest(null, null, null, null, null);
+        assertThat(repository.findCprSessions(query)).hasSize(1);
+        assertThat(repository.findCprSessions(query).get(0).id()).isEqualTo("session-real");
+    }
+
     private static LocalSessionRepository newRepository() {
         LocalSessionRepository repository = new LocalSessionRepository(
                 Path.of("target", "local-session-repository-test-" + UUID.randomUUID() + ".sqlite").toString()

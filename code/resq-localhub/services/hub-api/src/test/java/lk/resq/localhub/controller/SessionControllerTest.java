@@ -143,6 +143,19 @@ class SessionControllerTest {
         assertThat(payload.path("traineeId").asText()).isEqualTo("trainee-bob-123");
     }
 
+    @Test
+    void getSessionReviewReturnsPerformanceAnalysis() throws Exception {
+        Fixture fixture = newFixture();
+        SessionEndResponse completed = seedCompletedSession(fixture.service, "M01");
+
+        ResponseEntity<?> response = fixture.controller.getSessionReview(new MockHttpServletRequest(), completed.sessionId());
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        lk.resq.localhub.model.cpr.CprPerformanceAnalysis analysis = requireBody(response.getBody());
+        assertThat(analysis.overallStatus()).isNotNull();
+        assertThat(analysis.strengths()).isNotEmpty();
+    }
+
     private static SessionEndResponse seedCompletedSession(ActiveSessionService service, String deviceId) throws Exception {
         SessionStartResponse started = service.startSession(new SessionStartRequest(
                 deviceId,
