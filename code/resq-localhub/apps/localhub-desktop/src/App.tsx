@@ -22,6 +22,7 @@ import V2StartSessionWizardPage from "./pages/v2/StartSessionWizardPage";
 import V2ActiveSessionsPage from "./pages/v2/ActiveSessionsPage";
 import V2AdminSyncDashboardPage from "./pages/v2/AdminSyncDashboardPage";
 import V2DemoChecklistPage from "./pages/v2/DemoChecklistPage";
+import V2InstructorAiAssistantPage from "./pages/v2/InstructorAiAssistantPage";
 
 // Import Legacy Pages
 import LegacyInstructorDashboard from "./pages/InstructorDashboard";
@@ -51,7 +52,8 @@ type RouteState =
   | { name: "diagnostics" }
   | { name: "access-denied" }
   | { name: "legacy-instructor" }
-  | { name: "legacy-trainee" };
+  | { name: "legacy-trainee" }
+  | { name: "instructor-ai-assistant" };
 
 function parseRoute(path: string): RouteState {
   const p = path.replace(/\/$/, "") || "/";
@@ -63,6 +65,7 @@ function parseRoute(path: string): RouteState {
   if (p === "/live-sessions") return { name: "live-sessions" };
   if (p === "/instructor") return { name: "instructor" };
   if (p === "/instructor/pair") return { name: "pair-manikin" };
+  if (p === "/instructor/ai-assistant") return { name: "instructor-ai-assistant" };
   if (p === "/sessions") return { name: "sessions" };
   if (p === "/admin/users") return { name: "admin-users" };
   if (p === "/admin/sync") return { name: "admin-sync" };
@@ -197,6 +200,9 @@ export default function App() {
   if (currentRoute.name === "instructor" && !isInstructorOrAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
+  if (currentRoute.name === "instructor-ai-assistant" && !isInstructorOrAdmin) {
+    return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
+  }
   if (currentRoute.name === "courses" && !isInstructorOrAdmin) {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
   }
@@ -262,7 +268,8 @@ export default function App() {
     currentRoute.name === "instructor" ||
     currentRoute.name === "pair-manikin" ||
     currentRoute.name === "readiness" ||
-    currentRoute.name === "instructor-live"
+    currentRoute.name === "instructor-live" ||
+    currentRoute.name === "instructor-ai-assistant"
   ) {
     activeShellKey = "instructor";
   } else if (currentRoute.name === "sessions" || currentRoute.name === "session-review") {
@@ -317,6 +324,9 @@ export default function App() {
           onPairNewManikin={() => navigate("/instructor/pair")}
           onViewRecentSessions={() => navigate("/sessions")}
         />
+      )}
+      {currentRoute.name === "instructor-ai-assistant" && (
+        <V2InstructorAiAssistantPage onBack={() => navigate("/")} />
       )}
       {currentRoute.name === "pair-manikin" && (
         <V2PairManikinPage onBack={() => navigate("/instructor")} />
