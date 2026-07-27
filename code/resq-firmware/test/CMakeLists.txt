@@ -5,6 +5,7 @@ set(TEST_COMPONENTS
     "firmware_state_machine"
     "firmware_bootstrap"
     "calibration_manager"
+    "calibration_fail_manager"
     "config"
     "error_manager"
     "mqtt_manager"

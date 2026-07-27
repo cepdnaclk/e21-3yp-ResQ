@@ -901,6 +901,19 @@ TEST_CASE("Manager-owned states return delegated transitions", "[fsm]")
     TEST_ASSERT_EQUAL(1, f.telemetry_stop_calls);
 }
 
+TEST_CASE("Calibration failure result truly enters CALIBRATION_FAIL",
+          "[calibration][fsm]")
+{
+    reset_fixture();
+    f.calibration_result = RESQ_STATE_CALIBRATION_FAIL;
+
+    TEST_ASSERT_EQUAL(RESQ_STATE_CALIBRATION_FAIL,
+                      run_state(RESQ_STATE_CALIBRATING));
+    TEST_ASSERT_EQUAL(RESQ_STATE_CALIBRATION_FAIL,
+                      resq_fsm_get_state(&fsm));
+    TEST_ASSERT_TRUE(f.status_calls > 0);
+}
+
 TEST_CASE("SESSION_INTERRUPTED reconnects retries and returns readiness", "[fsm]")
 {
     reset_fixture();

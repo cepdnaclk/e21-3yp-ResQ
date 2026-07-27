@@ -1,5 +1,6 @@
 #include "calibration_codes.h"
 #include "calibration_manager.h"
+#include <limits.h>
 #include <string.h>
 #include "unity.h"
 
@@ -273,6 +274,22 @@ TEST_CASE(
   TEST_ASSERT_EQUAL(0, config.bladder_2_pressure);
 }
 
+TEST_CASE("Non-Hall calibration policy requires all pressure targets",
+          "[calibration][pressure]") {
+  calibration_config_t config;
+  calibration_reason_id_t reason = CAL_REASON_NONE;
+  char command_id[32];
+
+  TEST_ASSERT_EQUAL(
+      ESP_ERR_INVALID_ARG,
+      calibration_manager_parse_start_payload(
+          "{\"request_id\":\"strict-optional\","
+          "\"pressure_mode\":\"OPTIONAL\",\"hall_delta\":620,"
+          "\"profile_id\":\"adult\"}",
+          &config, command_id, sizeof(command_id), &reason));
+  TEST_ASSERT_EQUAL(CAL_REASON_INVALID_CALIBRATION_PAYLOAD, reason);
+}
+
 TEST_CASE("Calibration start parser rejects unsupported mode and timing",
           "[calibration]") {
   calibration_config_t config;
@@ -321,4 +338,112 @@ TEST_CASE("Calibration pressure stages validate only requested channels",
       0x07u, 0x04u, 0x07u));
   TEST_ASSERT_FALSE(calibration_manager_pressure_stage_masks_valid(
       0x03u, 0x00u, 0x04u));
+}
+
+TEST_CASE("Calibration target windows are strict and overflow safe",
+          "[calibration][pressure]") {
+  const int32_t target = 3500000;
+  const int32_t tolerance =
+      calibration_manager_pressure_target_tolerance(target);
+
+  TEST_ASSERT_EQUAL_INT32(280000, tolerance);
+  TEST_ASSERT_TRUE(calibration_manager_value_within_target(
+      3220000, target, tolerance));
+  TEST_ASSERT_TRUE(calibration_manager_value_within_target(
+      3780000, target, tolerance));
+  TEST_ASSERT_FALSE(calibration_manager_value_within_target(
+      3219999, target, tolerance));
+  TEST_ASSERT_FALSE(calibration_manager_value_within_target(
+      3780001, target, tolerance));
+  TEST_ASSERT_FALSE(
+      calibration_manager_value_within_target(target, target, -1));
+  TEST_ASSERT_TRUE(calibration_manager_value_within_target(
+      INT32_MAX, INT32_MAX, INT32_MAX));
+  TEST_ASSERT_TRUE(calibration_manager_value_within_target(
+      INT32_MIN, INT32_MIN, INT32_MAX));
+}
+
+TEST_CASE("Only fresh primary pressure samples are usable for calibration",
+          "[calibration][pressure][pressure_quality]") {
+  calibration_pressure_target_sample_t sample = {
+      .value = 3100000,
+      .read_ok = true,
+      .fresh = true,
+      .channel_valid = true,
+      .timestamp_ms = 1000,
+  };
+
+  TEST_ASSERT_TRUE(
+      calibration_manager_pressure_target_sample_usable(&sample));
+  sample.read_ok = false;
+  TEST_ASSERT_FALSE(
+      calibration_manager_pressure_target_sample_usable(&sample));
+  sample.read_ok = true;
+  sample.fresh = false;
+  TEST_ASSERT_FALSE(
+      calibration_manager_pressure_target_sample_usable(&sample));
+  sample.fresh = true;
+  sample.channel_valid = false;
+  TEST_ASSERT_FALSE(
+      calibration_manager_pressure_target_sample_usable(&sample));
+  sample.channel_valid = true;
+  sample.saturated = true;
+  TEST_ASSERT_FALSE(
+      calibration_manager_pressure_target_sample_usable(&sample));
+  sample.saturated = false;
+  sample.stale = true;
+  TEST_ASSERT_FALSE(
+      calibration_manager_pressure_target_sample_usable(&sample));
+  sample.stale = false;
+  sample.using_last_stable = true;
+  TEST_ASSERT_FALSE(
+      calibration_manager_pressure_target_sample_usable(&sample));
+}
+
+TEST_CASE("Calibration target hold requires consecutive in-range samples",
+          "[calibration][pressure][pressure_quality]") {
+  calibration_pressure_target_tracker_t tracker = {0};
+  calibration_pressure_target_sample_t sample = {
+      .value = 3100000,
+      .read_ok = true,
+      .fresh = true,
+      .channel_valid = true,
+      .timestamp_ms = 1000,
+  };
+  const int32_t tolerance =
+      calibration_manager_pressure_target_tolerance(3100000);
+
+  TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
+      &tracker, &sample, 3100000, tolerance, 3, 200));
+  sample.timestamp_ms = 1100;
+  TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
+      &tracker, &sample, 3100000, tolerance, 3, 200));
+  sample.timestamp_ms = 1200;
+  TEST_ASSERT_TRUE(calibration_manager_pressure_target_tracker_observe(
+      &tracker, &sample, 3100000, tolerance, 3, 200));
+
+  sample.value = 4000000;
+  sample.timestamp_ms = 1300;
+  TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
+      &tracker, &sample, 3100000, tolerance, 3, 200));
+  TEST_ASSERT_EQUAL_UINT(0, tracker.consecutive_matches);
+
+  sample.value = 3100000;
+  sample.using_last_stable = true;
+  sample.timestamp_ms = 1400;
+  TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
+      &tracker, &sample, 3100000, tolerance, 3, 200));
+  TEST_ASSERT_EQUAL_UINT(0, tracker.consecutive_matches);
+}
+
+TEST_CASE("Only explicit Hall-only policy skips pressure targets",
+          "[calibration][pressure]") {
+  TEST_ASSERT_TRUE(calibration_manager_pressure_targets_required(
+      CALIBRATION_PRESSURE_REQUIRED));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_targets_required(
+      CALIBRATION_PRESSURE_OPTIONAL));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_targets_required(
+      CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE_LEGACY));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_targets_required(
+      CALIBRATION_HALL_ONLY));
 }

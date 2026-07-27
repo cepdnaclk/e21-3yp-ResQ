@@ -32,6 +32,35 @@ extern "C" {
  * tolerance. */
 #define CALIBRATION_FULL_PRESS_START_RATIO_PCT 15
 #define CALIBRATION_FULL_PRESS_CANDIDATE_RATIO_PCT 85
+#define CALIBRATION_PRESSURE_TARGET_TOLERANCE_PCT 8
+#define CALIBRATION_PRESSURE_TARGET_MIN_TOLERANCE_RAW 100
+#define CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES 3U
+#define CALIBRATION_PRESSURE_TARGET_HOLD_MS 250
+
+typedef enum {
+    CALIBRATION_ATTEMPT_NONE = 0,
+    CALIBRATION_ATTEMPT_RUNNING,
+    CALIBRATION_ATTEMPT_PASS,
+    CALIBRATION_ATTEMPT_FAIL,
+    CALIBRATION_ATTEMPT_CANCELLED,
+    CALIBRATION_ATTEMPT_INTERNAL_ERROR
+} calibration_attempt_result_t;
+
+typedef struct {
+    int32_t value;
+    bool read_ok;
+    bool fresh;
+    bool channel_valid;
+    bool saturated;
+    bool stale;
+    bool using_last_stable;
+    int64_t timestamp_ms;
+} calibration_pressure_target_sample_t;
+
+typedef struct {
+    unsigned consecutive_matches;
+    int64_t first_match_timestamp_ms;
+} calibration_pressure_target_tracker_t;
 
 /* =========================================================
  * Public API
@@ -155,6 +184,34 @@ bool calibration_manager_pressure_stage_masks_valid(
     uint8_t read_valid_mask,
     uint8_t saturation_mask,
     uint8_t required_mask);
+
+/** True for every calibration policy that requests physical pressure stages. */
+bool calibration_manager_pressure_targets_required(
+    calibration_pressure_mode_t mode);
+
+/** Strict, overflow-safe target window used by target and baseline stages. */
+int32_t calibration_manager_pressure_target_tolerance(int32_t target);
+bool calibration_manager_value_within_target(
+    int32_t value,
+    int32_t target,
+    int32_t tolerance);
+
+/** Pure target-hold helpers shared by the worker and Unity tests. */
+bool calibration_manager_pressure_target_sample_usable(
+    const calibration_pressure_target_sample_t *sample);
+void calibration_manager_pressure_target_tracker_reset(
+    calibration_pressure_target_tracker_t *tracker);
+bool calibration_manager_pressure_target_tracker_observe(
+    calibration_pressure_target_tracker_t *tracker,
+    const calibration_pressure_target_sample_t *sample,
+    int32_t target,
+    int32_t tolerance,
+    unsigned required_matches,
+    int64_t required_hold_ms);
+
+/** Result of the most recently started attempt, independent of saved config. */
+calibration_attempt_result_t
+calibration_manager_get_last_attempt_result(void);
 
 #ifdef __cplusplus
 }
