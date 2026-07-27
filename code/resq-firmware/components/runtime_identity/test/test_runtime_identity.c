@@ -71,7 +71,8 @@ TEST_CASE("runtime identity concurrent sequence calls are unique",
                                   &contexts[i], 4, NULL));
   }
   for (int i = 0; i < CONCURRENT_TASKS; ++i) {
-    TEST_ASSERT_GREATER_THAN(0, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)));
+    TEST_ASSERT_GREATER_THAN(0,
+                             ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(1000)));
   }
   for (int i = 0; i < CONCURRENT_TASKS; ++i) {
     for (int j = 0; j < CONCURRENT_CALLS; ++j) {

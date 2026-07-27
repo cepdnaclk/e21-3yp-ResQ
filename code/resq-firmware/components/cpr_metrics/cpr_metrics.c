@@ -832,6 +832,8 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
             current_saturation_mask &
             CPR_PRESSURE_BALANCE_SENSOR_MASK;
         if (required_saturation_mask != 0 || upper_limit_mask != 0) {
+            s_pressure_balance_reliable = false;
+            s_pressure_stable_mask = 0;
             if (required_saturation_mask != 0) {
                 s_sensor_quality_flags |=
                     CPR_SENSOR_QUALITY_PRESSURE_SATURATED;

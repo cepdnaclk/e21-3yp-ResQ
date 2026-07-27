@@ -427,15 +427,24 @@ esp_err_t mqtt_manager_handle_command_fragment_for_test(
   int offset = current_offset;
   int fragment_len = data_len;
 
-  if (total_len < 0 || fragment_len < 0 || offset < 0 ||
-      total_len >= MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN || offset > total_len ||
-      fragment_len > total_len - offset || (fragment_len > 0 && data == NULL)) {
+  if (topic_len < 0 || total_data_len < 0 || fragment_len < 0 || offset < 0 ||
+      (fragment_len > 0 && data == NULL)) {
+    ESP_LOGW(TAG,
+             "Invalid MQTT payload fragment arguments total=%d offset=%d len=%d",
+             total_len, offset, fragment_len);
+    reset_command_rx();
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  if (total_len <= 0 ||
+      total_len >= MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN ||
+      offset > total_len || fragment_len > total_len - offset) {
     ESP_LOGW(TAG,
              "Invalid or oversized MQTT payload fragment total=%d offset=%d "
              "len=%d",
              total_len, offset, fragment_len);
     reset_command_rx();
-    return ESP_ERR_INVALID_ARG;
+    return offset > 0 ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
   char topic_copy[MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN] = {0};

@@ -106,7 +106,7 @@ static bool fake_network_validate(network_config_t *config)
 }
 static bool fake_calibration_validate(calibration_config_t *config)
 {
-    (void)config;
+    config->calibrated = f.calibration_valid;
     return f.calibration_valid;
 }
 static esp_err_t fake_load_network(network_config_t *config)
@@ -325,6 +325,7 @@ static resq_state_t fake_error_run(network_config_t *network,
     (void)network;
     (void)calibration;
     (void)ip;
+    f.telemetry_stop_calls++;
     return f.error_result;
 }
 static esp_err_t fake_error_set(firmware_error_reason_id_t reason)

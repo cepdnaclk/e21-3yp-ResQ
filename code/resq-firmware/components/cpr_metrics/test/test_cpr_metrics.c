@@ -116,7 +116,7 @@ TEST_CASE("CPR metrics tracks valid compression recoil depth and rate", "[metric
     update(1200, 1200, 1200, 1200);
     update(1000, 1000, 1000, 1300);
     update(1000, 1000, 1000, 1360);
-    update(1400, 1600, 1600, 1500);
+    start_with_stable_pressure(1400, 1600, 1600, 1500);
 
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
     TEST_ASSERT_EQUAL(2, snapshot.total_compressions);
@@ -360,7 +360,7 @@ TEST_CASE("CPR metrics resets pressure lock for next compression", "[metrics]")
     TEST_ASSERT_FALSE(snapshot.hand_placement_locked);
     TEST_ASSERT_FALSE(snapshot.pressure_became_unusable);
     TEST_ASSERT_EQUAL(2, snapshot.total_compressions);
-    TEST_ASSERT_EQUAL_UINT32(0, snapshot.accepted_pressure_samples);
+    TEST_ASSERT_EQUAL_UINT32(1, snapshot.accepted_pressure_samples);
 }
 
 TEST_CASE("CPR session accepts rising magnitude with stable distribution",

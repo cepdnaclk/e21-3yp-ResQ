@@ -80,6 +80,9 @@ TEST_CASE("Calibration start parser accepts the current payload contract",
                         "\"bladder_1_pressure\":11000,"
                         "\"bladder_2_pressure\":11500,"
                         "\"profile_id\":\"adult\","
+                        "\"profile_version\":1,"
+                        "\"profile_hash\":\"0123456789abcdef0123456789abcdef"
+                        "0123456789abcdef0123456789abcdef\","
                         "\"pressure_mode\":\"OPTIONAL\","
                         "\"hall_delta_sample_count\":20,"
                         "\"calibration_sample_count\":20,"
@@ -114,7 +117,11 @@ TEST_CASE("Calibration start parser accepts explicit hall_delta_sum contract",
                         "\"request_id\":\"cal-sum\","
                         "\"hall_delta_sum\":13500,"
                         "\"hall_delta_sample_count\":20,"
-                        "\"pressure_mode\":\"HALL_ONLY\""
+                        "\"pressure_mode\":\"HALL_ONLY\","
+                        "\"profile_id\":\"adult\","
+                        "\"profile_version\":1,"
+                        "\"profile_hash\":\"0123456789abcdef0123456789abcdef"
+                        "0123456789abcdef0123456789abcdef\""
                         "}";
 
   TEST_ASSERT_EQUAL(
@@ -137,6 +144,10 @@ TEST_CASE("Calibration start parser preserves optional conversion overrides",
                         "\"ref_pressure\":10000,"
                         "\"bladder_1_pressure\":11000,"
                         "\"bladder_2_pressure\":11500,"
+                        "\"profile_id\":\"adult\","
+                        "\"profile_version\":1,"
+                        "\"profile_hash\":\"0123456789abcdef0123456789abcdef"
+                        "0123456789abcdef0123456789abcdef\","
                         "\"full_depth_mm\":55.5,"
                         "\"pressure_0_kpa_per_count\":0.00000012,"
                         "\"pressure_1_kpa_per_count\":0.00000023,"
@@ -249,7 +260,9 @@ TEST_CASE(
       calibration_manager_parse_start_payload(
           "{\"request_id\":\"hall-only\",\"pressure_mode\":\"HALL_ONLY\","
           "\"hall_delta\":13500,\"hall_delta_sample_count\":20,"
-          "\"profile_id\":\"adult\"}",
+          "\"profile_id\":\"adult\",\"profile_version\":1,"
+          "\"profile_hash\":\"0123456789abcdef0123456789abcdef"
+          "0123456789abcdef0123456789abcdef\"}",
           &config, command_id, sizeof(command_id), &reason));
   TEST_ASSERT_EQUAL(CAL_REASON_NONE, reason);
   TEST_ASSERT_EQUAL_STRING("hall-only", command_id);

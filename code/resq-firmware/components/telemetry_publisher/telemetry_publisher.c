@@ -992,15 +992,15 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
                                                   resq_state_t state,
                                                   const calibration_config_t *calibration_config)
 {
+    if (calibration_config == NULL ||
+        !sensor_stream_interval_valid(interval_ms)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     if (!io_mode_manager_is_sensor()) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (s_mutex == NULL || s_task_events == NULL || calibration_config == NULL) {
+    if (s_mutex == NULL || s_task_events == NULL) {
         return ESP_ERR_INVALID_STATE;
-    }
-
-    if (!sensor_stream_interval_valid(interval_ms)) {
-        return ESP_ERR_INVALID_ARG;
     }
 
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
