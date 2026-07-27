@@ -283,3 +283,29 @@ TEST_CASE("Calibration start parser rejects unsupported mode and timing",
                         &config, command_id, sizeof(command_id), &reason));
   TEST_ASSERT_EQUAL(CAL_REASON_INVALID_CALIBRATION_PAYLOAD, reason);
 }
+
+TEST_CASE("Calibration degradation never disables physical pressure acquisition",
+          "[calibration][pressure]") {
+  TEST_ASSERT_TRUE(calibration_manager_pressure_acquisition_enabled(
+      CALIBRATION_PRESSURE_REQUIRED));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_acquisition_enabled(
+      CALIBRATION_PRESSURE_OPTIONAL));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_acquisition_enabled(
+      CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_acquisition_enabled(
+      CALIBRATION_HALL_ONLY));
+}
+
+TEST_CASE("Calibration pressure stages validate only requested channels",
+          "[calibration][pressure]") {
+  TEST_ASSERT_TRUE(calibration_manager_pressure_stage_masks_valid(
+      0x07u, 0x06u, 0x01u));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_stage_masks_valid(
+      0x07u, 0x05u, 0x02u));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_stage_masks_valid(
+      0x07u, 0x03u, 0x04u));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_stage_masks_valid(
+      0x07u, 0x04u, 0x07u));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_stage_masks_valid(
+      0x03u, 0x00u, 0x04u));
+}

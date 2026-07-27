@@ -97,9 +97,12 @@ The production pin assignment is defined in
 | BUTTON_1 | GPIO4 |
 | BUTTON_2 | GPIO5 |
 
-All three HX710 devices share one clock line and must be sampled as one
-synchronized transaction. Do not rewrite the pressure path to read the devices
-sequentially using the shared clock.
+All three HX710 devices share one clock line and production pressure sampling
+uses one synchronized transaction. In `SENSOR` mode the HX710 driver detaches
+the native USB pad, preloads GPIO19 LOW, configures output with pulls disabled,
+and verifies LOW once before DOUT initialization. Normal reads never reset or
+remux GPIO19. Software-selected single-DOUT reads are rejected because they
+cannot electrically isolate converters sharing the clock.
 
 GPIO18 and GPIO19 are also the ESP32-C3 native USB D- and D+ pins. The firmware
 therefore treats native USB and the ResQ pressure/buzzer wiring as mutually
@@ -138,13 +141,13 @@ the next boot. No GPIO ownership is changed live. Outside provisioning, short
 presses retain their state-specific recovery behavior and never change the I/O
 mode.
 
-ESP-IDF is configured with USB Serial/JTAG enabled as a secondary console. In
-`SENSOR` mode, native USB availability is not promised because GPIO18/GPIO19
-belong to the ResQ hardware; use MQTT for live diagnostics and telemetry. In
-`USB` mode, any electrical disturbance seen by the attached HX710 hardware from
-USB D+ activity is intentionally ignored because no pressure acquisition runs.
-Use the board's ROM download procedure described under troubleshooting if the
-running application is not reachable.
+The application console is UART-only; USB Serial/JTAG secondary console output
+is disabled so it cannot disturb GPIO19 in `SENSOR` mode. Selecting `USB` is a
+reboot-only transition: the state machine first rejects active sensor work,
+forces GPIO19 LOW, releases HX710 ownership, persists the mode, and restarts.
+Native USB may then own GPIO18/GPIO19 while all pressure-dependent services
+remain disabled. Use the board's ROM download procedure described under
+troubleshooting if the running application is not reachable.
 
 ## Build and flash
 
@@ -463,9 +466,11 @@ serve different purposes.
 ### 1. ESP-IDF Unity component tests
 
 The Unity application under `test/` covers deterministic behavior without
-using real Wi-Fi, MQTT transport, ADC, HX710 devices, or buttons. It tests the
-  state machine, provisioning-only I/O-mode selection and confirmation,
-  I/O-mode persistence and fallback, long-press button mappings, USB
+using real Wi-Fi, MQTT transport, ADC, HX710 devices, or buttons. Explicit
+`[hardware]` cases additionally provide raw-sensor and staged HX710 electrical
+diagnostics for a connected board. The deterministic suite tests the
+state machine, provisioning-only I/O-mode selection and confirmation,
+I/O-mode persistence and fallback, long-press button mappings, USB
 sensor-command gating, configuration boundaries, error/calibration mappings,
 topics, request IDs, session lifecycle, and CPR metrics.
 
@@ -576,8 +581,9 @@ This table contains one factory application partition and no OTA slots.
 
 - **Real sensors are required.** Floating or disconnected HX710/hall inputs
   cannot produce a meaningful calibration or hardware qualification.
-- **HX710 timeout sentinel:** `-999999` indicates that a pressure ADC did not
-  become ready. Treat it as a wiring, power, clock, or sensor problem.
+- **HX710 validity:** a failed group read clears its validity mask and does not
+  overwrite or publish previous raw values. Treat stuck-HIGH, stuck-LOW,
+  protocol, or cadence errors as wiring, power, clock, or sensor faults.
 - **Calibration persistence:** successful calibration is stored in NVS. The
   TURN_OFF path saves calibration only when it is valid.
 - **Recovery deadline:** an active session attempts to recover connectivity for

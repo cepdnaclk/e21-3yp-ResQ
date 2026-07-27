@@ -6,7 +6,7 @@
 /* =========================================================
  * Sensor pins
  * ========================================================= */
-#define BOARD_HX710_SHARED_SCK GPIO_NUM_19
+#define BOARD_HX710_SHARED_SCK GPIO_NUM_6
 
 /*
  * HX710 pressure sensors use one shared SCK line.
@@ -24,13 +24,16 @@
 #define BOARD_HX710_1_SCK      BOARD_HX710_SHARED_SCK
 #define BOARD_HX710_2_SCK      BOARD_HX710_SHARED_SCK
 
-#define BOARD_HALL_ADC_CHAN    ADC_CHANNEL_0
+/* Hall sensor: ESP32-C3 GPIO0 = ADC1 channel 0 */
+#define BOARD_HALL_ADC_GPIO    GPIO_NUM_0
+#define BOARD_HALL_ADC_UNIT    ADC_UNIT_1
+#define BOARD_HALL_ADC_CHAN    ((adc_channel_t)ADC_CHANNEL_0)
 
 /* =========================================================
  * Status indicator pins
  * ========================================================= */
-#define BOARD_STATE_LED        GPIO_NUM_7
-#define BOARD_ACTIVITY_LED     GPIO_NUM_6
+#define BOARD_STATE_LED        GPIO_NUM_8
+#define BOARD_ACTIVITY_LED     GPIO_NUM_7
 #define BOARD_BUZZER_GPIO      GPIO_NUM_18
 
 /* =========================================================

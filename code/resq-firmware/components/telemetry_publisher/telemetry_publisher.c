@@ -21,6 +21,7 @@
 #include "hall_sensor.h"
 #include "hx710.h"
 #include "io_mode_manager.h"
+#include "pressure_quality_filter.h"
 #include "sensor_conversion.h"
 #include "sensor_owner.h"
 
@@ -49,6 +50,8 @@ static calibration_config_t s_sensor_stream_calibration;
 #define SENSOR_STREAM_INVALID_COMMAND_REASON_ID "07101"
 #define SENSOR_STREAM_RUNTIME_REASON_ID "07102"
 #define SENSOR_STREAM_MAX_CONSECUTIVE_FAILURES 5
+#define SENSOR_STREAM_PRESSURE_STABILITY_WINDOW_SAMPLES 3u
+#define SENSOR_STREAM_PRESSURE_STABILITY_FALLBACK_COUNTS 1000
 
 typedef enum {
     SENSOR_STREAM_ACTION_START = 0,
@@ -175,9 +178,7 @@ exit:
 static bool sensor_stream_pressure_requested(
     const calibration_config_t *calibration)
 {
-    return calibration->pressure_mode != CALIBRATION_HALL_ONLY &&
-           calibration->pressure_mode !=
-               CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE;
+    return calibration->pressure_mode != CALIBRATION_HALL_ONLY;
 }
 
 static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample,
@@ -191,9 +192,9 @@ static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample,
     out_sample->ts_ms = esp_timer_get_time() / 1000;
 
     esp_err_t first_error = ESP_OK;
-    int32_t p0 = 0;
-    int32_t p1 = 0;
-    int32_t p2 = 0;
+    int32_t p0 = HX710_ERROR_TIMEOUT;
+    int32_t p1 = HX710_ERROR_TIMEOUT;
+    int32_t p2 = HX710_ERROR_TIMEOUT;
     if (read_pressure) {
         uint8_t valid_mask = 0;
         esp_err_t pressure_err = hx710_read_3_shared_sck_valid(
@@ -244,7 +245,8 @@ static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample,
 static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
                                               const calibration_config_t *calibration,
                                               resq_state_t state,
-                                              uint32_t interval_ms)
+                                              uint32_t interval_ms,
+                                              const pressure_quality_result_t *quality)
 {
     if (sample == NULL || calibration == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -272,6 +274,13 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
         .hall_raw = sample->hall_raw,
         .hall_read_valid = hall_read_ok,
         .pressure_saturation_mask = pressure_saturation_mask_from_sample(sample),
+        .pressure_stable_mask = quality != NULL ? quality->stable_mask : 0,
+        .pressure_decision_usable_mask =
+            quality != NULL ? quality->decision_usable_mask : 0,
+        .pressure_last_stable_available =
+            quality != NULL && quality->has_last_accepted,
+        .pressure_using_last_stable =
+            quality != NULL && quality->using_last_accepted,
         .timestamp_ms = sample->ts_ms,
     };
     sensor_conversion_profile_t profile = conversion_profile_from_calibration(calibration);
@@ -296,7 +305,7 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
         converted.hall_mm_valid = false;
     }
 
-    char payload[1536];
+    char payload[1792];
     esp_err_t build_err = telemetry_publisher_build_sensor_stream_payload(
         runtime_helpers_get_device_id(NULL),
         state,
@@ -355,15 +364,54 @@ static void sensor_stream_task(void *arg)
                 goto task_exit;
             }
             ESP_LOGW("telemetry_publisher",
-                     "Manual stream continuing in degraded Hall-only mode");
-            pressure_enabled = false;
+                     "Manual stream pressure initialization failed; "
+                     "acquisition attempts will continue");
         }
+    }
+
+    pressure_quality_filter_t pressure_filter = {0};
+    bool pressure_filter_ready = false;
+    if (pressure_enabled) {
+        pressure_quality_config_t quality_config = {
+            .window_size = SENSOR_STREAM_PRESSURE_STABILITY_WINDOW_SAMPLES,
+            .required_channel_mask = PRESSURE_CHANNEL_MASK_ALL,
+            .min_raw = {
+                -SENSOR_CONVERSION_PRESSURE_SATURATION_RAW + 1,
+                -SENSOR_CONVERSION_PRESSURE_SATURATION_RAW + 1,
+                -SENSOR_CONVERSION_PRESSURE_SATURATION_RAW + 1,
+            },
+            .max_raw = {
+                SENSOR_CONVERSION_PRESSURE_SATURATION_RAW - 1,
+                SENSOR_CONVERSION_PRESSURE_SATURATION_RAW - 1,
+                SENSOR_CONVERSION_PRESSURE_SATURATION_RAW - 1,
+            },
+        };
+        const int32_t noise[PRESSURE_CHANNEL_COUNT] = {
+            startup_calibration.pressure_0_noise_raw,
+            startup_calibration.pressure_1_noise_raw,
+            startup_calibration.pressure_2_noise_raw,
+        };
+        for (size_t channel = 0; channel < PRESSURE_CHANNEL_COUNT; ++channel) {
+            int64_t spread =
+                noise[channel] > 0
+                    ? (int64_t)noise[channel] * 4
+                    : startup_calibration.pressure_contact_threshold;
+            if (spread <= 0) {
+                spread = SENSOR_STREAM_PRESSURE_STABILITY_FALLBACK_COUNTS;
+            }
+            quality_config.max_spread_raw[channel] =
+                spread > INT32_MAX ? INT32_MAX : (int32_t)spread;
+        }
+        pressure_filter_ready =
+            pressure_quality_filter_init(&pressure_filter,
+                                         &quality_config) == ESP_OK;
     }
 
     xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_STARTED_BIT);
     TickType_t last_wake = xTaskGetTickCount();
     unsigned consecutive_read_failures = 0;
     unsigned consecutive_publish_failures = 0;
+    bool pressure_degraded = false;
 
     while (s_sensor_stream_running) {
         if (!mqtt_manager_is_connected()) {
@@ -383,22 +431,57 @@ static void sensor_stream_task(void *arg)
 
         cpr_sensor_sample_t sample = {0};
         esp_err_t read_err = sensor_stream_read_sample(&sample, pressure_enabled);
+        pressure_quality_result_t pressure_quality = {0};
+        if (pressure_filter_ready) {
+            pressure_raw_frame_t frame = {
+                .raw = {
+                    sample.pressure_0_raw,
+                    sample.pressure_1_raw,
+                    sample.pressure_2_raw,
+                },
+                .read_valid_mask =
+                    ((sample.quality_flags &
+                      CPR_SAMPLE_PRESSURE_0_READ_FAILED) == 0
+                         ? 0x01u
+                         : 0u) |
+                    ((sample.quality_flags &
+                      CPR_SAMPLE_PRESSURE_1_READ_FAILED) == 0
+                         ? 0x02u
+                         : 0u) |
+                    ((sample.quality_flags &
+                      CPR_SAMPLE_PRESSURE_2_READ_FAILED) == 0
+                         ? 0x04u
+                         : 0u),
+                .saturation_mask =
+                    (uint8_t)pressure_saturation_mask_from_sample(&sample),
+                .timestamp_ms = sample.ts_ms,
+            };
+            pressure_quality_filter_push(
+                &pressure_filter, &frame, &pressure_quality);
+        }
         esp_err_t publish_err = sensor_stream_publish_sample(
-            &sample, &calibration, state, interval_ms);
+            &sample, &calibration, state, interval_ms,
+            pressure_filter_ready ? &pressure_quality : NULL);
 
         if (read_err == ESP_OK) {
             consecutive_read_failures = 0;
+            if (pressure_degraded) {
+                pressure_degraded = false;
+                ESP_LOGI("telemetry_publisher",
+                         "Manual stream PRESSURE_RECOVERED");
+            }
         } else if (++consecutive_read_failures >=
                    SENSOR_STREAM_MAX_CONSECUTIVE_FAILURES) {
             bool only_pressure_failed =
                 (sample.quality_flags & CPR_SAMPLE_PRESSURE_READ_FAILED) != 0 &&
                 (sample.quality_flags & CPR_SAMPLE_HALL_READ_FAILED) == 0;
             if (!pressure_required && pressure_enabled && only_pressure_failed) {
-                ESP_LOGW("telemetry_publisher",
-                         "Manual stream degrading to Hall-only after repeated "
-                         "pressure failures");
-                pressure_enabled = false;
-                consecutive_read_failures = 0;
+                if (!pressure_degraded) {
+                    pressure_degraded = true;
+                    ESP_LOGI("telemetry_publisher",
+                             "Manual stream PRESSURE_DEGRADED; "
+                             "acquisition continues");
+                }
             } else {
                 ESP_LOGE("telemetry_publisher",
                          "Manual stream stopped after repeated sensor failures");
@@ -507,6 +590,10 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
                            "\"pressure_profile_valid\":%s,"
                            "\"hall_profile_valid\":%s,"
                            "\"pressure_saturation_mask\":%u,"
+                           "\"pressure_stable_mask\":%u,"
+                           "\"pressure_decision_usable_mask\":%u,"
+                           "\"pressure_last_stable_available\":%s,"
+                           "\"pressure_using_last_stable\":%s,"
                            "\"interval_ms\":%" PRIu32 ","
                            "\"ts_ms\":%lld"
                            "}",
@@ -533,6 +620,12 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
                            converted->pressure_profile_valid ? "true" : "false",
                            converted->hall_profile_valid ? "true" : "false",
                            (unsigned int)converted->pressure_saturation_mask,
+                           (unsigned int)raw->pressure_stable_mask,
+                           (unsigned int)raw->pressure_decision_usable_mask,
+                           raw->pressure_last_stable_available ? "true"
+                                                              : "false",
+                           raw->pressure_using_last_stable ? "true"
+                                                          : "false",
                            interval_ms,
                            (long long)converted->timestamp_ms);
 
@@ -589,7 +682,28 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         "\"pressure_2_kpa_valid\":%s,"
         "\"pressure_kpa_valid\":%s,"
         "\"hall_mm_valid\":%s,"
+        "\"pressure_acquisition_active\":%s,"
+        "\"pressure_frame_fresh\":%s,"
+        "\"pressure_temporarily_degraded\":%s,"
+        "\"pressure_current_valid_mask\":%u,"
+        "\"pressure_invalid_mask\":%u,"
         "\"pressure_saturation_mask\":%u,"
+        "\"pressure_upper_limit_mask\":%u,"
+        "\"pressure_below_contact_mask\":%u,"
+        "\"pressure_out_of_range_mask\":%u,"
+        "\"pressure_stable_mask\":%u,"
+        "\"pressure_decision_usable_mask\":%u,"
+        "\"pressure_last_stable_available\":%s,"
+        "\"pressure_last_accepted_available\":%s,"
+        "\"pressure_last_accepted_age_ms\":%lld,"
+        "\"pressure_using_last_stable\":%s,"
+        "\"pressure_evidence_sufficient\":%s,"
+        "\"hand_placement_locked\":%s,"
+        "\"pressure_hand_placement_locked\":%s,"
+        "\"pressure_lock_reason\":\"%s\","
+        "\"pressure_became_unusable\":%s,"
+        "\"accepted_pressure_samples\":%u,"
+        "\"pressure_accepted_frame_count\":%u,"
         "\"sensor_quality_flags\":%u,"
         "\"missed_pressure_samples\":%d,"
         "\"missed_hall_samples\":%d,"
@@ -627,7 +741,28 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         snap->pressure_2_kpa_valid ? "true" : "false",
         snap->pressure_kpa_valid ? "true" : "false",
         snap->hall_mm_valid ? "true" : "false",
+        snap->pressure_acquisition_active ? "true" : "false",
+        snap->pressure_frame_fresh ? "true" : "false",
+        snap->pressure_temporarily_degraded ? "true" : "false",
+        (unsigned int)snap->pressure_current_valid_mask,
+        (unsigned int)snap->pressure_invalid_mask,
         (unsigned int)snap->pressure_saturation_mask,
+        (unsigned int)snap->pressure_upper_limit_mask,
+        (unsigned int)snap->pressure_below_contact_mask,
+        (unsigned int)snap->pressure_out_of_range_mask,
+        (unsigned int)snap->pressure_stable_mask,
+        (unsigned int)snap->pressure_decision_usable_mask,
+        snap->pressure_last_stable_available ? "true" : "false",
+        snap->pressure_last_accepted_available ? "true" : "false",
+        (long long)snap->pressure_last_accepted_age_ms,
+        snap->pressure_using_last_stable ? "true" : "false",
+        snap->pressure_evidence_sufficient ? "true" : "false",
+        snap->hand_placement_locked ? "true" : "false",
+        snap->hand_placement_locked ? "true" : "false",
+        cpr_pressure_lock_reason_to_string(snap->pressure_lock_reason),
+        snap->pressure_became_unusable ? "true" : "false",
+        snap->accepted_pressure_samples,
+        snap->accepted_pressure_samples,
         (unsigned int)snap->sensor_quality_flags,
         snap->missed_pressure_samples,
         snap->missed_hall_samples,
@@ -659,7 +794,7 @@ static void telemetry_task(void *arg)
             continue;
         }
 
-        char payload[1792];
+        char payload[2304];
         const char *device_id = runtime_helpers_get_device_id(NULL);
         char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
         if (session_manager_get_session_id(session_id, sizeof(session_id)) !=

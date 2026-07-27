@@ -15,6 +15,7 @@ typedef enum {
     SENSOR_OWNER_MANUAL_STREAM,
     SENSOR_OWNER_CALIBRATION,
     SENSOR_OWNER_SESSION,
+    SENSOR_OWNER_DIAGNOSTIC,
 } sensor_owner_t;
 
 esp_err_t sensor_owner_init(void);

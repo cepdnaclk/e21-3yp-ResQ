@@ -31,6 +31,7 @@
 #include "runtime_identity.h"
 #include "session_active_manager.h"
 #include "session_manager.h"
+#include "sensor_owner.h"
 #include "status_indicator.h"
 #include "system_button_manager.h"
 #include "telemetry_publisher.h"
@@ -57,6 +58,66 @@ typedef struct {
 } heartbeat_snapshot_t;
 
 static heartbeat_snapshot_t s_heartbeat_snapshot;
+
+static esp_err_t initialize_io_mode_and_hx710_pad(void)
+{
+    esp_err_t err = config_store_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = io_mode_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (io_mode_manager_is_sensor()) {
+        return hx710_sck_acquire_for_sensor_mode(BOARD_HX710_SHARED_SCK);
+    }
+    return ESP_OK;
+}
+
+static esp_err_t request_io_mode_for_restart(resq_io_mode_t target)
+{
+    resq_io_mode_t active = io_mode_manager_get();
+    if (target == active) {
+        return io_mode_manager_request(target);
+    }
+
+    bool released_hx710 = false;
+    if (active == RESQ_IO_MODE_SENSOR && target == RESQ_IO_MODE_USB) {
+        esp_err_t err = sensor_owner_init();
+        if (err != ESP_OK) {
+            return err;
+        }
+        sensor_owner_t owner = SENSOR_OWNER_NONE;
+        err = sensor_owner_get(&owner);
+        if (err != ESP_OK) {
+            return err;
+        }
+        if (owner != SENSOR_OWNER_NONE) {
+            ESP_LOGW(TAG,
+                     "USB mode request rejected while sensor owner %d is active",
+                     (int)owner);
+            return ESP_ERR_INVALID_STATE;
+        }
+        err = hx710_sck_release_for_usb_mode();
+        if (err != ESP_OK) {
+            return err;
+        }
+        released_hx710 = true;
+    }
+
+    esp_err_t err = io_mode_manager_request(target);
+    if (err != ESP_OK && released_hx710) {
+        esp_err_t reacquire_err =
+            hx710_sck_acquire_for_sensor_mode(BOARD_HX710_SHARED_SCK);
+        if (reacquire_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to restore HX710 ownership after mode-save "
+                          "failure: %s",
+                     esp_err_to_name(reacquire_err));
+        }
+    }
+    return err;
+}
 
 static void heartbeat_snapshot_update(void)
 {
@@ -126,6 +187,12 @@ static esp_err_t initialize_components_once(void)
     }
 
     if (io_mode_manager_is_sensor()) {
+        /* GPIO19 belongs to HX710 in SENSOR mode. Claim it before any sensor
+         * component can initialize or wait on a DOUT line. */
+        err = hx710_sck_acquire_for_sensor_mode(BOARD_HX710_SHARED_SCK);
+        if (err != ESP_OK) {
+            return err;
+        }
         err = adc_shared_service_init();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "adc_shared_service_init failed: %s",
@@ -313,7 +380,7 @@ static const resq_fsm_ops_t s_fsm_ops = {
     .provisioning_stop = provisioning_manager_stop,
     .provisioning_has_saved_config = provisioning_manager_has_saved_config,
     .io_mode_get = io_mode_manager_get,
-    .io_mode_request = io_mode_manager_request,
+    .io_mode_request = request_io_mode_for_restart,
     .wifi_connect = wifi_manager_connect,
     .wifi_disconnect = wifi_manager_disconnect,
     .wifi_is_connected = wifi_manager_is_connected,
@@ -360,6 +427,12 @@ static const resq_fsm_ops_t s_fsm_ops = {
 
 void app_main(void)
 {
+    /*
+     * Resolve persistent I/O mode and detach native USB from GPIO19 before any
+     * component can initialize or log through a sensor-facing peripheral.
+     */
+    ESP_ERROR_CHECK(initialize_io_mode_and_hx710_pad());
+
     esp_err_t err = esp_netif_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));

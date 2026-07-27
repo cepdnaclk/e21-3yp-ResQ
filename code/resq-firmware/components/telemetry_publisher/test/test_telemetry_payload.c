@@ -39,7 +39,23 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .pressure_2_kpa_valid = true,
         .pressure_kpa_valid = true,
         .hall_mm_valid = true,
+        .pressure_acquisition_active = true,
+        .pressure_frame_fresh = true,
+        .pressure_temporarily_degraded = false,
+        .pressure_current_valid_mask = 0x07u,
+        .pressure_invalid_mask = 0u,
         .pressure_saturation_mask = 0,
+        .pressure_upper_limit_mask = 0u,
+        .pressure_below_contact_mask = 0u,
+        .pressure_stable_mask = 0x07u,
+        .pressure_decision_usable_mask = 0x07u,
+        .pressure_last_stable_available = true,
+        .pressure_last_accepted_available = true,
+        .pressure_last_accepted_age_ms = 42,
+        .pressure_using_last_stable = false,
+        .pressure_evidence_sufficient = true,
+        .pressure_lock_reason = CPR_PRESSURE_LOCK_NONE,
+        .accepted_pressure_samples = 4,
         .ts_ms = 123456,
     };
     strcpy(snap.hand_placement, "CENTER");
@@ -55,6 +71,10 @@ static sensor_raw_sample_t base_raw_sample(void)
         .hall_raw = 1850,
         .hall_read_valid = true,
         .pressure_saturation_mask = 0u,
+        .pressure_stable_mask = 0x07u,
+        .pressure_decision_usable_mask = 0x07u,
+        .pressure_last_stable_available = true,
+        .pressure_using_last_stable = false,
         .timestamp_ms = 124700,
     };
 }
@@ -78,7 +98,7 @@ static sensor_converted_sample_t base_converted_sample(void)
 TEST_CASE("Session telemetry payload keeps legacy fields and adds converted fields", "[telemetry]")
 {
     cpr_metrics_snapshot_t snap = base_snapshot();
-    char payload[1792];
+    char payload[2304];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "M-DEV", "S-001", payload, sizeof(payload)));
@@ -108,6 +128,24 @@ TEST_CASE("Session telemetry payload keeps legacy fields and adds converted fiel
     assert_contains(payload, "\"pressure_kpa_valid\":true");
     assert_contains(payload, "\"hall_mm_valid\":true");
     assert_contains(payload, "\"pressure_saturation_mask\":0");
+    assert_contains(payload, "\"pressure_acquisition_active\":true");
+    assert_contains(payload, "\"pressure_frame_fresh\":true");
+    assert_contains(payload, "\"pressure_temporarily_degraded\":false");
+    assert_contains(payload, "\"pressure_current_valid_mask\":7");
+    assert_contains(payload, "\"pressure_invalid_mask\":0");
+    assert_contains(payload, "\"pressure_upper_limit_mask\":0");
+    assert_contains(payload, "\"pressure_below_contact_mask\":0");
+    assert_contains(payload, "\"pressure_out_of_range_mask\":0");
+    assert_contains(payload, "\"pressure_stable_mask\":7");
+    assert_contains(payload, "\"pressure_decision_usable_mask\":7");
+    assert_contains(payload, "\"pressure_last_stable_available\":true");
+    assert_contains(payload, "\"pressure_last_accepted_available\":true");
+    assert_contains(payload, "\"pressure_last_accepted_age_ms\":42");
+    assert_contains(payload, "\"pressure_using_last_stable\":false");
+    assert_contains(payload, "\"pressure_evidence_sufficient\":true");
+    assert_contains(payload, "\"pressure_lock_reason\":\"NONE\"");
+    assert_contains(payload, "\"accepted_pressure_samples\":4");
+    assert_contains(payload, "\"pressure_accepted_frame_count\":4");
     assert_contains(payload, "\"pressure_balance_reliable\":true");
 }
 
@@ -118,7 +156,10 @@ TEST_CASE("Session telemetry payload reports one saturated pressure channel", "[
     snap.pressure_2_kpa_valid = false;
     snap.pressure_kpa_valid = false;
     snap.pressure_saturation_mask = 0x04u;
-    char payload[1792];
+    snap.pressure_upper_limit_mask = 0x02u;
+    snap.pressure_lock_reason = CPR_PRESSURE_LOCK_SATURATION;
+    snap.hand_placement_locked = true;
+    char payload[2304];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "M-DEV", "S-001", payload, sizeof(payload)));
@@ -129,6 +170,32 @@ TEST_CASE("Session telemetry payload reports one saturated pressure channel", "[
     assert_contains(payload, "\"pressure_2_kpa_valid\":false");
     assert_contains(payload, "\"pressure_kpa_valid\":false");
     assert_contains(payload, "\"pressure_saturation_mask\":4");
+    assert_contains(payload, "\"pressure_upper_limit_mask\":2");
+    assert_contains(payload, "\"pressure_lock_reason\":\"SATURATION\"");
+}
+
+TEST_CASE("Session telemetry distinguishes current invalid from accepted evidence",
+          "[telemetry]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    snap.pressure_frame_fresh = false;
+    snap.pressure_current_valid_mask = 0;
+    snap.pressure_invalid_mask = 0x06u;
+    snap.pressure_last_accepted_available = true;
+    snap.pressure_last_accepted_age_ms = 86;
+    snap.pressure_using_last_stable = true;
+    char payload[2304];
+
+    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+                                  &snap, "M-DEV", "S-001", payload,
+                                  sizeof(payload)));
+
+    assert_contains(payload, "\"pressure_frame_fresh\":false");
+    assert_contains(payload, "\"pressure_current_valid_mask\":0");
+    assert_contains(payload, "\"pressure_invalid_mask\":6");
+    assert_contains(payload, "\"pressure_last_accepted_available\":true");
+    assert_contains(payload, "\"pressure_last_accepted_age_ms\":86");
+    assert_contains(payload, "\"pressure_using_last_stable\":true");
 }
 
 TEST_CASE("Session telemetry payload zeros invalid Hall depth without NaN", "[telemetry]")
@@ -136,7 +203,7 @@ TEST_CASE("Session telemetry payload zeros invalid Hall depth without NaN", "[te
     cpr_metrics_snapshot_t snap = base_snapshot();
     snap.depth_mm = 46.0f;
     snap.hall_mm_valid = false;
-    char payload[1792];
+    char payload[2304];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "M-DEV", "S-001", payload, sizeof(payload)));
@@ -245,6 +312,10 @@ TEST_CASE("Sensor stream payload contains diagnostics fields without session sco
     assert_contains(payload, "\"pressure_profile_valid\":true");
     assert_contains(payload, "\"hall_profile_valid\":true");
     assert_contains(payload, "\"pressure_saturation_mask\":0");
+    assert_contains(payload, "\"pressure_stable_mask\":7");
+    assert_contains(payload, "\"pressure_decision_usable_mask\":7");
+    assert_contains(payload, "\"pressure_last_stable_available\":true");
+    assert_contains(payload, "\"pressure_using_last_stable\":false");
     assert_contains(payload, "\"interval_ms\":200");
     assert_contains(payload, "\"ts_ms\":124700");
     assert_not_contains(payload, "session_id");

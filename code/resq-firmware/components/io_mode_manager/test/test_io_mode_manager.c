@@ -41,18 +41,23 @@ TEST_CASE("USB mode rejects HX710 access before GPIO setup", "[io_mode][hx710]")
 {
     io_mode_manager_set_for_test(RESQ_IO_MODE_USB);
 
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
-                      hx710_init(GPIO_NUM_19, GPIO_NUM_1));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
-                      hx710_hold_sck_low(GPIO_NUM_19));
+    esp_err_t prepare_result =
+        hx710_sck_acquire_for_sensor_mode(GPIO_NUM_19);
+    esp_err_t init_result = hx710_init(GPIO_NUM_19, GPIO_NUM_1);
+    esp_err_t hold_result = hx710_hold_sck_low(GPIO_NUM_19);
 
     int32_t out0 = 0;
     int32_t out1 = 0;
     int32_t out2 = 0;
     uint8_t valid_mask = 0xff;
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
-                      hx710_read_3_shared_sck_valid(
-                          GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3, GPIO_NUM_10,
-                          &out0, &out1, &out2, &valid_mask));
+    esp_err_t read_result = hx710_read_3_shared_sck_valid(
+        GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3, GPIO_NUM_10,
+        &out0, &out1, &out2, &valid_mask);
+    io_mode_manager_set_for_test(RESQ_IO_MODE_SENSOR);
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, prepare_result);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, init_result);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hold_result);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, read_result);
     TEST_ASSERT_EQUAL_UINT8(0, valid_mask);
 }

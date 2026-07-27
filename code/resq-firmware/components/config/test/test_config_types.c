@@ -55,7 +55,7 @@ TEST_CASE("Calibration defaults are safe and explicit", "[config]") {
   TEST_ASSERT_FALSE(config.calibrated);
   TEST_ASSERT_EQUAL(25, config.pressure_balance_allowed_pct);
   TEST_ASSERT_EQUAL(CALIBRATION_PRESSURE_OPTIONAL, config.pressure_mode);
-  TEST_ASSERT_TRUE(config.pressure_valid);
+  TEST_ASSERT_FALSE(config.pressure_valid);
   TEST_ASSERT_FALSE(config.pressure_degraded);
   TEST_ASSERT_FALSE(config.using_last_stable_pressure);
   TEST_ASSERT_FALSE(config.hall_valid);

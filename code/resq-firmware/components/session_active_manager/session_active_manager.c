@@ -21,6 +21,7 @@
 #include "hx710.h"
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
+#include "sensor_conversion.h"
 #include "sensor_owner.h"
 #include "session_manager.h"
 #include "system_button_manager.h"
@@ -29,16 +30,34 @@
 
 static const char *TAG = "session_active_mgr";
 
-static TaskHandle_t s_sensor_task = NULL;
+static TaskHandle_t s_hall_task = NULL;
+static TaskHandle_t s_pressure_task = NULL;
 static volatile bool s_sensor_task_run = false;
+static volatile bool s_pressure_task_active = false;
 static SemaphoreHandle_t s_mutex = NULL;
+static SemaphoreHandle_t s_pressure_snapshot_mutex = NULL;
 static EventGroupHandle_t s_sensor_task_events = NULL;
+static session_pressure_snapshot_t s_pressure_snapshot;
+static uint32_t s_pressure_snapshot_sequence = 0;
+static bool s_sensor_owner_held = false;
 
-#define SENSOR_TASK_STARTED_BIT BIT0
-#define SENSOR_TASK_STOPPED_BIT BIT1
-#define SENSOR_TASK_FAILED_BIT BIT2
+#define HALL_TASK_STARTED_BIT BIT0
+#define HALL_TASK_STOPPED_BIT BIT1
+#define HALL_TASK_FAILED_BIT BIT2
+#define PRESSURE_TASK_STARTED_BIT BIT3
+#define PRESSURE_TASK_STOPPED_BIT BIT4
+#define PRESSURE_TASK_FAILED_BIT BIT5
+#define SENSOR_TASK_STARTED_BITS \
+  (HALL_TASK_STARTED_BIT | PRESSURE_TASK_STARTED_BIT)
+#define SENSOR_TASK_STOPPED_BITS \
+  (HALL_TASK_STOPPED_BIT | PRESSURE_TASK_STOPPED_BIT)
+#define SENSOR_TASK_FAILED_BITS \
+  (HALL_TASK_FAILED_BIT | PRESSURE_TASK_FAILED_BIT)
 #define SENSOR_TASK_START_TIMEOUT_MS 1500
 #define SENSOR_TASK_STOP_TIMEOUT_MS 3000
+#define SESSION_SENSOR_INTERVAL_MS 20
+#define SESSION_PRESSURE_DEGRADED_AFTER_INVALID 5u
+#define SESSION_PRESSURE_WARNING_REPEAT 10u
 
 #define CONNECTIVITY_RECOVERY_TIMEOUT_MS 30000
 #define CONNECTIVITY_RETRY_INTERVAL_MS 3000
@@ -55,17 +74,75 @@ typedef struct {
 static pending_interruption_t s_pending_interruption;
 static esp_err_t session_sensor_task_stop(void);
 
-static void sensor_task_finish(bool failed) {
-  sensor_owner_release(SENSOR_OWNER_SESSION);
+esp_err_t session_pressure_snapshot_store(
+    const session_pressure_snapshot_t *snapshot) {
+  if (snapshot == NULL || s_pressure_snapshot_mutex == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (xSemaphoreTake(s_pressure_snapshot_mutex, pdMS_TO_TICKS(20)) !=
+      pdTRUE) {
+    return ESP_ERR_TIMEOUT;
+  }
+
+  s_pressure_snapshot_sequence++;
+  if (s_pressure_snapshot_sequence == 0) {
+    s_pressure_snapshot_sequence = 1;
+  }
+  s_pressure_snapshot = *snapshot;
+  s_pressure_snapshot.sequence = s_pressure_snapshot_sequence;
+  s_pressure_snapshot.available = true;
+  xSemaphoreGive(s_pressure_snapshot_mutex);
+  return ESP_OK;
+}
+
+esp_err_t session_pressure_snapshot_get(
+    session_pressure_snapshot_t *out_snapshot) {
+  if (out_snapshot == NULL || s_pressure_snapshot_mutex == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  /*
+   * The Hall task must never wait here. The writer holds this mutex only for
+   * one fixed-size copy, so a miss simply makes pressure invalid for this
+   * Hall iteration.
+   */
+  if (xSemaphoreTake(s_pressure_snapshot_mutex, 0) != pdTRUE) {
+    return ESP_ERR_TIMEOUT;
+  }
+  *out_snapshot = s_pressure_snapshot;
+  xSemaphoreGive(s_pressure_snapshot_mutex);
+  return ESP_OK;
+}
+
+bool session_pressure_snapshot_is_fresh(
+    const session_pressure_snapshot_t *snapshot,
+    uint32_t last_consumed_sequence,
+    int64_t now_ms,
+    int64_t max_age_ms) {
+  if (snapshot == NULL || !snapshot->available ||
+      snapshot->sequence == 0 ||
+      snapshot->sequence == last_consumed_sequence ||
+      max_age_ms < 0 ||
+      now_ms < snapshot->timestamp_ms) {
+    return false;
+  }
+  return now_ms - snapshot->timestamp_ms <= max_age_ms;
+}
+
+static void session_task_finish(TaskHandle_t *task_slot,
+                                EventBits_t stopped_bit,
+                                EventBits_t failed_bit,
+                                bool failed) {
+  if (failed) {
+    s_sensor_task_run = false;
+  }
 
   xSemaphoreTake(s_mutex, portMAX_DELAY);
-  s_sensor_task_run = false;
-  s_sensor_task = NULL;
+  *task_slot = NULL;
   xSemaphoreGive(s_mutex);
 
-  EventBits_t bits = SENSOR_TASK_STOPPED_BIT;
+  EventBits_t bits = stopped_bit;
   if (failed) {
-    bits |= SENSOR_TASK_FAILED_BIT;
+    bits |= failed_bit;
   }
   xEventGroupSetBits(s_sensor_task_events, bits);
 }
@@ -76,47 +153,19 @@ static void session_sensor_task(void *arg) {
   hall_sensor_t local_hall = {0};
   if (hall_sensor_init(&local_hall, BOARD_HALL_ADC_CHAN) != ESP_OK) {
     ESP_LOGE(TAG, "hall_sensor_init failed");
-    sensor_task_finish(true);
+    session_task_finish(&s_hall_task, HALL_TASK_STOPPED_BIT,
+                        HALL_TASK_FAILED_BIT, true);
     vTaskDelete(NULL);
     return;
   }
 
-  if (hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT) != ESP_OK ||
-      hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_1_DOUT) != ESP_OK ||
-      hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_2_DOUT) != ESP_OK) {
-    ESP_LOGE(TAG, "HX710 sensor initialization failed");
-    sensor_task_finish(true);
-    vTaskDelete(NULL);
-    return;
-  }
-
-  xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STARTED_BIT);
+  xEventGroupSetBits(s_sensor_task_events, HALL_TASK_STARTED_BIT);
+  TickType_t last_wake = xTaskGetTickCount();
+  uint32_t last_consumed_pressure_sequence = 0;
 
   while (s_sensor_task_run) {
     cpr_sensor_sample_t sample = {0};
     sample.ts_ms = esp_timer_get_time() / 1000;
-
-    {
-      int32_t p0 = 0, p1 = 0, p2 = 0;
-      uint8_t valid_mask = 0;
-      esp_err_t pressure_err = hx710_read_3_shared_sck_valid(
-          BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
-          BOARD_HX710_2_DOUT, &p0, &p1, &p2, &valid_mask);
-
-      sample.pressure_0_raw = p0;
-      sample.pressure_1_raw = p1;
-      sample.pressure_2_raw = p2;
-      if ((valid_mask & HX710_VALID_CHANNEL_0) == 0)
-        sample.quality_flags |= CPR_SAMPLE_PRESSURE_0_READ_FAILED;
-      if ((valid_mask & HX710_VALID_CHANNEL_1) == 0)
-        sample.quality_flags |= CPR_SAMPLE_PRESSURE_1_READ_FAILED;
-      if ((valid_mask & HX710_VALID_CHANNEL_2) == 0)
-        sample.quality_flags |= CPR_SAMPLE_PRESSURE_2_READ_FAILED;
-      if (pressure_err != ESP_OK || valid_mask != HX710_VALID_CHANNEL_ALL) {
-        ESP_LOGW(TAG, "HX710 read partial: err=%s valid_mask=0x%02x",
-                 esp_err_to_name(pressure_err), valid_mask);
-      }
-    }
 
     int hall_raw = 0;
     if (hall_sensor_read_raw(&local_hall, &hall_raw) == ESP_OK) {
@@ -125,12 +174,160 @@ static void session_sensor_task(void *arg) {
       sample.quality_flags |= CPR_SAMPLE_HALL_READ_FAILED;
     }
 
+    sample.pressure_acquisition_active = s_pressure_task_active;
+    session_pressure_snapshot_t pressure = {0};
+    esp_err_t snapshot_err =
+        session_pressure_snapshot_get(&pressure);
+    if (snapshot_err == ESP_OK) {
+      sample.pressure_temporarily_degraded =
+          pressure.temporarily_degraded;
+    }
+    if (snapshot_err == ESP_OK &&
+        session_pressure_snapshot_is_fresh(
+            &pressure, last_consumed_pressure_sequence, sample.ts_ms,
+            SESSION_PRESSURE_SNAPSHOT_MAX_AGE_MS)) {
+      last_consumed_pressure_sequence = pressure.sequence;
+      sample.pressure_frame_fresh = true;
+      sample.pressure_timestamp_ms = pressure.timestamp_ms;
+      sample.pressure_sequence = pressure.sequence;
+      sample.pressure_valid_mask = pressure.valid_mask;
+      sample.pressure_saturation_mask = pressure.saturation_mask;
+      if ((pressure.valid_mask & HX710_VALID_CHANNEL_0) != 0) {
+        sample.pressure_0_raw = pressure.raw[0];
+      } else {
+        sample.quality_flags |= CPR_SAMPLE_PRESSURE_0_READ_FAILED;
+      }
+      if ((pressure.valid_mask & HX710_VALID_CHANNEL_1) != 0) {
+        sample.pressure_1_raw = pressure.raw[1];
+      } else {
+        sample.quality_flags |= CPR_SAMPLE_PRESSURE_1_READ_FAILED;
+      }
+      if ((pressure.valid_mask & HX710_VALID_CHANNEL_2) != 0) {
+        sample.pressure_2_raw = pressure.raw[2];
+      } else {
+        sample.quality_flags |= CPR_SAMPLE_PRESSURE_2_READ_FAILED;
+      }
+    } else {
+      sample.quality_flags |= CPR_SAMPLE_PRESSURE_READ_FAILED;
+    }
+
     cpr_metrics_update(&sample);
 
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+    vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(SESSION_SENSOR_INTERVAL_MS));
   }
 
-  sensor_task_finish(false);
+  session_task_finish(&s_hall_task, HALL_TASK_STOPPED_BIT,
+                      HALL_TASK_FAILED_BIT, false);
+  vTaskDelete(NULL);
+}
+
+static uint8_t session_pressure_saturation_mask(
+    const hx710_group_result_t *group) {
+  uint8_t mask = 0;
+  for (size_t channel = 0; channel < SESSION_PRESSURE_CHANNEL_COUNT;
+       ++channel) {
+    uint8_t bit = (uint8_t)(1u << channel);
+    if ((group->valid_mask & bit) != 0 &&
+        sensor_conversion_pressure_raw_is_saturated(group->raw[channel])) {
+      mask |= bit;
+    }
+  }
+  return mask;
+}
+
+static void session_pressure_task(void *arg) {
+  (void)arg;
+
+  if (hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT) != ESP_OK ||
+      hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_1_DOUT) != ESP_OK ||
+      hx710_init(BOARD_HX710_SHARED_SCK, BOARD_HX710_2_DOUT) != ESP_OK) {
+    ESP_LOGE(TAG, "HX710 sensor initialization failed");
+    session_task_finish(&s_pressure_task, PRESSURE_TASK_STOPPED_BIT,
+                        PRESSURE_TASK_FAILED_BIT, true);
+    vTaskDelete(NULL);
+    return;
+  }
+
+  unsigned consecutive_invalid = 0;
+  unsigned repeated_warning_count = 0;
+  bool degraded = false;
+  bool had_invalid = false;
+  bool available = false;
+  s_pressure_task_active = true;
+  xEventGroupSetBits(s_sensor_task_events, PRESSURE_TASK_STARTED_BIT);
+
+  while (s_sensor_task_run) {
+    hx710_group_result_t group = {0};
+    esp_err_t read_err = hx710_read_group_shared_sck(
+        BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
+        BOARD_HX710_2_DOUT, &group);
+
+    session_pressure_snapshot_t snapshot = {
+        .raw = {group.raw[0], group.raw[1], group.raw[2]},
+        .valid_mask = group.valid_mask,
+        .saturation_mask = session_pressure_saturation_mask(&group),
+        .read_error = read_err,
+        .timestamp_ms = esp_timer_get_time() / 1000,
+        .available = true,
+    };
+    if (read_err == ESP_OK &&
+        group.valid_mask == HX710_VALID_CHANNEL_ALL) {
+      consecutive_invalid = 0;
+      repeated_warning_count = 0;
+      if (degraded || had_invalid) {
+        degraded = false;
+        had_invalid = false;
+        ESP_LOGI(TAG, "SESSION_PRESSURE_RECOVERED valid_mask=0x%02x",
+                 group.valid_mask);
+      } else if (!available) {
+        ESP_LOGI(TAG, "SESSION_PRESSURE_AVAILABLE valid_mask=0x%02x",
+                 group.valid_mask);
+      }
+      available = true;
+      ESP_LOGD(TAG, "HX710 session pressure valid=0x%02x",
+               group.valid_mask);
+    } else {
+      available = false;
+      had_invalid = true;
+      consecutive_invalid++;
+      repeated_warning_count++;
+      if (repeated_warning_count == 1 ||
+          repeated_warning_count % SESSION_PRESSURE_WARNING_REPEAT == 0) {
+        ESP_LOGW(
+            TAG,
+            "HX710_SESSION_READ: err=%s initial=0x%02x ready=0x%02x "
+            "valid=0x%02x not_ready=0x%02x stuck_high=0x%02x "
+            "stuck_low=0x%02x post_invalid=0x%02x "
+            "next_ready_warning=0x%02x pulses=%u ready_wait_ms=%lu "
+            "consecutive=%u",
+            esp_err_to_name(read_err), group.initial_ready_mask,
+            group.ready_mask, group.valid_mask, group.not_ready_mask,
+            group.stuck_high_mask, group.stuck_low_mask,
+            group.post_read_invalid_mask,
+            group.early_next_ready_warning_mask, group.pulse_count,
+            (unsigned long)group.ready_wait_ms, consecutive_invalid);
+      }
+      if (!degraded &&
+          consecutive_invalid >=
+              SESSION_PRESSURE_DEGRADED_AFTER_INVALID) {
+        degraded = true;
+        ESP_LOGI(TAG,
+                 "SESSION_PRESSURE_DEGRADED consecutive_invalid=%u; "
+                 "acquisition continues",
+                 consecutive_invalid);
+      } else if (consecutive_invalid == 1) {
+        ESP_LOGI(TAG, "SESSION_PRESSURE_TEMPORARILY_INVALID");
+      }
+    }
+    snapshot.temporarily_degraded = degraded;
+    if (session_pressure_snapshot_store(&snapshot) != ESP_OK) {
+      ESP_LOGW(TAG, "Session pressure snapshot store missed");
+    }
+  }
+
+  s_pressure_task_active = false;
+  session_task_finish(&s_pressure_task, PRESSURE_TASK_STOPPED_BIT,
+                      PRESSURE_TASK_FAILED_BIT, false);
   vTaskDelete(NULL);
 }
 
@@ -143,7 +340,7 @@ static esp_err_t session_sensor_task_start(void) {
     return ESP_ERR_TIMEOUT;
   }
 
-  if (s_sensor_task != NULL) {
+  if (s_hall_task != NULL || s_pressure_task != NULL) {
     esp_err_t result = s_sensor_task_run ? ESP_OK : ESP_ERR_INVALID_STATE;
     xSemaphoreGive(s_mutex);
     return result;
@@ -154,34 +351,64 @@ static esp_err_t session_sensor_task_start(void) {
     xSemaphoreGive(s_mutex);
     return owner_err;
   }
+  s_sensor_owner_held = true;
 
-  xEventGroupClearBits(s_sensor_task_events, SENSOR_TASK_STARTED_BIT |
-                                                 SENSOR_TASK_STOPPED_BIT |
-                                                 SENSOR_TASK_FAILED_BIT);
+  xEventGroupClearBits(s_sensor_task_events, SENSOR_TASK_STARTED_BITS |
+                                                 SENSOR_TASK_STOPPED_BITS |
+                                                 SENSOR_TASK_FAILED_BITS);
+  if (xSemaphoreTake(s_pressure_snapshot_mutex, pdMS_TO_TICKS(20)) ==
+      pdTRUE) {
+    memset(&s_pressure_snapshot, 0, sizeof(s_pressure_snapshot));
+    s_pressure_snapshot_sequence = 0;
+    xSemaphoreGive(s_pressure_snapshot_mutex);
+  }
   s_sensor_task_run = true;
+  s_pressure_task_active = false;
 
   BaseType_t ok = xTaskCreate(session_sensor_task, "session_sensor", 4096, NULL,
-                              6, &s_sensor_task);
+                              7, &s_hall_task);
 
   if (ok != pdPASS) {
     s_sensor_task_run = false;
+    s_hall_task = NULL;
+    xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STOPPED_BITS);
     sensor_owner_release(SENSOR_OWNER_SESSION);
+    s_sensor_owner_held = false;
     xSemaphoreGive(s_mutex);
-    xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STOPPED_BIT);
     return ESP_FAIL;
   }
 
+  ok = xTaskCreate(session_pressure_task, "session_pressure", 4096, NULL,
+                   6, &s_pressure_task);
+  if (ok != pdPASS) {
+    s_sensor_task_run = false;
+    s_pressure_task = NULL;
+    xEventGroupSetBits(s_sensor_task_events, PRESSURE_TASK_STOPPED_BIT);
+    xTaskNotifyGive(s_hall_task);
+    xSemaphoreGive(s_mutex);
+    (void)session_sensor_task_stop();
+    return ESP_FAIL;
+  }
   xSemaphoreGive(s_mutex);
 
-  EventBits_t bits = xEventGroupWaitBits(
-      s_sensor_task_events, SENSOR_TASK_STARTED_BIT | SENSOR_TASK_FAILED_BIT,
-      pdFALSE, pdFALSE, pdMS_TO_TICKS(SENSOR_TASK_START_TIMEOUT_MS));
+  TickType_t deadline =
+      xTaskGetTickCount() + pdMS_TO_TICKS(SENSOR_TASK_START_TIMEOUT_MS);
+  EventBits_t bits = 0;
+  while (xTaskGetTickCount() < deadline) {
+    bits = xEventGroupGetBits(s_sensor_task_events);
+    if ((bits & SENSOR_TASK_FAILED_BITS) != 0 ||
+        (bits & SENSOR_TASK_STARTED_BITS) == SENSOR_TASK_STARTED_BITS) {
+      break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
 
-  if (bits & SENSOR_TASK_FAILED_BIT) {
+  if ((bits & SENSOR_TASK_FAILED_BITS) != 0) {
+    (void)session_sensor_task_stop();
     return ESP_FAIL;
   }
 
-  if ((bits & SENSOR_TASK_STARTED_BIT) == 0) {
+  if ((bits & SENSOR_TASK_STARTED_BITS) != SENSOR_TASK_STARTED_BITS) {
     /* The task owns cleanup once it has been created. Do not advertise the
      * sensors as free until TASK_STOPPED confirms that it has exited. */
     esp_err_t stop_err = session_sensor_task_stop();
@@ -205,22 +432,45 @@ static esp_err_t session_sensor_task_stop(void) {
     return ESP_ERR_TIMEOUT;
   }
 
-  if (s_sensor_task == NULL) {
+  if (s_hall_task == NULL && s_pressure_task == NULL) {
     s_sensor_task_run = false;
+    bool release_owner = s_sensor_owner_held;
+    s_sensor_owner_held = false;
     xSemaphoreGive(s_mutex);
+    if (release_owner) {
+      sensor_owner_release(SENSOR_OWNER_SESSION);
+    }
     return ESP_OK;
   }
 
   s_sensor_task_run = false;
-  TaskHandle_t task = s_sensor_task;
-  xTaskNotifyGive(task);
+  TaskHandle_t hall_task = s_hall_task;
+  TaskHandle_t pressure_task = s_pressure_task;
+  bool release_owner = s_sensor_owner_held;
+  s_sensor_owner_held = false;
+  if (hall_task != NULL) {
+    xTaskNotifyGive(hall_task);
+  }
+  if (pressure_task != NULL) {
+    xTaskNotifyGive(pressure_task);
+  }
   xSemaphoreGive(s_mutex);
 
   EventBits_t bits = xEventGroupWaitBits(
-      s_sensor_task_events, SENSOR_TASK_STOPPED_BIT, pdFALSE, pdTRUE,
+      s_sensor_task_events, SENSOR_TASK_STOPPED_BITS, pdFALSE, pdTRUE,
       pdMS_TO_TICKS(SENSOR_TASK_STOP_TIMEOUT_MS));
 
-  return (bits & SENSOR_TASK_STOPPED_BIT) ? ESP_OK : ESP_ERR_TIMEOUT;
+  if ((bits & SENSOR_TASK_STOPPED_BITS) != SENSOR_TASK_STOPPED_BITS) {
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+      s_sensor_owner_held = release_owner;
+      xSemaphoreGive(s_mutex);
+    }
+    return ESP_ERR_TIMEOUT;
+  }
+  if (release_owner) {
+    sensor_owner_release(SENSOR_OWNER_SESSION);
+  }
+  return ESP_OK;
 }
 
 static esp_err_t stop_runtime_components(cpr_metrics_snapshot_t *out_snapshot) {
@@ -262,7 +512,7 @@ publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
     return err;
   }
 
-  char payload[1280];
+  char payload[2048];
   int written = snprintf(
       payload, sizeof(payload),
       "{"
@@ -283,7 +533,25 @@ publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
       "\"pressure_2_kpa_valid\":%s,"
       "\"pressure_kpa_valid\":%s,"
       "\"hall_mm_valid\":%s,"
+      "\"pressure_acquisition_active\":%s,"
+      "\"pressure_frame_fresh\":%s,"
+      "\"pressure_temporarily_degraded\":%s,"
+      "\"pressure_current_valid_mask\":%u,"
+      "\"pressure_invalid_mask\":%u,"
       "\"pressure_saturation_mask\":%u,"
+      "\"pressure_upper_limit_mask\":%u,"
+      "\"pressure_below_contact_mask\":%u,"
+      "\"pressure_stable_mask\":%u,"
+      "\"pressure_decision_usable_mask\":%u,"
+      "\"pressure_last_stable_available\":%s,"
+      "\"pressure_last_accepted_available\":%s,"
+      "\"pressure_last_accepted_age_ms\":%lld,"
+      "\"pressure_using_last_stable\":%s,"
+      "\"pressure_evidence_sufficient\":%s,"
+      "\"hand_placement_locked\":%s,"
+      "\"pressure_lock_reason\":\"%s\","
+      "\"pressure_became_unusable\":%s,"
+      "\"accepted_pressure_samples\":%u,"
       "\"sensor_quality_flags\":%u,"
       "\"missed_pressure_samples\":%d,"
       "\"missed_hall_samples\":%d,"
@@ -302,7 +570,25 @@ publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
       snap.pressure_2_kpa_valid ? "true" : "false",
       snap.pressure_kpa_valid ? "true" : "false",
       snap.hall_mm_valid ? "true" : "false",
+      snap.pressure_acquisition_active ? "true" : "false",
+      snap.pressure_frame_fresh ? "true" : "false",
+      snap.pressure_temporarily_degraded ? "true" : "false",
+      (unsigned int)snap.pressure_current_valid_mask,
+      (unsigned int)snap.pressure_invalid_mask,
       (unsigned int)snap.pressure_saturation_mask,
+      (unsigned int)snap.pressure_upper_limit_mask,
+      (unsigned int)snap.pressure_below_contact_mask,
+      (unsigned int)snap.pressure_stable_mask,
+      (unsigned int)snap.pressure_decision_usable_mask,
+      snap.pressure_last_stable_available ? "true" : "false",
+      snap.pressure_last_accepted_available ? "true" : "false",
+      (long long)snap.pressure_last_accepted_age_ms,
+      snap.pressure_using_last_stable ? "true" : "false",
+      snap.pressure_evidence_sufficient ? "true" : "false",
+      snap.hand_placement_locked ? "true" : "false",
+      cpr_pressure_lock_reason_to_string(snap.pressure_lock_reason),
+      snap.pressure_became_unusable ? "true" : "false",
+      snap.accepted_pressure_samples,
       (unsigned int)snap.sensor_quality_flags, snap.missed_pressure_samples,
       snap.missed_hall_samples, snap.flags, (long long)snap.ts_ms);
 
@@ -341,7 +627,8 @@ esp_err_t session_active_manager_init(void) {
     return owner_err;
   }
 
-  bool first_init = s_mutex == NULL && s_sensor_task_events == NULL;
+  bool first_init = s_mutex == NULL && s_sensor_task_events == NULL &&
+                    s_pressure_snapshot_mutex == NULL;
 
   if (s_mutex == NULL) {
     s_mutex = xSemaphoreCreateMutex();
@@ -355,11 +642,22 @@ esp_err_t session_active_manager_init(void) {
       return ESP_ERR_NO_MEM;
   }
 
+  if (s_pressure_snapshot_mutex == NULL) {
+    s_pressure_snapshot_mutex = xSemaphoreCreateMutex();
+    if (s_pressure_snapshot_mutex == NULL)
+      return ESP_ERR_NO_MEM;
+  }
+
   if (first_init) {
     s_sensor_task_run = false;
-    s_sensor_task = NULL;
+    s_pressure_task_active = false;
+    s_hall_task = NULL;
+    s_pressure_task = NULL;
+    s_sensor_owner_held = false;
+    memset(&s_pressure_snapshot, 0, sizeof(s_pressure_snapshot));
+    s_pressure_snapshot_sequence = 0;
     memset(&s_pending_interruption, 0, sizeof(s_pending_interruption));
-    xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STOPPED_BIT);
+    xEventGroupSetBits(s_sensor_task_events, SENSOR_TASK_STOPPED_BITS);
   }
 
   return ESP_OK;
@@ -912,7 +1210,8 @@ bool session_active_manager_is_sensor_running(void) {
     return false;
   }
 
-  running = s_sensor_task_run && s_sensor_task != NULL;
+  running = s_sensor_task_run && s_hall_task != NULL &&
+            s_pressure_task != NULL && s_pressure_task_active;
   xSemaphoreGive(s_mutex);
   return running;
 }

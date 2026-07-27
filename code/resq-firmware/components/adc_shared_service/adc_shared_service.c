@@ -56,7 +56,7 @@ esp_err_t adc_shared_service_init(void)
     }
 
     adc_oneshot_unit_init_cfg_t init_config = {
-        .unit_id = ADC_UNIT_1,
+        .unit_id = BOARD_HALL_ADC_UNIT,
     };
 
     esp_err_t err = adc_oneshot_new_unit(&init_config, &s_adc_handle);

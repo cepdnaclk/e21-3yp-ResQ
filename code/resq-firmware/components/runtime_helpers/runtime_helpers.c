@@ -431,9 +431,9 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
         return ESP_ERR_INVALID_STATE;
     }
 
-    int32_t pressure_0_raw = 0;
-    int32_t pressure_1_raw = 0;
-    int32_t pressure_2_raw = 0;
+    int32_t pressure_0_raw = HX710_ERROR_TIMEOUT;
+    int32_t pressure_1_raw = HX710_ERROR_TIMEOUT;
+    int32_t pressure_2_raw = HX710_ERROR_TIMEOUT;
 
     uint8_t pressure_valid_mask = 0;
     esp_err_t perr = hx710_read_3_shared_sck_valid(

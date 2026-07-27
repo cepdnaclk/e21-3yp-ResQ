@@ -10,7 +10,9 @@ set(TEST_COMPONENTS
     "runtime_helpers"
     "runtime_identity"
     "session_manager"
+    "session_active_manager"
     "cpr_metrics"
+    "pressure_quality_filter"
     "sensor_conversion"
     "sensor_owner"
     "telemetry_publisher"
@@ -19,6 +21,7 @@ set(TEST_COMPONENTS
     "calibration_fingerprint"
     "provisioning_manager"
     "backend_register_client"
+    "hx710"
     CACHE STRING "ResQ components under test"
     FORCE
 )
