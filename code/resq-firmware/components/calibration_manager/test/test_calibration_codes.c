@@ -291,7 +291,7 @@ TEST_CASE("Calibration degradation never disables physical pressure acquisition"
   TEST_ASSERT_TRUE(calibration_manager_pressure_acquisition_enabled(
       CALIBRATION_PRESSURE_OPTIONAL));
   TEST_ASSERT_TRUE(calibration_manager_pressure_acquisition_enabled(
-      CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE));
+      CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE_LEGACY));
   TEST_ASSERT_FALSE(calibration_manager_pressure_acquisition_enabled(
       CALIBRATION_HALL_ONLY));
 }

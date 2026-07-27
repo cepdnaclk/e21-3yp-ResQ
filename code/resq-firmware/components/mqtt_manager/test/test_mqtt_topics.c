@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 
 #include "mqtt_manager.h"
 #include "mqtt_topics.h"
@@ -96,4 +97,85 @@ TEST_CASE("MQTT oversized command is rejected without queueing", "[mqtt]") {
                         MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN, 0));
   TEST_ASSERT_EQUAL(ESP_ERR_TIMEOUT,
                     mqtt_manager_wait_for_command(&command, 0));
+}
+
+TEST_CASE("MQTT duplicate pending command is queued once", "[mqtt][dedup]") {
+  TEST_ASSERT_EQUAL(ESP_OK, mqtt_manager_init());
+  mqtt_manager_reset_command_cache_for_test();
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_NEW,
+      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+                                        "same-request"));
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_DUPLICATE_PENDING,
+      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+                                        "same-request"));
+}
+
+TEST_CASE("MQTT cache lock timeout never returns new", "[mqtt][dedup]") {
+  TEST_ASSERT_EQUAL(ESP_OK, mqtt_manager_init());
+  mqtt_manager_reset_command_cache_for_test();
+  TEST_ASSERT_EQUAL(
+      ESP_OK, mqtt_manager_set_cache_lock_failure_for_test(true));
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_BUSY,
+      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+                                        "lock-timeout"));
+  TEST_ASSERT_EQUAL(
+      ESP_OK, mqtt_manager_set_cache_lock_failure_for_test(false));
+}
+
+TEST_CASE("MQTT full cache does not evict pending commands",
+          "[mqtt][dedup]") {
+  TEST_ASSERT_EQUAL(ESP_OK, mqtt_manager_init());
+  mqtt_manager_reset_command_cache_for_test();
+  char request_id[24];
+  for (int i = 0; i < 8; ++i) {
+    snprintf(request_id, sizeof(request_id), "pending-%d", i);
+    TEST_ASSERT_EQUAL(
+        COMMAND_CACHE_NEW,
+        mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+                                          request_id));
+  }
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_BUSY,
+      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+                                        "pending-overflow"));
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_DUPLICATE_PENDING,
+      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+                                        "pending-0"));
+}
+
+TEST_CASE("MQTT same request ID on different topics remains distinct",
+          "[mqtt][dedup]") {
+  TEST_ASSERT_EQUAL(ESP_OK, mqtt_manager_init());
+  mqtt_manager_reset_command_cache_for_test();
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_NEW,
+      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+                                        "shared-id"));
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_NEW,
+      mqtt_manager_cache_check_for_test("resq/node/cmd/session/stop",
+                                        "shared-id"));
+}
+
+TEST_CASE("MQTT response completion updates matching cache entry",
+          "[mqtt][dedup]") {
+  const char *topic = "resq/node/cmd/session/start";
+  TEST_ASSERT_EQUAL(ESP_OK, mqtt_manager_init());
+  mqtt_manager_reset_command_cache_for_test();
+  TEST_ASSERT_EQUAL(COMMAND_CACHE_NEW,
+                    mqtt_manager_cache_check_for_test(topic, "complete-id"));
+  TEST_ASSERT_EQUAL(
+      ESP_OK, mqtt_manager_cache_command_response(
+                  topic, "complete-id", RESQ_SUFFIX_DEBUG, "{\"ok\":true}"));
+  TEST_ASSERT_EQUAL(
+      COMMAND_CACHE_DUPLICATE_COMPLETE,
+      mqtt_manager_cache_check_for_test(topic, "complete-id"));
+  TEST_ASSERT_EQUAL(
+      ESP_ERR_NOT_FOUND,
+      mqtt_manager_cache_command_response(
+          topic, "missing-id", RESQ_SUFFIX_DEBUG, "{\"ok\":true}"));
 }

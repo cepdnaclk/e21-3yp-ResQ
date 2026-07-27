@@ -8,6 +8,7 @@
 #include "calibration_codes.h"
 #include "esp_err.h"
 #include "resq_config_types.h"
+#include "sensor_runtime_status.h"
 #include "states.h"
 
 #ifdef __cplusplus
@@ -88,6 +89,10 @@ bool calibration_manager_is_ready(void);
  * @brief Copy latest calibration config.
  */
 esp_err_t calibration_manager_get_config(calibration_config_t *out_config);
+
+/** Copy the calibration task's runtime-only sensor-health snapshot. */
+esp_err_t calibration_manager_get_runtime_health(
+    sensor_runtime_health_t *out_health);
 
 /**
  * @brief Get the command_id associated with the currently running calibration.

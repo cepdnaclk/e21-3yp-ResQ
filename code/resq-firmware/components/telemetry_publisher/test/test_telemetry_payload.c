@@ -29,8 +29,6 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .pressure_balance_pct = 8.5f,
         .pressure_balance_reliable = true,
         .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
-        .pressure_valid = true,
-        .hall_valid = true,
         .pressure_0_kpa = 1.0f,
         .pressure_1_kpa = 2.0f,
         .pressure_2_kpa = 3.0f,
@@ -93,6 +91,17 @@ static sensor_converted_sample_t base_converted_sample(void)
         .pressure_saturation_mask = 0u,
         .timestamp_ms = 124700,
     };
+}
+
+TEST_CASE("Oversized telemetry payload fails without publishing",
+          "[telemetry][serialization]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    char payload[32] = {0};
+    TEST_ASSERT_EQUAL(
+        ESP_ERR_INVALID_SIZE,
+        telemetry_publisher_build_session_payload(
+            &snap, "resq-device", "session-1", payload, sizeof(payload)));
 }
 
 TEST_CASE("Session telemetry payload keeps legacy fields and adds converted fields", "[telemetry]")

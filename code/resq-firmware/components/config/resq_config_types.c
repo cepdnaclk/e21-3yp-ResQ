@@ -29,12 +29,7 @@ void calibration_config_set_defaults(calibration_config_t *config) {
   config->calibrated = false;
   config->hall_direction = 0;
   config->pressure_balance_allowed_pct = 25; /* default 25% */
-  config->pressure_mode = CALIBRATION_PRESSURE_OPTIONAL;
-  config->pressure_degraded = false;
-  config->using_last_stable_pressure = false;
-  /* Feature availability is not the same as a validated measurement. */
-  config->pressure_valid = false;
-  config->hall_valid = false;
+  config->pressure_policy = CALIBRATION_PRESSURE_OPTIONAL;
   config->pressure_0_kpa_per_count = 0.0f;
   config->pressure_1_kpa_per_count = 0.0f;
   config->pressure_2_kpa_per_count = 0.0f;
@@ -123,11 +118,15 @@ bool calibration_config_is_valid(const calibration_config_t *config) {
     valid = false;
   }
 
+  if (config->pressure_policy < CALIBRATION_PRESSURE_REQUIRED ||
+      config->pressure_policy > CALIBRATION_HALL_ONLY) {
+    valid = false;
+  }
+
   bool pressure_required =
-      config->pressure_mode == CALIBRATION_PRESSURE_REQUIRED;
+      config->pressure_policy == CALIBRATION_PRESSURE_REQUIRED;
   bool pressure_usable =
-      pressure_required || (config->pressure_valid &&
-                            config->pressure_mode != CALIBRATION_HALL_ONLY);
+      config->pressure_policy != CALIBRATION_HALL_ONLY;
 
   if (pressure_required &&
       (config->ref_pressure <= 0 || config->bladder_1_pressure <= 0 ||

@@ -56,8 +56,12 @@ typedef enum {
   CALIBRATION_PRESSURE_REQUIRED = 0,
   CALIBRATION_PRESSURE_OPTIONAL = 1,
   CALIBRATION_HALL_ONLY = 2,
-  CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE = 3
-} calibration_pressure_mode_t;
+  /* Accepted only while decoding version-1 calibration records. */
+  CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE_LEGACY = 3
+} calibration_pressure_policy_t;
+
+/* Compatibility name retained for existing command/telemetry APIs. */
+typedef calibration_pressure_policy_t calibration_pressure_mode_t;
 
 /* =========================================================
  * Calibration configuration
@@ -120,11 +124,11 @@ typedef struct {
   int32_t pressure_valid_threshold;
   int32_t pressure_balance_allowed_pct;
 
-  calibration_pressure_mode_t pressure_mode;
-  bool pressure_degraded;
-  bool using_last_stable_pressure;
-  bool pressure_valid;
-  bool hall_valid;
+  union {
+    calibration_pressure_policy_t pressure_policy;
+    /* Compatibility field name. Runtime fallback must never change it. */
+    calibration_pressure_policy_t pressure_mode;
+  };
 
   float full_depth_mm;
 
@@ -141,7 +145,10 @@ typedef struct {
   int32_t profile_version;
   char profile_hash[65];
 
-} calibration_config_t;
+} calibration_profile_t;
+
+/* Compatibility name retained while callers migrate to profile terminology. */
+typedef calibration_profile_t calibration_config_t;
 
 /**
  * @brief Reset network config to empty safe values.

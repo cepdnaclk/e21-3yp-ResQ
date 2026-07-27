@@ -14,6 +14,9 @@
 #include "esp_wifi.h"
 #include "esp_random.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 #include "config_store.h"
 
 /* =========================================================
@@ -35,18 +38,65 @@
 
 static const char *TAG = "provisioning_manager";
 
-static httpd_handle_t s_http_server = NULL;
-static esp_netif_t *s_ap_netif = NULL;
+typedef struct {
+    SemaphoreHandle_t mutex;
+    SemaphoreHandle_t lifecycle_mutex;
+    bool initialized;
+    provisioning_state_t state;
+    network_config_t pending_network_config;
+    network_config_t latest_network_config;
+    char pending_ack_id[PROVISIONING_ACK_ID_MAX_LEN];
+    uint32_t request_generation;
+    esp_err_t last_error;
+    httpd_handle_t http_server;
+    esp_netif_t *ap_netif;
+} provisioning_context_t;
 
-static bool s_initialized = false;
-static bool s_running = false;
-static bool s_saved_config = false;
+static provisioning_context_t s_context;
+static portMUX_TYPE s_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
-static network_config_t s_pending_network_config;
-static bool s_waiting_for_mobile_ack = false;
-static char s_pending_ack_id[PROVISIONING_ACK_ID_MAX_LEN];
+#if CONFIG_UNITY_ENABLE_IDF_TEST_RUNNER
+static esp_err_t s_test_save_result = ESP_OK;
+static bool s_test_save_override_enabled;
+#endif
 
-static network_config_t s_latest_network_config;
+static bool state_is_running(provisioning_state_t state)
+{
+    return state == PROVISIONING_STATE_RUNNING ||
+           state == PROVISIONING_STATE_WAITING_FOR_ACK ||
+           state == PROVISIONING_STATE_COMMITTING ||
+           state == PROVISIONING_STATE_SAVED;
+}
+
+static bool state_is_waiting(provisioning_state_t state)
+{
+    return state == PROVISIONING_STATE_WAITING_FOR_ACK;
+}
+
+static esp_err_t context_lock(void)
+{
+    if (!s_context.initialized || s_context.mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return xSemaphoreTake(s_context.mutex, portMAX_DELAY) == pdTRUE
+               ? ESP_OK
+               : ESP_ERR_TIMEOUT;
+}
+
+static void context_unlock(void)
+{
+    xSemaphoreGive(s_context.mutex);
+}
+
+static esp_err_t save_network_config(network_config_t *config)
+{
+#if CONFIG_UNITY_ENABLE_IDF_TEST_RUNNER
+    if (s_test_save_override_enabled) {
+        return s_test_save_result;
+    }
+#endif
+    return config_store_save_network(config);
+}
 
 /* =========================================================
  * Small helper functions
@@ -238,24 +288,6 @@ static esp_err_t json_get_string(cJSON *root,
     }
 
     return copy_string_safe(dest, dest_len, item->valuestring);
-}
-
-/**
- * @brief Extract int from JSON object.
- */
-static esp_err_t json_get_int(cJSON *root,
-                              const char *key,
-                              int32_t *out_value)
-{
-    cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
-
-    if (!cJSON_IsNumber(item) || out_value == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    *out_value = (int32_t)item->valuedouble;
-
-    return ESP_OK;
 }
 
 /**
@@ -628,6 +660,97 @@ const char *provisioning_manager_get_page_html(void)
     return s_provisioning_page_html;
 }
 
+static esp_err_t stage_provisioning_candidate(
+    const network_config_t *candidate,
+    const char *ack_id)
+{
+    if (candidate == NULL || ack_id == NULL || ack_id[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if (s_context.state == PROVISIONING_STATE_STOPPING ||
+        s_context.state == PROVISIONING_STATE_COMMITTING) {
+        context_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!state_is_running(s_context.state)) {
+        context_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_context.request_generation++;
+    if (s_context.request_generation == 0) {
+        s_context.request_generation = 1;
+    }
+    s_context.pending_network_config = *candidate;
+    err = copy_string_safe(s_context.pending_ack_id,
+                           sizeof(s_context.pending_ack_id), ack_id);
+    if (err == ESP_OK) {
+        s_context.state = PROVISIONING_STATE_WAITING_FOR_ACK;
+        s_context.last_error = ESP_OK;
+    }
+    context_unlock();
+    return err;
+}
+
+static esp_err_t commit_matching_ack(const char *ack_id)
+{
+    if (ack_id == NULL || ack_id[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (!state_is_waiting(s_context.state)) {
+        context_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (strcmp(ack_id, s_context.pending_ack_id) != 0) {
+        context_unlock();
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    network_config_t candidate = s_context.pending_network_config;
+    const uint32_t generation = s_context.request_generation;
+    s_context.state = PROVISIONING_STATE_COMMITTING;
+    context_unlock();
+
+    /* NVS may block. Never hold the provisioning state mutex across it. */
+    err = save_network_config(&candidate);
+
+    esp_err_t lock_err = context_lock();
+    if (lock_err != ESP_OK) {
+        return lock_err;
+    }
+    if (s_context.request_generation != generation ||
+        s_context.state != PROVISIONING_STATE_COMMITTING) {
+        s_context.state = PROVISIONING_STATE_ERROR;
+        s_context.last_error = ESP_ERR_INVALID_STATE;
+        context_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (err == ESP_OK) {
+        s_context.latest_network_config = candidate;
+        s_context.pending_ack_id[0] = '\0';
+        s_context.state = PROVISIONING_STATE_SAVED;
+        s_context.last_error = ESP_OK;
+    } else {
+        /* Retain the ACK and candidate so the same request can retry. */
+        s_context.state = PROVISIONING_STATE_WAITING_FOR_ACK;
+        s_context.last_error = err;
+    }
+    context_unlock();
+    return err;
+}
+
 /**
  * @brief Simple provisioning page.
  */
@@ -646,23 +769,33 @@ static esp_err_t root_get_handler(httpd_req_t *req)
 static esp_err_t status_get_handler(httpd_req_t *req)
 {
     char mac[RESQ_DEVICE_MAC_MAX_LEN] = {0};
+    provisioning_status_t status = {0};
 
     config_store_get_device_mac(mac, sizeof(mac));
+    esp_err_t status_err = provisioning_manager_get_status(&status);
+    if (status_err != ESP_OK) {
+        return send_json_response(
+            req, 503, "{\"ok\":false,\"error\":\"status_unavailable\"}");
+    }
 
     char response[200];
 
-    snprintf(response,
-             sizeof(response),
-             "{"
-             "\"device_mac\":\"%s\"," 
-             "\"running\":%s," 
-             "\"saved_config\":%s," 
-             "\"waiting_for_ack\":%s"
-             "}",
-             mac,
-             s_running ? "true" : "false",
-             s_saved_config ? "true" : "false",
-             s_waiting_for_mobile_ack ? "true" : "false");
+    int written = snprintf(response,
+                           sizeof(response),
+                           "{"
+                           "\"device_mac\":\"%s\","
+                           "\"running\":%s,"
+                           "\"saved_config\":%s,"
+                           "\"waiting_for_ack\":%s"
+                           "}",
+                           mac,
+                           status.running ? "true" : "false",
+                           status.saved_config_available ? "true" : "false",
+                           status.waiting_for_ack ? "true" : "false");
+    if (written < 0 || (size_t)written >= sizeof(response)) {
+        return send_json_response(
+            req, 500, "{\"ok\":false,\"error\":\"status_encode_failed\"}");
+    }
 
     return send_json_response(req, 200, response);
 }
@@ -719,26 +852,29 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
                                   "{\"ok\":false,\"error\":\"validation_failed\"}");
     }
 
-    memcpy(&s_pending_network_config,
-        &config,
-        sizeof(network_config_t));
+    char ack_id[PROVISIONING_ACK_ID_MAX_LEN] = {0};
+    generate_ack_id(ack_id, sizeof(ack_id));
 
-    generate_ack_id(s_pending_ack_id,
-                    sizeof(s_pending_ack_id));
-
-    s_waiting_for_mobile_ack = true;
-    s_saved_config = false;
+    err = stage_provisioning_candidate(&config, ack_id);
+    if (err != ESP_OK) {
+        return send_json_response(
+            req, 503, "{\"ok\":false,\"error\":\"provisioning_busy\"}");
+    }
 
     char response[160];
 
-    snprintf(response,
-            sizeof(response),
-            "{"
-            "\"ok\":true,"
-            "\"message\":\"provisioning_received\","
-            "\"ack_id\":\"%s\""
-            "}",
-            s_pending_ack_id);
+    int written = snprintf(response,
+                           sizeof(response),
+                           "{"
+                           "\"ok\":true,"
+                           "\"message\":\"provisioning_received\","
+                           "\"ack_id\":\"%s\""
+                           "}",
+                           ack_id);
+    if (written < 0 || (size_t)written >= sizeof(response)) {
+        return send_json_response(
+            req, 500, "{\"ok\":false,\"error\":\"response_encode_failed\"}");
+    }
 
     return send_json_response(req, 200, response);
 }
@@ -748,12 +884,6 @@ static esp_err_t provision_post_handler(httpd_req_t *req)
  */
 static esp_err_t provision_ack_post_handler(httpd_req_t *req)
 {
-    if (!s_waiting_for_mobile_ack) {
-        return send_json_response(req,
-                                  400,
-                                  "{\"ok\":false,\"error\":\"no_pending_ack\"}");
-    }
-
     if (req->content_len <= 0 ||
         req->content_len >= PROVISIONING_MAX_BODY_LEN) {
         return send_json_response(req,
@@ -801,8 +931,7 @@ static esp_err_t provision_ack_post_handler(httpd_req_t *req)
         }
     }
 
-    if (!has_ack ||
-        strcmp(received_ack_id, s_pending_ack_id) != 0) {
+    if (!has_ack) {
         return send_json_response(req,
                                   400,
                                   "{\"ok\":false,\"error\":\"invalid_ack_id\"}");
@@ -812,10 +941,7 @@ static esp_err_t provision_ack_post_handler(httpd_req_t *req)
      * Mobile confirmed that it received the ESP ACK.
      * Now save config permanently.
      */
-    /* Save network config to NVS first. Do not set s_saved_config until
-     * we successfully send the final HTTP response to the mobile client.
-     */
-    esp_err_t err = config_store_save_network(&s_pending_network_config);
+    esp_err_t err = commit_matching_ack(received_ack_id);
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
@@ -823,24 +949,17 @@ static esp_err_t provision_ack_post_handler(httpd_req_t *req)
                  esp_err_to_name(err));
 
         return send_json_response(req,
-                                  500,
-                                  "{\"ok\":false,\"error\":\"nvs_save_failed\"}");
+                                  err == ESP_ERR_INVALID_ARG ? 400 : 500,
+                                  err == ESP_ERR_INVALID_ARG
+                                      ? "{\"ok\":false,\"error\":\"invalid_ack_id\"}"
+                                      : "{\"ok\":false,\"error\":\"nvs_save_failed\"}");
     }
 
-    /* Send final HTTP response first. Only mark config saved if response sent. */
     esp_err_t resp_err = send_json_response(req,
                                            200,
                                            "{\"ok\":true,\"message\":\"ack_confirmed_config_saved\"}");
 
     if (resp_err == ESP_OK) {
-        memcpy(&s_latest_network_config,
-               &s_pending_network_config,
-               sizeof(network_config_t));
-
-        s_saved_config = true;
-        s_waiting_for_mobile_ack = false;
-        s_pending_ack_id[0] = '\0';
-
         ESP_LOGI(TAG, "Mobile ACK confirmed. Provisioning config saved.");
     } else {
         ESP_LOGW(TAG, "Failed to send final ACK response: %s", esp_err_to_name(resp_err));
@@ -860,7 +979,7 @@ static esp_err_t start_http_server(void)
     config.server_port = PROVISIONING_HTTP_PORT;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
-    esp_err_t err = httpd_start(&s_http_server, &config);
+    esp_err_t err = httpd_start(&s_context.http_server, &config);
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
@@ -898,10 +1017,10 @@ static esp_err_t start_http_server(void)
         .user_ctx = NULL,
     };
 
-    httpd_register_uri_handler(s_http_server, &root_uri);
-    httpd_register_uri_handler(s_http_server, &status_uri);
-    httpd_register_uri_handler(s_http_server, &provision_uri);
-    httpd_register_uri_handler(s_http_server, &provision_ack_uri);
+    httpd_register_uri_handler(s_context.http_server, &root_uri);
+    httpd_register_uri_handler(s_context.http_server, &status_uri);
+    httpd_register_uri_handler(s_context.http_server, &provision_uri);
+    httpd_register_uri_handler(s_context.http_server, &provision_ack_uri);
 
     ESP_LOGI(TAG, "Provisioning HTTP server started");
 
@@ -910,12 +1029,12 @@ static esp_err_t start_http_server(void)
 
 static esp_err_t stop_http_server(void)
 {
-    if (s_http_server == NULL) {
+    if (s_context.http_server == NULL) {
         return ESP_OK;
     }
 
-    esp_err_t err = httpd_stop(s_http_server);
-    s_http_server = NULL;
+    esp_err_t err = httpd_stop(s_context.http_server);
+    s_context.http_server = NULL;
 
     return err;
 }
@@ -938,8 +1057,8 @@ static esp_err_t start_softap(void)
         return err;
     }
 
-    if (s_ap_netif == NULL) {
-        s_ap_netif = esp_netif_create_default_wifi_ap();
+    if (s_context.ap_netif == NULL) {
+        s_context.ap_netif = esp_netif_create_default_wifi_ap();
     }
 
     wifi_init_config_t wifi_init_cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -1016,18 +1135,44 @@ static esp_err_t stop_softap(void)
 
 esp_err_t provisioning_manager_init(void)
 {
-    if (s_initialized) {
+    if (s_context.initialized) {
         return ESP_OK;
     }
 
-    network_config_set_defaults(&s_latest_network_config);
-    network_config_set_defaults(&s_pending_network_config);
+    SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
+    SemaphoreHandle_t lifecycle_mutex = xSemaphoreCreateMutex();
+    if (mutex == NULL || lifecycle_mutex == NULL) {
+        if (mutex != NULL) {
+            vSemaphoreDelete(mutex);
+        }
+        if (lifecycle_mutex != NULL) {
+            vSemaphoreDelete(lifecycle_mutex);
+        }
+        return ESP_ERR_NO_MEM;
+    }
 
-    s_saved_config = false;
-    s_waiting_for_mobile_ack = false;
-    s_pending_ack_id[0] = '\0';
-    s_running = false;
-    s_initialized = true;
+    portENTER_CRITICAL(&s_init_lock);
+    if (!s_context.initialized) {
+        s_context.mutex = mutex;
+        s_context.lifecycle_mutex = lifecycle_mutex;
+        network_config_set_defaults(&s_context.latest_network_config);
+        network_config_set_defaults(&s_context.pending_network_config);
+        s_context.pending_ack_id[0] = '\0';
+        s_context.request_generation = 0;
+        s_context.last_error = ESP_OK;
+        s_context.state = PROVISIONING_STATE_IDLE;
+        s_context.initialized = true;
+        mutex = NULL;
+        lifecycle_mutex = NULL;
+    }
+    portEXIT_CRITICAL(&s_init_lock);
+
+    if (mutex != NULL) {
+        vSemaphoreDelete(mutex);
+    }
+    if (lifecycle_mutex != NULL) {
+        vSemaphoreDelete(lifecycle_mutex);
+    }
 
     ESP_LOGI(TAG, "Provisioning manager initialized");
 
@@ -1036,29 +1181,52 @@ esp_err_t provisioning_manager_init(void)
 
 esp_err_t provisioning_manager_start(void)
 {
-    if (!s_initialized) {
+    if (!s_context.initialized || s_context.lifecycle_mutex == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (s_running) {
-        return ESP_OK;
+    if (xSemaphoreTake(s_context.lifecycle_mutex, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
     }
 
-    s_saved_config = false;
-    s_waiting_for_mobile_ack = false;
-    s_pending_ack_id[0] = '\0';
-    network_config_set_defaults(&s_latest_network_config);
-    network_config_set_defaults(&s_pending_network_config);
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        xSemaphoreGive(s_context.lifecycle_mutex);
+        return err;
+    }
+    if (state_is_running(s_context.state)) {
+        context_unlock();
+        xSemaphoreGive(s_context.lifecycle_mutex);
+        return ESP_OK;
+    }
+    if (s_context.state == PROVISIONING_STATE_STOPPING ||
+        s_context.state == PROVISIONING_STATE_COMMITTING) {
+        context_unlock();
+        xSemaphoreGive(s_context.lifecycle_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    network_config_set_defaults(&s_context.latest_network_config);
+    network_config_set_defaults(&s_context.pending_network_config);
+    s_context.pending_ack_id[0] = '\0';
+    s_context.last_error = ESP_OK;
+    s_context.state = PROVISIONING_STATE_IDLE;
+    context_unlock();
 
     /* device_mac is not stored in the config; hardware MAC will be read at runtime. */
 
-    esp_err_t err = start_softap();
+    err = start_softap();
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG,
                  "Failed to start SoftAP: %s",
                  esp_err_to_name(err));
-
+        if (context_lock() == ESP_OK) {
+            s_context.state = PROVISIONING_STATE_ERROR;
+            s_context.last_error = err;
+            context_unlock();
+        }
+        xSemaphoreGive(s_context.lifecycle_mutex);
         return err;
     }
 
@@ -1066,10 +1234,21 @@ esp_err_t provisioning_manager_start(void)
 
     if (err != ESP_OK) {
         stop_softap();
+        if (context_lock() == ESP_OK) {
+            s_context.state = PROVISIONING_STATE_ERROR;
+            s_context.last_error = err;
+            context_unlock();
+        }
+        xSemaphoreGive(s_context.lifecycle_mutex);
         return err;
     }
 
-    s_running = true;
+    if (context_lock() == ESP_OK) {
+        s_context.state = PROVISIONING_STATE_RUNNING;
+        s_context.last_error = ESP_OK;
+        context_unlock();
+    }
+    xSemaphoreGive(s_context.lifecycle_mutex);
 
     ESP_LOGI(TAG, "Provisioning manager started");
 
@@ -1078,30 +1257,59 @@ esp_err_t provisioning_manager_start(void)
 
 esp_err_t provisioning_manager_stop(void)
 {
-    if (!s_running) {
+    if (!s_context.initialized || s_context.lifecycle_mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xSemaphoreTake(s_context.lifecycle_mutex, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        xSemaphoreGive(s_context.lifecycle_mutex);
+        return err;
+    }
+    if (s_context.state == PROVISIONING_STATE_IDLE) {
+        context_unlock();
+        xSemaphoreGive(s_context.lifecycle_mutex);
         return ESP_OK;
     }
+    if (s_context.state == PROVISIONING_STATE_COMMITTING) {
+        context_unlock();
+        xSemaphoreGive(s_context.lifecycle_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_context.state = PROVISIONING_STATE_STOPPING;
+    context_unlock();
 
     esp_err_t http_err = stop_http_server();
     esp_err_t wifi_err = stop_softap();
 
-    s_running = false;
-
-    if (http_err != ESP_OK) {
-        return http_err;
+    err = http_err != ESP_OK ? http_err : wifi_err;
+    if (context_lock() == ESP_OK) {
+        s_context.pending_ack_id[0] = '\0';
+        s_context.state =
+            err == ESP_OK ? PROVISIONING_STATE_IDLE : PROVISIONING_STATE_ERROR;
+        s_context.last_error = err;
+        context_unlock();
     }
+    xSemaphoreGive(s_context.lifecycle_mutex);
 
-    return wifi_err;
+    return err;
 }
 
 bool provisioning_manager_is_running(void)
 {
-    return s_running;
+    provisioning_status_t status = {0};
+    return provisioning_manager_get_status(&status) == ESP_OK &&
+           status.running;
 }
 
 bool provisioning_manager_has_saved_config(void)
 {
-    return s_saved_config;
+    provisioning_status_t status = {0};
+    return provisioning_manager_get_status(&status) == ESP_OK &&
+           status.saved_config_available;
 }
 
 esp_err_t provisioning_manager_get_network_config(network_config_t *out_config)
@@ -1110,9 +1318,116 @@ esp_err_t provisioning_manager_get_network_config(network_config_t *out_config)
         return ESP_ERR_INVALID_ARG;
     }
 
-    memcpy(out_config,
-           &s_latest_network_config,
-           sizeof(network_config_t));
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+    *out_config = s_context.latest_network_config;
+    context_unlock();
 
     return ESP_OK;
 }
+
+esp_err_t provisioning_manager_take_saved_config(network_config_t *out_config,
+                                                 bool *out_available)
+{
+    if (out_config == NULL || out_available == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    *out_available = s_context.state == PROVISIONING_STATE_SAVED;
+    if (*out_available) {
+        *out_config = s_context.latest_network_config;
+        s_context.state = PROVISIONING_STATE_RUNNING;
+    }
+    context_unlock();
+    return ESP_OK;
+}
+
+esp_err_t provisioning_manager_get_status(provisioning_status_t *out_status)
+{
+    if (out_status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+    out_status->state = s_context.state;
+    out_status->running = state_is_running(s_context.state);
+    out_status->saved_config_available =
+        s_context.state == PROVISIONING_STATE_SAVED;
+    out_status->waiting_for_ack = state_is_waiting(s_context.state);
+    out_status->request_generation = s_context.request_generation;
+    out_status->last_error = s_context.last_error;
+    context_unlock();
+    return ESP_OK;
+}
+
+#if CONFIG_UNITY_ENABLE_IDF_TEST_RUNNER
+esp_err_t provisioning_manager_test_reset(void)
+{
+    esp_err_t err = provisioning_manager_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = context_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+    network_config_set_defaults(&s_context.latest_network_config);
+    network_config_set_defaults(&s_context.pending_network_config);
+    s_context.pending_ack_id[0] = '\0';
+    s_context.request_generation = 0;
+    s_context.last_error = ESP_OK;
+    s_context.state = PROVISIONING_STATE_RUNNING;
+    s_test_save_result = ESP_OK;
+    s_test_save_override_enabled = true;
+    context_unlock();
+    return ESP_OK;
+}
+
+void provisioning_manager_test_set_save_result(esp_err_t result)
+{
+    s_test_save_result = result;
+}
+
+esp_err_t provisioning_manager_test_submit(const network_config_t *candidate,
+                                           char *out_ack_id,
+                                           size_t out_ack_id_len)
+{
+    if (candidate == NULL || out_ack_id == NULL ||
+        out_ack_id_len < PROVISIONING_ACK_ID_MAX_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    char ack_id[PROVISIONING_ACK_ID_MAX_LEN] = {0};
+    generate_ack_id(ack_id, sizeof(ack_id));
+    esp_err_t err = stage_provisioning_candidate(candidate, ack_id);
+    if (err == ESP_OK) {
+        err = copy_string_safe(out_ack_id, out_ack_id_len, ack_id);
+    }
+    return err;
+}
+
+esp_err_t provisioning_manager_test_commit_ack(const char *ack_id)
+{
+    return commit_matching_ack(ack_id);
+}
+
+esp_err_t provisioning_manager_test_set_stopping(void)
+{
+    esp_err_t err = context_lock();
+    if (err != ESP_OK) {
+        return err;
+    }
+    s_context.state = PROVISIONING_STATE_STOPPING;
+    context_unlock();
+    return ESP_OK;
+}
+#endif

@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 
 #include "driver/gpio.h"
 #include "esp_attr.h"
@@ -49,8 +50,8 @@ static bool s_initialized = false;
 static QueueHandle_t s_edge_queue = NULL;
 static QueueHandle_t s_event_queue = NULL;
 static TaskHandle_t s_button_task_handle = NULL;
-static volatile uint32_t s_missed_edge_mask;
-static volatile uint32_t s_dropped_edge_count;
+static _Atomic uint32_t s_missed_edge_mask;
+static _Atomic uint32_t s_dropped_edge_count;
 
 static button_runtime_t s_button_1 = {
     .gpio = BUTTON_1,
@@ -179,8 +180,10 @@ static void IRAM_ATTR button_gpio_isr(void *arg)
         if (xQueueSendFromISR(s_edge_queue, &event,
                               &higher_priority_task_woken) != pdTRUE) {
             uint32_t bit = gpio == BUTTON_1 ? BIT0 : BIT1;
-            __atomic_fetch_or(&s_missed_edge_mask, bit, __ATOMIC_RELAXED);
-            __atomic_fetch_add(&s_dropped_edge_count, 1, __ATOMIC_RELAXED);
+            atomic_fetch_or_explicit(&s_missed_edge_mask, bit,
+                                     memory_order_relaxed);
+            atomic_fetch_add_explicit(&s_dropped_edge_count, 1,
+                                      memory_order_relaxed);
         }
     }
 
@@ -281,8 +284,8 @@ static void system_button_task(void *arg)
             update_button_state_from_edge(edge.gpio);
         }
 
-        uint32_t missed = __atomic_exchange_n(&s_missed_edge_mask, 0,
-                                               __ATOMIC_ACQ_REL);
+        uint32_t missed = atomic_exchange_explicit(
+            &s_missed_edge_mask, 0, memory_order_acq_rel);
         if ((missed & BIT0) != 0) update_button_state_from_edge(BUTTON_1);
         if ((missed & BIT1) != 0) update_button_state_from_edge(BUTTON_2);
     }
@@ -307,7 +310,7 @@ system_button_action_t system_button_manager_action_for_event(
 
 uint32_t system_button_manager_get_dropped_edge_count(void)
 {
-    return __atomic_load_n(&s_dropped_edge_count, __ATOMIC_RELAXED);
+    return atomic_load_explicit(&s_dropped_edge_count, memory_order_relaxed);
 }
 
 esp_err_t system_button_manager_init(void)

@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "resq_config_types.h"
+#include "sensor_runtime_status.h"
 #include "states.h"
 
 #ifdef __cplusplus
@@ -19,6 +20,14 @@ extern "C" {
 #define MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN 512
 #define MQTT_MANAGER_COMMAND_QUEUE_LEN 8
 #define MQTT_MANAGER_SAFETY_QUEUE_LEN 4
+
+typedef enum {
+  COMMAND_CACHE_NEW = 0,
+  COMMAND_CACHE_DUPLICATE_PENDING,
+  COMMAND_CACHE_DUPLICATE_COMPLETE,
+  COMMAND_CACHE_BUSY,
+  COMMAND_CACHE_ERROR
+} command_cache_result_t;
 
 typedef struct {
   char topic[MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN];
@@ -58,9 +67,21 @@ esp_err_t mqtt_manager_publish_status(
     const calibration_config_t *calibration_config, bool session_active,
     const char *session_id, const char *ip);
 
+esp_err_t mqtt_manager_publish_status_with_health(
+    resq_state_t state, const network_config_t *network_config,
+    const calibration_config_t *calibration_config,
+    const sensor_runtime_health_t *runtime_health, bool session_active,
+    const char *session_id, const char *ip);
+
 esp_err_t mqtt_manager_publish_error_status(
     resq_state_t state, const network_config_t *network_config,
     const calibration_config_t *calibration_config, bool session_active,
+    const char *session_id, const char *ip, int last_error_id);
+
+esp_err_t mqtt_manager_publish_error_status_with_health(
+    resq_state_t state, const network_config_t *network_config,
+    const calibration_config_t *calibration_config,
+    const sensor_runtime_health_t *runtime_health, bool session_active,
     const char *session_id, const char *ip, int last_error_id);
 
 esp_err_t
@@ -72,6 +93,13 @@ mqtt_manager_publish_heartbeat(const network_config_t *network_config,
                                resq_state_t state, bool session_active,
                                bool sensor_running, const char *session_id,
                                const char *ip, int rssi);
+
+esp_err_t mqtt_manager_publish_heartbeat_with_health(
+    const network_config_t *network_config,
+    const calibration_config_t *calibration_config,
+    const sensor_runtime_health_t *runtime_health, resq_state_t state,
+    bool session_active, bool sensor_running, const char *session_id,
+    const char *ip, int rssi);
 
 esp_err_t mqtt_manager_publish_event_json(const char *json_payload);
 
@@ -96,6 +124,10 @@ esp_err_t mqtt_manager_handle_command_fragment_for_test(
     int total_data_len, int current_offset);
 
 void mqtt_manager_reset_command_reassembly_for_test(void);
+void mqtt_manager_reset_command_cache_for_test(void);
+command_cache_result_t mqtt_manager_cache_check_for_test(
+    const char *topic, const char *request_id);
+esp_err_t mqtt_manager_set_cache_lock_failure_for_test(bool enabled);
 
 #ifdef __cplusplus
 }

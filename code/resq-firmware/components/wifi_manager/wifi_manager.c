@@ -25,7 +25,7 @@ static bool s_reconnect_allowed = false;
 static int s_retry_count = 0;
 static int s_max_retries = WIFI_MANAGER_DEFAULT_MAX_RETRIES;
 static char s_ip_addr[16] = {0};
-static volatile wifi_manager_reconnect_status_t s_reconnect_status =
+static wifi_manager_reconnect_status_t s_reconnect_status =
     WIFI_MANAGER_RECONNECT_IDLE;
 static portMUX_TYPE s_state_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -334,10 +334,30 @@ esp_err_t wifi_manager_reconnect_async(int max_retries)
 
 wifi_manager_reconnect_status_t wifi_manager_get_reconnect_status(void)
 {
+    wifi_manager_status_t status = {0};
+    return wifi_manager_get_status(&status) == ESP_OK
+               ? status.reconnect_status
+               : WIFI_MANAGER_RECONNECT_FAILED;
+}
+
+esp_err_t wifi_manager_get_status(wifi_manager_status_t *out_status)
+{
+    if (out_status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     taskENTER_CRITICAL(&s_state_lock);
-    wifi_manager_reconnect_status_t status = s_reconnect_status;
+    out_status->connected = s_connected;
+    out_status->reconnect_allowed = s_reconnect_allowed;
+    out_status->retry_count = s_retry_count;
+    out_status->max_retries = s_max_retries;
+    out_status->reconnect_status = s_reconnect_status;
+    memcpy(out_status->ip_addr, s_ip_addr, sizeof(out_status->ip_addr));
     taskEXIT_CRITICAL(&s_state_lock);
-    return status;
+    return ESP_OK;
 }
 
 bool wifi_manager_is_connected(void)

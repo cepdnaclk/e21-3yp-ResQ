@@ -21,6 +21,15 @@ typedef enum {
     WIFI_MANAGER_RECONNECT_FAILED
 } wifi_manager_reconnect_status_t;
 
+typedef struct {
+    bool connected;
+    bool reconnect_allowed;
+    int retry_count;
+    int max_retries;
+    wifi_manager_reconnect_status_t reconnect_status;
+    char ip_addr[16];
+} wifi_manager_status_t;
+
 esp_err_t wifi_manager_init(void);
 
 esp_err_t wifi_manager_connect(const char *ssid,
@@ -33,6 +42,8 @@ esp_err_t wifi_manager_disconnect(void);
 esp_err_t wifi_manager_reconnect_async(int max_retries);
 
 wifi_manager_reconnect_status_t wifi_manager_get_reconnect_status(void);
+
+esp_err_t wifi_manager_get_status(wifi_manager_status_t *out_status);
 
 bool wifi_manager_is_connected(void);
 

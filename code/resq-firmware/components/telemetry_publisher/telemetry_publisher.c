@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
@@ -24,13 +25,15 @@
 #include "pressure_quality_filter.h"
 #include "sensor_conversion.h"
 #include "sensor_owner.h"
+#include "task_diagnostics.h"
+
+#define SENSOR_STREAM_PAYLOAD_SIZE 1792u
+#define SESSION_TELEMETRY_PAYLOAD_SIZE 2304u
 
 static TaskHandle_t s_task = NULL;
 static TaskHandle_t s_sensor_stream_task = NULL;
 static SemaphoreHandle_t s_mutex = NULL;
 static EventGroupHandle_t s_task_events = NULL;
-static volatile bool s_running = false;
-static volatile bool s_sensor_stream_running = false;
 static uint32_t s_sensor_stream_interval_ms = 200;
 static resq_state_t s_sensor_stream_state = RESQ_STATE_PAIRED_IDLE;
 static calibration_config_t s_sensor_stream_calibration;
@@ -40,6 +43,8 @@ static calibration_config_t s_sensor_stream_calibration;
 #define SENSOR_STREAM_TASK_STARTED_BIT BIT2
 #define SENSOR_STREAM_TASK_STOPPED_BIT BIT3
 #define SENSOR_STREAM_TASK_FAILED_BIT BIT4
+#define TELEMETRY_TASK_STOP_REQUESTED_BIT BIT5
+#define SENSOR_STREAM_STOP_REQUESTED_BIT BIT6
 #define TELEMETRY_TASK_START_TIMEOUT_MS 1000
 #define TELEMETRY_TASK_STOP_TIMEOUT_MS 1500
 #define SENSOR_STREAM_TASK_START_TIMEOUT_MS 1000
@@ -72,8 +77,6 @@ static const char *calibration_pressure_mode_to_string(calibration_pressure_mode
             return "OPTIONAL";
         case CALIBRATION_HALL_ONLY:
             return "HALL_ONLY";
-        case CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE:
-            return "HALL_WITH_LAST_STABLE_PRESSURE";
         default:
             return "OPTIONAL";
     }
@@ -181,6 +184,18 @@ static bool sensor_stream_pressure_requested(
     return calibration->pressure_mode != CALIBRATION_HALL_ONLY;
 }
 
+static bool sensor_stream_pressure_profile_valid(
+    const calibration_config_t *calibration)
+{
+    return calibration != NULL &&
+           calibration->pressure_policy != CALIBRATION_HALL_ONLY &&
+           calibration->pressure_1_range_raw > 300 &&
+           calibration->pressure_2_range_raw > 300 &&
+           calibration->pressure_contact_threshold > 0 &&
+           calibration->pressure_valid_threshold >
+               calibration->pressure_contact_threshold;
+}
+
 static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample,
                                            bool read_pressure)
 {
@@ -246,9 +261,11 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
                                               const calibration_config_t *calibration,
                                               resq_state_t state,
                                               uint32_t interval_ms,
-                                              const pressure_quality_result_t *quality)
+                                              const pressure_quality_result_t *quality,
+                                              char *payload,
+                                              size_t payload_len)
 {
-    if (sample == NULL || calibration == NULL) {
+    if (sample == NULL || calibration == NULL || payload == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -287,7 +304,7 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
     sensor_converted_sample_t converted = {0};
     sensor_conversion_convert(&raw, &profile, &converted);
 
-    if (!calibration->pressure_valid) {
+    if (!sensor_stream_pressure_profile_valid(calibration)) {
         pressure_0_ok = pressure_1_ok = pressure_2_ok = false;
         converted.pressure_profile_valid = false;
     }
@@ -298,14 +315,13 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
                                    converted.pressure_kpa_channel_valid[1] &&
                                    converted.pressure_kpa_channel_valid[2];
 
-    if (!hall_read_ok || !calibration->hall_valid) {
+    if (!hall_read_ok) {
         converted.hall_mm = 0.0f;
         converted.hall_progress = 0.0f;
         converted.hall_profile_valid = false;
         converted.hall_mm_valid = false;
     }
 
-    char payload[1792];
     esp_err_t build_err = telemetry_publisher_build_sensor_stream_payload(
         runtime_helpers_get_device_id(NULL),
         state,
@@ -313,7 +329,7 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
         &converted,
         interval_ms,
         payload,
-        sizeof(payload));
+        payload_len);
     if (build_err != ESP_OK) {
         return build_err;
     }
@@ -328,6 +344,13 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
 static void sensor_stream_task(void *arg)
 {
     (void)arg;
+    char *payload = malloc(SENSOR_STREAM_PAYLOAD_SIZE);
+    if (payload == NULL) {
+        xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_FAILED_BIT);
+        goto task_exit;
+    }
+    uint32_t diagnostics_counter = 0;
+    task_diagnostics_record_stack_watermark("sensor_stream");
 
     calibration_config_t startup_calibration = {0};
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
@@ -413,7 +436,8 @@ static void sensor_stream_task(void *arg)
     unsigned consecutive_publish_failures = 0;
     bool pressure_degraded = false;
 
-    while (s_sensor_stream_running) {
+    while ((xEventGroupGetBits(s_task_events) &
+            SENSOR_STREAM_STOP_REQUESTED_BIT) == 0) {
         if (!mqtt_manager_is_connected()) {
             break;
         }
@@ -461,7 +485,11 @@ static void sensor_stream_task(void *arg)
         }
         esp_err_t publish_err = sensor_stream_publish_sample(
             &sample, &calibration, state, interval_ms,
-            pressure_filter_ready ? &pressure_quality : NULL);
+            pressure_filter_ready ? &pressure_quality : NULL,
+            payload, SENSOR_STREAM_PAYLOAD_SIZE);
+        if ((diagnostics_counter++ % 300u) == 0u) {
+            task_diagnostics_record_stack_watermark("sensor_stream");
+        }
 
         if (read_err == ESP_OK) {
             consecutive_read_failures = 0;
@@ -502,10 +530,11 @@ static void sensor_stream_task(void *arg)
     }
 
 task_exit:
+    task_diagnostics_record_stack_watermark("sensor_stream");
+    free(payload);
     sensor_owner_release(SENSOR_OWNER_MANUAL_STREAM);
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    s_sensor_stream_running = false;
     s_sensor_stream_task = NULL;
     xSemaphoreGive(s_mutex);
 
@@ -779,10 +808,17 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
 static void telemetry_task(void *arg)
 {
     (void)arg;
+    char *payload = malloc(SESSION_TELEMETRY_PAYLOAD_SIZE);
+    if (payload == NULL) {
+        goto telemetry_exit;
+    }
+    uint32_t diagnostics_counter = 0;
+    task_diagnostics_record_stack_watermark("telemetry_task");
 
     xEventGroupSetBits(s_task_events, TELEMETRY_TASK_STARTED_BIT);
 
-    while (s_running) {
+    while ((xEventGroupGetBits(s_task_events) &
+            TELEMETRY_TASK_STOP_REQUESTED_BIT) == 0) {
         if (!mqtt_manager_is_connected() || !session_manager_is_active()) {
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
             continue;
@@ -794,7 +830,6 @@ static void telemetry_task(void *arg)
             continue;
         }
 
-        char payload[2304];
         const char *device_id = runtime_helpers_get_device_id(NULL);
         char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
         if (session_manager_get_session_id(session_id, sizeof(session_id)) !=
@@ -807,15 +842,22 @@ static void telemetry_task(void *arg)
                                                       device_id,
                                                       session_id,
                                                       payload,
-                                                      sizeof(payload)) == ESP_OK) {
+                                                      SESSION_TELEMETRY_PAYLOAD_SIZE) == ESP_OK) {
             mqtt_manager_publish_telemetry_json(payload);
+        }
+        if ((diagnostics_counter++ % 300u) == 0u) {
+            task_diagnostics_record_stack_watermark("telemetry_task");
         }
 
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
     }
 
+telemetry_exit:
+    if (payload != NULL) {
+        task_diagnostics_record_stack_watermark("telemetry_task");
+    }
+    free(payload);
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    s_running = false;
     s_task = NULL;
     xSemaphoreGive(s_mutex);
 
@@ -839,9 +881,7 @@ esp_err_t telemetry_publisher_init(void)
         if (s_task_events == NULL) return ESP_ERR_NO_MEM;
     }
 
-    s_running = false;
     s_task = NULL;
-    s_sensor_stream_running = false;
     s_sensor_stream_task = NULL;
     xEventGroupSetBits(s_task_events, TELEMETRY_TASK_STOPPED_BIT);
     xEventGroupSetBits(s_task_events, SENSOR_STREAM_TASK_STOPPED_BIT);
@@ -855,17 +895,22 @@ esp_err_t telemetry_publisher_start(void)
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     if (s_task != NULL) {
-        esp_err_t result = s_running ? ESP_OK : ESP_ERR_INVALID_STATE;
+        EventBits_t state = xEventGroupGetBits(s_task_events);
+        esp_err_t result =
+            (state & TELEMETRY_TASK_STARTED_BIT) != 0 &&
+                    (state & TELEMETRY_TASK_STOP_REQUESTED_BIT) == 0
+                ? ESP_OK
+                : ESP_ERR_INVALID_STATE;
         xSemaphoreGive(s_mutex);
         return result;
     }
 
     xEventGroupClearBits(s_task_events,
-                         TELEMETRY_TASK_STARTED_BIT | TELEMETRY_TASK_STOPPED_BIT);
-    s_running = true;
+                         TELEMETRY_TASK_STARTED_BIT |
+                             TELEMETRY_TASK_STOPPED_BIT |
+                             TELEMETRY_TASK_STOP_REQUESTED_BIT);
     BaseType_t ok = xTaskCreate(telemetry_task, "telemetry_task", 4096, NULL, 5, &s_task);
     if (ok != pdPASS) {
-        s_running = false;
         xSemaphoreGive(s_mutex);
         xEventGroupSetBits(s_task_events, TELEMETRY_TASK_STOPPED_BIT);
         return ESP_FAIL;
@@ -894,13 +939,12 @@ esp_err_t telemetry_publisher_stop(void)
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     if (s_task == NULL) {
-        s_running = false;
         xSemaphoreGive(s_mutex);
         return ESP_OK;
     }
 
-    s_running = false;
     TaskHandle_t task = s_task;
+    xEventGroupSetBits(s_task_events, TELEMETRY_TASK_STOP_REQUESTED_BIT);
     xTaskNotifyGive(task);
 
     xSemaphoreGive(s_mutex);
@@ -937,7 +981,9 @@ bool telemetry_publisher_is_running(void)
     bool running = false;
     if (s_mutex == NULL) return false;
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
-    running = s_running && s_task != NULL;
+    EventBits_t state = xEventGroupGetBits(s_task_events);
+    running = s_task != NULL && (state & TELEMETRY_TASK_STARTED_BIT) != 0 &&
+              (state & TELEMETRY_TASK_STOP_REQUESTED_BIT) == 0;
     xSemaphoreGive(s_mutex);
     return running;
 }
@@ -962,7 +1008,12 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
     }
 
     if (s_sensor_stream_task != NULL) {
-        esp_err_t result = s_sensor_stream_running ? ESP_OK : ESP_ERR_INVALID_STATE;
+        EventBits_t event_state = xEventGroupGetBits(s_task_events);
+        esp_err_t result =
+            (event_state & SENSOR_STREAM_TASK_STARTED_BIT) != 0 &&
+                    (event_state & SENSOR_STREAM_STOP_REQUESTED_BIT) == 0
+                ? ESP_OK
+                : ESP_ERR_INVALID_STATE;
         if (result == ESP_OK) {
             s_sensor_stream_interval_ms = interval_ms;
             s_sensor_stream_state = state;
@@ -985,8 +1036,8 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
     xEventGroupClearBits(s_task_events,
                          SENSOR_STREAM_TASK_STARTED_BIT |
                          SENSOR_STREAM_TASK_STOPPED_BIT |
-                         SENSOR_STREAM_TASK_FAILED_BIT);
-    s_sensor_stream_running = true;
+                         SENSOR_STREAM_TASK_FAILED_BIT |
+                         SENSOR_STREAM_STOP_REQUESTED_BIT);
     BaseType_t ok = xTaskCreate(sensor_stream_task,
                                 "sensor_stream",
                                 4096,
@@ -994,7 +1045,6 @@ esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
                                 5,
                                 &s_sensor_stream_task);
     if (ok != pdPASS) {
-        s_sensor_stream_running = false;
         s_sensor_stream_task = NULL;
         sensor_owner_release(SENSOR_OWNER_MANUAL_STREAM);
         xSemaphoreGive(s_mutex);
@@ -1033,13 +1083,12 @@ esp_err_t telemetry_publisher_stop_sensor_stream(void)
     }
 
     if (s_sensor_stream_task == NULL) {
-        s_sensor_stream_running = false;
         xSemaphoreGive(s_mutex);
         return ESP_OK;
     }
 
-    s_sensor_stream_running = false;
     TaskHandle_t task = s_sensor_stream_task;
+    xEventGroupSetBits(s_task_events, SENSOR_STREAM_STOP_REQUESTED_BIT);
     xTaskNotifyGive(task);
     xSemaphoreGive(s_mutex);
 
@@ -1062,7 +1111,10 @@ bool telemetry_publisher_is_sensor_stream_running(void)
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
         return false;
     }
-    running = s_sensor_stream_running && s_sensor_stream_task != NULL;
+    EventBits_t event_state = xEventGroupGetBits(s_task_events);
+    running = s_sensor_stream_task != NULL &&
+              (event_state & SENSOR_STREAM_TASK_STARTED_BIT) != 0 &&
+              (event_state & SENSOR_STREAM_STOP_REQUESTED_BIT) == 0;
     xSemaphoreGive(s_mutex);
     return running;
 }

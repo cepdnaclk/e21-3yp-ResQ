@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 set(EXTRA_COMPONENT_DIRS "../components")
 set(TEST_COMPONENTS
     "firmware_state_machine"
+    "firmware_bootstrap"
     "calibration_manager"
     "config"
     "error_manager"

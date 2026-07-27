@@ -24,8 +24,6 @@ static calibration_config_t valid_calibration(void) {
       .pressure_valid_threshold = 1000,
       .pressure_balance_allowed_pct = 25,
       .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
-      .pressure_valid = true,
-      .hall_valid = true,
       .full_depth_mm = 50.0f,
       .calibrated_at_ms = 1000,
       .calibrated = true,
@@ -55,10 +53,6 @@ TEST_CASE("Calibration defaults are safe and explicit", "[config]") {
   TEST_ASSERT_FALSE(config.calibrated);
   TEST_ASSERT_EQUAL(25, config.pressure_balance_allowed_pct);
   TEST_ASSERT_EQUAL(CALIBRATION_PRESSURE_OPTIONAL, config.pressure_mode);
-  TEST_ASSERT_FALSE(config.pressure_valid);
-  TEST_ASSERT_FALSE(config.pressure_degraded);
-  TEST_ASSERT_FALSE(config.using_last_stable_pressure);
-  TEST_ASSERT_FALSE(config.hall_valid);
   TEST_ASSERT_EQUAL_FLOAT(0.0f, config.pressure_0_kpa_per_count);
   TEST_ASSERT_EQUAL_FLOAT(0.0f, config.pressure_1_kpa_per_count);
   TEST_ASSERT_EQUAL_FLOAT(0.0f, config.pressure_2_kpa_per_count);
@@ -117,7 +111,6 @@ TEST_CASE("Calibration validation covers every threshold boundary",
 
   config = valid_calibration();
   config.pressure_mode = CALIBRATION_HALL_ONLY;
-  config.pressure_valid = false;
   config.ref_pressure = 0;
   config.bladder_1_pressure = 0;
   config.bladder_2_pressure = 0;

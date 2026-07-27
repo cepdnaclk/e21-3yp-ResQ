@@ -2,6 +2,7 @@
 #include "runtime_identity.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -489,19 +490,26 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
     sensor_converted_sample_t converted = {0};
     bool converted_ok = config_err == ESP_OK &&
                         sensor_conversion_convert(&raw, &profile, &converted) == ESP_OK;
-    char payload[960];
+    char *payload = malloc(960);
+    if (payload == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
     esp_err_t payload_err = runtime_helpers_build_direct_debug_payload(
         network_config,
         &raw,
         &converted,
         converted_ok,
-        calibration.pressure_valid,
-        calibration.hall_valid,
+        converted_ok && converted.pressure_profile_valid &&
+            pressure_valid_mask == HX710_VALID_CHANNEL_ALL,
+        converted_ok && converted.hall_profile_valid,
         payload,
-        sizeof(payload));
+        960);
     if (payload_err != ESP_OK) {
+        free(payload);
         return payload_err;
     }
 
-    return mqtt_manager_publish_debug_json(payload);
+    esp_err_t publish_err = mqtt_manager_publish_debug_json(payload);
+    free(payload);
+    return publish_err;
 }

@@ -1,6 +1,7 @@
 #include "status_indicator.h"
 
 #include <stdbool.h>
+#include <stdatomic.h>
 
 #include "board_config.h"
 #include "buzzer_manager.h"
@@ -8,6 +9,8 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 /* Blink intervals for LED patterns (in RTOS ticks). */
@@ -42,16 +45,15 @@ static const char *TAG = "status_indicator";
 
 /* FreeRTOS task handle for the status indicator task. */
 static TaskHandle_t s_status_task_handle = NULL;
+static EventGroupHandle_t s_status_events = NULL;
+static StaticSemaphore_t s_status_lifecycle_mutex_storage;
+static SemaphoreHandle_t s_status_lifecycle_mutex;
 
-/* Current device state shown by the LEDs. Volatile because it may be
- * updated from different execution contexts (e.g., other tasks).
- */
-static volatile resq_state_t s_current_state = RESQ_STATE_BOOT;
+static _Atomic resq_state_t s_current_state = RESQ_STATE_BOOT;
 
-/* When true the status indicator task main loop runs; setting this false
- * signals the task to perform cleanup and exit.
- */
-static volatile bool s_task_running = false;
+#define STATUS_TASK_STOP_REQUESTED_BIT BIT0
+#define STATUS_TASK_STARTED_BIT BIT1
+#define STATUS_TASK_STOPPED_BIT BIT2
 
 /* Provisioning-owned temporary override. Accessed atomically across tasks. */
 static bool s_both_leds_on_override = false;
@@ -176,8 +178,10 @@ static bool is_blink_pattern(led_pattern_t pattern)
 static void status_indicator_task(void *arg)
 {
     bool blink_level = false;
+    xEventGroupSetBits(s_status_events, STATUS_TASK_STARTED_BIT);
 
-    while (s_task_running)
+    while ((xEventGroupGetBits(s_status_events) &
+            STATUS_TASK_STOP_REQUESTED_BIT) == 0)
     {
         if (__atomic_load_n(&s_both_leds_on_override, __ATOMIC_ACQUIRE))
         {
@@ -187,7 +191,8 @@ static void status_indicator_task(void *arg)
             continue;
         }
 
-        status_led_pattern_t pattern = get_state_pattern(s_current_state);
+        status_led_pattern_t pattern = get_state_pattern(
+            atomic_load_explicit(&s_current_state, memory_order_acquire));
 
         apply_static_pattern(BOARD_STATE_LED, pattern.state_led);
         apply_static_pattern(BOARD_ACTIVITY_LED, pattern.activity_led);
@@ -219,13 +224,16 @@ static void status_indicator_task(void *arg)
         }
 
         blink_level = !blink_level;
-        vTaskDelay(delay_ticks);
+        ulTaskNotifyTake(pdTRUE, delay_ticks);
     }
 
     gpio_set_level(BOARD_STATE_LED, 0);
     gpio_set_level(BOARD_ACTIVITY_LED, 0);
     __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
+    xSemaphoreTake(s_status_lifecycle_mutex, portMAX_DELAY);
     s_status_task_handle = NULL;
+    xSemaphoreGive(s_status_lifecycle_mutex);
+    xEventGroupSetBits(s_status_events, STATUS_TASK_STOPPED_BIT);
     vTaskDelete(NULL);
 }
 
@@ -253,8 +261,16 @@ esp_err_t status_indicator_init(void)
 
     gpio_set_level(BOARD_STATE_LED, 0);
     gpio_set_level(BOARD_ACTIVITY_LED, 0);
-    s_current_state = RESQ_STATE_BOOT;
+    atomic_store_explicit(&s_current_state, RESQ_STATE_BOOT,
+                          memory_order_release);
     __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
+    if (s_status_lifecycle_mutex == NULL) {
+        s_status_lifecycle_mutex = xSemaphoreCreateMutexStatic(
+            &s_status_lifecycle_mutex_storage);
+        if (s_status_lifecycle_mutex == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
     return ESP_OK;
 }
@@ -262,12 +278,22 @@ esp_err_t status_indicator_init(void)
 /* Create and start the status indicator FreeRTOS task if needed. */
 esp_err_t status_indicator_start(void)
 {
-    if (s_status_task_handle != NULL)
-    {
-        return ESP_OK;
+    if (s_status_events == NULL) {
+        s_status_events = xEventGroupCreate();
+        if (s_status_events == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
     }
 
-    s_task_running = true;
+    xEventGroupClearBits(s_status_events, STATUS_TASK_STOP_REQUESTED_BIT |
+                                             STATUS_TASK_STARTED_BIT |
+                                             STATUS_TASK_STOPPED_BIT);
+    xSemaphoreTake(s_status_lifecycle_mutex, portMAX_DELAY);
+    if (s_status_task_handle != NULL)
+    {
+        xSemaphoreGive(s_status_lifecycle_mutex);
+        return ESP_OK;
+    }
 
     BaseType_t result = xTaskCreate(
         status_indicator_task,
@@ -276,14 +302,17 @@ esp_err_t status_indicator_start(void)
         NULL,
         STATUS_TASK_PRIORITY,
         &s_status_task_handle);
+    xSemaphoreGive(s_status_lifecycle_mutex);
 
     if (result != pdPASS)
     {
-        s_task_running = false;
         return ESP_FAIL;
     }
 
-    return ESP_OK;
+    EventBits_t bits = xEventGroupWaitBits(
+        s_status_events, STATUS_TASK_STARTED_BIT | STATUS_TASK_STOPPED_BIT,
+        pdFALSE, pdFALSE, pdMS_TO_TICKS(1000));
+    return (bits & STATUS_TASK_STARTED_BIT) != 0 ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 /* Signal the background task to stop. The task will cleanup and delete
@@ -292,7 +321,19 @@ esp_err_t status_indicator_start(void)
 void status_indicator_stop(void)
 {
     __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
-    s_task_running = false;
+    if (s_status_events == NULL) {
+        return;
+    }
+    xSemaphoreTake(s_status_lifecycle_mutex, portMAX_DELAY);
+    TaskHandle_t task = s_status_task_handle;
+    xSemaphoreGive(s_status_lifecycle_mutex);
+    if (task == NULL) {
+        return;
+    }
+    xEventGroupSetBits(s_status_events, STATUS_TASK_STOP_REQUESTED_BIT);
+    xTaskNotifyGive(task);
+    (void)xEventGroupWaitBits(s_status_events, STATUS_TASK_STOPPED_BIT,
+                              pdFALSE, pdFALSE, pdMS_TO_TICKS(1000));
 }
 
 /* Update the current state shown by the LEDs. This is non-blocking and
@@ -303,14 +344,14 @@ void status_indicator_set_state(resq_state_t state)
     if (state != RESQ_STATE_PROVISIONING) {
         __atomic_store_n(&s_both_leds_on_override, false, __ATOMIC_RELEASE);
     }
-    s_current_state = state;
+    atomic_store_explicit(&s_current_state, state, memory_order_release);
     ESP_LOGI(TAG, "State indicator changed to %s", resq_state_to_string(state));
 }
 
 /* Return the currently configured `resq_state_t`. */
 resq_state_t status_indicator_get_state(void)
 {
-    return s_current_state;
+    return atomic_load_explicit(&s_current_state, memory_order_acquire);
 }
 
 void status_indicator_set_both_leds_on(bool enabled)

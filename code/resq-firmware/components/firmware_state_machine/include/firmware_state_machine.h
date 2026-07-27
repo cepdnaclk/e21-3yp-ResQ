@@ -19,6 +19,7 @@ extern "C" {
 
 typedef struct {
     esp_err_t (*initialize_components)(void);
+    firmware_error_reason_id_t (*initialization_error_reason)(void);
     bool (*sensor_mode_enabled)(void);
 
     void (*network_set_defaults)(network_config_t *config);
@@ -35,6 +36,8 @@ typedef struct {
     esp_err_t (*provisioning_start)(void);
     esp_err_t (*provisioning_stop)(void);
     bool (*provisioning_has_saved_config)(void);
+    esp_err_t (*provisioning_take_saved_config)(network_config_t *out_config,
+                                                bool *out_available);
     resq_io_mode_t (*io_mode_get)(void);
     esp_err_t (*io_mode_request)(resq_io_mode_t mode);
 
