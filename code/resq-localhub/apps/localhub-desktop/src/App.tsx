@@ -289,10 +289,8 @@ export default function App() {
     activeShellKey = "diagnostics";
   } else if (currentRoute.name === "courses" || currentRoute.name === "course-detail") {
     activeShellKey = "courses";
-  } else if (currentRoute.name === "start-session") {
+  } else if (currentRoute.name === "start-session" || currentRoute.name === "live-sessions") {
     activeShellKey = "start-session";
-  } else if (currentRoute.name === "live-sessions") {
-    activeShellKey = "live-sessions";
   }
 
   const handlePageChange = (key: string) => {
