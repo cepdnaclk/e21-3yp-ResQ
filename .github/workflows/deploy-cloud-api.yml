@@ -43,11 +43,17 @@ jobs:
       - name: Prepare Elastic Beanstalk deployment bundle
         working-directory: ${{ env.CLOUD_API_DIR }}
         run: |
+          rm -rf deploy
           mkdir -p deploy
           cp target/cloud-api-0.1.0-SNAPSHOT.jar deploy/
           cp Procfile deploy/
+
+          if [ -d ".ebextensions" ]; then
+            cp -r .ebextensions deploy/
+          fi
+
           cd deploy
-          zip -r ../${{ env.DEPLOY_ZIP }} cloud-api-0.1.0-SNAPSHOT.jar Procfile
+          zip -r ../${{ env.DEPLOY_ZIP }} cloud-api-0.1.0-SNAPSHOT.jar Procfile .ebextensions
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
