@@ -1,1 +1,1 @@
-web: java -jar cloud-api-0.1.0-SNAPSHOT.jar
+web: java -Dserver.port=${PORT:-18080} -jar cloud-api-0.1.0-SNAPSHOT.jar
