@@ -19,6 +19,7 @@ set(TEST_COMPONENTS
     "calibration_fingerprint"
     "provisioning_manager"
     "backend_register_client"
+    "hx710"
     CACHE STRING "ResQ components under test"
     FORCE
 )

@@ -191,9 +191,9 @@ static esp_err_t sensor_stream_read_sample(cpr_sensor_sample_t *out_sample,
     out_sample->ts_ms = esp_timer_get_time() / 1000;
 
     esp_err_t first_error = ESP_OK;
-    int32_t p0 = 0;
-    int32_t p1 = 0;
-    int32_t p2 = 0;
+    int32_t p0 = HX710_ERROR_TIMEOUT;
+    int32_t p1 = HX710_ERROR_TIMEOUT;
+    int32_t p2 = HX710_ERROR_TIMEOUT;
     if (read_pressure) {
         uint8_t valid_mask = 0;
         esp_err_t pressure_err = hx710_read_3_shared_sck_valid(

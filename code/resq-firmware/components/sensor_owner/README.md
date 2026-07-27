@@ -8,6 +8,7 @@ Owners:
 - `SENSOR_OWNER_MANUAL_STREAM`
 - `SENSOR_OWNER_CALIBRATION`
 - `SENSOR_OWNER_SESSION`
+- `SENSOR_OWNER_DIAGNOSTIC` (Unity/HIL tests that touch physical sensors)
 
 The component stores a mutex-protected enum. Acquisition succeeds only when the
 current owner is `SENSOR_OWNER_NONE`; failed acquisition does not overwrite the

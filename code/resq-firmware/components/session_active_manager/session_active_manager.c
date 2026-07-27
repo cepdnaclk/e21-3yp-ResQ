@@ -97,7 +97,9 @@ static void session_sensor_task(void *arg) {
     sample.ts_ms = esp_timer_get_time() / 1000;
 
     {
-      int32_t p0 = 0, p1 = 0, p2 = 0;
+      int32_t p0 = HX710_ERROR_TIMEOUT;
+      int32_t p1 = HX710_ERROR_TIMEOUT;
+      int32_t p2 = HX710_ERROR_TIMEOUT;
       uint8_t valid_mask = 0;
       esp_err_t pressure_err = hx710_read_3_shared_sck_valid(
           BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
@@ -113,7 +115,7 @@ static void session_sensor_task(void *arg) {
       if ((valid_mask & HX710_VALID_CHANNEL_2) == 0)
         sample.quality_flags |= CPR_SAMPLE_PRESSURE_2_READ_FAILED;
       if (pressure_err != ESP_OK || valid_mask != HX710_VALID_CHANNEL_ALL) {
-        ESP_LOGW(TAG, "HX710 read partial: err=%s valid_mask=0x%02x",
+        ESP_LOGW(TAG, "HX710 synchronized read failed: err=%s valid_mask=0x%02x",
                  esp_err_to_name(pressure_err), valid_mask);
       }
     }

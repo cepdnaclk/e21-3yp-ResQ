@@ -54,3 +54,20 @@ TEST_CASE("Sensor owner initialization is idempotent", "[sensor_owner]")
     TEST_ASSERT_EQUAL(SENSOR_OWNER_CALIBRATION, get_owner());
     TEST_ASSERT_EQUAL(ESP_OK, sensor_owner_release(SENSOR_OWNER_CALIBRATION));
 }
+
+TEST_CASE("Diagnostic owner excludes runtime sensor owners", "[sensor_owner][hx710]")
+{
+    sensor_owner_reset_for_test();
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      sensor_owner_acquire(SENSOR_OWNER_DIAGNOSTIC));
+    TEST_ASSERT_EQUAL(SENSOR_OWNER_DIAGNOSTIC, get_owner());
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
+                      sensor_owner_acquire(SENSOR_OWNER_CALIBRATION));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
+                      sensor_owner_acquire(SENSOR_OWNER_SESSION));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
+                      sensor_owner_acquire(SENSOR_OWNER_MANUAL_STREAM));
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC));
+    TEST_ASSERT_EQUAL(SENSOR_OWNER_NONE, get_owner());
+}
