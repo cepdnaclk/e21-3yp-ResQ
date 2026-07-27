@@ -95,18 +95,23 @@ manual telemetry.
 
 The staged diagnostic prints `HX710_DIAG` records for:
 
-1. Active I/O mode, HX710 ownership, and GPIO19 LOW readback.
+1. Active I/O mode, HX710 ownership, and GPIO6 LOW readback.
 2. Each DOUT's initial level without generating a clock.
 3. One all-ready-or-no-clock synchronized group transaction.
-4. Per-channel readiness, timeout, stuck-HIGH, stuck-LOW, post-read, cadence,
-   and raw-validity fields. Failed channels omit the raw value.
-5. The exact group masks, pulse count, readiness/cadence times, and error.
-6. Final verified GPIO19 LOW and sensor-owner cleanup state.
+4. Per-channel readiness, timeout, stuck-HIGH, stuck-LOW, post-read, capture,
+   and raw-validity fields. Captured-but-invalid raw values are explicitly
+   labeled and never treated as valid.
+5. Current-transaction validity separately from the non-fatal
+   `next_ready_warning_mask`, including test-only microsecond timing, pulse
+   count, readiness time, and error.
+6. Final verified GPIO6 LOW and sensor-owner cleanup state.
 
-The repeated test performs ten synchronized, protocol-validated conversions.
-Every successful conversion must use exactly 25 shared clock pulses, wait for
-the next physically plausible conversion-ready transition, and leave GPIO19
-LOW. There is no software-selected single-channel isolation test because all
+The repeated test discards three warm-up transactions, then requires ten valid
+synchronized, protocol-validated conversions within twenty bounded attempts.
+Every successful conversion must use exactly 25 shared clock pulses and leave
+GPIO6 LOW. The production read returns after current-transaction validation;
+only this hardware test observes the following conversion for timing warnings.
+There is no software-selected single-channel isolation test because all
 physically connected modules receive every shared SCK edge.
 
 ### Hardware procedure
@@ -114,7 +119,7 @@ physically connected modules receive every shared SCK edge.
 Test A — shared clock only:
 
 1. If practical, disconnect all HX710 DOUT lines.
-2. Run the staged diagnostic and measure GPIO19.
+2. Run the staged diagnostic and measure GPIO6.
 3. Confirm approximately 0 V while idle and no unintended pulses during the
    DOUT-observation stage.
 
@@ -123,15 +128,18 @@ Test B — DOUT fault classification:
 1. With all modules connected, run the staged diagnostic.
 2. Confirm a DOUT that never becomes LOW is reported in `stuck_high_mask` and
    that `pulse_count=0`.
-3. Confirm a permanently LOW or prematurely ready DOUT is rejected by the
-   post-read or cadence mask and is never logged as a valid raw zero.
+3. Confirm a DOUT that remains LOW in the mandatory immediate post-read check
+   is rejected by `post_invalid_mask` and is never logged as a valid raw zero.
+   A later early next-ready transition may set `next_ready_warning_mask`, but
+   must not invalidate the completed sample.
 
 Test C — shared clock: run the staged group
-diagnostic, confirm every readiness bit, and confirm GPIO19 returns LOW after
+diagnostic, confirm every readiness bit, and confirm GPIO6 returns LOW after
 each transaction.
 
 Test D — repeated conversions: run the repeated synchronized test and confirm
-all ten reads pass with `valid_mask=0x07`, `pulses=25`, and plausible cadence.
+all ten reads pass with `valid_mask=0x07` and `pulses=25`. Record any
+next-ready timing warnings separately.
 
 Test E — power stability: repeat before Wi-Fi starts and
 with a stable external supply. Record any change in DOUT readiness. Do not
@@ -158,8 +166,8 @@ stability, or changing pressure response.
 | `[hall]` | Hall baseline, movement, full-depth, recoil, stuck, saturated and reset math checks |
 | `[readiness]` | Combined pressure + Hall readiness gating |
 | `[sensor_raw][hardware]` | Direct board raw Hall and validity-aware pressure readings |
-| `[hx710]` | Mocked ownership, readiness, shared transactions, protocol/cadence validation, cleanup, and output validity |
-| `[hx710_diag][hardware]` | GPIO19 ownership, DOUT states, synchronized group reads, cadence, and cleanup diagnostics |
+| `[hx710]` | Mocked ownership, readiness, shared transactions, current-protocol validation, non-fatal next-ready observations, cleanup, and output validity |
+| `[hx710_diag][hardware]` | GPIO6 shared-SCK ownership, DOUT states, synchronized group reads, non-fatal next-conversion timing observations, and cleanup diagnostics |
 
 The `[sensor]`, `[pressure]`, `[hall]` and `[readiness]` Unity cases do not read
 GPIO, ADC, HX710, Wi-Fi, MQTT, buttons or long-running FreeRTOS tasks. They

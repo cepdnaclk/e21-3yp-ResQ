@@ -15,6 +15,8 @@
 
 #define RAW_SENSOR_SAMPLE_COUNT 100
 #define RAW_SENSOR_SAMPLE_DELAY_MS 50
+#define HX710_HARDWARE_SAMPLE_COUNT 20u
+#define HX710_HARDWARE_MIN_VALID_READS 15u
 
 typedef struct {
     int32_t pressure_ref;
@@ -191,4 +193,44 @@ TEST_CASE("test_read_all_sensor_raw_values", "[sensor_raw][hardware]")
     esp_err_t release_result = sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
     assert_pressure_cleanup(setup_result, low_result, final_sck,
                             release_result, valid_channel_reads);
+}
+
+TEST_CASE("test_hx710_minimum_valid_read_ratio",
+          "[sensor_raw][hx710_diag][hardware]")
+{
+    TEST_ASSERT_TRUE_MESSAGE(io_mode_manager_is_sensor(),
+                             "HX710 ratio test requires SENSOR I/O mode");
+    TEST_ASSERT_EQUAL(ESP_OK, sensor_owner_init());
+    TEST_ASSERT_EQUAL_MESSAGE(
+        ESP_OK, sensor_owner_acquire(SENSOR_OWNER_DIAGNOSTIC),
+        "HX710 ratio test could not acquire sensor ownership");
+
+    esp_err_t setup_result = raw_sensor_init_pressure();
+    unsigned valid_reads = 0;
+    if (setup_result == ESP_OK) {
+        for (unsigned sample = 0;
+             sample < HX710_HARDWARE_SAMPLE_COUNT;
+             ++sample) {
+            raw_pressure_sample_t pressure = raw_sensor_read_pressure();
+            if (pressure.error == ESP_OK &&
+                pressure.valid_mask == HX710_VALID_CHANNEL_ALL) {
+                valid_reads++;
+            }
+            print_pressure_sample("VALID_RATIO", (int)sample, &pressure,
+                                  false, 0);
+        }
+    }
+
+    printf("HX710_DIAG,VALID_RATIO,successful_reads=%u,total=%u,"
+           "required=%u\n",
+           valid_reads, HX710_HARDWARE_SAMPLE_COUNT,
+           HX710_HARDWARE_MIN_VALID_READS);
+
+    esp_err_t low_result = hx710_hold_sck_low(BOARD_HX710_SHARED_SCK);
+    int final_sck = gpio_get_level(BOARD_HX710_SHARED_SCK);
+    esp_err_t release_result = sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
+    assert_pressure_cleanup(setup_result, low_result, final_sck,
+                            release_result, valid_reads * 3u);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(HX710_HARDWARE_MIN_VALID_READS,
+                                        valid_reads);
 }

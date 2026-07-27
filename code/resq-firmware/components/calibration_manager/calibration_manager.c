@@ -25,6 +25,7 @@
 #include "hx710.h"
 #include "mqtt_manager.h"
 #include "mqtt_topics.h"
+#include "pressure_quality_filter.h"
 #include "runtime_helpers.h"
 #include "sensor_conversion.h"
 #include "sensor_owner.h"
@@ -49,7 +50,12 @@
 #define CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES 20
 #define CALIBRATION_CAPTURE_SAMPLE_DELAY_MS 20
 #define CALIBRATION_CANCEL_WAIT_MS 5000
-#define CALIBRATION_OPTIONAL_PRESSURE_MAX_READ_FAILURES 3
+#define CALIBRATION_OPTIONAL_PRESSURE_MAX_READ_FAILURES \
+  CALIBRATION_PRESSURE_MAX_CONSECUTIVE_INVALID
+#define CALIBRATION_PRESSURE_MAX_CONSECUTIVE_INVALID 5
+#define CALIBRATION_PRESSURE_STABILITY_WINDOW_SAMPLES 3
+/* Raw HX710 ADC counts, used only before calibration noise is available. */
+#define CALIBRATION_PRESSURE_STABILITY_FALLBACK_SPREAD_COUNTS 1000
 #define CALIBRATION_FULL_PRESS_FINAL_MIN_PCT 85
 #define CALIBRATION_FULL_PRESS_FINAL_MAX_PCT 115
 
@@ -104,6 +110,12 @@ static int s_hx710_zero_streaks[3] = {0, 0, 0};
 
 /* Last raw triplet from the shared HX710 read (for logging) */
 static int32_t s_last_hx710_raw[3] = {0, 0, 0};
+static pressure_quality_filter_t s_calibration_pressure_filter;
+static bool s_calibration_pressure_filter_initialized = false;
+static uint8_t s_calibration_pressure_required_mask =
+    PRESSURE_CHANNEL_MASK_ALL;
+static pressure_quality_result_t s_calibration_last_quality;
+static unsigned s_calibration_repeated_read_warning_count = 0;
 
 /* current command id for the running calibration */
 static char s_command_id[64] = {0};
@@ -337,11 +349,23 @@ typedef struct {
 static calibration_pressure_snapshot_t s_pressure_snapshot;
 static sensor_raw_sample_t s_last_calibration_raw_sample;
 static bool s_has_last_calibration_raw_sample = false;
-static bool s_last_calibration_pressure_valid = false;
 static bool s_last_calibration_hall_valid = false;
 
 static bool calibration_pressure_is_optional(void) {
   return s_candidate_config.pressure_mode != CALIBRATION_PRESSURE_REQUIRED;
+}
+
+bool calibration_manager_pressure_acquisition_enabled(
+    calibration_pressure_mode_t mode) {
+  return mode != CALIBRATION_HALL_ONLY;
+}
+
+bool calibration_manager_pressure_stage_masks_valid(
+    uint8_t read_valid_mask, uint8_t saturation_mask, uint8_t required_mask) {
+  required_mask &= PRESSURE_CHANNEL_MASK_ALL;
+  return required_mask != 0 &&
+         (read_valid_mask & required_mask) == required_mask &&
+         (saturation_mask & required_mask) == 0;
 }
 
 static bool
@@ -441,17 +465,35 @@ static esp_err_t calibration_convert_host_hall_delta(int32_t host_value,
 }
 
 static void calibration_mark_pressure_degraded(bool using_last_stable) {
+  bool was_degraded = s_candidate_config.pressure_degraded;
   s_pressure_snapshot.pressure_degraded = true;
-  s_pressure_snapshot.saturated_now = true;
   s_candidate_config.pressure_degraded = true;
   s_candidate_config.pressure_valid = false;
   s_candidate_config.hall_valid = true;
   s_candidate_config.using_last_stable_pressure =
       using_last_stable && s_pressure_snapshot.has_stable_pressure;
-  s_candidate_config.pressure_mode =
-      s_candidate_config.using_last_stable_pressure
-          ? CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE
-          : CALIBRATION_HALL_ONLY;
+  if (!was_degraded) {
+    ESP_LOGI(TAG,
+             "Calibration PRESSURE_DEGRADED using_last_stable=%d; "
+             "acquisition continues",
+             s_candidate_config.using_last_stable_pressure);
+  }
+}
+
+static void calibration_mark_pressure_recovered(void) {
+  if (s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY) {
+    return;
+  }
+  bool was_degraded = s_candidate_config.pressure_degraded;
+  s_pressure_snapshot.pressure_degraded = false;
+  s_pressure_snapshot.saturated_now = false;
+  s_candidate_config.pressure_degraded = false;
+  s_candidate_config.pressure_valid = true;
+  s_candidate_config.using_last_stable_pressure = false;
+  if (was_degraded) {
+    ESP_LOGI(TAG, "Calibration PRESSURE_RECOVERED accepted_samples=%u",
+             s_calibration_pressure_filter.accepted_sample_count);
+  }
 }
 
 static void calibration_update_stable_pressure(bool p0_stable, bool p1_stable,
@@ -550,20 +592,26 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                       sensor_conversion_convert(&s_last_calibration_raw_sample,
                                                 &profile, &converted) == ESP_OK;
   bool pressure_0_kpa_valid =
-      converted_ok && s_last_calibration_pressure_valid && pressure_kpa_valid &&
+      converted_ok &&
+      s_last_calibration_raw_sample.pressure_read_valid[0] &&
+      pressure_kpa_valid &&
       converted.pressure_kpa_channel_valid[0];
   bool pressure_1_kpa_valid =
-      converted_ok && s_last_calibration_pressure_valid && pressure_kpa_valid &&
+      converted_ok &&
+      s_last_calibration_raw_sample.pressure_read_valid[1] &&
+      pressure_kpa_valid &&
       converted.pressure_kpa_channel_valid[1];
   bool pressure_2_kpa_valid =
-      converted_ok && s_last_calibration_pressure_valid && pressure_kpa_valid &&
+      converted_ok &&
+      s_last_calibration_raw_sample.pressure_read_valid[2] &&
+      pressure_kpa_valid &&
       converted.pressure_kpa_channel_valid[2];
   bool sample_pressure_kpa_valid =
       pressure_0_kpa_valid && pressure_1_kpa_valid && pressure_2_kpa_valid;
   bool sample_hall_mm_valid = converted_ok && s_last_calibration_hall_valid &&
                               hall_mm_valid && converted.hall_mm_valid;
 
-  char payload[1800];
+  char payload[2048];
   const char *reply_id = calibration_manager_get_request_id();
   char reply_segment[160] = {0};
   if (calibration_manager_is_running() && reply_id != NULL &&
@@ -605,6 +653,11 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
       "\"hall_baseline_raw\":%ld,"
       "\"hall_baseline_raw_valid\":%s,"
       "\"pressure_saturation_mask\":%u,"
+      "\"pressure_last_stable_available\":%s,"
+      "\"pressure_using_last_stable\":%s,"
+      "\"pressure_stable_mask\":%u,"
+      "\"pressure_decision_usable_mask\":%u,"
+      "\"pressure_accepted_sample_count\":%u,"
       "\"pressure_0_kpa\":%.3f,"
       "\"pressure_0_kpa_valid\":%s,"
       "\"pressure_1_kpa\":%.3f,"
@@ -650,6 +703,11 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
       (long)s_candidate_config.hall_baseline,
       s_candidate_config.hall_baseline > 0 ? "true" : "false",
       (unsigned int)s_last_calibration_raw_sample.pressure_saturation_mask,
+      s_calibration_last_quality.has_last_accepted ? "true" : "false",
+      s_calibration_last_quality.using_last_accepted ? "true" : "false",
+      (unsigned int)s_calibration_last_quality.stable_mask,
+      (unsigned int)s_calibration_last_quality.decision_usable_mask,
+      s_calibration_last_quality.accepted_sample_count,
       pressure_0_kpa_valid ? converted.pressure_kpa[0] : 0.0f,
       pressure_0_kpa_valid ? "true" : "false",
       pressure_1_kpa_valid ? converted.pressure_kpa[1] : 0.0f,
@@ -733,7 +791,8 @@ static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range,
                                                    int32_t noise_raw);
 static esp_err_t calibration_read_hall_average(int32_t *out_value);
 static esp_err_t calibration_validate_pressure_triplet(int32_t v0, int32_t v1,
-                                                       int32_t v2);
+                                                       int32_t v2,
+                                                       uint8_t required_mask);
 static esp_err_t
 calibration_read_valid_sample(calibration_sample_t *out_sample);
 static esp_err_t
@@ -754,27 +813,131 @@ static esp_err_t calibration_capture_full_press_batch(int hall_direction,
 static bool calibration_is_saturated_24bit(int32_t value);
 static calibration_reason_id_t
 calibration_validate_pressure_rest_health(const calibration_signal_stats_t *p0,
-                                          const calibration_signal_stats_t *p1,
-                                          const calibration_signal_stats_t *p2);
+                                           const calibration_signal_stats_t *p1,
+                                           const calibration_signal_stats_t *p2);
+
+static int32_t calibration_pressure_stability_spread(size_t channel) {
+  const int32_t noise[PRESSURE_CHANNEL_COUNT] = {
+      s_candidate_config.pressure_0_noise_raw,
+      s_candidate_config.pressure_1_noise_raw,
+      s_candidate_config.pressure_2_noise_raw,
+  };
+  int64_t spread =
+      noise[channel] > 0
+          ? (int64_t)noise[channel] *
+                CALIBRATION_PRESSURE_CONTACT_NOISE_MULTIPLIER
+          : s_candidate_config.pressure_contact_threshold;
+  if (spread <= 0) {
+    spread = CALIBRATION_PRESSURE_STABILITY_FALLBACK_SPREAD_COUNTS;
+  }
+  return spread > INT32_MAX ? INT32_MAX : (int32_t)spread;
+}
+
+static esp_err_t calibration_pressure_filter_begin(uint8_t required_mask) {
+  pressure_quality_config_t config = {
+      .window_size = CALIBRATION_PRESSURE_STABILITY_WINDOW_SAMPLES,
+      .required_channel_mask =
+          required_mask & PRESSURE_CHANNEL_MASK_ALL,
+      .min_raw =
+          {
+              -SENSOR_CONVERSION_PRESSURE_SATURATION_RAW + 1,
+              -SENSOR_CONVERSION_PRESSURE_SATURATION_RAW + 1,
+              -SENSOR_CONVERSION_PRESSURE_SATURATION_RAW + 1,
+          },
+      .max_raw =
+          {
+              SENSOR_CONVERSION_PRESSURE_SATURATION_RAW - 1,
+              SENSOR_CONVERSION_PRESSURE_SATURATION_RAW - 1,
+              SENSOR_CONVERSION_PRESSURE_SATURATION_RAW - 1,
+          },
+      .max_spread_raw =
+          {
+              calibration_pressure_stability_spread(0),
+              calibration_pressure_stability_spread(1),
+              calibration_pressure_stability_spread(2),
+          },
+  };
+  esp_err_t err =
+      pressure_quality_filter_init(&s_calibration_pressure_filter, &config);
+  s_calibration_pressure_filter_initialized = err == ESP_OK;
+  if (err == ESP_OK) {
+    s_calibration_pressure_required_mask = config.required_channel_mask;
+    memset(&s_calibration_last_quality, 0,
+           sizeof(s_calibration_last_quality));
+  }
+  return err;
+}
+
+static void calibration_log_hx710_group(
+    const hx710_group_result_t *group,
+    esp_err_t err) {
+  if (group == NULL) {
+    return;
+  }
+  if (err == ESP_OK) {
+    s_calibration_repeated_read_warning_count = 0;
+    ESP_LOGD(TAG,
+             "HX710_CAL_READ: err=%s valid=0x%02x ready_wait_ms=%lu "
+             "next_ready_warning=0x%02x",
+             esp_err_to_name(err), group->valid_mask,
+             (unsigned long)group->ready_wait_ms,
+             group->early_next_ready_warning_mask);
+    return;
+  }
+
+  s_calibration_repeated_read_warning_count++;
+  if (s_calibration_repeated_read_warning_count != 1 &&
+      s_calibration_repeated_read_warning_count % 10 != 0) {
+    return;
+  }
+  ESP_LOGW(
+      TAG,
+      "HX710_CAL_READ: err=%s initial=0x%02x ready=0x%02x valid=0x%02x "
+      "not_ready=0x%02x stuck_high=0x%02x stuck_low=0x%02x "
+      "post_invalid=0x%02x next_ready_warning=0x%02x pulses=%u "
+      "ready_wait_ms=%lu",
+      esp_err_to_name(err), group->initial_ready_mask, group->ready_mask,
+      group->valid_mask, group->not_ready_mask, group->stuck_high_mask,
+      group->stuck_low_mask, group->post_read_invalid_mask,
+      group->early_next_ready_warning_mask, group->pulse_count,
+      (unsigned long)group->ready_wait_ms);
+}
 
 static void calibration_record_progress_sample(int32_t hall_raw, int32_t p0,
                                                int32_t p1, int32_t p2,
-                                               bool pressure_valid,
+                                               uint8_t pressure_valid_mask,
                                                bool hall_valid) {
-  memset(&s_last_calibration_raw_sample, 0,
-         sizeof(s_last_calibration_raw_sample));
-  s_last_calibration_raw_sample.pressure_raw[0] = p0;
-  s_last_calibration_raw_sample.pressure_raw[1] = p1;
-  s_last_calibration_raw_sample.pressure_raw[2] = p2;
-  s_last_calibration_raw_sample.pressure_read_valid[0] = pressure_valid;
-  s_last_calibration_raw_sample.pressure_read_valid[1] = pressure_valid;
-  s_last_calibration_raw_sample.pressure_read_valid[2] = pressure_valid;
+  if ((pressure_valid_mask & 0x01u) != 0) {
+    s_last_calibration_raw_sample.pressure_raw[0] = p0;
+  }
+  if ((pressure_valid_mask & 0x02u) != 0) {
+    s_last_calibration_raw_sample.pressure_raw[1] = p1;
+  }
+  if ((pressure_valid_mask & 0x04u) != 0) {
+    s_last_calibration_raw_sample.pressure_raw[2] = p2;
+  }
+  s_last_calibration_raw_sample.pressure_read_valid[0] =
+      (pressure_valid_mask & 0x01u) != 0;
+  s_last_calibration_raw_sample.pressure_read_valid[1] =
+      (pressure_valid_mask & 0x02u) != 0;
+  s_last_calibration_raw_sample.pressure_read_valid[2] =
+      (pressure_valid_mask & 0x04u) != 0;
   s_last_calibration_raw_sample.hall_raw = hall_raw;
   s_last_calibration_raw_sample.hall_read_valid = hall_valid;
-  s_last_calibration_raw_sample.pressure_saturation_mask =
-      pressure_valid ? calibration_pressure_saturation_mask(p0, p1, p2) : 0u;
+  s_last_calibration_raw_sample.pressure_saturation_mask = 0u;
+  if ((pressure_valid_mask & 0x01u) != 0 &&
+      calibration_is_saturated_24bit(p0)) {
+    s_last_calibration_raw_sample.pressure_saturation_mask |= 0x01u;
+  }
+  if ((pressure_valid_mask & 0x02u) != 0 &&
+      calibration_is_saturated_24bit(p1)) {
+    s_last_calibration_raw_sample.pressure_saturation_mask |= 0x02u;
+  }
+  if ((pressure_valid_mask & 0x04u) != 0 &&
+      calibration_is_saturated_24bit(p2)) {
+    s_last_calibration_raw_sample.pressure_saturation_mask |= 0x04u;
+  }
   s_last_calibration_raw_sample.timestamp_ms = esp_timer_get_time() / 1000;
-  s_last_calibration_pressure_valid = pressure_valid;
   s_last_calibration_hall_valid = hall_valid;
   s_has_last_calibration_raw_sample = true;
 }
@@ -795,6 +958,12 @@ calibration_collect_rest_stats(calibration_signal_stats_t *hall_stats,
   calibration_stats_init(p0_stats);
   calibration_stats_init(p1_stats);
   calibration_stats_init(p2_stats);
+
+  esp_err_t filter_err =
+      calibration_pressure_filter_begin(PRESSURE_CHANNEL_MASK_ALL);
+  if (filter_err != ESP_OK) {
+    return filter_err;
+  }
 
   int sample_count = s_candidate_config.calibration_sample_count > 0
                          ? s_candidate_config.calibration_sample_count
@@ -886,6 +1055,12 @@ static esp_err_t calibration_capture_full_press_batch(int hall_direction,
   calibration_stats_init(&p0_stats);
   calibration_stats_init(&p1_stats);
   calibration_stats_init(&p2_stats);
+
+  esp_err_t filter_err =
+      calibration_pressure_filter_begin(PRESSURE_CHANNEL_MASK_ALL);
+  if (filter_err != ESP_OK) {
+    return filter_err;
+  }
 
   const int max_attempts = (CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES * 100 +
                             (100 - CALIBRATION_MAX_INVALID_PERCENT) - 1) /
@@ -1032,6 +1207,12 @@ static esp_err_t calibration_collect_full_press_stats(
   int last_progress_publish_ms = -200;
   int32_t hold_boundary = calibration_max_i32(1, full_thresh - hall_hysteresis);
 
+  esp_err_t filter_err =
+      calibration_pressure_filter_begin(PRESSURE_CHANNEL_MASK_ALL);
+  if (filter_err != ESP_OK) {
+    return filter_err;
+  }
+
   while (s_running) {
     int elapsed_ms = (int)((esp_timer_get_time() / 1000) - started_ms);
     if (elapsed_ms >= CALIBRATION_MAX_WAIT_MS) {
@@ -1050,17 +1231,6 @@ static esp_err_t calibration_collect_full_press_stats(
       }
       continue;
     }
-    if (!sample.pressure_valid && calibration_pressure_is_optional()) {
-      bool was_degraded = s_candidate_config.pressure_degraded;
-      calibration_mark_pressure_degraded(
-          s_pressure_snapshot.has_stable_pressure);
-      if (!was_degraded) {
-        publish_calibration_progress(
-            CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
-            RESQ_STATE_CALIBRATING, CAL_ACTION_NONE, 9);
-      }
-    }
-
     int32_t hv = sample.hall;
     int32_t delta =
         calibration_abs_diff(hv, s_candidate_config.hall_baseline);
@@ -1503,20 +1673,26 @@ static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range,
 }
 
 static esp_err_t calibration_validate_pressure_triplet(int32_t v0, int32_t v1,
-                                                       int32_t v2) {
+                                                       int32_t v2,
+                                                       uint8_t required_mask) {
   s_last_hx710_raw[0] = v0;
   s_last_hx710_raw[1] = v1;
   s_last_hx710_raw[2] = v2;
 
-  if (calibration_is_saturated_24bit(v0) ||
-      calibration_is_saturated_24bit(v1) ||
-      calibration_is_saturated_24bit(v2)) {
+  uint8_t saturation_mask =
+      (uint8_t)calibration_pressure_saturation_mask(v0, v1, v2);
+  if ((saturation_mask & required_mask) != 0) {
     memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
     return ESP_ERR_INVALID_RESPONSE;
   }
 
   int32_t values[3] = {v0, v1, v2};
   for (int i = 0; i < 3; i++) {
+    uint8_t bit = (uint8_t)(1u << i);
+    if ((required_mask & bit) == 0) {
+      s_hx710_zero_streaks[i] = 0;
+      continue;
+    }
     if (values[i] >= -CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW &&
         values[i] <= CALIBRATION_STUCK_ZERO_NEAR_ZERO_RAW) {
       s_hx710_zero_streaks[i]++;
@@ -1543,13 +1719,91 @@ static esp_err_t calibration_validate_pressure_triplet(int32_t v0, int32_t v1,
       }
     }
 
-    if (i > 0 &&
-        s_hx710_zero_streaks[i] >= CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT) {
+    if (s_hx710_zero_streaks[i] >=
+        CALIBRATION_STUCK_ZERO_THRESHOLD_COUNT) {
       return ESP_ERR_INVALID_RESPONSE;
     }
   }
 
   return ESP_OK;
+}
+
+static esp_err_t calibration_read_filtered_pressure(
+    uint8_t required_mask,
+    int32_t out_raw[PRESSURE_CHANNEL_COUNT],
+    pressure_quality_result_t *out_quality) {
+  if (out_raw == NULL || out_quality == NULL ||
+      (required_mask & PRESSURE_CHANNEL_MASK_ALL) == 0) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (!s_calibration_pressure_filter_initialized ||
+      s_calibration_pressure_required_mask != required_mask) {
+    esp_err_t init_err = calibration_pressure_filter_begin(required_mask);
+    if (init_err != ESP_OK) {
+      return init_err;
+    }
+  }
+
+  hx710_group_result_t group = {0};
+  esp_err_t read_err = hx710_read_group_shared_sck(
+      BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
+      BOARD_HX710_2_DOUT, &group);
+  calibration_log_hx710_group(&group, read_err);
+
+  pressure_raw_frame_t frame = {
+      .raw = {group.raw[0], group.raw[1], group.raw[2]},
+      .read_valid_mask = group.valid_mask,
+      .saturation_mask =
+          read_err == ESP_OK
+              ? (uint8_t)calibration_pressure_saturation_mask(
+                    group.raw[0], group.raw[1], group.raw[2])
+              : 0,
+      .timestamp_ms = esp_timer_get_time() / 1000,
+  };
+
+  esp_err_t stage_err = read_err;
+  if (read_err == ESP_OK &&
+      calibration_manager_pressure_stage_masks_valid(
+          group.valid_mask, frame.saturation_mask, required_mask)) {
+    stage_err = calibration_validate_pressure_triplet(
+        group.raw[0], group.raw[1], group.raw[2], required_mask);
+    if (stage_err != ESP_OK &&
+        (frame.saturation_mask & required_mask) == 0) {
+      frame.read_valid_mask &= (uint8_t)~required_mask;
+    }
+  } else if (read_err != ESP_OK) {
+    memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
+  } else {
+    stage_err = ESP_ERR_INVALID_RESPONSE;
+  }
+
+  esp_err_t filter_err = pressure_quality_filter_push(
+      &s_calibration_pressure_filter, &frame, out_quality);
+  if (filter_err != ESP_OK) {
+    return filter_err;
+  }
+  s_calibration_last_quality = *out_quality;
+
+  s_pressure_snapshot.saturated_now =
+      (out_quality->saturation_mask & required_mask) != 0;
+  if (out_quality->all_required_channels_usable) {
+    memcpy(out_raw, out_quality->accepted_raw,
+           sizeof(out_quality->accepted_raw));
+    calibration_update_stable_pressure(
+        (required_mask & 0x01u) != 0,
+        (required_mask & 0x02u) != 0,
+        (required_mask & 0x04u) != 0,
+        out_raw[0], out_raw[1], out_raw[2]);
+    calibration_mark_pressure_recovered();
+    return ESP_OK;
+  }
+
+  if (out_quality->consecutive_invalid_count >=
+      CALIBRATION_PRESSURE_MAX_CONSECUTIVE_INVALID) {
+    calibration_mark_pressure_degraded(
+        s_pressure_snapshot.has_stable_pressure);
+  }
+  return stage_err != ESP_OK ? stage_err : ESP_ERR_INVALID_RESPONSE;
 }
 
 static esp_err_t
@@ -1565,22 +1819,23 @@ calibration_read_valid_sample(calibration_sample_t *out_sample) {
     return err;
   }
 
-  err = hx710_read_3_shared_sck(
-      BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
-      BOARD_HX710_2_DOUT, &out_sample->p0, &out_sample->p1, &out_sample->p2);
+  int32_t pressure[PRESSURE_CHANNEL_COUNT] = {0};
+  pressure_quality_result_t quality = {0};
+  err = calibration_read_filtered_pressure(
+      PRESSURE_CHANNEL_MASK_ALL, pressure, &quality);
   if (err != ESP_OK) {
-    memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
-    calibration_record_progress_sample(out_sample->hall, 0, 0, 0, false, true);
+    calibration_record_progress_sample(out_sample->hall, 0, 0, 0, 0, true);
     return err;
   }
 
-  err = calibration_validate_pressure_triplet(out_sample->p0, out_sample->p1,
-                                              out_sample->p2);
-  out_sample->pressure_valid = err == ESP_OK;
+  out_sample->p0 = pressure[0];
+  out_sample->p1 = pressure[1];
+  out_sample->p2 = pressure[2];
+  out_sample->pressure_valid = true;
   calibration_record_progress_sample(out_sample->hall, out_sample->p0,
                                      out_sample->p1, out_sample->p2,
-                                     out_sample->pressure_valid, true);
-  return err;
+                                     quality.decision_usable_mask, true);
+  return ESP_OK;
 }
 
 static esp_err_t
@@ -1596,33 +1851,30 @@ calibration_read_hall_pressure_sample(calibration_sample_t *out_sample) {
     return hall_err;
   }
 
-  if (s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY ||
-      s_candidate_config.pressure_degraded) {
+  if (!calibration_manager_pressure_acquisition_enabled(
+          s_candidate_config.pressure_mode)) {
     out_sample->pressure_valid = false;
-    calibration_record_progress_sample(out_sample->hall, 0, 0, 0, false, true);
+    calibration_record_progress_sample(out_sample->hall, 0, 0, 0, 0, true);
     return ESP_OK;
   }
 
-  esp_err_t pressure_err = hx710_read_3_shared_sck(
-      BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
-      BOARD_HX710_2_DOUT, &out_sample->p0, &out_sample->p1, &out_sample->p2);
+  int32_t pressure[PRESSURE_CHANNEL_COUNT] = {0};
+  pressure_quality_result_t quality = {0};
+  esp_err_t pressure_err = calibration_read_filtered_pressure(
+      PRESSURE_CHANNEL_MASK_ALL, pressure, &quality);
   if (pressure_err != ESP_OK) {
-    memset(s_hx710_zero_streaks, 0, sizeof(s_hx710_zero_streaks));
     out_sample->pressure_valid = false;
-    calibration_record_progress_sample(out_sample->hall, 0, 0, 0, false, true);
+    calibration_record_progress_sample(out_sample->hall, 0, 0, 0, 0, true);
     return calibration_pressure_is_optional() ? ESP_OK : pressure_err;
   }
 
-  pressure_err = calibration_validate_pressure_triplet(
-      out_sample->p0, out_sample->p1, out_sample->p2);
-  out_sample->pressure_valid = pressure_err == ESP_OK;
+  out_sample->p0 = pressure[0];
+  out_sample->p1 = pressure[1];
+  out_sample->p2 = pressure[2];
+  out_sample->pressure_valid = true;
   calibration_record_progress_sample(out_sample->hall, out_sample->p0,
                                      out_sample->p1, out_sample->p2,
-                                     out_sample->pressure_valid, true);
-  if (!out_sample->pressure_valid && !calibration_pressure_is_optional()) {
-    return pressure_err;
-  }
-
+                                     quality.decision_usable_mask, true);
   return ESP_OK;
 }
 
@@ -1682,36 +1934,38 @@ static esp_err_t calibration_read_pressure_once(gpio_num_t sck_pin,
   /* sck_pin is unused because shared SCK is used internally */
   (void)sck_pin;
 
-  /* Use shared-SCK synchronized read and select the requested dout pin value */
-  int32_t v0 = 0, v1 = 0, v2 = 0;
-  esp_err_t err = hx710_read_3_shared_sck(
-      BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
-      BOARD_HX710_2_DOUT, &v0, &v1, &v2);
-
-  if (err != ESP_OK) {
-    return err;
-  }
-
-  /* Log all three raw sensor values (decimal + hex) to make stuck bit patterns
-   * visible */
-  ESP_LOGD(TAG, "p0=%ld hex=0x%06X p1=%ld hex=0x%06X p2=%ld hex=0x%06X",
-           (long)v0, (unsigned int)((uint32_t)v0 & 0xFFFFFF), (long)v1,
-           (unsigned int)((uint32_t)v1 & 0xFFFFFF), (long)v2,
-           (unsigned int)((uint32_t)v2 & 0xFFFFFF));
-
-  err = calibration_validate_pressure_triplet(v0, v1, v2);
-  if (err != ESP_OK) {
-    return err;
-  }
-
+  uint8_t required_mask = 0;
   if (dout_pin == BOARD_HX710_0_DOUT) {
-    *out_value = v0;
+    required_mask = 0x01u;
   } else if (dout_pin == BOARD_HX710_1_DOUT) {
-    *out_value = v1;
+    required_mask = 0x02u;
   } else if (dout_pin == BOARD_HX710_2_DOUT) {
-    *out_value = v2;
+    required_mask = 0x04u;
   } else {
     return ESP_ERR_INVALID_ARG;
+  }
+
+  int32_t values[PRESSURE_CHANNEL_COUNT] = {0};
+  pressure_quality_result_t quality = {0};
+  esp_err_t err =
+      calibration_read_filtered_pressure(required_mask, values, &quality);
+  if (err != ESP_OK) {
+    return err;
+  }
+  ESP_LOGD(TAG, "p0=%ld hex=0x%06X p1=%ld hex=0x%06X p2=%ld hex=0x%06X",
+           (long)values[0],
+           (unsigned int)((uint32_t)values[0] & 0xFFFFFF),
+           (long)values[1],
+           (unsigned int)((uint32_t)values[1] & 0xFFFFFF),
+           (long)values[2],
+           (unsigned int)((uint32_t)values[2] & 0xFFFFFF));
+
+  if (dout_pin == BOARD_HX710_0_DOUT) {
+    *out_value = values[0];
+  } else if (dout_pin == BOARD_HX710_1_DOUT) {
+    *out_value = values[1];
+  } else {
+    *out_value = values[2];
   }
 
   return ESP_OK;
@@ -1797,6 +2051,11 @@ static esp_err_t calibration_wait_for_pressure_target(
       esp_timer_get_time() + ((int64_t)CALIBRATION_MAX_WAIT_MS * 1000LL);
   int consecutive_read_failures = 0;
   int64_t last_progress_publish_us = 0;
+  uint8_t required_mask = (uint8_t)(1u << channel);
+  esp_err_t filter_err = calibration_pressure_filter_begin(required_mask);
+  if (filter_err != ESP_OK) {
+    return filter_err;
+  }
 
   ESP_LOGI(TAG, "Waiting for %s target=%ld tolerance=%ld deadline_ms=%d", label,
            (long)target_value, (long)tolerance, CALIBRATION_MAX_WAIT_MS);
@@ -1811,12 +2070,8 @@ static esp_err_t calibration_wait_for_pressure_target(
       ESP_LOGW(TAG, "%s read failed: %s consecutive=%d", label,
                esp_err_to_name(err), consecutive_read_failures);
 
-      /* Propagate stuck-zero detection immediately to caller; caller will
-       * decide failure mapping */
-      if (err == ESP_ERR_INVALID_RESPONSE ||
-          (calibration_pressure_is_optional() &&
-           consecutive_read_failures >=
-               CALIBRATION_OPTIONAL_PRESSURE_MAX_READ_FAILURES)) {
+      if (consecutive_read_failures >=
+          CALIBRATION_OPTIONAL_PRESSURE_MAX_READ_FAILURES) {
         return err;
       }
 
@@ -2114,9 +2369,9 @@ static void calibration_manager_task(void *arg) {
       s_candidate_config.bladder_2_pressure, initial_p2_stats.noise_pp);
 
   bool run_pressure_targets =
-      s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
-      calibration_pressure_targets_usable(&s_candidate_config) &&
-      !s_candidate_config.pressure_degraded;
+      calibration_manager_pressure_acquisition_enabled(
+          s_candidate_config.pressure_mode) &&
+      calibration_pressure_targets_usable(&s_candidate_config);
 
   if (run_pressure_targets) {
     ESP_LOGI(TAG, "Set reference pressure P0 to the requested target");
@@ -2151,7 +2406,7 @@ static void calibration_manager_task(void *arg) {
                                  CAL_ACTION_NONE,
                                  3); // 3 = Reference pressure matched
 
-    if (!s_candidate_config.pressure_degraded) {
+    {
       ESP_LOGI(TAG, "Set bladder pressure P1 to the requested target");
       publish_calibration_progress(CAL_REASON_NONE, RESQ_STATE_CALIBRATING,
                                    CAL_ACTION_WAIT_OR_CANCEL,
@@ -2186,7 +2441,7 @@ static void calibration_manager_task(void *arg) {
                                  CAL_ACTION_NONE,
                                  5); // 5 = Bladder 1 pressure matched
 
-    if (!s_candidate_config.pressure_degraded) {
+    {
       ESP_LOGI(TAG, "Set bladder pressure P2 to the requested target");
       publish_calibration_progress(CAL_REASON_NONE, RESQ_STATE_CALIBRATING,
                                    CAL_ACTION_WAIT_OR_CANCEL,
@@ -2249,8 +2504,8 @@ static void calibration_manager_task(void *arg) {
   if (calibration_delay_or_cancel(500) != ESP_OK) {
     goto task_exit;
   }
-  if (s_candidate_config.pressure_degraded ||
-      s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY) {
+  if (!calibration_manager_pressure_acquisition_enabled(
+          s_candidate_config.pressure_mode)) {
     err = calibration_collect_hall_rest_stats(&hall_stats);
     calibration_stats_init(&p0_stats);
     calibration_stats_init(&p1_stats);
@@ -2316,8 +2571,7 @@ static void calibration_manager_task(void *arg) {
   tol2 = calibration_adaptive_pressure_tolerance(
       s_candidate_config.bladder_2_pressure, p2_stats.noise_pp);
 
-  if (!s_candidate_config.pressure_degraded &&
-      s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
+  if (s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
       !calibration_is_within_tolerance(
           p0_stats.mean, s_candidate_config.ref_pressure, tol0)) {
     ESP_LOGE(TAG,
@@ -2331,8 +2585,7 @@ static void calibration_manager_task(void *arg) {
     }
     calibration_mark_pressure_degraded(s_pressure_snapshot.p0_stable);
   }
-  if (!s_candidate_config.pressure_degraded &&
-      s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
+  if (s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
       !calibration_is_within_tolerance(
           p1_stats.mean, s_candidate_config.bladder_1_pressure, tol1)) {
     ESP_LOGE(TAG,
@@ -2346,8 +2599,7 @@ static void calibration_manager_task(void *arg) {
     }
     calibration_mark_pressure_degraded(s_pressure_snapshot.p1_stable);
   }
-  if (!s_candidate_config.pressure_degraded &&
-      s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
+  if (s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
       !calibration_is_within_tolerance(
           p2_stats.mean, s_candidate_config.bladder_2_pressure, tol2)) {
     ESP_LOGE(TAG,
@@ -2684,7 +2936,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   }
   s_candidate_config.pressure_degraded = false;
   s_candidate_config.using_last_stable_pressure = false;
-  s_candidate_config.pressure_valid = true;
+  s_candidate_config.pressure_valid = false;
   s_candidate_config.hall_valid = false;
 
   if (host_params->profile_id[0] != '\0') {
@@ -2729,8 +2981,11 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   memset(&s_last_calibration_raw_sample, 0,
          sizeof(s_last_calibration_raw_sample));
   s_has_last_calibration_raw_sample = false;
-  s_last_calibration_pressure_valid = false;
   s_last_calibration_hall_valid = false;
+  s_calibration_pressure_filter_initialized = false;
+  s_calibration_repeated_read_warning_count = 0;
+  memset(&s_calibration_last_quality, 0,
+         sizeof(s_calibration_last_quality));
 
   /* Debug: log the received host calibration payload values */
   ESP_LOGI(TAG,

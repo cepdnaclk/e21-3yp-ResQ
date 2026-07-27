@@ -2,6 +2,8 @@
 #define CALIBRATION_MANAGER_H
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "calibration_codes.h"
 #include "esp_err.h"
@@ -135,6 +137,19 @@ esp_err_t calibration_manager_try_reserve_session_start(
 esp_err_t calibration_manager_notify_session_started(void);
 esp_err_t calibration_manager_rollback_session_start(void);
 esp_err_t calibration_manager_notify_session_ended(void);
+
+/**
+ * Physical pressure acquisition is disabled only by an explicit Hall-only
+ * request. A degraded decision state never disables later recovery attempts.
+ */
+bool calibration_manager_pressure_acquisition_enabled(
+    calibration_pressure_mode_t mode);
+
+/** Validate only the pressure channels required by the current stage. */
+bool calibration_manager_pressure_stage_masks_valid(
+    uint8_t read_valid_mask,
+    uint8_t saturation_mask,
+    uint8_t required_mask);
 
 #ifdef __cplusplus
 }

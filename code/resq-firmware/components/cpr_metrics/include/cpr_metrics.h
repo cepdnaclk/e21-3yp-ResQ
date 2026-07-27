@@ -26,6 +26,17 @@ extern "C" {
 #define CPR_SENSOR_QUALITY_HALL_MISSED           (1u << 1)
 #define CPR_SENSOR_QUALITY_PRESSURE_SATURATED    (1u << 2)
 #define CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD (1u << 3)
+#define CPR_SENSOR_QUALITY_HAND_PLACEMENT_UNAVAILABLE (1u << 4)
+#define CPR_SENSOR_QUALITY_PRESSURE_UNSTABLE      (1u << 5)
+#define CPR_SENSOR_QUALITY_PRESSURE_OUT_OF_RANGE  (1u << 6)
+#define CPR_SENSOR_QUALITY_PRESSURE_BELOW_CONTACT (1u << 7)
+#define CPR_SENSOR_QUALITY_PRESSURE_STALE         (1u << 8)
+
+typedef enum {
+    CPR_PRESSURE_LOCK_NONE = 0,
+    CPR_PRESSURE_LOCK_UPPER_LIMIT,
+    CPR_PRESSURE_LOCK_SATURATION,
+} cpr_pressure_lock_reason_t;
 
 typedef struct {
     int32_t pressure_0_raw;
@@ -34,6 +45,13 @@ typedef struct {
     int32_t hall_raw;
     int64_t ts_ms;
     uint32_t quality_flags;
+    uint8_t pressure_valid_mask;
+    uint8_t pressure_saturation_mask;
+    int64_t pressure_timestamp_ms;
+    uint32_t pressure_sequence;
+    bool pressure_frame_fresh;
+    bool pressure_acquisition_active;
+    bool pressure_temporarily_degraded;
 } cpr_sensor_sample_t;
 
 typedef struct {
@@ -67,7 +85,26 @@ typedef struct {
     bool pressure_2_kpa_valid;
     bool pressure_kpa_valid;
     bool hall_mm_valid;
+    bool pressure_acquisition_active;
+    bool pressure_frame_fresh;
+    bool pressure_temporarily_degraded;
+    uint8_t pressure_current_valid_mask;
+    uint8_t pressure_invalid_mask;
     uint8_t pressure_saturation_mask;
+    uint8_t pressure_upper_limit_mask;
+    uint8_t pressure_below_contact_mask;
+    uint8_t pressure_out_of_range_mask;
+    uint8_t pressure_stable_mask;
+    uint8_t pressure_decision_usable_mask;
+    bool pressure_last_stable_available;
+    bool pressure_last_accepted_available;
+    int64_t pressure_last_accepted_age_ms;
+    bool pressure_using_last_stable;
+    bool pressure_evidence_sufficient;
+    bool hand_placement_locked;
+    cpr_pressure_lock_reason_t pressure_lock_reason;
+    bool pressure_became_unusable;
+    unsigned accepted_pressure_samples;
     uint32_t sensor_quality_flags;
     int missed_pressure_samples;
     int missed_hall_samples;
@@ -149,6 +186,9 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration);
 esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample);
 
 esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot);
+
+const char *cpr_pressure_lock_reason_to_string(
+    cpr_pressure_lock_reason_t reason);
 
 esp_err_t pressure_sensor_evaluate_window(const int32_t *pressure_1_samples,
                                           const int32_t *pressure_2_samples,

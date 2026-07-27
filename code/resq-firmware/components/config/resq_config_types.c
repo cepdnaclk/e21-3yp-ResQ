@@ -32,7 +32,8 @@ void calibration_config_set_defaults(calibration_config_t *config) {
   config->pressure_mode = CALIBRATION_PRESSURE_OPTIONAL;
   config->pressure_degraded = false;
   config->using_last_stable_pressure = false;
-  config->pressure_valid = true;
+  /* Feature availability is not the same as a validated measurement. */
+  config->pressure_valid = false;
   config->hall_valid = false;
   config->pressure_0_kpa_per_count = 0.0f;
   config->pressure_1_kpa_per_count = 0.0f;

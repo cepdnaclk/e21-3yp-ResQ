@@ -9,6 +9,7 @@ idf_component_register(
         hall_sensor
         hx710
         config
+        esp_timer
         freertos
         io_mode_manager
         sensor_owner

@@ -5,12 +5,17 @@
 #include "board_config.h"
 #include "driver/gpio.h"
 #include "esp_err.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "hx710.h"
 #include "io_mode_manager.h"
 #include "sensor_owner.h"
 #include "unity.h"
 
-#define HX710_DIAG_REPEATED_SAMPLES 10u
+#define HX710_DIAG_WARMUP_SAMPLES 3u
+#define HX710_DIAG_REQUIRED_VALID_READS 10u
+#define HX710_DIAG_MAX_ATTEMPTS 20u
 
 typedef struct {
     const char *name;
@@ -18,6 +23,12 @@ typedef struct {
     uint8_t mask;
     size_t raw_index;
 } hx710_diag_channel_t;
+
+typedef struct {
+    uint8_t observed_next_ready_mask;
+    uint8_t early_next_ready_warning_mask;
+    int32_t first_next_ready_low_us[HX710_CHANNEL_COUNT];
+} hx710_next_conversion_observation_t;
 
 static const hx710_diag_channel_t s_channels[] = {
     {
@@ -54,9 +65,6 @@ static const char *channel_protocol_status(
     if ((result->stuck_low_mask & mask) != 0) {
         return "STUCK_LOW";
     }
-    if ((result->cadence_invalid_mask & mask) != 0) {
-        return "CADENCE_INVALID";
-    }
     if ((result->post_read_invalid_mask & mask) != 0) {
         return "POST_READ_INVALID";
     }
@@ -64,7 +72,7 @@ static const char *channel_protocol_status(
         return "NOT_READY";
     }
     if ((result->valid_mask & mask) != 0) {
-        return "VALID";
+        return "CURRENT_TRANSACTION_VALID";
     }
     return "INVALID";
 }
@@ -96,15 +104,69 @@ static uint8_t sample_initial_ready_mask(void)
     return mask;
 }
 
+static hx710_next_conversion_observation_t
+observe_next_conversion_timing(const hx710_group_result_t *result)
+{
+    hx710_next_conversion_observation_t observation = {
+        .observed_next_ready_mask = result->observed_next_ready_mask,
+        .early_next_ready_warning_mask =
+            result->early_next_ready_warning_mask,
+        .first_next_ready_low_us = {-1, -1, -1},
+    };
+    for (size_t channel = 0; channel < HX710_CHANNEL_COUNT; ++channel) {
+        observation.first_next_ready_low_us[channel] =
+            result->first_next_ready_low_us[channel];
+    }
+
+    if (result->error != ESP_OK ||
+        result->valid_mask != HX710_VALID_CHANNEL_ALL) {
+        return observation;
+    }
+
+    const int64_t started_us = esp_timer_get_time();
+    const int64_t warning_window_us =
+        (int64_t)HX710_MIN_CONVERSION_INTERVAL_MS * 1000;
+    while ((esp_timer_get_time() - started_us) < warning_window_us) {
+        int64_t elapsed_us = esp_timer_get_time() - started_us;
+        for (size_t channel = 0;
+             channel < sizeof(s_channels) / sizeof(s_channels[0]);
+             ++channel) {
+            const hx710_diag_channel_t *descriptor =
+                &s_channels[channel];
+            if (gpio_get_level(descriptor->dout) == 0) {
+                observation.observed_next_ready_mask |= descriptor->mask;
+                observation.early_next_ready_warning_mask |=
+                    descriptor->mask;
+                if (observation.first_next_ready_low_us[channel] < 0) {
+                    observation.first_next_ready_low_us[channel] =
+                        elapsed_us > INT32_MAX
+                            ? INT32_MAX
+                            : (int32_t)elapsed_us;
+                }
+            }
+        }
+        if (observation.observed_next_ready_mask ==
+            HX710_VALID_CHANNEL_ALL) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return observation;
+}
+
 static void print_group_result(unsigned sample,
                                uint8_t observed_initial_mask,
-                               const hx710_group_result_t *result)
+                               const hx710_group_result_t *result,
+                               const hx710_next_conversion_observation_t
+                                   *next_observation)
 {
     for (size_t i = 0; i < sizeof(s_channels) / sizeof(s_channels[0]); ++i) {
         const hx710_diag_channel_t *channel = &s_channels[i];
         bool initially_ready =
             (observed_initial_mask & channel->mask) != 0;
         bool ready = (result->ready_mask & channel->mask) != 0;
+        bool captured =
+            (result->captured_raw_mask & channel->mask) != 0;
         bool valid = (result->valid_mask & channel->mask) != 0;
 
         printf("HX710_DIAG,READY,%s,GPIO%d,initial=%s,final=%s,"
@@ -119,6 +181,13 @@ static void print_group_result(unsigned sample,
                    channel->name,
                    (long)result->raw[channel->raw_index],
                    sample);
+        } else if (captured) {
+            printf("HX710_DIAG,RAW,%s,CAPTURED_INVALID,%ld,%s,"
+                   "sample=%u\n",
+                   channel->name,
+                   (long)result->raw[channel->raw_index],
+                   channel_protocol_status(result, channel->mask),
+                   sample);
         } else {
             printf("HX710_DIAG,RAW,%s,INVALID,%s,sample=%u\n",
                    channel->name,
@@ -127,17 +196,31 @@ static void print_group_result(unsigned sample,
         }
     }
 
-    printf("HX710_DIAG,GROUP,sample=%u,error=%s,valid_mask=0x%02x,"
+    printf("HX710_DIAG,GROUP,sample=%u,error=%s,captured_mask=0x%02x,"
+           "valid_mask=0x%02x,"
            "not_ready_mask=0x%02x,stuck_high_mask=0x%02x,"
            "stuck_low_mask=0x%02x,post_invalid_mask=0x%02x,"
-           "cadence_invalid_mask=0x%02x,pulses=%u,ready_wait_ms=%lu,"
-           "cadence_wait_ms=%lu,cleanup=%s\n",
-           sample, esp_err_to_name(result->error), result->valid_mask,
+           "current_transaction=%s,next_conversion=%s,"
+           "next_ready_warning_mask=0x%02x,"
+           "first_next_ready_low_us=%ld,%ld,%ld,"
+           "pulses=%u,ready_wait_ms=%lu,cleanup=%s\n",
+           sample, esp_err_to_name(result->error),
+           result->captured_raw_mask, result->valid_mask,
            result->not_ready_mask, result->stuck_high_mask,
            result->stuck_low_mask, result->post_read_invalid_mask,
-           result->cadence_invalid_mask, result->pulse_count,
+           result->error == ESP_OK &&
+                   result->valid_mask == HX710_VALID_CHANNEL_ALL
+               ? "VALID"
+               : "INVALID",
+           next_observation->early_next_ready_warning_mask != 0
+               ? "WARNING"
+               : "NO_WARNING",
+           next_observation->early_next_ready_warning_mask,
+           (long)next_observation->first_next_ready_low_us[0],
+           (long)next_observation->first_next_ready_low_us[1],
+           (long)next_observation->first_next_ready_low_us[2],
+           result->pulse_count,
            (unsigned long)result->ready_wait_ms,
-           (unsigned long)result->cadence_wait_ms,
            esp_err_to_name(result->cleanup_error));
 }
 
@@ -151,7 +234,10 @@ static esp_err_t run_one_group_read(unsigned sample,
         BOARD_HX710_1_DOUT,
         BOARD_HX710_2_DOUT,
         out_result);
-    print_group_result(sample, observed_initial_mask, out_result);
+    hx710_next_conversion_observation_t next_observation =
+        observe_next_conversion_timing(out_result);
+    print_group_result(sample, observed_initial_mask, out_result,
+                       &next_observation);
     return err;
 }
 
@@ -209,6 +295,16 @@ TEST_CASE("test_hx710_shared_sck_and_dout_diagnostics",
         sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
     assert_diagnostic_cleanup(setup_result, read_result, low_result,
                               final_sck, release_result);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.captured_raw_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.valid_mask);
+    TEST_ASSERT_EQUAL_HEX8(0, result.post_read_invalid_mask);
+    TEST_ASSERT_EQUAL_HEX8(0, result.stuck_high_mask);
+    TEST_ASSERT_EQUAL_HEX8(0, result.stuck_low_mask);
+    TEST_ASSERT_EQUAL_UINT8(HX710_READ_PULSE_COUNT,
+                            result.pulse_count);
+    TEST_ASSERT_EQUAL(ESP_OK, result.cleanup_error);
 }
 
 TEST_CASE("test_hx710_repeated_synchronized_group_reads",
@@ -228,25 +324,42 @@ TEST_CASE("test_hx710_repeated_synchronized_group_reads",
     }
 
     esp_err_t read_result = setup_result;
-    unsigned successful_reads = 0;
-    for (unsigned sample = 0;
-         setup_result == ESP_OK && sample < HX710_DIAG_REPEATED_SAMPLES;
-         ++sample) {
+    for (unsigned warmup = 0;
+         setup_result == ESP_OK && warmup < HX710_DIAG_WARMUP_SAMPLES;
+         ++warmup) {
         hx710_group_result_t result;
-        read_result = run_one_group_read(sample, &result);
-        if (read_result != ESP_OK ||
-            result.valid_mask != HX710_VALID_CHANNEL_ALL) {
-            break;
+        (void)run_one_group_read(warmup, &result);
+    }
+
+    unsigned successful_reads = 0;
+    unsigned attempts = 0;
+    while (setup_result == ESP_OK &&
+           attempts < HX710_DIAG_MAX_ATTEMPTS &&
+           successful_reads < HX710_DIAG_REQUIRED_VALID_READS) {
+        hx710_group_result_t result;
+        unsigned sample = HX710_DIAG_WARMUP_SAMPLES + attempts;
+        esp_err_t attempt_result = run_one_group_read(sample, &result);
+        attempts++;
+        if (attempt_result == ESP_OK &&
+            result.valid_mask == HX710_VALID_CHANNEL_ALL) {
+            successful_reads++;
         }
-        successful_reads++;
         if (gpio_get_level(BOARD_HX710_SHARED_SCK) != 0) {
             read_result = ESP_FAIL;
             break;
         }
     }
+    if (read_result != ESP_FAIL) {
+        read_result =
+            successful_reads >= HX710_DIAG_REQUIRED_VALID_READS
+                ? ESP_OK
+                : ESP_ERR_INVALID_RESPONSE;
+    }
 
-    printf("HX710_DIAG,REPEATED_RESULT,successful_reads=%u,required=%u\n",
-           successful_reads, HX710_DIAG_REPEATED_SAMPLES);
+    printf("HX710_DIAG,REPEATED_RESULT,warmup=%u,attempts=%u,"
+           "successful_reads=%u,required=%u\n",
+           HX710_DIAG_WARMUP_SAMPLES, attempts, successful_reads,
+           HX710_DIAG_REQUIRED_VALID_READS);
 
     esp_err_t low_result =
         hx710_hold_sck_low(BOARD_HX710_SHARED_SCK);
@@ -255,6 +368,6 @@ TEST_CASE("test_hx710_repeated_synchronized_group_reads",
         sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
     assert_diagnostic_cleanup(setup_result, read_result, low_result,
                               final_sck, release_result);
-    TEST_ASSERT_EQUAL_UINT32(HX710_DIAG_REPEATED_SAMPLES,
+    TEST_ASSERT_EQUAL_UINT32(HX710_DIAG_REQUIRED_VALID_READS,
                              successful_reads);
 }

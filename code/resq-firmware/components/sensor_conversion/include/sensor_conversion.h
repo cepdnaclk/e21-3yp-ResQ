@@ -45,6 +45,10 @@ typedef struct {
     bool hall_read_valid;
 
     uint32_t pressure_saturation_mask;
+    uint8_t pressure_stable_mask;
+    uint8_t pressure_decision_usable_mask;
+    bool pressure_last_stable_available;
+    bool pressure_using_last_stable;
     int64_t timestamp_ms;
 } sensor_raw_sample_t;
 

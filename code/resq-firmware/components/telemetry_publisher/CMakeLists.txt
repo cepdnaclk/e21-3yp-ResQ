@@ -13,6 +13,7 @@ idf_component_register(
         config
         hall_sensor
         hx710
+        pressure_quality_filter
         sensor_conversion
         sensor_owner
         io_mode_manager

@@ -14,6 +14,7 @@ typedef struct {
     esp_err_t (*set_level)(gpio_num_t pin, uint32_t level);
     int (*get_level)(gpio_num_t pin);
     void (*delay_us)(uint32_t delay_us);
+    int64_t (*get_time_us)(void);
     TickType_t (*get_tick_count)(void);
     void (*task_delay)(TickType_t ticks);
 } hx710_test_io_ops_t;

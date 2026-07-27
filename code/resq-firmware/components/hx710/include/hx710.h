@@ -15,13 +15,14 @@ extern "C" {
 #define HX710_VALID_CHANNEL_1 0x02u
 #define HX710_VALID_CHANNEL_2 0x04u
 #define HX710_VALID_CHANNEL_ALL 0x07u
+#define HX710_CHANNEL_COUNT 3u
 #define HX710_READ_PULSE_COUNT 25u
 
 /*
  * Twenty-five PD_SCK pulses select the differential pressure input for the
- * following conversion. The HX710 data sheet specifies 10 samples/second for
- * that selection. The minimum accepts 20% oscillator/tick tolerance while
- * still rejecting the physically impossible rapid-zero sequence seen in HIL.
+ * following conversion. These timing values are retained for dedicated
+ * hardware diagnostics only; production reads do not use next-conversion
+ * timing to validate the completed current sample.
  */
 #define HX710_PRESSURE_DATA_RATE_HZ 10u
 #define HX710_NOMINAL_CONVERSION_INTERVAL_MS \
@@ -39,24 +40,32 @@ typedef struct {
     int32_t raw[3];
     uint8_t initial_ready_mask;
     uint8_t ready_mask;
+    uint8_t captured_raw_mask;
     uint8_t valid_mask;
     uint8_t not_ready_mask;
     uint8_t stuck_high_mask;
     uint8_t stuck_low_mask;
     uint8_t post_read_invalid_mask;
-    uint8_t cadence_invalid_mask;
-    uint8_t next_ready_mask;
+    /*
+     * Diagnostic only: a non-blocking observation immediately after the
+     * mandatory post-read HIGH check. Neither field affects error or
+     * valid_mask. Dedicated hardware tests may observe for a longer window.
+     */
+    uint8_t observed_next_ready_mask;
+    uint8_t early_next_ready_warning_mask;
     uint8_t pulse_count;
     uint32_t ready_wait_ms;
-    uint32_t cadence_wait_ms;
+    int64_t post_read_started_us;
+    int32_t first_next_ready_low_us[HX710_CHANNEL_COUNT];
 } hx710_group_result_t;
 
 /**
  * @brief Acquire the shared SCK pad for SENSOR mode exactly once.
  *
- * The USB Serial/JTAG PHY is detached before GPIO configuration. GPIO19 is
- * preloaded LOW, configured as an output with both pulls disabled, and verified
- * LOW. Repeated calls are idempotent and never reset or remux an owned pin.
+ * The shared SCK pin is preloaded LOW, configured as an output with both pulls
+ * disabled, and verified LOW. Repeated calls are idempotent and never reset or
+ * remux an owned pin. Legacy USB-pad protection remains in the implementation
+ * for boards whose owned SCK uses that pad.
  */
 esp_err_t hx710_sck_acquire_for_sensor_mode(gpio_num_t sck_pin);
 
@@ -108,10 +117,12 @@ esp_err_t hx710_read_single(gpio_num_t sck_pin,
  * @brief Perform one validated, synchronized three-channel shared-SCK read.
  *
  * No clock pulse is emitted until all three DOUT pins are LOW. After the 25th
- * pulse, every DOUT must return HIGH and then become LOW again no earlier than
- * HX710_MIN_CONVERSION_INTERVAL_MS. Raw values are valid only if the complete
- * transaction and cadence validation succeed; the raw array remains unchanged
- * on every failure.
+ * pulse, every DOUT must return HIGH and shared SCK must be restored LOW.
+ * The function then returns immediately; the next call performs the readiness
+ * wait for the next sample. captured_raw_mask reports completed bit capture
+ * for diagnostics, while valid_mask remains zero unless every mandatory
+ * current-transaction check succeeds. A non-blocking next-ready observation
+ * is diagnostic only and never changes current-sample validity.
  */
 esp_err_t hx710_read_group_shared_sck(gpio_num_t sck_pin,
                                       gpio_num_t dout0_pin,

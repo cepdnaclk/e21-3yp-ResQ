@@ -10,6 +10,8 @@ typedef enum {
     DOUT_ALWAYS_HIGH,
     DOUT_ALWAYS_LOW,
     DOUT_NEXT_READY_TOO_EARLY,
+    DOUT_ONE_EARLY_LOW_GLITCH,
+    DOUT_TWO_EARLY_LOW_GLITCHES,
     DOUT_NEXT_NEVER_READY,
 } dout_behavior_t;
 
@@ -21,6 +23,10 @@ typedef struct {
     uint32_t raw[GPIO_NUM_MAX];
     TickType_t ticks;
     TickType_t transaction_completed_at;
+    int64_t time_us;
+    int64_t transaction_completed_us;
+    unsigned cadence_samples[GPIO_NUM_MAX];
+    bool post_read_observed[GPIO_NUM_MAX];
     unsigned cycle_pulses;
     unsigned total_high_attempts;
     unsigned completed_transactions;
@@ -28,7 +34,9 @@ typedef struct {
     unsigned config_calls;
     unsigned set_calls;
     unsigned low_calls;
+    unsigned task_delay_calls;
     unsigned fail_on_high_attempt;
+    unsigned fail_on_low_call;
     bool transaction_complete;
     bool fail_config;
     bool sck_stuck_high;
@@ -78,6 +86,10 @@ static esp_err_t fake_set(gpio_num_t pin, uint32_t level)
 
     if (level == 0) {
         fake.low_calls++;
+        if (fake.fail_on_low_call != 0 &&
+            fake.low_calls == fake.fail_on_low_call) {
+            return ESP_FAIL;
+        }
         fake.levels[pin] = 0;
         return ESP_OK;
     }
@@ -97,6 +109,10 @@ static esp_err_t fake_set(gpio_num_t pin, uint32_t level)
     if (fake.cycle_pulses == HX710_READ_PULSE_COUNT) {
         fake.transaction_complete = true;
         fake.transaction_completed_at = fake.ticks;
+        fake.transaction_completed_us = fake.time_us;
+        memset(fake.cadence_samples, 0, sizeof(fake.cadence_samples));
+        memset(fake.post_read_observed, 0,
+               sizeof(fake.post_read_observed));
         fake.completed_transactions++;
     }
     return ESP_OK;
@@ -128,24 +144,51 @@ static int fake_get(gpio_num_t pin)
     case DOUT_ALWAYS_LOW:
         return 0;
     case DOUT_NEXT_READY_TOO_EARLY:
+    case DOUT_ONE_EARLY_LOW_GLITCH:
+    case DOUT_TWO_EARLY_LOW_GLITCHES:
         if (fake.transaction_complete) {
-            return (fake.ticks - fake.transaction_completed_at) >=
-                           (TickType_t)1
-                       ? 0
-                       : 1;
+            if (!fake.post_read_observed[pin]) {
+                fake.post_read_observed[pin] = true;
+                return 1;
+            }
+            fake.cadence_samples[pin]++;
+            if (fake.behavior[pin] == DOUT_NEXT_READY_TOO_EARLY) {
+                return 0;
+            }
+            unsigned glitch_samples =
+                fake.behavior[pin] == DOUT_ONE_EARLY_LOW_GLITCH
+                    ? 1u
+                    : 2u;
+            if (fake.cadence_samples[pin] <= glitch_samples) {
+                return 0;
+            }
         }
         return normal_dout_level(pin);
     case DOUT_NEXT_NEVER_READY:
-        return fake.transaction_complete ? 1 : normal_dout_level(pin);
+        if (fake.transaction_complete) {
+            fake.post_read_observed[pin] = true;
+            return 1;
+        }
+        return normal_dout_level(pin);
     case DOUT_NORMAL:
     default:
+        if (fake.transaction_complete &&
+            !fake.post_read_observed[pin]) {
+            fake.post_read_observed[pin] = true;
+            return 1;
+        }
         return normal_dout_level(pin);
     }
 }
 
 static void fake_delay_us(uint32_t delay_us)
 {
-    (void)delay_us;
+    fake.time_us += delay_us;
+}
+
+static int64_t fake_get_time_us(void)
+{
+    return fake.time_us;
 }
 
 static TickType_t fake_ticks(void)
@@ -155,7 +198,11 @@ static TickType_t fake_ticks(void)
 
 static void fake_task_delay(TickType_t ticks)
 {
-    fake.ticks += ticks > 0 ? ticks : 1;
+    fake.task_delay_calls++;
+    TickType_t elapsed_ticks = ticks > 0 ? ticks : 1;
+    fake.ticks += elapsed_ticks;
+    fake.time_us +=
+        (int64_t)elapsed_ticks * portTICK_PERIOD_MS * 1000;
 }
 
 static void install_fake(void)
@@ -174,6 +221,7 @@ static void install_fake(void)
         .set_level = fake_set,
         .get_level = fake_get,
         .delay_us = fake_delay_us,
+        .get_time_us = fake_get_time_us,
         .get_tick_count = fake_ticks,
         .task_delay = fake_task_delay,
     };
@@ -242,13 +290,18 @@ TEST_CASE("HX710 group all-ready read is synchronized and valid", "[hx710]")
                                   GPIO_NUM_10, &result));
 
     TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, result.valid_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.captured_raw_mask);
     TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, result.ready_mask);
-    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, result.next_ready_mask);
+    TEST_ASSERT_EQUAL_HEX8(0, result.observed_next_ready_mask);
+    TEST_ASSERT_EQUAL_HEX8(0, result.early_next_ready_warning_mask);
     TEST_ASSERT_EQUAL_UINT8(HX710_READ_PULSE_COUNT, result.pulse_count);
     TEST_ASSERT_EQUAL_INT32(1, result.raw[0]);
     TEST_ASSERT_EQUAL_INT32(0x123456, result.raw[1]);
     TEST_ASSERT_EQUAL_INT32(-2, result.raw[2]);
     TEST_ASSERT_EQUAL_UINT32(1, fake.completed_transactions);
+    TEST_ASSERT_EQUAL_UINT32(0, fake.task_delay_calls);
+    TEST_ASSERT_EQUAL_UINT32(0, fake.ticks);
     TEST_ASSERT_EQUAL_INT(0, fake.levels[GPIO_NUM_19]);
     uninstall_fake();
 }
@@ -318,27 +371,133 @@ TEST_CASE("HX710 stuck LOW fails post-read validation", "[hx710]")
     TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_1, result.stuck_low_mask);
     TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_1,
                            result.post_read_invalid_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.captured_raw_mask);
     TEST_ASSERT_EQUAL_HEX8(0, result.valid_mask);
     TEST_ASSERT_EQUAL_UINT8(HX710_READ_PULSE_COUNT, result.pulse_count);
     TEST_ASSERT_EQUAL_INT(0, fake.levels[GPIO_NUM_19]);
     uninstall_fake();
 }
 
-TEST_CASE("HX710 impossible next-conversion cadence is rejected", "[hx710]")
+TEST_CASE("HX710 early next readiness does not invalidate completed sample",
+          "[hx710]")
 {
     install_fake();
     acquire_sck();
     fake.behavior[GPIO_NUM_1] = DOUT_NEXT_READY_TOO_EARLY;
     hx710_group_result_t result;
 
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_RESPONSE,
-                      hx710_read_group_shared_sck(
-                          GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3,
-                          GPIO_NUM_10, &result));
+    TEST_ASSERT_EQUAL(ESP_OK, hx710_read_group_shared_sck(
+                                  GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3,
+                                  GPIO_NUM_10, &result));
 
     TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_0,
-                           result.cadence_invalid_mask);
-    TEST_ASSERT_EQUAL_HEX8(0, result.valid_mask);
+                           result.observed_next_ready_mask);
+    TEST_ASSERT_EQUAL_HEX8(
+        HX710_VALID_CHANNEL_0,
+        result.early_next_ready_warning_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.captured_raw_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, result.valid_mask);
+    TEST_ASSERT_EQUAL(ESP_OK, result.cleanup_error);
+    TEST_ASSERT_EQUAL_INT32(1, result.raw[0]);
+    TEST_ASSERT_EQUAL_UINT32(0, fake.task_delay_calls);
+    TEST_ASSERT_EQUAL_UINT32(0, fake.ticks);
+    TEST_ASSERT_EQUAL_INT(0, fake.levels[GPIO_NUM_19]);
+    uninstall_fake();
+}
+
+TEST_CASE("HX710 early next readiness on multiple channels stays valid",
+          "[hx710]")
+{
+    install_fake();
+    acquire_sck();
+    fake.behavior[GPIO_NUM_1] = DOUT_NEXT_READY_TOO_EARLY;
+    fake.behavior[GPIO_NUM_10] = DOUT_NEXT_READY_TOO_EARLY;
+    hx710_group_result_t result;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hx710_read_group_shared_sck(
+                                  GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3,
+                                  GPIO_NUM_10, &result));
+
+    const uint8_t expected_warning =
+        HX710_VALID_CHANNEL_0 | HX710_VALID_CHANNEL_2;
+    TEST_ASSERT_EQUAL_HEX8(expected_warning,
+                           result.observed_next_ready_mask);
+    TEST_ASSERT_EQUAL_HEX8(
+        expected_warning, result.early_next_ready_warning_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.captured_raw_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, result.valid_mask);
+    TEST_ASSERT_EQUAL_UINT32(0, fake.task_delay_calls);
+    uninstall_fake();
+}
+
+TEST_CASE("HX710 next-ready warning masks are independent by channel",
+          "[hx710]")
+{
+    install_fake();
+    acquire_sck();
+    fake.behavior[GPIO_NUM_3] = DOUT_NEXT_READY_TOO_EARLY;
+    hx710_group_result_t result;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hx710_read_group_shared_sck(
+                                  GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3,
+                                  GPIO_NUM_10, &result));
+
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_1,
+                           result.observed_next_ready_mask);
+    TEST_ASSERT_EQUAL_HEX8(
+        HX710_VALID_CHANNEL_1,
+        result.early_next_ready_warning_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, result.valid_mask);
+    uninstall_fake();
+}
+
+TEST_CASE("HX710 valid wrapper publishes an early-next sample", "[hx710]")
+{
+    install_fake();
+    acquire_sck();
+    fake.behavior[GPIO_NUM_10] = DOUT_NEXT_READY_TOO_EARLY;
+    int32_t out0 = 101;
+    int32_t out1 = 202;
+    int32_t out2 = 303;
+    uint8_t valid_mask = 0;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hx710_read_3_shared_sck_valid(
+                                  GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3,
+                                  GPIO_NUM_10, &out0, &out1, &out2,
+                                  &valid_mask));
+
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, valid_mask);
+    TEST_ASSERT_EQUAL_INT32(1, out0);
+    TEST_ASSERT_EQUAL_INT32(0x123456, out1);
+    TEST_ASSERT_EQUAL_INT32(-2, out2);
+    uninstall_fake();
+}
+
+TEST_CASE("HX710 next readiness wait is deferred to the next read",
+          "[hx710]")
+{
+    install_fake();
+    acquire_sck();
+    fake.behavior[GPIO_NUM_10] = DOUT_NEXT_NEVER_READY;
+    hx710_group_result_t result;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hx710_read_group_shared_sck(
+                                  GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3,
+                                  GPIO_NUM_10, &result));
+
+    TEST_ASSERT_EQUAL_HEX8(0, result.not_ready_mask);
+    TEST_ASSERT_EQUAL_HEX8(0, result.stuck_high_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.captured_raw_mask);
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL, result.valid_mask);
+    TEST_ASSERT_EQUAL_UINT8(HX710_READ_PULSE_COUNT,
+                            result.pulse_count);
+    TEST_ASSERT_EQUAL(ESP_OK, result.cleanup_error);
+    TEST_ASSERT_EQUAL_UINT32(0, fake.task_delay_calls);
+    TEST_ASSERT_EQUAL_UINT32(0, fake.ticks);
     TEST_ASSERT_EQUAL_INT(0, fake.levels[GPIO_NUM_19]);
     uninstall_fake();
 }
@@ -366,6 +525,28 @@ TEST_CASE("HX710 midway clock failure cleans up without outputs", "[hx710]")
     uninstall_fake();
 }
 
+TEST_CASE("HX710 SCK cleanup failure overrides successful capture",
+          "[hx710]")
+{
+    install_fake();
+    acquire_sck();
+    fake.fail_on_low_call =
+        fake.low_calls + HX710_READ_PULSE_COUNT + 2u;
+    hx710_group_result_t result;
+
+    TEST_ASSERT_EQUAL(ESP_FAIL, hx710_read_group_shared_sck(
+                                    GPIO_NUM_19, GPIO_NUM_1, GPIO_NUM_3,
+                                    GPIO_NUM_10, &result));
+
+    TEST_ASSERT_EQUAL_HEX8(HX710_VALID_CHANNEL_ALL,
+                           result.captured_raw_mask);
+    TEST_ASSERT_EQUAL_HEX8(0, result.valid_mask);
+    TEST_ASSERT_EQUAL_UINT8(HX710_READ_PULSE_COUNT,
+                            result.pulse_count);
+    TEST_ASSERT_EQUAL(ESP_FAIL, result.cleanup_error);
+    uninstall_fake();
+}
+
 TEST_CASE("HX710 repeated reads keep SCK LOW between transactions", "[hx710]")
 {
     install_fake();
@@ -387,7 +568,8 @@ TEST_CASE("HX710 repeated reads keep SCK LOW between transactions", "[hx710]")
     uninstall_fake();
 }
 
-TEST_CASE("HX710 normal transaction never resets GPIO19", "[hx710]")
+TEST_CASE("HX710 normal transaction never resets the owned shared SCK",
+          "[hx710]")
 {
     install_fake();
     acquire_sck();
@@ -472,7 +654,8 @@ TEST_CASE("HX710 build disables native USB Serial JTAG console",
      CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || \
     (defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG) && \
      CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
-    TEST_FAIL_MESSAGE("Native USB Serial/JTAG console conflicts with GPIO19");
+    TEST_FAIL_MESSAGE(
+        "Native USB Serial/JTAG console conflicts with HX710 USB-pad protection");
 #else
     TEST_PASS();
 #endif

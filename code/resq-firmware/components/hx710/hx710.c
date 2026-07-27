@@ -3,6 +3,7 @@
 
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -17,12 +18,10 @@
      CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) || \
     (defined(CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG) && \
      CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG)
-#error "HX710 SCK uses GPIO19; native USB Serial/JTAG console output must be disabled"
+#error "Legacy HX710 USB-pad protection requires native USB Serial/JTAG console output to be disabled"
 #endif
 
-#define HX710_CHANNEL_COUNT 3u
 #define HX710_MUTEX_TIMEOUT_MS 200u
-
 static const char *TAG = "hx710";
 
 static SemaphoreHandle_t s_hx710_mutex;
@@ -56,6 +55,11 @@ static void default_delay_us(uint32_t delay_us)
     esp_rom_delay_us(delay_us);
 }
 
+static int64_t default_get_time_us(void)
+{
+    return esp_timer_get_time();
+}
+
 static TickType_t default_get_tick_count(void)
 {
     return xTaskGetTickCount();
@@ -72,6 +76,7 @@ static const hx710_test_io_ops_t s_default_io_ops = {
     .set_level = default_set_level,
     .get_level = default_get_level,
     .delay_us = default_delay_us,
+    .get_time_us = default_get_time_us,
     .get_tick_count = default_get_tick_count,
     .task_delay = default_task_delay,
 };
@@ -82,6 +87,7 @@ static hx710_test_io_ops_t s_io_ops = {
     .set_level = default_set_level,
     .get_level = default_get_level,
     .delay_us = default_delay_us,
+    .get_time_us = default_get_time_us,
     .get_tick_count = default_get_tick_count,
     .task_delay = default_task_delay,
 };
@@ -114,23 +120,28 @@ static int32_t hx710_sign_extend_24(uint32_t raw)
 static void hx710_reset_group_status(hx710_group_result_t *result)
 {
     /*
-     * Deliberately do not touch result->raw. Those fields are committed only
-     * after the complete synchronized transaction and all validation pass.
+     * Deliberately do not touch result->raw here. They are committed only
+     * after all 25 clocks complete; captured_raw_mask then distinguishes
+     * diagnostic capture from decision-valid output.
      */
     result->error = ESP_FAIL;
     result->cleanup_error = ESP_OK;
     result->initial_ready_mask = 0;
     result->ready_mask = 0;
+    result->captured_raw_mask = 0;
     result->valid_mask = 0;
     result->not_ready_mask = 0;
     result->stuck_high_mask = 0;
     result->stuck_low_mask = 0;
     result->post_read_invalid_mask = 0;
-    result->cadence_invalid_mask = 0;
-    result->next_ready_mask = 0;
+    result->observed_next_ready_mask = 0;
+    result->early_next_ready_warning_mask = 0;
     result->pulse_count = 0;
     result->ready_wait_ms = 0;
-    result->cadence_wait_ms = 0;
+    result->post_read_started_us = -1;
+    for (size_t channel = 0; channel < HX710_CHANNEL_COUNT; ++channel) {
+        result->first_next_ready_low_us[channel] = -1;
+    }
 }
 
 static uint8_t hx710_read_level_mask(const gpio_num_t dout_pins[3])
@@ -171,7 +182,8 @@ esp_err_t hx710_set_test_io_ops(const hx710_test_io_ops_t *ops)
 {
     if (ops == NULL || ops->reset_pin == NULL || ops->config == NULL ||
         ops->set_level == NULL || ops->get_level == NULL ||
-        ops->delay_us == NULL || ops->get_tick_count == NULL ||
+        ops->delay_us == NULL || ops->get_time_us == NULL ||
+        ops->get_tick_count == NULL ||
         ops->task_delay == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -218,8 +230,9 @@ esp_err_t hx710_sck_acquire_for_sensor_mode(gpio_num_t sck_pin)
 
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
     /*
-     * GPIO19 is ESP32-C3 USB D+. Detach the native USB PHY before routing the
-     * pad through GPIO. USB mode restores the PHY on the controlled reboot.
+     * Retain the legacy USB-pad isolation sequence used by SENSOR mode.
+     * The active shared-SCK GPIO is supplied by board_config rather than
+     * hardcoded here. USB mode restores the PHY on the controlled reboot.
      */
     usb_serial_jtag_ll_phy_enable_pad(false);
 #endif
@@ -467,11 +480,20 @@ esp_err_t hx710_read_group_shared_sck(gpio_num_t sck_pin,
     }
     out_result->pulse_count++;
     s_io_ops.delay_us(1);
+    if (out_result->pulse_count != HX710_READ_PULSE_COUNT) {
+        err = ESP_ERR_INVALID_RESPONSE;
+        goto cleanup;
+    }
+    for (size_t channel = 0; channel < HX710_CHANNEL_COUNT; ++channel) {
+        out_result->raw[channel] = hx710_sign_extend_24(raw[channel]);
+    }
+    out_result->captured_raw_mask = HX710_VALID_CHANNEL_ALL;
 
     /*
      * A completed read starts the next conversion and DOUT must return HIGH.
      * Remaining LOW here is the defining stuck-LOW false-success signature.
      */
+    out_result->post_read_started_us = s_io_ops.get_time_us();
     uint8_t post_read_low_mask = hx710_read_level_mask(dout_pins);
     if (post_read_low_mask != 0) {
         out_result->stuck_low_mask = post_read_low_mask;
@@ -480,38 +502,33 @@ esp_err_t hx710_read_group_shared_sck(gpio_num_t sck_pin,
         goto cleanup;
     }
 
-    TickType_t cadence_started = s_io_ops.get_tick_count();
-    const TickType_t cadence_min_ticks =
-        pdMS_TO_TICKS(HX710_MIN_CONVERSION_INTERVAL_MS);
-    uint8_t next_ready_mask = 0;
-    while (next_ready_mask != HX710_VALID_CHANNEL_ALL) {
-        TickType_t elapsed = s_io_ops.get_tick_count() - cadence_started;
-        uint8_t current_low_mask = hx710_read_level_mask(dout_pins);
-        uint8_t newly_ready = current_low_mask & ~next_ready_mask;
-        if (newly_ready != 0 && elapsed < cadence_min_ticks) {
-            out_result->cadence_invalid_mask |= newly_ready;
+    /*
+     * Best-effort, non-blocking diagnostic observation only. The mandatory
+     * HIGH check above validated the completed transaction. If DOUT is already
+     * LOW again now, it belongs to the following conversion and must not
+     * invalidate the captured current sample.
+     */
+    out_result->observed_next_ready_mask =
+        hx710_read_level_mask(dout_pins);
+    out_result->early_next_ready_warning_mask =
+        out_result->observed_next_ready_mask;
+    if (out_result->observed_next_ready_mask != 0u) {
+        int64_t elapsed_us =
+            s_io_ops.get_time_us() - out_result->post_read_started_us;
+        int32_t bounded_elapsed_us =
+            elapsed_us > INT32_MAX ? INT32_MAX : (int32_t)elapsed_us;
+        for (size_t channel = 0; channel < HX710_CHANNEL_COUNT;
+             ++channel) {
+            uint8_t bit = (uint8_t)(1u << channel);
+            if ((out_result->observed_next_ready_mask & bit) != 0u) {
+                out_result->first_next_ready_low_us[channel] =
+                    bounded_elapsed_us;
+            }
         }
-        next_ready_mask |= current_low_mask;
-        out_result->next_ready_mask = next_ready_mask;
-
-        if (out_result->cadence_invalid_mask != 0) {
-            err = ESP_ERR_INVALID_RESPONSE;
-            goto cleanup;
-        }
-        if (next_ready_mask == HX710_VALID_CHANNEL_ALL) {
-            break;
-        }
-        if (elapsed >= ready_timeout_ticks) {
-            out_result->not_ready_mask =
-                HX710_VALID_CHANNEL_ALL & ~next_ready_mask;
-            out_result->stuck_high_mask |= out_result->not_ready_mask;
-            err = ESP_ERR_TIMEOUT;
-            goto cleanup;
-        }
-        s_io_ops.task_delay(pdMS_TO_TICKS(1));
+        ESP_LOGD(TAG,
+                 "HX710 early-next-ready observation: mask=0x%02X",
+                 out_result->early_next_ready_warning_mask);
     }
-    out_result->cadence_wait_ms = (uint32_t)pdTICKS_TO_MS(
-        s_io_ops.get_tick_count() - cadence_started);
 
     err = ESP_OK;
 
@@ -523,9 +540,6 @@ cleanup:
         err = out_result->cleanup_error;
     }
     if (err == ESP_OK) {
-        for (size_t channel = 0; channel < HX710_CHANNEL_COUNT; ++channel) {
-            out_result->raw[channel] = hx710_sign_extend_24(raw[channel]);
-        }
         out_result->valid_mask = HX710_VALID_CHANNEL_ALL;
     } else {
         out_result->valid_mask = 0;

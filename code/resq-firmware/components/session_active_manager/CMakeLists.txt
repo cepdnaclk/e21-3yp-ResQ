@@ -25,4 +25,5 @@ idf_component_register(
         system_button_manager
         error_manager
         session_command_types
+        sensor_conversion
 )
