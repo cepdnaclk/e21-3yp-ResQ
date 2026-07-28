@@ -550,12 +550,19 @@ static bool pressure_is_saturated(int32_t value)
     return sensor_conversion_pressure_raw_is_saturated(value);
 }
 
+static bool calibration_pressure_capable(void)
+{
+    return s_calib.pressure_policy != CALIBRATION_HALL_ONLY &&
+           s_calib.pressure_1_range_raw > 300 &&
+           s_calib.pressure_2_range_raw > 300 &&
+           s_calib.pressure_contact_threshold > 0 &&
+           s_calib.pressure_valid_threshold >
+               s_calib.pressure_contact_threshold;
+}
+
 static bool calibration_uses_hall_only_pressure(void)
 {
-    return s_calib.pressure_mode == CALIBRATION_HALL_ONLY ||
-           s_calib.pressure_mode == CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE ||
-           s_calib.pressure_degraded ||
-           !s_calib.pressure_valid;
+    return !calibration_pressure_capable();
 }
 
 static uint8_t pressure_saturation_mask(const cpr_sensor_sample_t *sample)
@@ -729,14 +736,18 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         current_quality_flags |= CPR_SENSOR_QUALITY_PRESSURE_SATURATED;
     }
 
-    s_pressure_0_kpa_valid = pressure_0_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[0];
-    s_pressure_1_kpa_valid = pressure_1_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[1];
-    s_pressure_2_kpa_valid = pressure_2_valid && s_calib.pressure_valid && converted.pressure_kpa_channel_valid[2];
+    bool pressure_capable = calibration_pressure_capable();
+    s_pressure_0_kpa_valid = pressure_capable && pressure_0_valid &&
+                             converted.pressure_kpa_channel_valid[0];
+    s_pressure_1_kpa_valid = pressure_capable && pressure_1_valid &&
+                             converted.pressure_kpa_channel_valid[1];
+    s_pressure_2_kpa_valid = pressure_capable && pressure_2_valid &&
+                             converted.pressure_kpa_channel_valid[2];
     if (s_pressure_0_kpa_valid) s_pressure_0_kpa = converted.pressure_kpa[0];
     if (s_pressure_1_kpa_valid) s_pressure_1_kpa = converted.pressure_kpa[1];
     if (s_pressure_2_kpa_valid) s_pressure_2_kpa = converted.pressure_kpa[2];
     s_pressure_kpa_valid = s_pressure_0_kpa_valid && s_pressure_1_kpa_valid && s_pressure_2_kpa_valid;
-    bool hall_sample_usable = hall_valid && s_calib.hall_valid && converted.hall_mm_valid;
+    bool hall_sample_usable = hall_valid && converted.hall_mm_valid;
     s_hall_mm_valid = hall_sample_usable;
 
     float progress = s_depth_progress;
@@ -821,6 +832,8 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
             current_saturation_mask &
             CPR_PRESSURE_BALANCE_SENSOR_MASK;
         if (required_saturation_mask != 0 || upper_limit_mask != 0) {
+            s_pressure_balance_reliable = false;
+            s_pressure_stable_mask = 0;
             if (required_saturation_mask != 0) {
                 s_sensor_quality_flags |=
                     CPR_SENSOR_QUALITY_PRESSURE_SATURATED;
@@ -1097,13 +1110,20 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->pressure_balance_pct = s_pressure_balance_pct;
     out_snapshot->pressure_balance_reliable = s_pressure_balance_reliable;
     out_snapshot->pressure_mode = s_calib.pressure_mode;
-    out_snapshot->pressure_degraded = s_calib.pressure_degraded ||
-                                      s_calib.pressure_mode == CALIBRATION_HALL_ONLY ||
-                                      s_calib.pressure_mode == CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE ||
-                                      !s_calib.pressure_valid;
-    out_snapshot->using_last_stable_pressure = s_calib.using_last_stable_pressure;
-    out_snapshot->pressure_valid = s_calib.pressure_valid && !out_snapshot->pressure_degraded;
-    out_snapshot->hall_valid = s_calib.hall_valid;
+    bool pressure_capable = calibration_pressure_capable();
+    bool using_last_stable =
+        s_compression_pressure.has_last_accepted &&
+        (s_pressure_decision_usable_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) !=
+            CPR_PRESSURE_BALANCE_SENSOR_MASK;
+    out_snapshot->pressure_degraded =
+        !pressure_capable || s_pressure_temporarily_degraded;
+    out_snapshot->using_last_stable_pressure = using_last_stable;
+    out_snapshot->pressure_valid =
+        pressure_capable && s_pressure_frame_fresh &&
+        (s_pressure_current_valid_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) ==
+            CPR_PRESSURE_BALANCE_SENSOR_MASK &&
+        (s_pressure_saturation_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) == 0;
+    out_snapshot->hall_valid = s_hall_mm_valid;
     out_snapshot->pressure_0_kpa = s_pressure_0_kpa;
     out_snapshot->pressure_1_kpa = s_pressure_1_kpa;
     out_snapshot->pressure_2_kpa = s_pressure_2_kpa;

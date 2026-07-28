@@ -11,6 +11,7 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
 {
     return ops != NULL &&
            ops->initialize_components != NULL &&
+           ops->initialization_error_reason != NULL &&
            ops->sensor_mode_enabled != NULL &&
            ops->network_set_defaults != NULL &&
            ops->calibration_set_defaults != NULL &&
@@ -23,7 +24,7 @@ static bool required_ops_present(const resq_fsm_ops_t *ops)
            ops->clear_all != NULL &&
            ops->provisioning_start != NULL &&
            ops->provisioning_stop != NULL &&
-           ops->provisioning_has_saved_config != NULL &&
+           ops->provisioning_take_saved_config != NULL &&
            ops->io_mode_get != NULL &&
            ops->io_mode_request != NULL &&
            ops->wifi_connect != NULL &&
@@ -176,7 +177,7 @@ bool resq_fsm_state_handles_buttons_internally(resq_state_t state)
 static resq_state_t run_boot(resq_fsm_t *fsm)
 {
     if (fsm->ops->initialize_components() != ESP_OK) {
-        fsm->ops->error_set(FW_ERROR_NVS_INIT_FAILED);
+        fsm->ops->error_set(fsm->ops->initialization_error_reason());
         return RESQ_STATE_ERROR;
     }
 
@@ -299,7 +300,15 @@ static resq_state_t run_provisioning(resq_fsm_t *fsm)
                          "Confirming provisioning I/O mode switch: active=%s requested=%s",
                          io_mode_name(active), io_mode_name(target));
 
-                if (fsm->ops->provisioning_has_saved_config()) {
+                bool saved_available = false;
+                esp_err_t take_err =
+                    fsm->ops->provisioning_take_saved_config(
+                        &fsm->network_config, &saved_available);
+                if (take_err != ESP_OK) {
+                    fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
+                    return RESQ_STATE_ERROR;
+                }
+                if (saved_available) {
                     network_config_saved = true;
                 }
                 esp_err_t stop_err = fsm->ops->provisioning_stop();
@@ -364,7 +373,14 @@ static resq_state_t run_provisioning(resq_fsm_t *fsm)
         }
 
         /* Button events are deliberately polled before this exit check. */
-        if (fsm->ops->provisioning_has_saved_config()) {
+        bool saved_available = false;
+        esp_err_t take_err = fsm->ops->provisioning_take_saved_config(
+            &fsm->network_config, &saved_available);
+        if (take_err != ESP_OK) {
+            fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
+            return RESQ_STATE_ERROR;
+        }
+        if (saved_available) {
             network_config_saved = true;
         }
         if (network_config_saved &&
@@ -380,10 +396,6 @@ static resq_state_t run_provisioning(resq_fsm_t *fsm)
     fsm->ops->button_drain_events(RESQ_STATE_PROVISIONING);
     if (stop_err != ESP_OK) {
         fsm->ops->error_set(FW_ERROR_CONFIG_INVALID);
-        return RESQ_STATE_ERROR;
-    }
-    fsm->ops->network_set_defaults(&fsm->network_config);
-    if (fsm->ops->load_network(&fsm->network_config) != ESP_OK) {
         return RESQ_STATE_ERROR;
     }
     if (!fsm->ops->network_validate(&fsm->network_config)) {

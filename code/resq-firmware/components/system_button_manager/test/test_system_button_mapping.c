@@ -40,10 +40,14 @@ TEST_CASE("press duration below threshold remains short", "[buttons]")
 {
     TEST_ASSERT_EQUAL(SYSTEM_BUTTON_PRESS_SHORT,
                       system_button_manager_classify_duration(2999));
+    TEST_ASSERT_EQUAL(SYSTEM_BUTTON_PRESS_SHORT,
+                      system_button_manager_classify_duration(2640));
 }
 
 TEST_CASE("press duration at threshold remains long", "[buttons]")
 {
     TEST_ASSERT_EQUAL(SYSTEM_BUTTON_PRESS_LONG,
                       system_button_manager_classify_duration(3000));
+    TEST_ASSERT_EQUAL(SYSTEM_BUTTON_PRESS_LONG,
+                      system_button_manager_classify_duration(3001));
 }

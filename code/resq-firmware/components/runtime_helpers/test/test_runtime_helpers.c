@@ -1,4 +1,5 @@
 #include "runtime_helpers.h"
+#include "task_diagnostics.h"
 #include "unity.h"
 
 #include <string.h>
@@ -127,4 +128,25 @@ TEST_CASE("Idle debug payload emits finite zero for invalid converted values", "
     assert_payload_contains(payload, "\"hall_mm_valid\":false");
     TEST_ASSERT_NULL(strstr(payload, "nan"));
     TEST_ASSERT_NULL(strstr(payload, "inf"));
+}
+
+TEST_CASE("Task diagnostics records coherent stack and heap snapshots",
+          "[hardware][stack][heap]")
+{
+    task_diagnostics_record_stack_watermark("unity_runner");
+
+    task_stack_watermark_t watermark = {0};
+    TEST_ASSERT_EQUAL(
+        ESP_OK,
+        task_diagnostics_get_stack_watermark("unity_runner", &watermark));
+    TEST_ASSERT_EQUAL_STRING("unity_runner", watermark.task_name);
+    TEST_ASSERT_GREATER_THAN_UINT32(0, watermark.minimum_free_words);
+    TEST_ASSERT_TRUE(watermark.minimum_free_bytes > 0);
+
+    firmware_memory_snapshot_t memory = {0};
+    TEST_ASSERT_EQUAL(
+        ESP_OK, task_diagnostics_get_memory_snapshot(&memory));
+    TEST_ASSERT_TRUE(memory.free_heap_bytes > 0);
+    TEST_ASSERT_TRUE(memory.minimum_free_heap_bytes > 0);
+    TEST_ASSERT_TRUE(memory.largest_free_block_bytes > 0);
 }

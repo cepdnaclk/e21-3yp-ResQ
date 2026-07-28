@@ -13,6 +13,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "board_config.h"
@@ -30,7 +31,7 @@
 #include "sensor_conversion.h"
 #include "sensor_owner.h"
 #include "states.h"
-#include "status_indicator.h"
+#include "task_diagnostics.h"
 
 /* Calibration manager configuration */
 #define CALIBRATION_TASK_STACK_SIZE 6144
@@ -80,6 +81,8 @@ static EventGroupHandle_t s_calibration_events = NULL;
 static calibration_config_t s_candidate_config;
 static calibration_config_t s_calibration_config;
 static SemaphoreHandle_t s_manager_mutex = NULL;
+static SemaphoreHandle_t s_health_mutex = NULL;
+static sensor_runtime_health_t s_runtime_health;
 
 #define LOCK_MGR()   do { if (s_manager_mutex) xSemaphoreTake(s_manager_mutex, portMAX_DELAY); } while(0)
 #define UNLOCK_MGR() do { if (s_manager_mutex) xSemaphoreGive(s_manager_mutex); } while(0)
@@ -139,6 +142,10 @@ const char *calibration_manager_get_request_id(void) { return s_request_id; }
 
 static bool s_initialized = false;
 static bool s_running = false;
+static bool s_finalized = true;
+static TaskHandle_t s_state_owner_task = NULL;
+static calibration_attempt_result_t s_attempt_result =
+    CALIBRATION_ATTEMPT_NONE;
 static calibration_reason_id_t s_last_failure_reason = CAL_REASON_NONE;
 static calibration_action_id_t s_last_failure_action = CAL_ACTION_NONE;
 static calibration_config_t s_last_host_params;
@@ -326,8 +333,6 @@ calibration_pressure_mode_to_string(calibration_pressure_mode_t mode) {
     return "OPTIONAL";
   case CALIBRATION_HALL_ONLY:
     return "HALL_ONLY";
-  case CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE:
-    return "HALL_WITH_LAST_STABLE_PRESSURE";
   default:
     return "OPTIONAL";
   }
@@ -351,8 +356,48 @@ static sensor_raw_sample_t s_last_calibration_raw_sample;
 static bool s_has_last_calibration_raw_sample = false;
 static bool s_last_calibration_hall_valid = false;
 
-static bool calibration_pressure_is_optional(void) {
-  return s_candidate_config.pressure_mode != CALIBRATION_PRESSURE_REQUIRED;
+static void calibration_runtime_health_reset(
+    calibration_pressure_policy_t policy) {
+  sensor_runtime_health_t defaults = {
+      .pressure_acquisition_enabled =
+          calibration_manager_pressure_acquisition_enabled(policy),
+      .pressure_current_valid = false,
+      .pressure_temporarily_degraded = false,
+      .using_last_stable_pressure = false,
+      .hall_current_valid = false,
+      .last_pressure_error = ESP_OK,
+      .updated_at_ms = 0,
+  };
+  if (s_health_mutex != NULL) {
+    xSemaphoreTake(s_health_mutex, portMAX_DELAY);
+  }
+  s_runtime_health = defaults;
+  if (s_health_mutex != NULL) {
+    xSemaphoreGive(s_health_mutex);
+  }
+}
+
+static sensor_runtime_health_t calibration_runtime_health_snapshot(void) {
+  sensor_runtime_health_t snapshot = {0};
+  if (s_health_mutex != NULL) {
+    xSemaphoreTake(s_health_mutex, portMAX_DELAY);
+  }
+  snapshot = s_runtime_health;
+  if (s_health_mutex != NULL) {
+    xSemaphoreGive(s_health_mutex);
+  }
+  return snapshot;
+}
+
+static void calibration_runtime_hall_valid_set(bool valid) {
+  if (s_health_mutex != NULL) {
+    xSemaphoreTake(s_health_mutex, portMAX_DELAY);
+  }
+  s_runtime_health.hall_current_valid = valid;
+  s_runtime_health.updated_at_ms = esp_timer_get_time() / 1000;
+  if (s_health_mutex != NULL) {
+    xSemaphoreGive(s_health_mutex);
+  }
 }
 
 bool calibration_manager_pressure_acquisition_enabled(
@@ -368,9 +413,21 @@ bool calibration_manager_pressure_stage_masks_valid(
          (saturation_mask & required_mask) == 0;
 }
 
-static bool
-calibration_pressure_targets_required(calibration_pressure_mode_t mode) {
-  return mode == CALIBRATION_PRESSURE_REQUIRED;
+bool calibration_manager_pressure_targets_required(
+    calibration_pressure_mode_t mode) {
+  return mode != CALIBRATION_HALL_ONLY;
+}
+
+bool calibration_manager_attempt_result_try_finalize(
+    calibration_attempt_result_t *current,
+    calibration_attempt_result_t terminal_result) {
+  if (current == NULL || *current != CALIBRATION_ATTEMPT_RUNNING ||
+      terminal_result < CALIBRATION_ATTEMPT_PASS ||
+      terminal_result > CALIBRATION_ATTEMPT_INTERNAL_ERROR) {
+    return false;
+  }
+  *current = terminal_result;
+  return true;
 }
 
 static bool
@@ -465,18 +522,26 @@ static esp_err_t calibration_convert_host_hall_delta(int32_t host_value,
 }
 
 static void calibration_mark_pressure_degraded(bool using_last_stable) {
-  bool was_degraded = s_candidate_config.pressure_degraded;
+  if (s_health_mutex != NULL) {
+    xSemaphoreTake(s_health_mutex, portMAX_DELAY);
+  }
+  bool was_degraded = s_runtime_health.pressure_temporarily_degraded;
   s_pressure_snapshot.pressure_degraded = true;
-  s_candidate_config.pressure_degraded = true;
-  s_candidate_config.pressure_valid = false;
-  s_candidate_config.hall_valid = true;
-  s_candidate_config.using_last_stable_pressure =
+  s_runtime_health.pressure_temporarily_degraded = true;
+  s_runtime_health.pressure_current_valid = false;
+  s_runtime_health.hall_current_valid = true;
+  s_runtime_health.using_last_stable_pressure =
       using_last_stable && s_pressure_snapshot.has_stable_pressure;
+  bool using_last = s_runtime_health.using_last_stable_pressure;
+  s_runtime_health.updated_at_ms = esp_timer_get_time() / 1000;
+  if (s_health_mutex != NULL) {
+    xSemaphoreGive(s_health_mutex);
+  }
   if (!was_degraded) {
     ESP_LOGI(TAG,
              "Calibration PRESSURE_DEGRADED using_last_stable=%d; "
              "acquisition continues",
-             s_candidate_config.using_last_stable_pressure);
+             using_last);
   }
 }
 
@@ -484,12 +549,20 @@ static void calibration_mark_pressure_recovered(void) {
   if (s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY) {
     return;
   }
-  bool was_degraded = s_candidate_config.pressure_degraded;
+  if (s_health_mutex != NULL) {
+    xSemaphoreTake(s_health_mutex, portMAX_DELAY);
+  }
+  bool was_degraded = s_runtime_health.pressure_temporarily_degraded;
   s_pressure_snapshot.pressure_degraded = false;
   s_pressure_snapshot.saturated_now = false;
-  s_candidate_config.pressure_degraded = false;
-  s_candidate_config.pressure_valid = true;
-  s_candidate_config.using_last_stable_pressure = false;
+  s_runtime_health.pressure_temporarily_degraded = false;
+  s_runtime_health.pressure_current_valid = true;
+  s_runtime_health.using_last_stable_pressure = false;
+  s_runtime_health.last_pressure_error = ESP_OK;
+  s_runtime_health.updated_at_ms = esp_timer_get_time() / 1000;
+  if (s_health_mutex != NULL) {
+    xSemaphoreGive(s_health_mutex);
+  }
   if (was_degraded) {
     ESP_LOGI(TAG, "Calibration PRESSURE_RECOVERED accepted_samples=%u",
              s_calibration_pressure_filter.accepted_sample_count);
@@ -570,9 +643,10 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                                          resq_state_t state,
                                          calibration_action_id_t action_id,
                                          int progress_id) {
+  sensor_runtime_health_t health = calibration_runtime_health_snapshot();
   bool pressure_kpa_valid =
-      s_candidate_config.pressure_valid &&
-      !s_candidate_config.pressure_degraded &&
+      health.pressure_current_valid &&
+      !health.pressure_temporarily_degraded &&
       s_candidate_config.pressure_0_baseline != 0 &&
       s_candidate_config.pressure_1_baseline != 0 &&
       s_candidate_config.pressure_2_baseline != 0 &&
@@ -611,7 +685,11 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
   bool sample_hall_mm_valid = converted_ok && s_last_calibration_hall_valid &&
                               hall_mm_valid && converted.hall_mm_valid;
 
-  char payload[2048];
+  char *payload = malloc(2048);
+  if (payload == NULL) {
+    ESP_LOGE(TAG, "Calibration progress payload allocation failed");
+    return;
+  }
   const char *reply_id = calibration_manager_get_request_id();
   char reply_segment[160] = {0};
   if (calibration_manager_is_running() && reply_id != NULL &&
@@ -620,12 +698,13 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
                                  "\"reply_id\":\"%s\",", reply_id);
     if (reply_written <= 0 || reply_written >= (int)sizeof(reply_segment)) {
       ESP_LOGE(TAG, "Calibration progress reply_id too large");
+      free(payload);
       return;
     }
   }
 
   int written = snprintf(
-      payload, sizeof(payload),
+      payload, 2048,
       "{"
       "\"event_id\":%d,"
       "%s"
@@ -674,10 +753,10 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
       progress_id, calibration_reason_contract_id(reason_id),
       resq_state_to_string(state), (int)action_id,
       calibration_pressure_mode_to_string(s_candidate_config.pressure_mode),
-      s_candidate_config.pressure_degraded ? "true" : "false",
-      s_candidate_config.using_last_stable_pressure ? "true" : "false",
-      s_candidate_config.pressure_valid ? "true" : "false",
-      s_candidate_config.hall_valid ? "true" : "false",
+      health.pressure_temporarily_degraded ? "true" : "false",
+      health.using_last_stable_pressure ? "true" : "false",
+      health.pressure_current_valid ? "true" : "false",
+      health.hall_current_valid ? "true" : "false",
       pressure_kpa_valid ? "true" : "false", hall_mm_valid ? "true" : "false",
       s_candidate_config.full_depth_mm,
       (long)s_last_calibration_raw_sample.pressure_raw[0],
@@ -720,14 +799,17 @@ static void publish_calibration_progress(calibration_reason_id_t reason_id,
       sample_hall_mm_valid ? "true" : "false",
       (long long)(esp_timer_get_time() / 1000));
 
-  if (written <= 0 || written >= (int)sizeof(payload)) {
+  task_diagnostics_record_stack_watermark("calibration_manager");
+  if (written <= 0 || written >= 2048) {
     ESP_LOGE(TAG, "Calibration progress payload too large");
+    free(payload);
     return;
   }
 
   if (mqtt_manager_is_connected()) {
     mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
   }
+  free(payload);
 }
 
 /**
@@ -742,9 +824,56 @@ static int32_t calibration_abs_diff(int32_t a, int32_t b) {
 /**
  * @brief Check whether a reading is inside target +/- tolerance.
  */
-static bool calibration_is_within_tolerance(int32_t reading, int32_t target,
-                                            int32_t tolerance) {
-  return calibration_abs_diff(reading, target) <= tolerance;
+bool calibration_manager_value_within_target(int32_t value, int32_t target,
+                                             int32_t tolerance) {
+  if (tolerance < 0) {
+    return false;
+  }
+
+  const int64_t lower = (int64_t)target - (int64_t)tolerance;
+  const int64_t upper = (int64_t)target + (int64_t)tolerance;
+  const int64_t sample = value;
+  return sample >= lower && sample <= upper;
+}
+
+bool calibration_manager_pressure_target_sample_usable(
+    const calibration_pressure_target_sample_t *sample) {
+  return sample != NULL && sample->read_ok && sample->fresh &&
+         sample->channel_valid && !sample->saturated && !sample->stale &&
+         !sample->using_last_stable;
+}
+
+void calibration_manager_pressure_target_tracker_reset(
+    calibration_pressure_target_tracker_t *tracker) {
+  if (tracker != NULL) {
+    memset(tracker, 0, sizeof(*tracker));
+  }
+}
+
+bool calibration_manager_pressure_target_tracker_observe(
+    calibration_pressure_target_tracker_t *tracker,
+    const calibration_pressure_target_sample_t *sample, int32_t target,
+    int32_t tolerance, unsigned required_matches, int64_t required_hold_ms) {
+  if (tracker == NULL || required_matches == 0 || required_hold_ms < 0 ||
+      !calibration_manager_pressure_target_sample_usable(sample) ||
+      !calibration_manager_value_within_target(sample->value, target,
+                                               tolerance)) {
+    calibration_manager_pressure_target_tracker_reset(tracker);
+    return false;
+  }
+
+  if (tracker->consecutive_matches == 0) {
+    tracker->first_match_timestamp_ms = sample->timestamp_ms;
+  } else if (sample->timestamp_ms < tracker->first_match_timestamp_ms) {
+    calibration_manager_pressure_target_tracker_reset(tracker);
+    return false;
+  }
+
+  tracker->consecutive_matches++;
+  int64_t held_ms =
+      sample->timestamp_ms - tracker->first_match_timestamp_ms;
+  return tracker->consecutive_matches >= required_matches &&
+         held_ms >= required_hold_ms;
 }
 
 /**
@@ -785,8 +914,6 @@ static void calibration_sort_i32(int32_t *values, int count);
 static int32_t calibration_max_i32(int32_t a, int32_t b);
 static int32_t calibration_min_i32(int32_t a, int32_t b);
 static int32_t calibration_abs_i32(int32_t v);
-static int32_t calibration_adaptive_pressure_tolerance(int32_t target,
-                                                       int32_t noise_raw);
 static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range,
                                                    int32_t noise_raw);
 static esp_err_t calibration_read_hall_average(int32_t *out_value);
@@ -948,9 +1075,11 @@ static void calibration_record_progress_sample(int32_t hall_raw, int32_t p0,
  */
 static esp_err_t
 calibration_collect_rest_stats(calibration_signal_stats_t *hall_stats,
-                               calibration_signal_stats_t *p0_stats,
-                               calibration_signal_stats_t *p1_stats,
-                               calibration_signal_stats_t *p2_stats) {
+                                calibration_signal_stats_t *p0_stats,
+                                calibration_signal_stats_t *p1_stats,
+                                calibration_signal_stats_t *p2_stats,
+                                const int32_t pressure_targets[3],
+                                const int32_t pressure_tolerances[3]) {
   if (!hall_stats || !p0_stats || !p1_stats || !p2_stats)
     return ESP_ERR_INVALID_ARG;
 
@@ -997,6 +1126,34 @@ calibration_collect_rest_stats(calibration_signal_stats_t *hall_stats,
 
     esp_err_t err = calibration_read_valid_sample(&sample);
     if (err == ESP_OK) {
+      if (pressure_targets != NULL && pressure_tolerances != NULL &&
+          (!calibration_manager_value_within_target(
+               sample.p0, pressure_targets[0], pressure_tolerances[0]) ||
+           !calibration_manager_value_within_target(
+               sample.p1, pressure_targets[1], pressure_tolerances[1]) ||
+           !calibration_manager_value_within_target(
+               sample.p2, pressure_targets[2], pressure_tolerances[2]))) {
+        ESP_LOGE(
+            TAG,
+            "Pressure drift broke baseline batch: P0=%ld range=[%lld,%lld] "
+            "P1=%ld range=[%lld,%lld] P2=%ld range=[%lld,%lld]",
+            (long)sample.p0,
+            (long long)((int64_t)pressure_targets[0] -
+                        pressure_tolerances[0]),
+            (long long)((int64_t)pressure_targets[0] +
+                        pressure_tolerances[0]),
+            (long)sample.p1,
+            (long long)((int64_t)pressure_targets[1] -
+                        pressure_tolerances[1]),
+            (long long)((int64_t)pressure_targets[1] +
+                        pressure_tolerances[1]),
+            (long)sample.p2,
+            (long long)((int64_t)pressure_targets[2] -
+                        pressure_tolerances[2]),
+            (long long)((int64_t)pressure_targets[2] +
+                        pressure_tolerances[2]));
+        return ESP_ERR_INVALID_RESPONSE;
+      }
       calibration_stats_update(hall_stats, sample.hall);
       calibration_stats_update(p0_stats, sample.p0);
       calibration_stats_update(p1_stats, sample.p1);
@@ -1440,16 +1597,17 @@ static void calibration_derive_adaptive_thresholds(
       calibration_abs_diff(s_candidate_config.bladder_2_full_press,
                            s_candidate_config.pressure_2_baseline);
 
-  if (!s_candidate_config.pressure_valid) {
+  sensor_runtime_health_t health = calibration_runtime_health_snapshot();
+  if (!health.pressure_current_valid) {
     s_candidate_config.pressure_1_range_raw = 0;
     s_candidate_config.pressure_2_range_raw = 0;
     s_candidate_config.pressure_contact_threshold = 0;
     s_candidate_config.pressure_valid_threshold = 0;
     s_candidate_config.calibrated_at_ms =
         (int64_t)(esp_timer_get_time() / 1000);
-    ESP_LOGW(TAG,
-             "Derived Hall-only thresholds: hall_range=%ld start=%ld full=%ld "
-             "recoil=%ld pressure_mode=%s",
+    ESP_LOGI(TAG,
+             "Derived explicit Hall-only thresholds: hall_range=%ld start=%ld "
+             "full=%ld recoil=%ld policy=%s",
              (long)s_candidate_config.hall_range_raw,
              (long)s_candidate_config.hall_start_delta,
              (long)s_candidate_config.hall_full_delta_threshold,
@@ -1524,7 +1682,8 @@ static calibration_reason_id_t calibration_validate_derived_thresholds(void) {
 
   bool pressure_required =
       s_candidate_config.pressure_mode == CALIBRATION_PRESSURE_REQUIRED;
-  if (!s_candidate_config.pressure_valid && !pressure_required) {
+  sensor_runtime_health_t health = calibration_runtime_health_snapshot();
+  if (!health.pressure_current_valid && !pressure_required) {
     return CAL_REASON_NONE;
   }
 
@@ -1648,16 +1807,17 @@ static int32_t calibration_abs_i32(int32_t v) {
 }
 
 /* Adaptive tolerance helpers (used during calibration decisions) */
-static int32_t calibration_adaptive_pressure_tolerance(int32_t target,
-                                                       int32_t noise_raw) {
-  int32_t pct_tol = (int32_t)(((int64_t)calibration_abs_i32(target) * 8) / 100);
-  int32_t noise_tol = (int32_t)(((int64_t)calibration_abs_i32(noise_raw) * 5) > INT32_MAX
-                                    ? INT32_MAX
-                                    : (int64_t)calibration_abs_i32(noise_raw) * 5);
-  int32_t min_tol = 100;
-  int32_t t =
-      calibration_max_i32(min_tol, calibration_max_i32(pct_tol, noise_tol));
-  return t;
+int32_t calibration_manager_pressure_target_tolerance(int32_t target) {
+  int64_t magnitude = target;
+  if (magnitude < 0) {
+    magnitude = -magnitude;
+  }
+  int64_t tolerance =
+      (magnitude * CALIBRATION_PRESSURE_TARGET_TOLERANCE_PCT) / 100;
+  if (tolerance < CALIBRATION_PRESSURE_TARGET_MIN_TOLERANCE_RAW) {
+    tolerance = CALIBRATION_PRESSURE_TARGET_MIN_TOLERANCE_RAW;
+  }
+  return tolerance > INT32_MAX ? INT32_MAX : (int32_t)tolerance;
 }
 
 static int32_t calibration_adaptive_hall_tolerance(int32_t hall_range,
@@ -1865,7 +2025,7 @@ calibration_read_hall_pressure_sample(calibration_sample_t *out_sample) {
   if (pressure_err != ESP_OK) {
     out_sample->pressure_valid = false;
     calibration_record_progress_sample(out_sample->hall, 0, 0, 0, 0, true);
-    return calibration_pressure_is_optional() ? ESP_OK : pressure_err;
+    return pressure_err;
   }
 
   out_sample->p0 = pressure[0];
@@ -2051,6 +2211,11 @@ static esp_err_t calibration_wait_for_pressure_target(
       esp_timer_get_time() + ((int64_t)CALIBRATION_MAX_WAIT_MS * 1000LL);
   int consecutive_read_failures = 0;
   int64_t last_progress_publish_us = 0;
+  int64_t last_stage_log_us = 0;
+  int32_t last_fresh_value = 0;
+  unsigned valid_samples = 0;
+  unsigned invalid_samples = 0;
+  calibration_pressure_target_tracker_t tracker = {0};
   uint8_t required_mask = (uint8_t)(1u << channel);
   esp_err_t filter_err = calibration_pressure_filter_begin(required_mask);
   if (filter_err != ESP_OK) {
@@ -2067,6 +2232,20 @@ static esp_err_t calibration_wait_for_pressure_target(
         calibration_read_pressure_average(sck_pin, dout_pin, &current_value);
     if (err != ESP_OK) {
       consecutive_read_failures++;
+      invalid_samples++;
+      calibration_pressure_target_sample_t rejected = {
+          .read_ok = false,
+          .fresh = false,
+          .channel_valid = false,
+          .saturated = s_pressure_snapshot.saturated_now,
+          .stale = true,
+          .using_last_stable = s_calibration_last_quality.using_last_accepted,
+          .timestamp_ms = esp_timer_get_time() / 1000,
+      };
+      (void)calibration_manager_pressure_target_tracker_observe(
+          &tracker, &rejected, target_value, tolerance,
+          CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+          CALIBRATION_PRESSURE_TARGET_HOLD_MS);
       ESP_LOGW(TAG, "%s read failed: %s consecutive=%d", label,
                esp_err_to_name(err), consecutive_read_failures);
 
@@ -2081,6 +2260,8 @@ static esp_err_t calibration_wait_for_pressure_target(
       continue;
     }
     consecutive_read_failures = 0;
+    valid_samples++;
+    last_fresh_value = current_value;
 
     if (!s_has_last_calibration_raw_sample) {
       memset(&s_last_calibration_raw_sample, 0,
@@ -2105,9 +2286,39 @@ static esp_err_t calibration_wait_for_pressure_target(
       last_progress_publish_us = now_us;
     }
 
-    /* Log current selected value */
-    ESP_LOGI(TAG, "%s current=%ld target=%ld", label, (long)current_value,
-             (long)target_value);
+    calibration_pressure_target_sample_t sample = {
+        .value = current_value,
+        .read_ok = true,
+        .fresh = true,
+        .channel_valid = true,
+        .saturated = false,
+        .stale = false,
+        .using_last_stable = false,
+        .timestamp_ms = now_us / 1000,
+    };
+    bool matched = calibration_manager_pressure_target_tracker_observe(
+        &tracker, &sample, target_value, tolerance,
+        CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+        CALIBRATION_PRESSURE_TARGET_HOLD_MS);
+    int64_t held_ms =
+        tracker.consecutive_matches > 0
+            ? sample.timestamp_ms - tracker.first_match_timestamp_ms
+            : 0;
+    if (matched || last_stage_log_us == 0 ||
+        now_us - last_stage_log_us >= 500000) {
+      ESP_LOGI(
+          TAG,
+          "stage=%s current=%ld target=%ld tolerance=%ld range=[%lld,%lld] "
+          "fresh=1 valid=1 saturated=0 stale=0 using_last_stable=0 "
+          "consecutive=%u/%u hold_ms=%lld",
+          label, (long)current_value, (long)target_value, (long)tolerance,
+          (long long)((int64_t)target_value - tolerance),
+          (long long)((int64_t)target_value + tolerance),
+          tracker.consecutive_matches,
+          CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+          (long long)held_ms);
+      last_stage_log_us = now_us;
+    }
 
     /* Also log the last raw triplet at DEBUG level so hex patterns are
      * available when needed */
@@ -2119,11 +2330,13 @@ static esp_err_t calibration_wait_for_pressure_target(
              (long)s_last_hx710_raw[2],
              (unsigned int)((uint32_t)s_last_hx710_raw[2] & 0xFFFFFF));
 
-    if (calibration_is_within_tolerance(current_value, target_value,
-                                        tolerance)) {
+    if (matched) {
       *matched_value = current_value;
 
-      ESP_LOGI(TAG, "%s matched with value=%ld", label, (long)current_value);
+      ESP_LOGI(TAG,
+               "%s matched with value=%ld consecutive=%u hold_ms=%lld",
+               label, (long)current_value, tracker.consecutive_matches,
+               (long long)held_ms);
 
       return ESP_OK;
     }
@@ -2137,7 +2350,15 @@ static esp_err_t calibration_wait_for_pressure_target(
     return ESP_ERR_INVALID_STATE;
   }
 
-  ESP_LOGE(TAG, "%s target wait timeout", label);
+  ESP_LOGE(
+      TAG,
+      "%s target wait timeout channel=P%d last_fresh_value=%ld target=%ld "
+      "range=[%lld,%lld] valid_samples=%u invalid_samples=%u "
+      "last_stable_counted_for_calibration=0",
+      label, channel, (long)last_fresh_value, (long)target_value,
+      (long long)((int64_t)target_value - tolerance),
+      (long long)((int64_t)target_value + tolerance), valid_samples,
+      invalid_samples);
 
   return ESP_ERR_TIMEOUT;
 }
@@ -2146,9 +2367,26 @@ static esp_err_t calibration_wait_for_pressure_target(
  * @brief Mark calibration as failed and update indicator.
  */
 static void calibration_manager_fail(calibration_reason_id_t reason_id) {
+  calibration_attempt_result_t existing_result;
+  LOCK_MGR();
+  if (!calibration_manager_attempt_result_try_finalize(
+          &s_attempt_result, CALIBRATION_ATTEMPT_FAIL)) {
+    existing_result = s_attempt_result;
+    UNLOCK_MGR();
+    ESP_LOGW(TAG,
+             "Ignoring late calibration failure reason_id=%d; result=%d "
+             "already committed",
+             (int)reason_id, (int)existing_result);
+    return;
+  }
   s_last_failure_reason = reason_id;
   s_last_failure_action =
       calibration_codes_default_action_for_reason(reason_id);
+  s_candidate_config.calibrated = false;
+  s_candidate_profile_id[0] = '\0';
+  s_candidate_profile_version = 0;
+  s_candidate_profile_hash[0] = '\0';
+  UNLOCK_MGR();
 
   ESP_LOGE(TAG,
            "Calibration failed reason_id=%d reason=%s action_id=%d action=%s",
@@ -2156,14 +2394,6 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id) {
            calibration_codes_reason_to_string(s_last_failure_reason),
            (int)s_last_failure_action,
            calibration_codes_action_to_string(s_last_failure_action));
-
-  s_candidate_config.calibrated = false;
-
-  s_candidate_profile_id[0] = '\0';
-  s_candidate_profile_version = 0;
-  s_candidate_profile_hash[0] = '\0';
-
-  status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
 
   publish_calibration_progress(
       s_last_failure_reason, RESQ_STATE_CALIBRATION_FAIL, s_last_failure_action,
@@ -2174,17 +2404,21 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id) {
  * @brief Mark calibration as successful, save config, and update indicator.
  */
 static esp_err_t calibration_manager_save_success(void) {
+  calibration_reason_id_t fail_reason = CAL_REASON_NONE;
   LOCK_MGR();
-  if (!calibration_config_is_valid(&s_candidate_config)) {
-    calibration_manager_fail(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE);
+  if (s_attempt_result != CALIBRATION_ATTEMPT_RUNNING) {
     UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (!calibration_config_is_valid(&s_candidate_config)) {
+    UNLOCK_MGR();
+    calibration_manager_fail(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE);
     return ESP_ERR_INVALID_STATE;
   }
 
   calibration_store_snapshot_t snapshot;
   cal_store_outcome_t promote_outcome = config_store_promote_calibration(&s_candidate_config, &s_calibration_config, &snapshot);
   if (promote_outcome != CAL_STORE_VALID) {
-    calibration_reason_id_t fail_reason;
     switch (promote_outcome) {
       case CAL_STORE_CORRUPT:                    fail_reason = CAL_REASON_CORRUPT;                    break;
       case CAL_STORE_UNSUPPORTED_SCHEMA:         fail_reason = CAL_REASON_UNSUPPORTED_SCHEMA;         break;
@@ -2194,21 +2428,81 @@ static esp_err_t calibration_manager_save_success(void) {
       case CAL_STORE_IO_ERROR:                   // fall-through
       default:                                   fail_reason = CAL_REASON_IO_ERROR;                   break;
     }
-    calibration_manager_fail(fail_reason);
     UNLOCK_MGR();
+    calibration_manager_fail(fail_reason);
     return ESP_FAIL;
   }
 
+  if (!calibration_manager_attempt_result_try_finalize(
+          &s_attempt_result, CALIBRATION_ATTEMPT_PASS)) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
   s_candidate_profile_id[0] = '\0';
   s_candidate_profile_version = 0;
   s_candidate_profile_hash[0] = '\0';
 
-  status_indicator_set_state(RESQ_STATE_READY_FOR_SESSION);
   UNLOCK_MGR();
 
   ESP_LOGI(TAG, "Calibration completed and saved successfully");
 
   return ESP_OK;
+}
+
+static void calibration_finish(void) {
+  TaskHandle_t state_owner = NULL;
+  calibration_attempt_result_t result = CALIBRATION_ATTEMPT_INTERNAL_ERROR;
+  calibration_reason_id_t reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
+  calibration_action_id_t action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
+
+  LOCK_MGR();
+  if (s_finalized) {
+    UNLOCK_MGR();
+    return;
+  }
+  s_finalized = true;
+  UNLOCK_MGR();
+
+  esp_err_t release_err = sensor_owner_release(SENSOR_OWNER_CALIBRATION);
+
+  LOCK_MGR();
+  if (calibration_manager_attempt_result_try_finalize(
+          &s_attempt_result, CALIBRATION_ATTEMPT_INTERNAL_ERROR)) {
+    s_last_failure_reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
+    s_last_failure_action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
+    s_candidate_config.calibrated = false;
+  }
+
+  result = s_attempt_result;
+  reason = s_last_failure_reason;
+  action = s_last_failure_action;
+  if (result != CALIBRATION_ATTEMPT_PASS) {
+    calibration_config_set_defaults(&s_candidate_config);
+    calibration_runtime_health_reset(s_calibration_config.pressure_policy);
+    s_candidate_profile_id[0] = '\0';
+    s_candidate_profile_version = 0;
+    s_candidate_profile_hash[0] = '\0';
+  }
+
+  s_running = false;
+  s_calibration_task_handle = NULL;
+  state_owner = s_state_owner_task;
+  s_state_owner_task = NULL;
+  UNLOCK_MGR();
+
+  if (s_calibration_events != NULL) {
+    xEventGroupSetBits(s_calibration_events, CAL_EVENT_TASK_DONE);
+  }
+  if (state_owner != NULL) {
+    xTaskNotifyGive(state_owner);
+  }
+
+  ESP_LOGI(
+      TAG,
+      "Calibration task ended: result=%d reason_id=%d action_id=%d running=0 "
+      "state_owner_notified=%d resources_released=%d",
+      (int)result, (int)reason, (int)action, state_owner != NULL,
+      release_err == ESP_OK);
 }
 
 /* =========================================================
@@ -2233,12 +2527,11 @@ static void calibration_manager_task(void *arg) {
   (void)arg;
 
   ESP_LOGI(TAG, "Calibration task started");
+  task_diagnostics_record_stack_watermark("calibration_manager");
 
   if (s_calibration_events != NULL) {
     xEventGroupSetBits(s_calibration_events, CAL_EVENT_TASK_RUNNING);
   }
-
-  status_indicator_set_state(RESQ_STATE_CALIBRATING);
 
   publish_calibration_progress(CAL_REASON_NONE, RESQ_STATE_CALIBRATING,
                                CAL_ACTION_NONE,
@@ -2277,37 +2570,21 @@ static void calibration_manager_task(void *arg) {
              "Hall-only calibration: skipping pressure rest health collection");
     err = calibration_collect_hall_rest_stats(&initial_hall_stats);
   } else {
-    err = calibration_collect_rest_stats(&initial_hall_stats, &initial_p0_stats,
-                                         &initial_p1_stats, &initial_p2_stats);
+    err = calibration_collect_rest_stats(
+        &initial_hall_stats, &initial_p0_stats, &initial_p1_stats,
+        &initial_p2_stats, NULL, NULL);
   }
   if (err != ESP_OK) {
     if (!s_running) {
       goto task_exit;
     }
-    if (!calibration_pressure_is_optional()) {
-      ESP_LOGE(TAG, "Failed to collect rest stats: %s", esp_err_to_name(err));
-      calibration_manager_fail(CAL_REASON_SENSOR_STUCK_OR_NOISE);
-      goto task_exit;
-    }
-    ESP_LOGW(TAG, "Pressure rest stats unavailable; continuing Hall-only: %s",
+    ESP_LOGE(TAG, "Failed to collect initial calibration stats: %s",
              esp_err_to_name(err));
-    calibration_mark_pressure_degraded(false);
-    publish_calibration_progress(
-        CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
-        RESQ_STATE_CALIBRATING, CAL_ACTION_NONE, 2);
-    err = calibration_collect_hall_rest_stats(&initial_hall_stats);
-    if (err != ESP_OK) {
-      calibration_manager_fail(CAL_REASON_HALL_BASELINE_READ_FAILED);
-      goto task_exit;
-    }
-    calibration_stats_init(&initial_p0_stats);
-    calibration_stats_init(&initial_p1_stats);
-    calibration_stats_init(&initial_p2_stats);
-    /* Host targets are intent, not sensor observations. Keep unavailable
-     * pressure samples explicit instead of fabricating measurements. */
-    initial_p0_stats.mean = 0;
-    initial_p1_stats.mean = 0;
-    initial_p2_stats.mean = 0;
+    calibration_manager_fail(
+        s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY
+            ? CAL_REASON_HALL_BASELINE_READ_FAILED
+            : CAL_REASON_SENSOR_STUCK_OR_NOISE);
+    goto task_exit;
   }
 
   ESP_LOGI(TAG,
@@ -2330,18 +2607,10 @@ static void calibration_manager_task(void *arg) {
           : calibration_validate_pressure_rest_health(
                 &initial_p0_stats, &initial_p1_stats, &initial_p2_stats);
 
-  if (pressure_health_reason != CAL_REASON_NONE &&
-      !calibration_pressure_is_optional()) {
+  if (pressure_health_reason != CAL_REASON_NONE) {
     calibration_manager_fail(pressure_health_reason);
     goto task_exit;
-  } else if (pressure_health_reason != CAL_REASON_NONE) {
-    ESP_LOGW(TAG, "Pressure health degraded (%s); continuing with Hall sensor",
-             calibration_codes_reason_to_string(pressure_health_reason));
-    calibration_mark_pressure_degraded(false);
-    publish_calibration_progress(
-        CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
-        RESQ_STATE_CALIBRATING, CAL_ACTION_NONE, 2);
-  } else {
+  } else if (s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY) {
     calibration_update_stable_pressure(true, true, true, initial_p0_stats.mean,
                                        initial_p1_stats.mean,
                                        initial_p2_stats.mean);
@@ -2355,18 +2624,18 @@ static void calibration_manager_task(void *arg) {
     calibration_manager_fail(CAL_REASON_INVALID_HALL_DELTA);
     goto task_exit;
   }
-  s_candidate_config.hall_valid = true;
+  calibration_runtime_hall_valid_set(true);
 
   /* -----------------------------------------------------
    * Steps 2-4: Set P0, then P1, then P2 to their requested
    * values. These waits are intentional calibration stages.
    * ----------------------------------------------------- */
-  int32_t tol0 = calibration_adaptive_pressure_tolerance(
-      s_candidate_config.ref_pressure, initial_p0_stats.noise_pp);
-  int32_t tol1 = calibration_adaptive_pressure_tolerance(
-      s_candidate_config.bladder_1_pressure, initial_p1_stats.noise_pp);
-  int32_t tol2 = calibration_adaptive_pressure_tolerance(
-      s_candidate_config.bladder_2_pressure, initial_p2_stats.noise_pp);
+  int32_t tol0 = calibration_manager_pressure_target_tolerance(
+      s_candidate_config.ref_pressure);
+  int32_t tol1 = calibration_manager_pressure_target_tolerance(
+      s_candidate_config.bladder_1_pressure);
+  int32_t tol2 = calibration_manager_pressure_target_tolerance(
+      s_candidate_config.bladder_2_pressure);
 
   bool run_pressure_targets =
       calibration_manager_pressure_acquisition_enabled(
@@ -2384,19 +2653,12 @@ static void calibration_manager_task(void *arg) {
     if (err != ESP_OK) {
       if (!s_running)
         goto task_exit;
-      if (!calibration_pressure_is_optional()) {
-        calibration_manager_fail(err == ESP_ERR_INVALID_RESPONSE
-                                     ? CAL_REASON_SENSOR_STUCK_OR_NOISE
-                                     : CAL_REASON_REF_PRESSURE_TIMEOUT);
-        goto task_exit;
-      }
-      calibration_mark_pressure_degraded(s_pressure_snapshot.p0_stable);
-      publish_calibration_progress(
-          CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
-          RESQ_STATE_CALIBRATING, CAL_ACTION_NONE, 2);
-      matched_ref_pressure = s_pressure_snapshot.p0_stable
-                                 ? s_pressure_snapshot.last_stable_p0
-                                 : 0;
+      calibration_manager_fail(s_pressure_snapshot.saturated_now
+                                   ? CAL_REASON_PRESSURE_SENSOR_SATURATED
+                                   : err == ESP_ERR_INVALID_RESPONSE
+                                         ? CAL_REASON_SENSOR_STUCK_OR_NOISE
+                                         : CAL_REASON_REF_PRESSURE_TIMEOUT);
+      goto task_exit;
     } else {
       calibration_update_stable_pressure(true, false, false,
                                          matched_ref_pressure, 0, 0);
@@ -2418,19 +2680,12 @@ static void calibration_manager_task(void *arg) {
       if (err != ESP_OK) {
         if (!s_running)
           goto task_exit;
-        if (!calibration_pressure_is_optional()) {
-          calibration_manager_fail(err == ESP_ERR_INVALID_RESPONSE
-                                       ? CAL_REASON_SENSOR_STUCK_OR_NOISE
-                                       : CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
-          goto task_exit;
-        }
-        calibration_mark_pressure_degraded(s_pressure_snapshot.p1_stable);
-        publish_calibration_progress(
-            CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
-            RESQ_STATE_CALIBRATING, CAL_ACTION_NONE, 4);
-        matched_bladder_1_pressure = s_pressure_snapshot.p1_stable
-                                         ? s_pressure_snapshot.last_stable_p1
-                                         : 0;
+        calibration_manager_fail(s_pressure_snapshot.saturated_now
+                                     ? CAL_REASON_PRESSURE_SENSOR_SATURATED
+                                     : err == ESP_ERR_INVALID_RESPONSE
+                                           ? CAL_REASON_SENSOR_STUCK_OR_NOISE
+                                           : CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
+        goto task_exit;
       } else {
         calibration_update_stable_pressure(false, true, false, 0,
                                            matched_bladder_1_pressure, 0);
@@ -2453,19 +2708,12 @@ static void calibration_manager_task(void *arg) {
       if (err != ESP_OK) {
         if (!s_running)
           goto task_exit;
-        if (!calibration_pressure_is_optional()) {
-          calibration_manager_fail(err == ESP_ERR_INVALID_RESPONSE
-                                       ? CAL_REASON_SENSOR_STUCK_OR_NOISE
-                                       : CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
-          goto task_exit;
-        }
-        calibration_mark_pressure_degraded(s_pressure_snapshot.p2_stable);
-        publish_calibration_progress(
-            CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
-            RESQ_STATE_CALIBRATING, CAL_ACTION_NONE, 6);
-        matched_bladder_2_pressure = s_pressure_snapshot.p2_stable
-                                         ? s_pressure_snapshot.last_stable_p2
-                                         : 0;
+        calibration_manager_fail(s_pressure_snapshot.saturated_now
+                                     ? CAL_REASON_PRESSURE_SENSOR_SATURATED
+                                     : err == ESP_ERR_INVALID_RESPONSE
+                                           ? CAL_REASON_SENSOR_STUCK_OR_NOISE
+                                           : CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
+        goto task_exit;
       } else {
         calibration_update_stable_pressure(false, false, true, 0, 0,
                                            matched_bladder_2_pressure);
@@ -2475,22 +2723,15 @@ static void calibration_manager_task(void *arg) {
     publish_calibration_progress(CAL_REASON_NONE, RESQ_STATE_CALIBRATING,
                                  CAL_ACTION_NONE,
                                  7); // 7 = Bladder 2 pressure matched
-  } else {
     ESP_LOGI(
         TAG,
-        "Skipping pressure target waits for pressure_mode=%s "
-        "pressure_degraded=%d targets_usable=%d",
-        calibration_pressure_mode_to_string(s_candidate_config.pressure_mode),
-        s_candidate_config.pressure_degraded,
-        calibration_pressure_targets_usable(&s_candidate_config));
-    calibration_mark_pressure_degraded(s_pressure_snapshot.has_stable_pressure);
+        "Pressure targets reached: P0=%ld P1=%ld P2=%ld; keep all pressures "
+        "steady",
+        (long)matched_ref_pressure, (long)matched_bladder_1_pressure,
+        (long)matched_bladder_2_pressure);
+  } else {
+    ESP_LOGI(TAG, "Pressure calibration skipped: policy=HALL_ONLY");
   }
-
-  ESP_LOGI(TAG,
-           "Pressure targets reached: P0=%ld P1=%ld P2=%ld; keep all pressures "
-           "steady",
-           (long)matched_ref_pressure, (long)matched_bladder_1_pressure,
-           (long)matched_bladder_2_pressure);
 
   /* -----------------------------------------------------
    * Step 5: Capture synchronized baselines only after all
@@ -2517,101 +2758,77 @@ static void calibration_manager_task(void *arg) {
     p2_stats.mean =
         s_pressure_snapshot.p2_stable ? s_pressure_snapshot.last_stable_p2 : 0;
   } else {
-    err = calibration_collect_rest_stats(&hall_stats, &p0_stats, &p1_stats,
-                                         &p2_stats);
+    const int32_t pressure_targets[3] = {
+        s_candidate_config.ref_pressure,
+        s_candidate_config.bladder_1_pressure,
+        s_candidate_config.bladder_2_pressure,
+    };
+    const int32_t pressure_tolerances[3] = {tol0, tol1, tol2};
+    err = calibration_collect_rest_stats(
+        &hall_stats, &p0_stats, &p1_stats, &p2_stats, pressure_targets,
+        pressure_tolerances);
   }
   if (err != ESP_OK) {
     if (!s_running)
       goto task_exit;
-    if (!calibration_pressure_is_optional()) {
-      calibration_manager_fail(CAL_REASON_PRESSURE_BASELINE_UNSTABLE);
-      goto task_exit;
-    }
-    calibration_mark_pressure_degraded(s_pressure_snapshot.has_stable_pressure);
-    publish_calibration_progress(
-        CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
-        RESQ_STATE_CALIBRATING, CAL_ACTION_NONE, 8);
-    err = calibration_collect_hall_rest_stats(&hall_stats);
-    if (err != ESP_OK) {
-      calibration_manager_fail(CAL_REASON_HALL_BASELINE_READ_FAILED);
-      goto task_exit;
-    }
-    calibration_stats_init(&p0_stats);
-    calibration_stats_init(&p1_stats);
-    calibration_stats_init(&p2_stats);
-    p0_stats.mean = s_pressure_snapshot.p0_stable
-                        ? s_pressure_snapshot.last_stable_p0
-                        : matched_ref_pressure;
-    p1_stats.mean = s_pressure_snapshot.p1_stable
-                        ? s_pressure_snapshot.last_stable_p1
-                        : matched_bladder_1_pressure;
-    p2_stats.mean = s_pressure_snapshot.p2_stable
-                        ? s_pressure_snapshot.last_stable_p2
-                        : matched_bladder_2_pressure;
+    calibration_manager_fail(
+        s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY
+            ? CAL_REASON_HALL_BASELINE_READ_FAILED
+            : CAL_REASON_PRESSURE_BASELINE_UNSTABLE);
+    goto task_exit;
   }
 
+  sensor_runtime_health_t health = calibration_runtime_health_snapshot();
   pressure_health_reason =
-      (s_candidate_config.pressure_degraded ||
+      (health.pressure_temporarily_degraded ||
        s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY)
           ? CAL_REASON_NONE
           : calibration_validate_pressure_rest_health(&p0_stats, &p1_stats,
                                                       &p2_stats);
-  if (pressure_health_reason != CAL_REASON_NONE &&
-      !calibration_pressure_is_optional()) {
+  if (pressure_health_reason != CAL_REASON_NONE) {
     calibration_manager_fail(pressure_health_reason);
     goto task_exit;
-  } else if (pressure_health_reason != CAL_REASON_NONE) {
-    calibration_mark_pressure_degraded(s_pressure_snapshot.has_stable_pressure);
   }
 
-  tol0 = calibration_adaptive_pressure_tolerance(
-      s_candidate_config.ref_pressure, p0_stats.noise_pp);
-  tol1 = calibration_adaptive_pressure_tolerance(
-      s_candidate_config.bladder_1_pressure, p1_stats.noise_pp);
-  tol2 = calibration_adaptive_pressure_tolerance(
-      s_candidate_config.bladder_2_pressure, p2_stats.noise_pp);
+  tol0 = calibration_manager_pressure_target_tolerance(
+      s_candidate_config.ref_pressure);
+  tol1 = calibration_manager_pressure_target_tolerance(
+      s_candidate_config.bladder_1_pressure);
+  tol2 = calibration_manager_pressure_target_tolerance(
+      s_candidate_config.bladder_2_pressure);
 
   if (s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
-      !calibration_is_within_tolerance(
+      !calibration_manager_value_within_target(
           p0_stats.mean, s_candidate_config.ref_pressure, tol0)) {
     ESP_LOGE(TAG,
              "P0 drifted outside target during baseline capture: value=%ld "
              "target=%ld tolerance=%ld",
              (long)p0_stats.mean, (long)s_candidate_config.ref_pressure,
              (long)tol0);
-    if (!calibration_pressure_is_optional()) {
-      calibration_manager_fail(CAL_REASON_REF_PRESSURE_TIMEOUT);
-      goto task_exit;
-    }
-    calibration_mark_pressure_degraded(s_pressure_snapshot.p0_stable);
+    calibration_manager_fail(CAL_REASON_REF_PRESSURE_TIMEOUT);
+    goto task_exit;
   }
   if (s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
-      !calibration_is_within_tolerance(
+      !calibration_manager_value_within_target(
           p1_stats.mean, s_candidate_config.bladder_1_pressure, tol1)) {
     ESP_LOGE(TAG,
              "P1 drifted outside target during baseline capture: value=%ld "
              "target=%ld tolerance=%ld",
              (long)p1_stats.mean, (long)s_candidate_config.bladder_1_pressure,
              (long)tol1);
-    if (!calibration_pressure_is_optional()) {
-      calibration_manager_fail(CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
-      goto task_exit;
-    }
-    calibration_mark_pressure_degraded(s_pressure_snapshot.p1_stable);
+    calibration_manager_fail(CAL_REASON_BLADDER_1_PRESSURE_TIMEOUT);
+    goto task_exit;
   }
   if (s_candidate_config.pressure_mode != CALIBRATION_HALL_ONLY &&
-      !calibration_is_within_tolerance(
+      !calibration_manager_value_within_target(
           p2_stats.mean, s_candidate_config.bladder_2_pressure, tol2)) {
     ESP_LOGE(TAG,
              "P2 drifted outside target during baseline capture: value=%ld "
              "target=%ld tolerance=%ld",
              (long)p2_stats.mean, (long)s_candidate_config.bladder_2_pressure,
              (long)tol2);
-    if (!calibration_pressure_is_optional()) {
-      calibration_manager_fail(CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
-      goto task_exit;
-    }
-    calibration_mark_pressure_degraded(s_pressure_snapshot.p2_stable);
+    calibration_manager_fail(CAL_REASON_BLADDER_2_PRESSURE_TIMEOUT);
+    goto task_exit;
   }
 
   s_candidate_config.hall_baseline = hall_stats.mean;
@@ -2706,15 +2923,8 @@ static void calibration_manager_task(void *arg) {
                                11); // 11 = Calibration saved
 
 task_exit:
-  ESP_LOGI(TAG, "Calibration task ended");
-
-  s_running = false;
-  s_calibration_task_handle = NULL;
-  sensor_owner_release(SENSOR_OWNER_CALIBRATION);
-  if (s_calibration_events != NULL) {
-    xEventGroupSetBits(s_calibration_events, CAL_EVENT_TASK_DONE);
-  }
-
+  task_diagnostics_record_stack_watermark("calibration_manager");
+  calibration_finish();
   vTaskDelete(NULL);
 }
 
@@ -2775,6 +2985,12 @@ esp_err_t calibration_manager_init(void) {
       return ESP_ERR_NO_MEM;
     }
   }
+  if (s_health_mutex == NULL) {
+    s_health_mutex = xSemaphoreCreateMutex();
+    if (s_health_mutex == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
+  }
 
   calibration_config_set_defaults(&s_candidate_config);
 
@@ -2787,9 +3003,12 @@ esp_err_t calibration_manager_init(void) {
     ESP_LOGW(TAG, "Failed to load saved calibration: %s", esp_err_to_name(err));
     calibration_config_set_defaults(&s_calibration_config);
   }
+  calibration_runtime_health_reset(s_calibration_config.pressure_policy);
 
   s_initialized = true;
   s_running = false;
+  s_finalized = true;
+  s_attempt_result = CALIBRATION_ATTEMPT_NONE;
 
   ESP_LOGI(TAG, "Calibration manager initialized");
 
@@ -2817,7 +3036,8 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   /* Hall delta validation */
   if (host_params->hall_delta < CALIBRATION_HALL_DELTA_MIN_RAW ||
       host_params->hall_delta > CALIBRATION_HALL_DELTA_MAX_ADC_COUNTS ||
-      (calibration_pressure_targets_required(host_params->pressure_mode) &&
+      (calibration_manager_pressure_targets_required(
+           host_params->pressure_mode) &&
        !calibration_pressure_targets_usable(host_params))) {
 
     ESP_LOGE(TAG, "Invalid host calibration parameters");
@@ -2894,17 +3114,6 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   strncpy(s_candidate_profile_hash, host_params->profile_hash, sizeof(s_candidate_profile_hash) - 1);
   s_candidate_profile_hash[sizeof(s_candidate_profile_hash) - 1] = '\0';
 
-  /* Set recalibration required marker in NVS */
-  esp_err_t recal_err = config_store_mark_recalibration_required();
-  if (recal_err != ESP_OK) {
-    s_candidate_profile_id[0] = '\0';
-    s_candidate_profile_version = 0;
-    s_candidate_profile_hash[0] = '\0';
-    sensor_owner_release(SENSOR_OWNER_CALIBRATION);
-    UNLOCK_MGR();
-    return recal_err;
-  }
-
   /* Start from firmware defaults, then copy only host-controlled fields to s_candidate_config. */
   calibration_config_set_defaults(&s_candidate_config);
 
@@ -2934,10 +3143,7 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
     UNLOCK_MGR();
     return ESP_ERR_INVALID_ARG;
   }
-  s_candidate_config.pressure_degraded = false;
-  s_candidate_config.using_last_stable_pressure = false;
-  s_candidate_config.pressure_valid = false;
-  s_candidate_config.hall_valid = false;
+  calibration_runtime_health_reset(s_candidate_config.pressure_policy);
 
   if (host_params->profile_id[0] != '\0') {
     strncpy(s_candidate_config.profile_id, host_params->profile_id,
@@ -2998,6 +3204,9 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
            s_candidate_config.pressure_balance_allowed_pct);
 
   s_running = true;
+  s_finalized = false;
+  s_attempt_result = CALIBRATION_ATTEMPT_RUNNING;
+  s_state_owner_task = xTaskGetCurrentTaskHandle();
   if (s_calibration_events != NULL) {
     xEventGroupClearBits(s_calibration_events, CAL_EVENT_TASK_RUNNING |
                                                    CAL_EVENT_TASK_DONE |
@@ -3010,10 +3219,14 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
                   &s_calibration_task_handle);
 
   if (task_result != pdPASS) {
-    s_running = false;
     s_calibration_task_handle = NULL;
-    sensor_owner_release(SENSOR_OWNER_CALIBRATION);
+    s_state_owner_task = NULL;
+    (void)calibration_manager_attempt_result_try_finalize(
+        &s_attempt_result, CALIBRATION_ATTEMPT_INTERNAL_ERROR);
+    s_last_failure_reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
+    s_last_failure_action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
     UNLOCK_MGR();
+    calibration_finish();
     return ESP_FAIL;
   }
 
@@ -3023,11 +3236,19 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   if ((bits & CAL_EVENT_TASK_RUNNING) == 0) {
     ESP_LOGE(TAG, "Calibration task did not enter running state");
     s_running = false;
-    xTaskNotifyGive(s_calibration_task_handle);
+    (void)calibration_manager_attempt_result_try_finalize(
+        &s_attempt_result, CALIBRATION_ATTEMPT_INTERNAL_ERROR);
+    s_last_failure_reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
+    s_last_failure_action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
+    TaskHandle_t task_handle = s_calibration_task_handle;
+    s_state_owner_task = NULL;
+    if (task_handle != NULL) {
+      xTaskNotifyGive(task_handle);
+    }
+    UNLOCK_MGR();
     (void)xEventGroupWaitBits(s_calibration_events, CAL_EVENT_TASK_DONE,
                               pdFALSE, pdFALSE,
                               pdMS_TO_TICKS(CALIBRATION_CANCEL_WAIT_MS));
-    UNLOCK_MGR();
     return ESP_ERR_TIMEOUT;
   }
 
@@ -3052,15 +3273,24 @@ esp_err_t calibration_manager_cancel(void) {
   if (s_calibration_events != NULL) {
     xEventGroupSetBits(s_calibration_events, CAL_EVENT_CANCEL_REQ);
   }
-  s_running = false;
+  bool cancel_committed = calibration_manager_attempt_result_try_finalize(
+      &s_attempt_result, CALIBRATION_ATTEMPT_CANCELLED);
+  if (cancel_committed) {
+    s_running = false;
+  }
   if (s_calibration_task_handle != NULL) {
     xTaskNotifyGive(s_calibration_task_handle);
   }
 
-  s_candidate_config.calibrated = false;
-  s_candidate_profile_id[0] = '\0';
-  s_candidate_profile_version = 0;
-  s_candidate_profile_hash[0] = '\0';
+  if (cancel_committed) {
+    s_candidate_config.calibrated = false;
+    s_candidate_profile_id[0] = '\0';
+    s_candidate_profile_version = 0;
+    s_candidate_profile_hash[0] = '\0';
+  } else {
+    ESP_LOGI(TAG, "Cancel did not replace committed calibration result=%d",
+             (int)s_attempt_result);
+  }
   UNLOCK_MGR();
 
   if (s_calibration_events != NULL) {
@@ -3085,8 +3315,6 @@ esp_err_t calibration_manager_cancel(void) {
   s_candidate_profile_version = 0;
   s_candidate_profile_hash[0] = '\0';
 
-  status_indicator_set_state(RESQ_STATE_PAIRED_IDLE);
-
   return ESP_OK;
 }
 
@@ -3110,6 +3338,17 @@ bool calibration_manager_is_ready(void) {
   return ready;
 }
 
+calibration_attempt_result_t
+calibration_manager_get_last_attempt_result(void) {
+  if (!s_initialized || s_manager_mutex == NULL) {
+    return CALIBRATION_ATTEMPT_NONE;
+  }
+  LOCK_MGR();
+  calibration_attempt_result_t result = s_attempt_result;
+  UNLOCK_MGR();
+  return result;
+}
+
 esp_err_t calibration_manager_get_config(calibration_config_t *out_config) {
   if (out_config == NULL) {
     return ESP_ERR_INVALID_ARG;
@@ -3122,6 +3361,18 @@ esp_err_t calibration_manager_get_config(calibration_config_t *out_config) {
   memcpy(out_config, &s_calibration_config, sizeof(calibration_config_t));
   UNLOCK_MGR();
 
+  return ESP_OK;
+}
+
+esp_err_t calibration_manager_get_runtime_health(
+    sensor_runtime_health_t *out_health) {
+  if (out_health == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  if (!s_initialized || s_health_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  *out_health = calibration_runtime_health_snapshot();
   return ESP_OK;
 }
 
@@ -3340,7 +3591,7 @@ esp_err_t calibration_manager_parse_start_payload(
   }
 
   bool pressure_targets_required =
-      calibration_pressure_targets_required(parsed_pressure_mode);
+      calibration_manager_pressure_targets_required(parsed_pressure_mode);
   bool any_pressure_target = ref_pressure != NULL || bladder_1_pressure != NULL ||
                              bladder_2_pressure != NULL;
   bool pressure_targets_present = cJSON_IsNumber(ref_pressure) &&
@@ -3545,8 +3796,9 @@ esp_err_t calibration_manager_publish_calibration_result(
 
   const char *result_to_publish = result != NULL ? result : "";
   calibration_reason_id_t reason_to_publish = reason_id;
+  sensor_runtime_health_t health = calibration_runtime_health_snapshot();
   if (strcmp(result_to_publish, "PASS") == 0 &&
-      s_candidate_config.pressure_degraded) {
+      health.pressure_temporarily_degraded) {
     result_to_publish = "PASS_WITH_WARNINGS";
     reason_to_publish = CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE;
   }
@@ -3605,10 +3857,10 @@ esp_err_t calibration_manager_publish_calibration_result(
       sensor_conversion_convert(&hall_full_press_raw, &hall_full_press_profile,
                                 &hall_full_press_converted) == ESP_OK;
   bool pressure_kpa_valid =
-      accepted_result && cfg->pressure_valid &&
-      !cfg->pressure_degraded && converted_full_press &&
+      accepted_result && health.pressure_current_valid &&
+      !health.pressure_temporarily_degraded && converted_full_press &&
       hall_full_press_converted.pressure_profile_valid;
-  bool hall_mm_valid = accepted_result && cfg->hall_valid &&
+  bool hall_mm_valid = accepted_result && health.hall_current_valid &&
                        converted_full_press &&
                        hall_full_press_converted.hall_profile_valid;
   bool hall_full_press_sample_valid =
@@ -3619,11 +3871,14 @@ esp_err_t calibration_manager_publish_calibration_result(
     hall_full_press_delta_raw = hall_full_press_converted.hall_delta_raw;
   }
 
-  char payload[1792];
+  char *payload = malloc(1792);
+  if (payload == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
   if (strcmp(result_to_publish, "PASS") == 0 ||
       strcmp(result_to_publish, "PASS_WITH_WARNINGS") == 0) {
     int written = snprintf(
-        payload, sizeof(payload),
+        payload, 1792,
         "{"
         "\"event_id\":%d,"
         "\"reply_id\":\"%s\","
@@ -3680,10 +3935,10 @@ esp_err_t calibration_manager_publish_calibration_result(
         calibration_reason_contract_id(reason_to_publish),
         resq_state_to_string(state), (int)action_id,
         calibration_pressure_mode_to_string(cfg->pressure_mode),
-        cfg->pressure_degraded ? "true" : "false",
-        cfg->using_last_stable_pressure ? "true" : "false",
-        cfg->pressure_valid ? "true" : "false",
-        cfg->hall_valid ? "true" : "false",
+        health.pressure_temporarily_degraded ? "true" : "false",
+        health.using_last_stable_pressure ? "true" : "false",
+        health.pressure_current_valid ? "true" : "false",
+        health.hall_current_valid ? "true" : "false",
         pressure_kpa_valid ? "true" : "false", hall_mm_valid ? "true" : "false",
         cfg->full_depth_mm,
         (int)cfg->hall_baseline,
@@ -3717,22 +3972,27 @@ esp_err_t calibration_manager_publish_calibration_result(
         snapshot.profile_hash,
         snapshot.recalibration_required == 1 ? "true" : "false");
 
-    if (written <= 0 || written >= (int)sizeof(payload)) {
+    task_diagnostics_record_stack_watermark("calibration_manager");
+    if (written <= 0 || written >= 1792) {
+      free(payload);
       return ESP_ERR_INVALID_SIZE;
     }
 
     if (!mqtt_manager_is_connected()) {
+      free(payload);
       return ESP_ERR_INVALID_STATE;
     }
 
-    return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION,
-                                           payload);
+    esp_err_t publish_err = mqtt_manager_publish_topic_json(
+        RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
+    free(payload);
+    return publish_err;
   } else {
     const calibration_config_t *cfg_other = &s_candidate_config;
     int written = 0;
     if (event_id == 4002) {
       written = snprintf(
-          payload, sizeof(payload),
+          payload, 1792,
           "{"
           "\"event_id\":%d,"
           "\"reply_id\":\"%s\","
@@ -3765,10 +4025,10 @@ esp_err_t calibration_manager_publish_calibration_result(
           calibration_reason_contract_id(reason_to_publish),
           resq_state_to_string(state), (int)action_id,
           calibration_pressure_mode_to_string(cfg_other->pressure_mode),
-          cfg_other->pressure_degraded ? "true" : "false",
-          cfg_other->using_last_stable_pressure ? "true" : "false",
-          cfg_other->pressure_valid ? "true" : "false",
-          cfg_other->hall_valid ? "true" : "false",
+          health.pressure_temporarily_degraded ? "true" : "false",
+          health.using_last_stable_pressure ? "true" : "false",
+          health.pressure_current_valid ? "true" : "false",
+          health.hall_current_valid ? "true" : "false",
           pressure_kpa_valid ? "true" : "false", hall_mm_valid ? "true" : "false",
           cfg_other->full_depth_mm,
           (long long)(esp_timer_get_time() / 1000),
@@ -3781,7 +4041,7 @@ esp_err_t calibration_manager_publish_calibration_result(
           snapshot.recalibration_required == 1 ? "true" : "false");
     } else {
       written = snprintf(
-          payload, sizeof(payload),
+          payload, 1792,
           "{"
           "\"event_id\":%d,"
           "\"reply_id\":\"%s\","
@@ -3807,25 +4067,30 @@ esp_err_t calibration_manager_publish_calibration_result(
           calibration_reason_contract_id(reason_to_publish),
           resq_state_to_string(state), (int)action_id,
           calibration_pressure_mode_to_string(s_candidate_config.pressure_mode),
-          s_candidate_config.pressure_degraded ? "true" : "false",
-          s_candidate_config.using_last_stable_pressure ? "true" : "false",
-          s_candidate_config.pressure_valid ? "true" : "false",
-          s_candidate_config.hall_valid ? "true" : "false",
+          health.pressure_temporarily_degraded ? "true" : "false",
+          health.using_last_stable_pressure ? "true" : "false",
+          health.pressure_current_valid ? "true" : "false",
+          health.hall_current_valid ? "true" : "false",
           pressure_kpa_valid ? "true" : "false", hall_mm_valid ? "true" : "false",
           s_candidate_config.full_depth_mm,
           (long long)(esp_timer_get_time() / 1000));
     }
 
-    if (written <= 0 || written >= (int)sizeof(payload)) {
+    task_diagnostics_record_stack_watermark("calibration_manager");
+    if (written <= 0 || written >= 1792) {
+      free(payload);
       return ESP_ERR_INVALID_SIZE;
     }
 
     if (!mqtt_manager_is_connected()) {
+      free(payload);
       return ESP_ERR_INVALID_STATE;
     }
 
-    return mqtt_manager_publish_topic_json(RESQ_SUFFIX_EVENTS_CALIBRATION,
-                                           payload);
+    esp_err_t publish_err = mqtt_manager_publish_topic_json(
+        RESQ_SUFFIX_EVENTS_CALIBRATION, payload);
+    free(payload);
+    return publish_err;
   }
 }
 

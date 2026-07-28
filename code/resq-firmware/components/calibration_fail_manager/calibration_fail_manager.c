@@ -15,13 +15,37 @@
 
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
-#include "status_indicator.h"
 #include "wifi_manager.h"
 #include "esp_timer.h"
 #include "telemetry_publisher.h"
 
 static const char *TAG = "calibration_fail_mgr";
 static bool s_initialized = false;
+
+resq_state_t calibration_fail_manager_state_for_button(
+    const system_button_event_t *event)
+{
+    if (event == NULL) {
+        return RESQ_STATE_CALIBRATION_FAIL;
+    }
+    if (event->press_type == SYSTEM_BUTTON_PRESS_SHORT) {
+        if (event->button_id == SYSTEM_BUTTON_ID_1) {
+            return RESQ_STATE_CALIBRATING;
+        }
+        if (event->button_id == SYSTEM_BUTTON_ID_2) {
+            return RESQ_STATE_PAIRED_IDLE;
+        }
+    }
+    if (event->press_type == SYSTEM_BUTTON_PRESS_LONG) {
+        if (event->button_id == SYSTEM_BUTTON_ID_1) {
+            return RESQ_STATE_TURN_OFF;
+        }
+        if (event->button_id == SYSTEM_BUTTON_ID_2) {
+            return RESQ_STATE_RESETTING;
+        }
+    }
+    return RESQ_STATE_CALIBRATION_FAIL;
+}
 
 esp_err_t calibration_fail_manager_init(void)
 {
@@ -42,8 +66,6 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
     if (network_config == NULL || calibration_config == NULL) {
         return RESQ_STATE_ERROR;
     }
-
-    status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
 
     calibration_reason_id_t reason_id = calibration_manager_get_last_failure_reason();
     calibration_action_id_t action_id = calibration_manager_get_last_failure_action();
@@ -74,8 +96,9 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
         if (system_button_manager_wait_event(&button_event,
                                              pdMS_TO_TICKS(50)) == ESP_OK) {
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
-                button_event.button_id == SYSTEM_BUTTON_ID_1) {
+            resq_state_t button_state =
+                calibration_fail_manager_state_for_button(&button_event);
+            if (button_state == RESQ_STATE_CALIBRATING) {
                 ESP_LOGW(TAG,
                          "BUTTON_1 short press: retry calibration duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
@@ -106,8 +129,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                     "button/retry", "NACK", "retry_failed");
                 calibration_manager_publish_progress_event(
                     reason, RESQ_STATE_CALIBRATION_FAIL, action, 12);
-            } else if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
-                       button_event.button_id == SYSTEM_BUTTON_ID_2) {
+            } else if (button_state == RESQ_STATE_PAIRED_IDLE) {
                 ESP_LOGW(TAG,
                          "BUTTON_2 short press: return to paired idle duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
@@ -117,12 +139,10 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                     network_config, RESQ_STATE_CALIBRATION_FAIL,
                     "button/idle", "ACK", "returning_to_paired_idle");
                 return RESQ_STATE_PAIRED_IDLE;
-            } else if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
-                       button_event.button_id == SYSTEM_BUTTON_ID_1) {
+            } else if (button_state == RESQ_STATE_TURN_OFF) {
                 telemetry_publisher_stop_sensor_stream();
                 return RESQ_STATE_TURN_OFF;
-            } else if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
-                       button_event.button_id == SYSTEM_BUTTON_ID_2) {
+            } else if (button_state == RESQ_STATE_RESETTING) {
                 telemetry_publisher_stop_sensor_stream();
                 return RESQ_STATE_RESETTING;
             }

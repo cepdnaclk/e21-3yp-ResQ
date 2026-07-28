@@ -29,8 +29,6 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .pressure_balance_pct = 8.5f,
         .pressure_balance_reliable = true,
         .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
-        .pressure_valid = true,
-        .hall_valid = true,
         .pressure_0_kpa = 1.0f,
         .pressure_1_kpa = 2.0f,
         .pressure_2_kpa = 3.0f,
@@ -93,6 +91,17 @@ static sensor_converted_sample_t base_converted_sample(void)
         .pressure_saturation_mask = 0u,
         .timestamp_ms = 124700,
     };
+}
+
+TEST_CASE("Oversized telemetry payload fails without publishing",
+          "[telemetry][serialization]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    char payload[32] = {0};
+    TEST_ASSERT_EQUAL(
+        ESP_ERR_INVALID_SIZE,
+        telemetry_publisher_build_session_payload(
+            &snap, "resq-device", "session-1", payload, sizeof(payload)));
 }
 
 TEST_CASE("Session telemetry payload keeps legacy fields and adds converted fields", "[telemetry]")
@@ -460,13 +469,39 @@ TEST_CASE("USB mode rejects manual SENSOR_STREAM start", "[telemetry][io_mode]")
     resq_mqtt_command_t command = {0};
     strcpy(command.topic, "resq/test/cmd/telemetry");
     strcpy(command.payload,
-           "{\"request_id\":\"usb-stream-1\",\"action\":\"START\"}");
+           "{\"request_id\":\"usb-stream-1\",\"action\":\"START\","
+           "\"interval_ms\":200}");
     command.payload_len = (int)strlen(command.payload);
 
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE,
-                      telemetry_publisher_handle_sensor_stream_command(
-                          &network, RESQ_STATE_PAIRED_IDLE, &calibration,
-                          &command, true));
-    TEST_ASSERT_FALSE(telemetry_publisher_is_sensor_stream_running());
+    esp_err_t command_err = telemetry_publisher_handle_sensor_stream_command(
+        &network, RESQ_STATE_PAIRED_IDLE, &calibration, &command, true);
+    esp_err_t direct_err = telemetry_publisher_start_sensor_stream(
+        TELEMETRY_SENSOR_STREAM_INTERVAL_DEFAULT_MS,
+        RESQ_STATE_PAIRED_IDLE, &calibration);
+    bool running = telemetry_publisher_is_sensor_stream_running();
+    esp_err_t stop_err = telemetry_publisher_stop_sensor_stream();
     io_mode_manager_set_for_test(RESQ_IO_MODE_SENSOR);
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, command_err);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, direct_err);
+    TEST_ASSERT_FALSE(running);
+    TEST_ASSERT_EQUAL(ESP_OK, stop_err);
+}
+
+TEST_CASE("SENSOR_STREAM start rejects malformed arguments before runtime state",
+          "[telemetry][io_mode]")
+{
+    calibration_config_t calibration = {0};
+    io_mode_manager_set_for_test(RESQ_IO_MODE_USB);
+
+    esp_err_t null_config_err = telemetry_publisher_start_sensor_stream(
+        TELEMETRY_SENSOR_STREAM_INTERVAL_DEFAULT_MS,
+        RESQ_STATE_PAIRED_IDLE, NULL);
+    esp_err_t bad_interval_err = telemetry_publisher_start_sensor_stream(
+        TELEMETRY_SENSOR_STREAM_INTERVAL_MIN_MS - 1,
+        RESQ_STATE_PAIRED_IDLE, &calibration);
+    io_mode_manager_set_for_test(RESQ_IO_MODE_SENSOR);
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, null_config_err);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, bad_interval_err);
 }

@@ -14,7 +14,6 @@
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
 #include "sensor_owner.h"
-#include "status_indicator.h"
 #include "system_button_manager.h"
 #include "telemetry_publisher.h"
 
@@ -50,8 +49,6 @@ calibration_state_manager_run(network_config_t *network_config,
 
   ESP_LOGI(TAG, "Entering CALIBRATING state");
 
-  status_indicator_set_state(RESQ_STATE_CALIBRATING);
-
   if (mqtt_manager_is_connected()) {
     mqtt_manager_publish_status(RESQ_STATE_CALIBRATING, network_config,
                                 calibration_config, false, "", ip_address);
@@ -71,7 +68,7 @@ calibration_state_manager_run(network_config_t *network_config,
     }
     resq_mqtt_command_t command;
 
-    if (mqtt_manager_wait_for_command(&command, pdMS_TO_TICKS(250)) == ESP_OK) {
+    if (mqtt_manager_wait_for_command(&command, 0) == ESP_OK) {
       const char *suffix = runtime_helpers_get_command_suffix(command.topic);
 
       if (suffix != NULL && strcmp(suffix, "cmd/calibration/cancel") == 0) {
@@ -120,8 +117,6 @@ calibration_state_manager_run(network_config_t *network_config,
             reply_id, "ACK", "CANCELLED", CAL_REASON_CALIBRATION_CANCELLED,
             RESQ_STATE_PAIRED_IDLE, CAL_ACTION_MOVE_TO_PAIRED_IDLE_DROP_TEMP);
 
-        status_indicator_set_state(RESQ_STATE_PAIRED_IDLE);
-
         if (mqtt_manager_is_connected()) {
           mqtt_manager_publish_status(RESQ_STATE_PAIRED_IDLE, network_config,
                                       calibration_config, false, "",
@@ -149,16 +144,18 @@ calibration_state_manager_run(network_config_t *network_config,
       error_manager_set_error(FW_ERROR_MQTT_DISCONNECTED_UNRECOVERABLE);
       return RESQ_STATE_ERROR;
     }
+
+    (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
   }
 
   calibration_manager_get_config(calibration_config);
 
   const char *cmd_id = calibration_manager_get_command_id();
+  calibration_attempt_result_t attempt_result =
+      calibration_manager_get_last_attempt_result();
 
-  if (calibration_manager_is_ready()) {
+  if (attempt_result == CALIBRATION_ATTEMPT_PASS) {
     ESP_LOGI(TAG, "Calibration completed successfully");
-
-    status_indicator_set_state(RESQ_STATE_READY_FOR_SESSION);
 
     publish_calibration_result(cmd_id, "ACK", "PASS", CAL_REASON_NONE,
                                RESQ_STATE_READY_FOR_SESSION, CAL_ACTION_NONE);
@@ -171,14 +168,29 @@ calibration_state_manager_run(network_config_t *network_config,
     return RESQ_STATE_READY_FOR_SESSION;
   }
 
-  ESP_LOGW(TAG, "Calibration failed");
+  if (attempt_result == CALIBRATION_ATTEMPT_CANCELLED) {
+    ESP_LOGW(TAG, "Calibration attempt cancelled");
+    return RESQ_STATE_PAIRED_IDLE;
+  }
 
-  status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
+  calibration_reason_id_t reason =
+      calibration_manager_get_last_failure_reason();
+  calibration_action_id_t action =
+      calibration_manager_get_last_failure_action();
+  if (attempt_result != CALIBRATION_ATTEMPT_FAIL &&
+      attempt_result != CALIBRATION_ATTEMPT_INTERNAL_ERROR) {
+    ESP_LOGE(TAG,
+             "Calibration worker stopped without a committed result: result=%d",
+             (int)attempt_result);
+    reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
+    action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
+  }
 
-  publish_calibration_result(cmd_id, "NACK", "FAIL",
-                             calibration_manager_get_last_failure_reason(),
-                             RESQ_STATE_CALIBRATION_FAIL,
-                             calibration_manager_get_last_failure_action());
+  ESP_LOGW(TAG, "Calibration failed result=%d reason_id=%d",
+           (int)attempt_result, (int)reason);
+
+  publish_calibration_result(cmd_id, "NACK", "FAIL", reason,
+                             RESQ_STATE_CALIBRATION_FAIL, action);
 
   if (mqtt_manager_is_connected()) {
     mqtt_manager_publish_status(RESQ_STATE_CALIBRATION_FAIL, network_config,

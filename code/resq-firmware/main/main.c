@@ -9,6 +9,7 @@
 #include "esp_system.h"
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
@@ -22,6 +23,7 @@
 #include "config_store.h"
 #include "cpr_metrics.h"
 #include "error_manager.h"
+#include "firmware_bootstrap.h"
 #include "firmware_state_machine.h"
 #include "hx710.h"
 #include "io_mode_manager.h"
@@ -34,6 +36,7 @@
 #include "sensor_owner.h"
 #include "status_indicator.h"
 #include "system_button_manager.h"
+#include "task_diagnostics.h"
 #include "telemetry_publisher.h"
 #include "wifi_manager.h"
 
@@ -44,8 +47,17 @@
 
 static const char *TAG = "resq_main";
 static bool s_components_initialized;
+static firmware_bootstrap_context_t s_platform_bootstrap;
+static firmware_bootstrap_context_t s_runtime_bootstrap;
+static firmware_error_reason_id_t s_bootstrap_error_reason =
+    FW_ERROR_UNKNOWN_ERROR;
 static TaskHandle_t s_heartbeat_task;
-static volatile bool s_heartbeat_running;
+static EventGroupHandle_t s_heartbeat_events;
+static StaticSemaphore_t s_heartbeat_lifecycle_mutex_storage;
+static SemaphoreHandle_t s_heartbeat_lifecycle_mutex;
+#define HEARTBEAT_STOP_REQUESTED_BIT BIT0
+#define HEARTBEAT_STARTED_BIT BIT1
+#define HEARTBEAT_STOPPED_BIT BIT2
 static resq_fsm_t s_fsm;
 static StaticSemaphore_t s_heartbeat_snapshot_mutex_storage;
 static SemaphoreHandle_t s_heartbeat_snapshot_mutex;
@@ -59,18 +71,94 @@ typedef struct {
 
 static heartbeat_snapshot_t s_heartbeat_snapshot;
 
-static esp_err_t initialize_io_mode_and_hx710_pad(void)
+static esp_err_t bootstrap_event_loop_init(void)
 {
-    esp_err_t err = config_store_init();
+    esp_err_t err = esp_event_loop_create_default();
+    return err == ESP_ERR_INVALID_STATE ? ESP_OK : err;
+}
+
+static esp_err_t bootstrap_status_init(void)
+{
+    esp_err_t err = status_indicator_init();
+    return err == ESP_OK ? status_indicator_start() : err;
+}
+
+static esp_err_t bootstrap_hx710_sck_acquire(void)
+{
+    return hx710_sck_acquire_for_sensor_mode(BOARD_HX710_SHARED_SCK);
+}
+
+static esp_err_t bootstrap_hx710_idle_low(void)
+{
+    return hx710_hold_sck_low(BOARD_HX710_SHARED_SCK);
+}
+
+static void cleanup_status(void)
+{
+    status_indicator_stop();
+}
+
+static void cleanup_provisioning(void)
+{
+    (void)provisioning_manager_stop();
+}
+
+static void cleanup_wifi(void)
+{
+    (void)wifi_manager_disconnect();
+}
+
+static void cleanup_mqtt(void)
+{
+    (void)mqtt_manager_stop();
+}
+
+static void cleanup_calibration(void)
+{
+    (void)calibration_manager_cancel();
+}
+
+static void cleanup_buzzer(void)
+{
+    (void)buzzer_manager_stop();
+}
+
+static void cleanup_telemetry(void)
+{
+    (void)telemetry_publisher_stop_all();
+}
+
+static esp_err_t initialize_platform_once(void)
+{
+    static const component_bootstrap_entry_t entries[] = {
+        {"config_store", config_store_init, NULL, COMPONENT_CRITICAL, false},
+        {"io_mode_manager", io_mode_manager_init, NULL, COMPONENT_CRITICAL,
+         false},
+        {"runtime_identity", runtime_identity_init, NULL, COMPONENT_CRITICAL,
+         false},
+        {"esp_netif", esp_netif_init, NULL, COMPONENT_CRITICAL, false},
+        {"default_event_loop", bootstrap_event_loop_init, NULL,
+         COMPONENT_CRITICAL, false},
+        {"status_indicator", bootstrap_status_init, cleanup_status,
+         COMPONENT_OPTIONAL, false},
+        {"system_button_manager", system_button_manager_init, NULL,
+         COMPONENT_CRITICAL, false},
+        {"error_manager", error_manager_init, NULL, COMPONENT_CRITICAL, false},
+    };
+    bootstrap_result_t result = {0};
+    esp_err_t err = firmware_bootstrap_run(
+        &s_platform_bootstrap, entries, sizeof(entries) / sizeof(entries[0]),
+        false, &result);
     if (err != ESP_OK) {
+        s_bootstrap_error_reason =
+            strcmp(result.component, "config_store") == 0
+                ? FW_ERROR_NVS_INIT_FAILED
+                : FW_ERROR_UNKNOWN_ERROR;
         return err;
     }
-    err = io_mode_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    if (io_mode_manager_is_sensor()) {
-        return hx710_sck_acquire_for_sensor_mode(BOARD_HX710_SHARED_SCK);
+    if (result.error != ESP_OK) {
+        ESP_LOGW(TAG, "Optional bootstrap component unavailable: %s (%s)",
+                 result.component, esp_err_to_name(result.error));
     }
     return ESP_OK;
 }
@@ -84,12 +172,8 @@ static esp_err_t request_io_mode_for_restart(resq_io_mode_t target)
 
     bool released_hx710 = false;
     if (active == RESQ_IO_MODE_SENSOR && target == RESQ_IO_MODE_USB) {
-        esp_err_t err = sensor_owner_init();
-        if (err != ESP_OK) {
-            return err;
-        }
         sensor_owner_t owner = SENSOR_OWNER_NONE;
-        err = sensor_owner_get(&owner);
+        esp_err_t err = sensor_owner_get(&owner);
         if (err != ESP_OK) {
             return err;
         }
@@ -142,90 +226,65 @@ static esp_err_t initialize_components_once(void)
         return ESP_OK;
     }
 
-    esp_err_t err = config_store_init();
+    static const component_bootstrap_entry_t entries[] = {
+        {"provisioning_manager", provisioning_manager_init,
+         cleanup_provisioning, COMPONENT_CRITICAL, false},
+        {"wifi_manager", wifi_manager_init, cleanup_wifi, COMPONENT_CRITICAL,
+         false},
+        {"backend_register_client", backend_register_client_init, NULL,
+         COMPONENT_CRITICAL, false},
+        {"mqtt_manager", mqtt_manager_init, cleanup_mqtt, COMPONENT_CRITICAL,
+         false},
+        {"paired_idle_manager", paired_idle_manager_init, NULL,
+         COMPONENT_CRITICAL, false},
+        {"session_manager", session_manager_init, NULL, COMPONENT_CRITICAL,
+         false},
+        {"sensor_owner", sensor_owner_init, NULL, COMPONENT_CRITICAL, true},
+        {"hx710_sck_ownership", bootstrap_hx710_sck_acquire, NULL,
+         COMPONENT_CRITICAL, true},
+        {"adc_shared_service", adc_shared_service_init, NULL,
+         COMPONENT_CRITICAL, true},
+        {"calibration_manager", calibration_manager_init, cleanup_calibration,
+         COMPONENT_CRITICAL, true},
+        {"calibration_fail_manager", calibration_fail_manager_init, NULL,
+         COMPONENT_CRITICAL, true},
+        {"cpr_metrics", cpr_metrics_init, NULL, COMPONENT_CRITICAL, true},
+        {"buzzer_manager", buzzer_manager_init, cleanup_buzzer,
+         COMPONENT_OPTIONAL, true},
+        {"telemetry_publisher", telemetry_publisher_init, cleanup_telemetry,
+         COMPONENT_CRITICAL, true},
+        {"session_active_manager", session_active_manager_init, NULL,
+         COMPONENT_CRITICAL, true},
+        {"hx710_idle_low", bootstrap_hx710_idle_low, NULL, COMPONENT_CRITICAL,
+         true},
+    };
+    bootstrap_result_t result = {0};
+    bool sensor_mode = io_mode_manager_is_sensor();
+    esp_err_t err = firmware_bootstrap_run(
+        &s_runtime_bootstrap, entries, sizeof(entries) / sizeof(entries[0]),
+        sensor_mode, &result);
     if (err != ESP_OK) {
+        if (result.component != NULL &&
+            (strstr(result.component, "hx710") != NULL ||
+             strcmp(result.component, "adc_shared_service") == 0)) {
+            s_bootstrap_error_reason = FW_ERROR_HX710_INIT_FAILED;
+        } else if (result.component != NULL &&
+                   (strcmp(result.component, "calibration_manager") == 0 ||
+                    strcmp(result.component, "cpr_metrics") == 0 ||
+                    strcmp(result.component, "telemetry_publisher") == 0 ||
+                    strcmp(result.component, "session_active_manager") == 0)) {
+            s_bootstrap_error_reason = FW_ERROR_SENSOR_RUNTIME_FAILED;
+        } else {
+            s_bootstrap_error_reason = FW_ERROR_UNKNOWN_ERROR;
+        }
         return err;
+    }
+    if (result.error != ESP_OK) {
+        ESP_LOGW(TAG, "Optional bootstrap component unavailable: %s (%s)",
+                 result.component, esp_err_to_name(result.error));
     }
 
-    err = io_mode_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = provisioning_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = wifi_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = backend_register_client_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = runtime_identity_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    err = mqtt_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = paired_idle_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = session_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = system_button_manager_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    if (io_mode_manager_is_sensor()) {
-        /* GPIO19 belongs to HX710 in SENSOR mode. Claim it before any sensor
-         * component can initialize or wait on a DOUT line. */
-        err = hx710_sck_acquire_for_sensor_mode(BOARD_HX710_SHARED_SCK);
-        if (err != ESP_OK) {
-            return err;
-        }
-        err = adc_shared_service_init();
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "adc_shared_service_init failed: %s",
-                     esp_err_to_name(err));
-        }
-        err = calibration_manager_init();
-        if (err != ESP_OK) {
-            return err;
-        }
-        err = calibration_fail_manager_init();
-        if (err != ESP_OK) {
-            return err;
-        }
-        err = cpr_metrics_init();
-        if (err != ESP_OK) {
-            return err;
-        }
-        err = buzzer_manager_init();
-        if (err != ESP_OK) {
-            return err;
-        }
-        err = telemetry_publisher_init();
-        if (err != ESP_OK) {
-            return err;
-        }
-        err = session_active_manager_init();
-        if (err != ESP_OK) {
-            return err;
-        }
-        err = hx710_hold_sck_low(BOARD_HX710_SHARED_SCK);
-        if (err != ESP_OK) {
-            return err;
-        }
+    if (sensor_mode) {
         ESP_LOGI(TAG, "Sensor-mode components initialized; shared HX710 SCK is LOW");
     } else {
         ESP_LOGI(TAG, "USB mode active; all pressure/HX710 initialization skipped");
@@ -234,6 +293,11 @@ static esp_err_t initialize_components_once(void)
     s_components_initialized = true;
     ESP_LOGI(TAG, "Core firmware components initialized");
     return ESP_OK;
+}
+
+static firmware_error_reason_id_t initialization_error_reason(void)
+{
+    return s_bootstrap_error_reason;
 }
 
 static void get_heartbeat_session(bool *active,
@@ -258,8 +322,11 @@ static void get_heartbeat_session(bool *active,
 static void heartbeat_task(void *arg)
 {
     (void)arg;
+    task_diagnostics_record_stack_watermark("heartbeat");
+    xEventGroupSetBits(s_heartbeat_events, HEARTBEAT_STARTED_BIT);
 
-    while (s_heartbeat_running) {
+    while ((xEventGroupGetBits(s_heartbeat_events) &
+            HEARTBEAT_STOP_REQUESTED_BIT) == 0) {
         if (mqtt_manager_is_connected()) {
             heartbeat_snapshot_t snapshot = {0};
             if (xSemaphoreTake(s_heartbeat_snapshot_mutex,
@@ -287,9 +354,35 @@ static void heartbeat_task(void *arg)
                                   session_id,
                                   sizeof(session_id));
 
-            esp_err_t err = mqtt_manager_publish_heartbeat(
+            sensor_runtime_health_t runtime_health = {0};
+            (void)calibration_manager_get_runtime_health(&runtime_health);
+            if (session_active) {
+                cpr_metrics_snapshot_t metrics = {0};
+                if (cpr_metrics_get_snapshot(&metrics) == ESP_OK) {
+                    runtime_health.pressure_acquisition_enabled =
+                        snapshot.calibration_config.pressure_policy !=
+                        CALIBRATION_HALL_ONLY;
+                    runtime_health.pressure_current_valid =
+                        metrics.pressure_valid;
+                    runtime_health.pressure_temporarily_degraded =
+                        metrics.pressure_temporarily_degraded;
+                    runtime_health.using_last_stable_pressure =
+                        metrics.pressure_using_last_stable;
+                    runtime_health.hall_current_valid = metrics.hall_valid;
+                    runtime_health.pressure_valid_mask =
+                        metrics.pressure_current_valid_mask;
+                    runtime_health.pressure_invalid_mask =
+                        metrics.pressure_invalid_mask;
+                    runtime_health.pressure_saturation_mask =
+                        metrics.pressure_saturation_mask;
+                    runtime_health.updated_at_ms = metrics.ts_ms;
+                }
+            }
+
+            esp_err_t err = mqtt_manager_publish_heartbeat_with_health(
                 &snapshot.network_config,
                 &snapshot.calibration_config,
+                &runtime_health,
                 snapshot.state,
                 session_active,
                 sensor_running,
@@ -301,49 +394,76 @@ static void heartbeat_task(void *arg)
             }
         }
 
+        task_diagnostics_record_stack_watermark("heartbeat");
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
     }
 
+    task_diagnostics_record_stack_watermark("heartbeat");
+    xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
     s_heartbeat_task = NULL;
+    xSemaphoreGive(s_heartbeat_lifecycle_mutex);
+    xEventGroupSetBits(s_heartbeat_events, HEARTBEAT_STOPPED_BIT);
     vTaskDelete(NULL);
 }
 
 static esp_err_t start_heartbeat_once(void)
 {
+    if (s_heartbeat_events == NULL) {
+        s_heartbeat_events = xEventGroupCreate();
+        if (s_heartbeat_events == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    if (s_heartbeat_lifecycle_mutex == NULL) {
+        s_heartbeat_lifecycle_mutex = xSemaphoreCreateMutexStatic(
+            &s_heartbeat_lifecycle_mutex_storage);
+        if (s_heartbeat_lifecycle_mutex == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
     if (s_heartbeat_task != NULL) {
+        xSemaphoreGive(s_heartbeat_lifecycle_mutex);
         return ESP_OK;
     }
 
-    s_heartbeat_running = true;
+    xEventGroupClearBits(s_heartbeat_events,
+                         HEARTBEAT_STOP_REQUESTED_BIT |
+                             HEARTBEAT_STARTED_BIT | HEARTBEAT_STOPPED_BIT);
     BaseType_t result = xTaskCreate(heartbeat_task,
                                     "heartbeat_task",
                                     HEARTBEAT_TASK_STACK_SIZE,
                                     NULL,
                                     HEARTBEAT_TASK_PRIORITY,
                                     &s_heartbeat_task);
+    xSemaphoreGive(s_heartbeat_lifecycle_mutex);
     if (result != pdPASS) {
-        s_heartbeat_running = false;
+        xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
         s_heartbeat_task = NULL;
+        xSemaphoreGive(s_heartbeat_lifecycle_mutex);
         return ESP_FAIL;
     }
-    return ESP_OK;
+    EventBits_t bits = xEventGroupWaitBits(
+        s_heartbeat_events, HEARTBEAT_STARTED_BIT | HEARTBEAT_STOPPED_BIT,
+        pdFALSE, pdFALSE, pdMS_TO_TICKS(1000));
+    return (bits & HEARTBEAT_STARTED_BIT) != 0 ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 static esp_err_t stop_heartbeat(void)
 {
+    xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
     TaskHandle_t task = s_heartbeat_task;
+    xSemaphoreGive(s_heartbeat_lifecycle_mutex);
     if (task == NULL) {
-        s_heartbeat_running = false;
         return ESP_OK;
     }
 
-    s_heartbeat_running = false;
+    xEventGroupSetBits(s_heartbeat_events, HEARTBEAT_STOP_REQUESTED_BIT);
     xTaskNotifyGive(task);
-    for (int waited_ms = 0; waited_ms < 1000; waited_ms += 10) {
-        if (s_heartbeat_task == NULL) return ESP_OK;
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-    return ESP_ERR_TIMEOUT;
+    EventBits_t bits = xEventGroupWaitBits(
+        s_heartbeat_events, HEARTBEAT_STOPPED_BIT, pdFALSE, pdFALSE,
+        pdMS_TO_TICKS(1000));
+    return (bits & HEARTBEAT_STOPPED_BIT) != 0 ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 static void delay_ms(uint32_t delay)
@@ -366,6 +486,7 @@ static void enter_soft_off(void)
 
 static const resq_fsm_ops_t s_fsm_ops = {
     .initialize_components = initialize_components_once,
+    .initialization_error_reason = initialization_error_reason,
     .sensor_mode_enabled = io_mode_manager_is_sensor,
     .network_set_defaults = network_config_set_defaults,
     .calibration_set_defaults = calibration_config_set_defaults,
@@ -379,6 +500,8 @@ static const resq_fsm_ops_t s_fsm_ops = {
     .provisioning_start = provisioning_manager_start,
     .provisioning_stop = provisioning_manager_stop,
     .provisioning_has_saved_config = provisioning_manager_has_saved_config,
+    .provisioning_take_saved_config =
+        provisioning_manager_take_saved_config,
     .io_mode_get = io_mode_manager_get,
     .io_mode_request = request_io_mode_for_restart,
     .wifi_connect = wifi_manager_connect,
@@ -428,34 +551,11 @@ static const resq_fsm_ops_t s_fsm_ops = {
 void app_main(void)
 {
     /*
-     * Resolve persistent I/O mode and detach native USB from GPIO19 before any
-     * component can initialize or log through a sensor-facing peripheral.
+     * Resolve persistent state and platform services exactly once before the
+     * FSM starts. The board-configured shared HX710 SCK is claimed later by
+     * the SENSOR-only bootstrap stage before any sensor task can start.
      */
-    ESP_ERROR_CHECK(initialize_io_mode_and_hx710_pad());
-
-    esp_err_t err = esp_netif_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
-    }
-
-    err = esp_event_loop_create_default();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(err));
-    }
-
-    ESP_ERROR_CHECK(status_indicator_init());
-    ESP_ERROR_CHECK(status_indicator_start());
-
-    err = system_button_manager_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "system_button_manager_init early init failed: %s",
-                 esp_err_to_name(err));
-    }
-    err = error_manager_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "error_manager_init early init failed: %s",
-                 esp_err_to_name(err));
-    }
+    ESP_ERROR_CHECK(initialize_platform_once());
 
     ESP_ERROR_CHECK(resq_fsm_init(&s_fsm, &s_fsm_ops));
     s_heartbeat_snapshot_mutex =

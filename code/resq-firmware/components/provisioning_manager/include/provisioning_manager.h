@@ -2,6 +2,8 @@
 #define PROVISIONING_MANAGER_H
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 #include "resq_config_types.h"
@@ -9,6 +11,25 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef enum {
+    PROVISIONING_STATE_IDLE = 0,
+    PROVISIONING_STATE_RUNNING,
+    PROVISIONING_STATE_WAITING_FOR_ACK,
+    PROVISIONING_STATE_COMMITTING,
+    PROVISIONING_STATE_SAVED,
+    PROVISIONING_STATE_STOPPING,
+    PROVISIONING_STATE_ERROR,
+} provisioning_state_t;
+
+typedef struct {
+    provisioning_state_t state;
+    bool running;
+    bool saved_config_available;
+    bool waiting_for_ack;
+    uint32_t request_generation;
+    esp_err_t last_error;
+} provisioning_status_t;
 
 /**
  * @brief Initialize provisioning manager.
@@ -52,6 +73,20 @@ bool provisioning_manager_has_saved_config(void);
 esp_err_t provisioning_manager_get_network_config(network_config_t *out_config);
 
 /**
+ * @brief Atomically copy and consume the saved-config notification.
+ *
+ * The latest saved values remain available through
+ * provisioning_manager_get_network_config().
+ */
+esp_err_t provisioning_manager_take_saved_config(network_config_t *out_config,
+                                                 bool *out_available);
+
+/**
+ * @brief Copy a coherent provisioning status snapshot.
+ */
+esp_err_t provisioning_manager_get_status(provisioning_status_t *out_status);
+
+/**
  * @brief Parse a JSON or form-urlencoded provisioning payload transactionally.
  *
  * Empty Wi-Fi passwords are valid. On failure, @p out_config is unchanged.
@@ -63,6 +98,16 @@ esp_err_t provisioning_manager_parse_payload(const char *body,
  * @brief Return the embedded provisioning page.
  */
 const char *provisioning_manager_get_page_html(void);
+
+#if CONFIG_UNITY_ENABLE_IDF_TEST_RUNNER
+esp_err_t provisioning_manager_test_reset(void);
+void provisioning_manager_test_set_save_result(esp_err_t result);
+esp_err_t provisioning_manager_test_submit(const network_config_t *candidate,
+                                           char *out_ack_id,
+                                           size_t out_ack_id_len);
+esp_err_t provisioning_manager_test_commit_ack(const char *ack_id);
+esp_err_t provisioning_manager_test_set_stopping(void);
+#endif
 
 #ifdef __cplusplus
 }

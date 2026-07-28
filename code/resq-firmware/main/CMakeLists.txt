@@ -30,6 +30,7 @@ idf_component_register(
         hx710
         sensor_owner
         firmware_state_machine
+        firmware_bootstrap
         nvs_flash
         esp_event
         esp_netif

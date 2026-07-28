@@ -87,7 +87,10 @@ static const char *TAG = "config_store";
 #define CALIBRATION_SLOT_HEADER_MAGIC     0x43414C53
 
 #define CALIBRATION_META_SCHEMA_VERSION   1
-#define CALIBRATION_RECORD_SCHEMA_VERSION 1
+#define CALIBRATION_RECORD_SCHEMA_VERSION_V1 1
+#define CALIBRATION_RECORD_SCHEMA_VERSION_V2 2
+#define CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT \
+    CALIBRATION_RECORD_SCHEMA_VERSION_V2
 #define CALIBRATION_SLOT_NONE             0xFF
 
 /* Struct definitions private to config_store.c */
@@ -150,59 +153,74 @@ typedef struct {
     int32_t  calibration_window_ms;
     // --- Timestamp ---
     int64_t  calibrated_at_ms;
-} calibration_persist_payload_t;
+} calibration_persist_payload_v1_t;
 
-_Static_assert(sizeof(calibration_persist_payload_t) == 144, "payload size mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_baseline) == 0, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_delta) == 4, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_range_raw) == 8, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_direction) == 12, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_noise_raw) == 16, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_start_delta) == 20, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_full_delta_threshold) == 24, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_recoil_delta) == 28, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_tolerance_raw) == 32, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_full_press) == 36, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, full_depth_mm_scaled) == 40, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, ref_pressure) == 44, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, bladder_1_pressure) == 48, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, bladder_2_pressure) == 52, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, bladder_1_full_press) == 56, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, bladder_2_full_press) == 60, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_0_baseline) == 64, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_1_baseline) == 68, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_2_baseline) == 72, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_0_kpa_scaled) == 76, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_1_kpa_scaled) == 80, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_2_kpa_scaled) == 84, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_0_noise_raw) == 88, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_1_noise_raw) == 92, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_2_noise_raw) == 96, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_1_range_raw) == 100, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_2_range_raw) == 104, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_contact_threshold) == 108, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_valid_threshold) == 112, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_balance_allowed_pct) == 116, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_mode) == 120, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_degraded) == 124, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, using_last_stable_pressure) == 125, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, pressure_valid) == 126, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, hall_valid) == 127, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, calibration_sample_count) == 128, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, calibration_window_ms) == 132, "offset mismatch");
-_Static_assert(offsetof(calibration_persist_payload_t, calibrated_at_ms) == 136, "offset mismatch");
+_Static_assert(sizeof(calibration_persist_payload_v1_t) == 144, "v1 payload size mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v1_t, pressure_mode) == 120, "v1 pressure mode offset mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v1_t, pressure_degraded) == 124, "v1 runtime flags offset mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v1_t, calibrated_at_ms) == 136, "v1 timestamp offset mismatch");
+
+typedef struct {
+    int32_t hall_baseline;
+    int32_t hall_delta;
+    int32_t hall_range_raw;
+    int32_t hall_direction;
+    int32_t hall_noise_raw;
+    int32_t hall_start_delta;
+    int32_t hall_full_delta_threshold;
+    int32_t hall_recoil_delta;
+    int32_t hall_tolerance_raw;
+    int32_t hall_full_press;
+    int32_t full_depth_mm_scaled;
+    int32_t ref_pressure;
+    int32_t bladder_1_pressure;
+    int32_t bladder_2_pressure;
+    int32_t bladder_1_full_press;
+    int32_t bladder_2_full_press;
+    int32_t pressure_0_baseline;
+    int32_t pressure_1_baseline;
+    int32_t pressure_2_baseline;
+    int32_t pressure_0_kpa_scaled;
+    int32_t pressure_1_kpa_scaled;
+    int32_t pressure_2_kpa_scaled;
+    int32_t pressure_0_noise_raw;
+    int32_t pressure_1_noise_raw;
+    int32_t pressure_2_noise_raw;
+    int32_t pressure_1_range_raw;
+    int32_t pressure_2_range_raw;
+    int32_t pressure_contact_threshold;
+    int32_t pressure_valid_threshold;
+    int32_t pressure_balance_allowed_pct;
+    int32_t pressure_policy;
+    /* Former runtime flag bytes. Version 2 requires all bytes to be zero. */
+    uint8_t reserved_runtime_flags[4];
+    int32_t calibration_sample_count;
+    int32_t calibration_window_ms;
+    int64_t calibrated_at_ms;
+} calibration_persist_payload_v2_t;
+
+_Static_assert(sizeof(calibration_persist_payload_v2_t) == 144, "v2 payload size mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v2_t, pressure_policy) == 120, "v2 pressure policy offset mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v2_t, reserved_runtime_flags) == 124, "v2 reserved bytes offset mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v2_t, calibrated_at_ms) == 136, "v2 timestamp offset mismatch");
+
+typedef union {
+    calibration_persist_payload_v1_t v1;
+    calibration_persist_payload_v2_t v2;
+    uint8_t bytes[144];
+} calibration_persist_payload_u;
 
 typedef struct {
     uint32_t magic;                  // CALIBRATION_SLOT_HEADER_MAGIC
-    uint32_t schema_version;         // CALIBRATION_RECORD_SCHEMA_VERSION (1)
+    uint32_t schema_version;
     uint32_t header_size;            // offsetof(calibration_slot_t, payload)
-    uint32_t payload_size;           // sizeof(calibration_persist_payload_t)
+    uint32_t payload_size;           // sizeof(calibration_persist_payload_u)
     uint32_t generation;
     uint32_t profile_version;
     char     profile_id[32];         // Matches runtime config profile_id[32]
     char     profile_hash[CALIBRATION_PROFILE_HASH_BYTES + 1]; // Hex-encoded SHA-256 + null term
     uint8_t  _hash_pad[7];           // Padding to align to 8-byte boundary
-    calibration_persist_payload_t payload;
+    calibration_persist_payload_u payload;
     uint32_t crc32;                  // CRC32 of offsetof(calibration_slot_t, crc32) bytes
 } calibration_slot_t;
 
@@ -275,10 +293,11 @@ static float reconstruct_scaled_i32_to_float(int32_t val, float scale)
     return (float)val / scale;
 }
 
-/* Internal conversions */
-static bool runtime_to_persisted(const calibration_config_t *run, calibration_persist_payload_t *pers)
+/* Internal schema-specific conversions. Runtime health is intentionally absent. */
+static bool calibration_profile_to_payload_v2(
+    const calibration_profile_t *run, calibration_persist_payload_v2_t *pers)
 {
-    memset(pers, 0, sizeof(calibration_persist_payload_t));
+    memset(pers, 0, sizeof(*pers));
     pers->hall_baseline = run->hall_baseline;
     pers->hall_delta = run->hall_delta;
     pers->hall_range_raw = run->hall_range_raw;
@@ -322,12 +341,7 @@ static bool runtime_to_persisted(const calibration_config_t *run, calibration_pe
     pers->pressure_contact_threshold = run->pressure_contact_threshold;
     pers->pressure_valid_threshold = run->pressure_valid_threshold;
     pers->pressure_balance_allowed_pct = run->pressure_balance_allowed_pct;
-    pers->pressure_mode = (int32_t)run->pressure_mode;
-
-    pers->pressure_degraded = run->pressure_degraded ? 1 : 0;
-    pers->using_last_stable_pressure = run->using_last_stable_pressure ? 1 : 0;
-    pers->pressure_valid = run->pressure_valid ? 1 : 0;
-    pers->hall_valid = run->hall_valid ? 1 : 0;
+    pers->pressure_policy = (int32_t)run->pressure_policy;
 
     pers->calibration_sample_count = run->calibration_sample_count;
     pers->calibration_window_ms = run->calibration_window_ms;
@@ -336,54 +350,105 @@ static bool runtime_to_persisted(const calibration_config_t *run, calibration_pe
     return true;
 }
 
-static void persisted_to_runtime(const calibration_persist_payload_t *pers, calibration_config_t *run)
+#define COPY_PERSISTED_PROFILE_FIELDS(pers, run)                               \
+  do {                                                                         \
+    (run)->hall_baseline = (pers)->hall_baseline;                               \
+    (run)->hall_delta = (pers)->hall_delta;                                     \
+    (run)->hall_range_raw = (pers)->hall_range_raw;                             \
+    (run)->hall_direction = (pers)->hall_direction;                             \
+    (run)->hall_noise_raw = (pers)->hall_noise_raw;                             \
+    (run)->hall_start_delta = (pers)->hall_start_delta;                         \
+    (run)->hall_full_delta_threshold =                                          \
+        (pers)->hall_full_delta_threshold;                                      \
+    (run)->hall_recoil_delta = (pers)->hall_recoil_delta;                       \
+    (run)->hall_tolerance_raw = (pers)->hall_tolerance_raw;                     \
+    (run)->hall_full_press = (pers)->hall_full_press;                           \
+    (run)->full_depth_mm = reconstruct_scaled_i32_to_float(                     \
+        (pers)->full_depth_mm_scaled, 1000.0f);                                 \
+    (run)->ref_pressure = (pers)->ref_pressure;                                 \
+    (run)->bladder_1_pressure = (pers)->bladder_1_pressure;                     \
+    (run)->bladder_2_pressure = (pers)->bladder_2_pressure;                     \
+    (run)->bladder_1_full_press = (pers)->bladder_1_full_press;                 \
+    (run)->bladder_2_full_press = (pers)->bladder_2_full_press;                 \
+    (run)->pressure_0_baseline = (pers)->pressure_0_baseline;                   \
+    (run)->pressure_1_baseline = (pers)->pressure_1_baseline;                   \
+    (run)->pressure_2_baseline = (pers)->pressure_2_baseline;                   \
+    (run)->pressure_0_kpa_per_count = reconstruct_scaled_i32_to_float(          \
+        (pers)->pressure_0_kpa_scaled, 1e9f);                                  \
+    (run)->pressure_1_kpa_per_count = reconstruct_scaled_i32_to_float(          \
+        (pers)->pressure_1_kpa_scaled, 1e9f);                                  \
+    (run)->pressure_2_kpa_per_count = reconstruct_scaled_i32_to_float(          \
+        (pers)->pressure_2_kpa_scaled, 1e9f);                                  \
+    (run)->pressure_0_noise_raw = (pers)->pressure_0_noise_raw;                 \
+    (run)->pressure_1_noise_raw = (pers)->pressure_1_noise_raw;                 \
+    (run)->pressure_2_noise_raw = (pers)->pressure_2_noise_raw;                 \
+    (run)->pressure_1_range_raw = (pers)->pressure_1_range_raw;                 \
+    (run)->pressure_2_range_raw = (pers)->pressure_2_range_raw;                 \
+    (run)->pressure_contact_threshold = (pers)->pressure_contact_threshold;     \
+    (run)->pressure_valid_threshold = (pers)->pressure_valid_threshold;         \
+    (run)->pressure_balance_allowed_pct =                                      \
+        (pers)->pressure_balance_allowed_pct;                                  \
+    (run)->calibration_sample_count = (pers)->calibration_sample_count;         \
+    (run)->calibration_window_ms = (pers)->calibration_window_ms;               \
+    (run)->calibrated_at_ms = (pers)->calibrated_at_ms;                        \
+  } while (0)
+
+static bool legacy_payload_has_usable_pressure(
+    const calibration_persist_payload_v1_t *payload)
 {
-    run->hall_baseline = pers->hall_baseline;
-    run->hall_delta = pers->hall_delta;
-    run->hall_range_raw = pers->hall_range_raw;
-    run->hall_direction = pers->hall_direction;
-    run->hall_noise_raw = pers->hall_noise_raw;
-    run->hall_start_delta = pers->hall_start_delta;
-    run->hall_full_delta_threshold = pers->hall_full_delta_threshold;
-    run->hall_recoil_delta = pers->hall_recoil_delta;
-    run->hall_tolerance_raw = pers->hall_tolerance_raw;
-    run->hall_full_press = pers->hall_full_press;
-
-    run->full_depth_mm = reconstruct_scaled_i32_to_float(pers->full_depth_mm_scaled, 1000.0f);
-
-    run->ref_pressure = pers->ref_pressure;
-    run->bladder_1_pressure = pers->bladder_1_pressure;
-    run->bladder_2_pressure = pers->bladder_2_pressure;
-    run->bladder_1_full_press = pers->bladder_1_full_press;
-    run->bladder_2_full_press = pers->bladder_2_full_press;
-
-    run->pressure_0_baseline = pers->pressure_0_baseline;
-    run->pressure_1_baseline = pers->pressure_1_baseline;
-    run->pressure_2_baseline = pers->pressure_2_baseline;
-
-    run->pressure_0_kpa_per_count = reconstruct_scaled_i32_to_float(pers->pressure_0_kpa_scaled, 1e9f);
-    run->pressure_1_kpa_per_count = reconstruct_scaled_i32_to_float(pers->pressure_1_kpa_scaled, 1e9f);
-    run->pressure_2_kpa_per_count = reconstruct_scaled_i32_to_float(pers->pressure_2_kpa_scaled, 1e9f);
-
-    run->pressure_0_noise_raw = pers->pressure_0_noise_raw;
-    run->pressure_1_noise_raw = pers->pressure_1_noise_raw;
-    run->pressure_2_noise_raw = pers->pressure_2_noise_raw;
-    run->pressure_1_range_raw = pers->pressure_1_range_raw;
-    run->pressure_2_range_raw = pers->pressure_2_range_raw;
-    run->pressure_contact_threshold = pers->pressure_contact_threshold;
-    run->pressure_valid_threshold = pers->pressure_valid_threshold;
-    run->pressure_balance_allowed_pct = pers->pressure_balance_allowed_pct;
-    run->pressure_mode = (calibration_pressure_mode_t)pers->pressure_mode;
-
-    run->pressure_degraded = pers->pressure_degraded ? true : false;
-    run->using_last_stable_pressure = pers->using_last_stable_pressure ? true : false;
-    run->pressure_valid = pers->pressure_valid ? true : false;
-    run->hall_valid = pers->hall_valid ? true : false;
-
-    run->calibration_sample_count = pers->calibration_sample_count;
-    run->calibration_window_ms = pers->calibration_window_ms;
-    run->calibrated_at_ms = pers->calibrated_at_ms;
+    return payload->pressure_1_range_raw > 300 &&
+           payload->pressure_2_range_raw > 300 &&
+           payload->pressure_contact_threshold > 0 &&
+           payload->pressure_valid_threshold >
+               payload->pressure_contact_threshold;
 }
+
+static cal_store_outcome_t calibration_payload_v1_to_profile(
+    const calibration_persist_payload_v1_t *pers,
+    calibration_profile_t *run)
+{
+    COPY_PERSISTED_PROFILE_FIELDS(pers, run);
+
+    switch (pers->pressure_mode) {
+    case CALIBRATION_PRESSURE_REQUIRED:
+    case CALIBRATION_PRESSURE_OPTIONAL:
+    case CALIBRATION_HALL_ONLY:
+        run->pressure_policy =
+            (calibration_pressure_policy_t)pers->pressure_mode;
+        break;
+    case CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE_LEGACY:
+        run->pressure_policy = legacy_payload_has_usable_pressure(pers)
+                                   ? CALIBRATION_PRESSURE_OPTIONAL
+                                   : CALIBRATION_HALL_ONLY;
+        break;
+    default:
+        return CAL_STORE_CORRUPT;
+    }
+
+    return CAL_STORE_VALID;
+}
+
+static cal_store_outcome_t calibration_payload_v2_to_profile(
+    const calibration_persist_payload_v2_t *pers,
+    calibration_profile_t *run)
+{
+    for (size_t i = 0; i < sizeof(pers->reserved_runtime_flags); ++i) {
+        if (pers->reserved_runtime_flags[i] != 0) {
+            return CAL_STORE_CORRUPT;
+        }
+    }
+    if (pers->pressure_policy < CALIBRATION_PRESSURE_REQUIRED ||
+        pers->pressure_policy > CALIBRATION_HALL_ONLY) {
+        return CAL_STORE_CORRUPT;
+    }
+
+    COPY_PERSISTED_PROFILE_FIELDS(pers, run);
+    run->pressure_policy =
+        (calibration_pressure_policy_t)pers->pressure_policy;
+    return CAL_STORE_VALID;
+}
+
+#undef COPY_PERSISTED_PROFILE_FIELDS
 
 /**
  * @brief Open ResQ NVS namespace.
@@ -815,13 +880,16 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
     if (active_slot_data.magic != CALIBRATION_SLOT_HEADER_MAGIC) {
         return CAL_STORE_CORRUPT;
     }
-    if (active_slot_data.schema_version != CALIBRATION_RECORD_SCHEMA_VERSION) {
+    if (active_slot_data.schema_version !=
+            CALIBRATION_RECORD_SCHEMA_VERSION_V1 &&
+        active_slot_data.schema_version !=
+            CALIBRATION_RECORD_SCHEMA_VERSION_V2) {
         return CAL_STORE_UNSUPPORTED_SCHEMA;
     }
     if (active_slot_data.header_size != offsetof(calibration_slot_t, payload)) {
         return CAL_STORE_CORRUPT;
     }
-    if (active_slot_data.payload_size != sizeof(calibration_persist_payload_t)) {
+    if (active_slot_data.payload_size != sizeof(calibration_persist_payload_u)) {
         return CAL_STORE_CORRUPT;
     }
     if (active_slot_data.generation != meta.active_generation) {
@@ -863,33 +931,29 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
         return CAL_STORE_CORRUPT;
     }
 
-    // Validate persisted boolean flags are strictly 0 or 1
-    if ((active_slot_data.payload.pressure_degraded != 0 && active_slot_data.payload.pressure_degraded != 1) ||
-        (active_slot_data.payload.using_last_stable_pressure != 0 && active_slot_data.payload.using_last_stable_pressure != 1) ||
-        (active_slot_data.payload.pressure_valid != 0 && active_slot_data.payload.pressure_valid != 1) ||
-        (active_slot_data.payload.hall_valid != 0 && active_slot_data.payload.hall_valid != 1)) {
-        return CAL_STORE_CORRUPT;
-    }
-
-    // Validate pressure_mode is a known enum value (0=REQUIRED, 1=OPTIONAL, 3=HALL_WITH_LAST_STABLE)
-    uint8_t pm = active_slot_data.payload.pressure_mode;
-    if (pm != 0 && pm != 1 && pm != 3) {
-        return CAL_STORE_CORRUPT;
-    }
+    const calibration_persist_payload_v1_t *payload_v1 =
+        &active_slot_data.payload.v1;
+    const calibration_persist_payload_v2_t *payload_v2 =
+        &active_slot_data.payload.v2;
 
     // Validate critical numeric calibration invariants
-    if (active_slot_data.payload.hall_delta == 0) {
+    if (payload_v1->hall_delta == 0) {
         return CAL_STORE_CORRUPT;
     }
-    if (active_slot_data.payload.full_depth_mm_scaled <= 0) {
+    if (payload_v1->full_depth_mm_scaled <= 0) {
         return CAL_STORE_CORRUPT;
     }
 
     // Validate reconstructed floats are finite
-    float full_depth_mm = reconstruct_scaled_i32_to_float(active_slot_data.payload.full_depth_mm_scaled, 1000.0f);
-    float p0_kpa = reconstruct_scaled_i32_to_float(active_slot_data.payload.pressure_0_kpa_scaled, 1e9f);
-    float p1_kpa = reconstruct_scaled_i32_to_float(active_slot_data.payload.pressure_1_kpa_scaled, 1e9f);
-    float p2_kpa = reconstruct_scaled_i32_to_float(active_slot_data.payload.pressure_2_kpa_scaled, 1e9f);
+    float full_depth_mm =
+        reconstruct_scaled_i32_to_float(payload_v1->full_depth_mm_scaled,
+                                        1000.0f);
+    float p0_kpa = reconstruct_scaled_i32_to_float(
+        payload_v1->pressure_0_kpa_scaled, 1e9f);
+    float p1_kpa = reconstruct_scaled_i32_to_float(
+        payload_v1->pressure_1_kpa_scaled, 1e9f);
+    float p2_kpa = reconstruct_scaled_i32_to_float(
+        payload_v1->pressure_2_kpa_scaled, 1e9f);
     if (!isfinite(full_depth_mm) || !isfinite(p0_kpa) || !isfinite(p1_kpa) || !isfinite(p2_kpa)) {
         return CAL_STORE_CORRUPT;
     }
@@ -905,8 +969,18 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
         *meta_out = meta;
     }
 
-    // Convert and populate config
-    persisted_to_runtime(&active_slot_data.payload, config);
+    // Decode according to the stored schema. Version-1 runtime bytes are
+    // deliberately discarded; version 2 requires their reserved replacements
+    // to be zero.
+    calibration_config_set_defaults(config);
+    cal_store_outcome_t decode_outcome =
+        active_slot_data.schema_version ==
+                CALIBRATION_RECORD_SCHEMA_VERSION_V1
+            ? calibration_payload_v1_to_profile(payload_v1, config)
+            : calibration_payload_v2_to_profile(payload_v2, config);
+    if (decode_outcome != CAL_STORE_VALID) {
+        return decode_outcome;
+    }
     snprintf(config->profile_id, sizeof(config->profile_id), "%s", active_slot_data.profile_id);
     snprintf(config->profile_hash, sizeof(config->profile_hash), "%s", active_slot_data.profile_hash);
     config->profile_version = active_slot_data.profile_version;
@@ -921,6 +995,53 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
         config->calibrated = true;
     }
 
+    return CAL_STORE_VALID;
+}
+
+static cal_store_outcome_t migrate_v1_record_locked(
+    nvs_handle_t handle, const calibration_profile_t *profile,
+    calibration_meta_t *meta)
+{
+    if (profile == NULL || meta == NULL) {
+        return CAL_STORE_IO_ERROR;
+    }
+    if (meta->active_generation == UINT32_MAX) {
+        return CAL_STORE_GENERATION_EXHAUSTED;
+    }
+
+    uint8_t next_slot = meta->active_slot == 0 ? 1 : 0;
+    calibration_slot_t slot = {0};
+    slot.magic = CALIBRATION_SLOT_HEADER_MAGIC;
+    slot.schema_version = CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT;
+    slot.header_size = offsetof(calibration_slot_t, payload);
+    slot.payload_size = sizeof(calibration_persist_payload_u);
+    slot.generation = meta->active_generation + 1;
+    slot.profile_version = profile->profile_version;
+    snprintf(slot.profile_id, sizeof(slot.profile_id), "%s",
+             profile->profile_id);
+    snprintf(slot.profile_hash, sizeof(slot.profile_hash), "%s",
+             profile->profile_hash);
+    if (!calibration_profile_to_payload_v2(profile, &slot.payload.v2)) {
+        return CAL_STORE_IO_ERROR;
+    }
+    slot.crc32 = calculate_crc32((const uint8_t *)&slot,
+                                 offsetof(calibration_slot_t, crc32));
+
+    esp_err_t err = nvs_set_blob(
+        handle, next_slot == 0 ? NVS_KEY_SLOT_0 : NVS_KEY_SLOT_1,
+        &slot, sizeof(slot));
+    if (err != ESP_OK || nvs_commit(handle) != ESP_OK) {
+        return CAL_STORE_IO_ERROR;
+    }
+
+    calibration_meta_t migrated_meta = *meta;
+    migrated_meta.active_slot = next_slot;
+    migrated_meta.active_generation = slot.generation;
+    err = write_and_verify_meta_locked(handle, &migrated_meta);
+    if (err != ESP_OK) {
+        return CAL_STORE_IO_ERROR;
+    }
+    *meta = migrated_meta;
     return CAL_STORE_VALID;
 }
 
@@ -944,7 +1065,7 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
     LOCK_STORE();
 
     nvs_handle_t handle;
-    esp_err_t err = config_store_open(NVS_READONLY, &handle);
+    esp_err_t err = config_store_open(NVS_READWRITE, &handle);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         calibration_config_set_defaults(config);
         snprintf(config->calibration_storage_status, CALIBRATION_STORAGE_STATUS_MAX_LEN, "%s", "MISSING");
@@ -964,6 +1085,14 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
 
     calibration_meta_t meta;
     cal_store_outcome_t outcome = load_calibration_locked(handle, config, &meta);
+    if (outcome == CAL_STORE_VALID &&
+        config->calibration_schema_version ==
+            CALIBRATION_RECORD_SCHEMA_VERSION_V1) {
+        outcome = migrate_v1_record_locked(handle, config, &meta);
+        if (outcome == CAL_STORE_VALID) {
+            outcome = load_calibration_locked(handle, config, &meta);
+        }
+    }
     nvs_close(handle);
 
     if (outcome == CAL_STORE_NOT_FOUND) {
@@ -1108,8 +1237,7 @@ cal_store_outcome_t config_store_promote_calibration(
     // Validate enum and ranges
     if (candidate->pressure_mode != CALIBRATION_PRESSURE_REQUIRED &&
         candidate->pressure_mode != CALIBRATION_PRESSURE_OPTIONAL &&
-        candidate->pressure_mode != CALIBRATION_HALL_ONLY &&
-        candidate->pressure_mode != CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE) {
+        candidate->pressure_mode != CALIBRATION_HALL_ONLY) {
         return CAL_STORE_CORRUPT;
     }
     if (candidate->hall_delta == 0) {
@@ -1149,20 +1277,19 @@ cal_store_outcome_t config_store_promote_calibration(
     // 3. Read metadata
     calibration_meta_t meta;
     cal_store_outcome_t meta_outcome = read_calibration_meta_locked(handle, &meta);
-    if (meta_outcome != CAL_STORE_VALID) {
+    if (meta_outcome == CAL_STORE_NOT_FOUND) {
+        memset(&meta, 0, sizeof(meta));
+        meta.magic = CALIBRATION_META_MAGIC;
+        meta.schema_version = CALIBRATION_META_SCHEMA_VERSION;
+        meta.active_slot = CALIBRATION_SLOT_NONE;
+    } else if (meta_outcome != CAL_STORE_VALID) {
         nvs_close(handle);
         UNLOCK_STORE();
         return meta_outcome;  // propagate CORRUPT / UNSUPPORTED_SCHEMA / IO_ERROR
     }
 
-    // 4. Verify recalibration_required is 1
-    if (meta.recalibration_required != 1) {
-        nvs_close(handle);
-        UNLOCK_STORE();
-        return CAL_STORE_IO_ERROR;  // no pending recalibration
-    }
-
-    // 5. Determine next slot
+    // 4. Determine next slot. The current calibration remains trusted until
+    // the new slot and metadata are committed and verified.
     uint8_t next_slot = (meta.active_slot == 0) ? 1 : 0;
     if (meta.active_slot == CALIBRATION_SLOT_NONE) {
         next_slot = 0;
@@ -1180,15 +1307,15 @@ cal_store_outcome_t config_store_promote_calibration(
     calibration_slot_t slot_data;
     memset(&slot_data, 0, sizeof(calibration_slot_t));
     slot_data.magic = CALIBRATION_SLOT_HEADER_MAGIC;
-    slot_data.schema_version = CALIBRATION_RECORD_SCHEMA_VERSION;
+    slot_data.schema_version = CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT;
     slot_data.header_size = offsetof(calibration_slot_t, payload);
-    slot_data.payload_size = sizeof(calibration_persist_payload_t);
+    slot_data.payload_size = sizeof(calibration_persist_payload_u);
     slot_data.generation = next_generation;
     slot_data.profile_version = candidate->profile_version;
     snprintf(slot_data.profile_id, sizeof(slot_data.profile_id), "%s", candidate->profile_id);
     snprintf(slot_data.profile_hash, sizeof(slot_data.profile_hash), "%s", candidate->profile_hash);
 
-    if (!runtime_to_persisted(candidate, &slot_data.payload)) {
+    if (!calibration_profile_to_payload_v2(candidate, &slot_data.payload.v2)) {
         nvs_close(handle);
         UNLOCK_STORE();
         return CAL_STORE_IO_ERROR;
@@ -1217,9 +1344,9 @@ cal_store_outcome_t config_store_promote_calibration(
     err = nvs_get_blob(handle, next_slot == 0 ? NVS_KEY_SLOT_0 : NVS_KEY_SLOT_1, &val_slot, &val_len);
     if (err != ESP_OK || val_len != sizeof(calibration_slot_t) ||
         val_slot.magic != CALIBRATION_SLOT_HEADER_MAGIC ||
-        val_slot.schema_version != CALIBRATION_RECORD_SCHEMA_VERSION ||
+        val_slot.schema_version != CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT ||
         val_slot.header_size != offsetof(calibration_slot_t, payload) ||
-        val_slot.payload_size != sizeof(calibration_persist_payload_t) ||
+        val_slot.payload_size != sizeof(calibration_persist_payload_u) ||
         val_slot.generation != next_generation ||
         val_slot.profile_version != candidate->profile_version ||
         memcmp(val_slot.profile_id, candidate->profile_id, sizeof(val_slot.profile_id)) != 0 ||
@@ -1439,14 +1566,14 @@ static cal_store_outcome_t get_snapshot_locked(nvs_handle_t handle, calibration_
         } else {
             snprintf(out->calibration_storage_status, CALIBRATION_STORAGE_STATUS_MAX_LEN, "%s", "CORRUPT");
         }
-        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION;
+        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT;
         out->recalibration_required = 1;
         return outcome;
     }
 
     if (outcome == CAL_STORE_CORRUPT) {
         snprintf(out->calibration_storage_status, CALIBRATION_STORAGE_STATUS_MAX_LEN, "%s", "CORRUPT");
-        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION;
+        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT;
         out->recalibration_required = 1;
         return outcome;
     }
@@ -1462,7 +1589,7 @@ static cal_store_outcome_t get_snapshot_locked(nvs_handle_t handle, calibration_
             raw_meta.magic == CALIBRATION_META_MAGIC) {
             out->schema_version = raw_meta.schema_version;
         } else {
-            out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION;
+            out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT;
         }
         out->recalibration_required = 1;
         return outcome;
@@ -1470,14 +1597,14 @@ static cal_store_outcome_t get_snapshot_locked(nvs_handle_t handle, calibration_
 
     if (outcome == CAL_STORE_IO_ERROR) {
         snprintf(out->calibration_storage_status, CALIBRATION_STORAGE_STATUS_MAX_LEN, "%s", "UNKNOWN");
-        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION;
+        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT;
         out->recalibration_required = 1;
         return outcome;
     }
 
     if (outcome == CAL_STORE_COMMIT_VERIFICATION_FAILED) {
         snprintf(out->calibration_storage_status, CALIBRATION_STORAGE_STATUS_MAX_LEN, "%s", "COMMIT_VERIFICATION_FAILED");
-        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION;
+        out->schema_version = CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT;
         out->recalibration_required = 1;
         return outcome;
     }

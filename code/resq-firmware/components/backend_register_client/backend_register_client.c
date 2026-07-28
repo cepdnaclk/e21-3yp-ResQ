@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
@@ -224,9 +225,12 @@ esp_err_t backend_register_client_register(const network_config_t *config,
     }
 
     backend_http_response_t resp = {0};
-    char resp_buf[2048];
+    char *resp_buf = malloc(2048);
+    if (resp_buf == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
     resp.buffer = resp_buf;
-    resp.buffer_len = sizeof(resp_buf);
+    resp.buffer_len = 2048;
     resp.written = 0;
 
 
@@ -235,6 +239,7 @@ esp_err_t backend_register_client_register(const network_config_t *config,
                                              register_url,
                                              sizeof(register_url));
     if (berr != ESP_OK) {
+        free(resp_buf);
         return berr;
     }
 
@@ -309,6 +314,7 @@ esp_err_t backend_register_client_register(const network_config_t *config,
                      out_result->mqtt_host,
                      out_result->mqtt_port);
 
+            free(resp_buf);
             return ESP_OK;
         }
 
@@ -318,5 +324,6 @@ esp_err_t backend_register_client_register(const network_config_t *config,
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
+    free(resp_buf);
     return err;
 }

@@ -43,7 +43,7 @@ TEST_CASE("session pressure snapshot freshness rejects stale and duplicate frame
     TEST_ASSERT_FALSE(session_pressure_snapshot_is_fresh(
         &snapshot, 7, 1050, SESSION_PRESSURE_SNAPSHOT_MAX_AGE_MS));
     TEST_ASSERT_FALSE(session_pressure_snapshot_is_fresh(
-        &snapshot, 6, 1101, SESSION_PRESSURE_SNAPSHOT_MAX_AGE_MS));
+        &snapshot, 6, 1201, SESSION_PRESSURE_SNAPSHOT_MAX_AGE_MS));
     TEST_ASSERT_FALSE(session_pressure_snapshot_is_fresh(
         &snapshot, 6, 999, SESSION_PRESSURE_SNAPSHOT_MAX_AGE_MS));
 }

@@ -86,6 +86,10 @@ static fake_t f;
 static resq_fsm_t fsm;
 
 static esp_err_t fake_initialize(void) { return f.initialize_result; }
+static firmware_error_reason_id_t fake_initialization_error_reason(void)
+{
+    return FW_ERROR_NVS_INIT_FAILED;
+}
 static bool fake_sensor_mode_enabled(void) { return f.sensor_mode_enabled; }
 static void fake_network_defaults(network_config_t *config)
 {
@@ -102,7 +106,7 @@ static bool fake_network_validate(network_config_t *config)
 }
 static bool fake_calibration_validate(calibration_config_t *config)
 {
-    (void)config;
+    config->calibrated = f.calibration_valid;
     return f.calibration_valid;
 }
 static esp_err_t fake_load_network(network_config_t *config)
@@ -150,6 +154,18 @@ static bool fake_provisioning_has_saved(void)
 {
     f.provisioning_checks++;
     return f.provisioning_checks > f.provisioning_saved_after;
+}
+static esp_err_t fake_provisioning_take_saved(network_config_t *config,
+                                              bool *available)
+{
+    if (config == NULL || available == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *available = fake_provisioning_has_saved();
+    if (*available) {
+        return fake_load_network(config);
+    }
+    return ESP_OK;
 }
 static resq_io_mode_t fake_io_mode_get(void) { return f.active_io_mode; }
 static esp_err_t fake_io_mode_request(resq_io_mode_t mode)
@@ -309,6 +325,7 @@ static resq_state_t fake_error_run(network_config_t *network,
     (void)network;
     (void)calibration;
     (void)ip;
+    f.telemetry_stop_calls++;
     return f.error_result;
 }
 static esp_err_t fake_error_set(firmware_error_reason_id_t reason)
@@ -410,6 +427,7 @@ static void fake_soft_off(void) { f.soft_off_calls++; }
 
 static const resq_fsm_ops_t ops = {
     .initialize_components = fake_initialize,
+    .initialization_error_reason = fake_initialization_error_reason,
     .sensor_mode_enabled = fake_sensor_mode_enabled,
     .network_set_defaults = fake_network_defaults,
     .calibration_set_defaults = fake_calibration_defaults,
@@ -423,6 +441,7 @@ static const resq_fsm_ops_t ops = {
     .provisioning_start = fake_provisioning_start,
     .provisioning_stop = fake_provisioning_stop,
     .provisioning_has_saved_config = fake_provisioning_has_saved,
+    .provisioning_take_saved_config = fake_provisioning_take_saved,
     .io_mode_get = fake_io_mode_get,
     .io_mode_request = fake_io_mode_request,
     .wifi_connect = fake_wifi_connect,
@@ -880,6 +899,19 @@ TEST_CASE("Manager-owned states return delegated transitions", "[fsm]")
     reset_fixture();
     TEST_ASSERT_EQUAL(RESQ_STATE_RESETTING, run_state(RESQ_STATE_ERROR));
     TEST_ASSERT_EQUAL(1, f.telemetry_stop_calls);
+}
+
+TEST_CASE("Calibration failure result truly enters CALIBRATION_FAIL",
+          "[calibration][fsm]")
+{
+    reset_fixture();
+    f.calibration_result = RESQ_STATE_CALIBRATION_FAIL;
+
+    TEST_ASSERT_EQUAL(RESQ_STATE_CALIBRATION_FAIL,
+                      run_state(RESQ_STATE_CALIBRATING));
+    TEST_ASSERT_EQUAL(RESQ_STATE_CALIBRATION_FAIL,
+                      resq_fsm_get_state(&fsm));
+    TEST_ASSERT_TRUE(f.status_calls > 0);
 }
 
 TEST_CASE("SESSION_INTERRUPTED reconnects retries and returns readiness", "[fsm]")

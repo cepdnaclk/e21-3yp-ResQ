@@ -38,17 +38,19 @@ calibration_pressure_mode_to_string(calibration_pressure_mode_t mode) {
     return "OPTIONAL";
   case CALIBRATION_HALL_ONLY:
     return "HALL_ONLY";
-  case CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE:
-    return "HALL_WITH_LAST_STABLE_PRESSURE";
   default:
     return "OPTIONAL";
   }
 }
 
 static bool
-calibration_pressure_kpa_ready(const calibration_config_t *calibration) {
+calibration_pressure_kpa_ready(
+    const calibration_config_t *calibration,
+    const sensor_runtime_health_t *runtime_health) {
   return calibration != NULL && calibration->calibrated &&
-         calibration->pressure_valid && !calibration->pressure_degraded &&
+         runtime_health != NULL && runtime_health->pressure_current_valid &&
+         !runtime_health->pressure_temporarily_degraded &&
+         calibration->pressure_policy != CALIBRATION_HALL_ONLY &&
          calibration->pressure_0_baseline != 0 &&
          calibration->pressure_1_baseline != 0 &&
          calibration->pressure_2_baseline != 0 &&
@@ -57,9 +59,12 @@ calibration_pressure_kpa_ready(const calibration_config_t *calibration) {
          calibration->pressure_2_kpa_per_count > 0.0f;
 }
 
-static bool calibration_hall_mm_ready(const calibration_config_t *calibration) {
+static bool calibration_hall_mm_ready(
+    const calibration_config_t *calibration,
+    const sensor_runtime_health_t *runtime_health) {
   return calibration != NULL && calibration->calibrated &&
-         calibration->hall_valid && calibration->hall_baseline > 0 &&
+         runtime_health != NULL && runtime_health->hall_current_valid &&
+         calibration->hall_baseline > 0 &&
          calibration->hall_range_raw > 0 && calibration->full_depth_mm > 0.0f &&
          (calibration->hall_direction == 1 ||
           calibration->hall_direction == -1);
@@ -67,9 +72,11 @@ static bool calibration_hall_mm_ready(const calibration_config_t *calibration) {
 
 static void
 add_conversion_readiness_fields(cJSON *root,
-                                const calibration_config_t *calibration) {
-  bool pressure_ready = calibration_pressure_kpa_ready(calibration);
-  bool hall_ready = calibration_hall_mm_ready(calibration);
+                                const calibration_config_t *calibration,
+                                const sensor_runtime_health_t *runtime_health) {
+  bool pressure_ready =
+      calibration_pressure_kpa_ready(calibration, runtime_health);
+  bool hall_ready = calibration_hall_mm_ready(calibration, runtime_health);
 
   cJSON_AddNumberToObject(root, "full_depth_mm",
                           calibration ? calibration->full_depth_mm : 0.0f);
@@ -100,6 +107,8 @@ static SemaphoreHandle_t s_command_cache_mutex = NULL;
 #define MQTT_COMMAND_CACHE_LEN 8
 #define MQTT_COMMAND_REQUEST_ID_MAX_LEN 128
 #define MQTT_COMMAND_RESPONSE_MAX_LEN 640
+#define MQTT_COMMAND_CACHE_COMPLETED_TTL_MS (5 * 60 * 1000)
+#define MQTT_COMMAND_CACHE_PENDING_TTL_MS (2 * 60 * 1000)
 typedef struct {
   bool used;
   bool completed;
@@ -107,16 +116,20 @@ typedef struct {
   char request_id[MQTT_COMMAND_REQUEST_ID_MAX_LEN];
   char response_suffix[MQTT_MANAGER_TOPIC_MAX_LEN];
   char response_payload[MQTT_COMMAND_RESPONSE_MAX_LEN];
+  int64_t created_at_ms;
+  int64_t completed_at_ms;
+  int64_t last_accessed_at_ms;
 } mqtt_command_cache_entry_t;
 static mqtt_command_cache_entry_t s_command_cache[MQTT_COMMAND_CACHE_LEN];
-static size_t s_command_cache_next = 0;
+static _Atomic bool s_cache_lock_failure_for_test = false;
 
 static char s_device_id[RESQ_DEVICE_ID_MAX_LEN + 1] = {0};
 static char s_topic_cmd_wildcard[MQTT_MANAGER_TOPIC_MAX_LEN];
 static char s_lwt_topic[MQTT_MANAGER_TOPIC_MAX_LEN];
 static char s_lwt_payload[192];
 
-static esp_err_t publish_queue_overload_nack(const char *payload);
+static esp_err_t publish_queue_overload_nack(const char *payload,
+                                             const char *reason);
 static const char *select_device_id_runtime(void);
 
 static void mqtt_connected_store(bool connected) {
@@ -154,42 +167,109 @@ static bool extract_command_request_id(const char *payload, char *out,
   return valid;
 }
 
-typedef enum {
-  COMMAND_CACHE_NEW = 0,
-  COMMAND_CACHE_DUPLICATE_PENDING,
-  COMMAND_CACHE_DUPLICATE_COMPLETE,
-} command_cache_result_t;
+static mqtt_command_cache_entry_t *command_cache_find_locked(
+    const char *topic, const char *request_id) {
+  for (size_t i = 0; i < MQTT_COMMAND_CACHE_LEN; ++i) {
+    mqtt_command_cache_entry_t *entry = &s_command_cache[i];
+    if (entry->used && strcmp(entry->topic, topic) == 0 &&
+        strcmp(entry->request_id, request_id) == 0) {
+      return entry;
+    }
+  }
+  return NULL;
+}
+
+static void command_cache_expire_locked(int64_t now_ms) {
+  for (size_t i = 0; i < MQTT_COMMAND_CACHE_LEN; ++i) {
+    mqtt_command_cache_entry_t *entry = &s_command_cache[i];
+    if (entry->used && entry->completed &&
+        now_ms - entry->completed_at_ms >=
+            MQTT_COMMAND_CACHE_COMPLETED_TTL_MS) {
+      memset(entry, 0, sizeof(*entry));
+    }
+  }
+}
+
+static mqtt_command_cache_entry_t *command_cache_select_slot_locked(
+    int64_t now_ms) {
+  command_cache_expire_locked(now_ms);
+
+  for (size_t i = 0; i < MQTT_COMMAND_CACHE_LEN; ++i) {
+    if (!s_command_cache[i].used) {
+      return &s_command_cache[i];
+    }
+  }
+
+  mqtt_command_cache_entry_t *oldest_completed = NULL;
+  for (size_t i = 0; i < MQTT_COMMAND_CACHE_LEN; ++i) {
+    mqtt_command_cache_entry_t *entry = &s_command_cache[i];
+    if (entry->completed &&
+        (oldest_completed == NULL ||
+         entry->completed_at_ms < oldest_completed->completed_at_ms)) {
+      oldest_completed = entry;
+    }
+  }
+  if (oldest_completed != NULL) {
+    return oldest_completed;
+  }
+
+  mqtt_command_cache_entry_t *oldest_expired_pending = NULL;
+  for (size_t i = 0; i < MQTT_COMMAND_CACHE_LEN; ++i) {
+    mqtt_command_cache_entry_t *entry = &s_command_cache[i];
+    if (!entry->completed &&
+        now_ms - entry->created_at_ms >= MQTT_COMMAND_CACHE_PENDING_TTL_MS &&
+        (oldest_expired_pending == NULL ||
+         entry->created_at_ms < oldest_expired_pending->created_at_ms)) {
+      oldest_expired_pending = entry;
+    }
+  }
+  if (oldest_expired_pending != NULL) {
+    ESP_LOGW(TAG,
+             "Recovering expired pending MQTT command request_id=%s topic=%s",
+             oldest_expired_pending->request_id,
+             oldest_expired_pending->topic);
+  }
+  return oldest_expired_pending;
+}
 
 static command_cache_result_t command_cache_check_or_mark(
     const char *topic, const char *request_id, char *out_suffix,
     size_t out_suffix_len, char *out_payload, size_t out_payload_len) {
   if (s_command_cache_mutex == NULL ||
+      atomic_load_explicit(&s_cache_lock_failure_for_test,
+                           memory_order_acquire) ||
       xSemaphoreTake(s_command_cache_mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-    return COMMAND_CACHE_NEW;
+    return s_command_cache_mutex == NULL ? COMMAND_CACHE_ERROR
+                                         : COMMAND_CACHE_BUSY;
   }
 
-  for (size_t i = 0; i < MQTT_COMMAND_CACHE_LEN; ++i) {
-    mqtt_command_cache_entry_t *entry = &s_command_cache[i];
-    if (entry->used && strcmp(entry->topic, topic) == 0 &&
-        strcmp(entry->request_id, request_id) == 0) {
-      command_cache_result_t result = entry->completed
-                                          ? COMMAND_CACHE_DUPLICATE_COMPLETE
-                                          : COMMAND_CACHE_DUPLICATE_PENDING;
-      if (entry->completed) {
-        snprintf(out_suffix, out_suffix_len, "%s", entry->response_suffix);
-        snprintf(out_payload, out_payload_len, "%s", entry->response_payload);
-      }
-      xSemaphoreGive(s_command_cache_mutex);
-      return result;
-    }
-  }
-
+  int64_t now_ms = esp_timer_get_time() / 1000;
   mqtt_command_cache_entry_t *entry =
-      &s_command_cache[s_command_cache_next++ % MQTT_COMMAND_CACHE_LEN];
+      command_cache_find_locked(topic, request_id);
+  if (entry != NULL) {
+    command_cache_result_t result = entry->completed
+                                        ? COMMAND_CACHE_DUPLICATE_COMPLETE
+                                        : COMMAND_CACHE_DUPLICATE_PENDING;
+    entry->last_accessed_at_ms = now_ms;
+    if (entry->completed) {
+      snprintf(out_suffix, out_suffix_len, "%s", entry->response_suffix);
+      snprintf(out_payload, out_payload_len, "%s", entry->response_payload);
+    }
+    xSemaphoreGive(s_command_cache_mutex);
+    return result;
+  }
+
+  entry = command_cache_select_slot_locked(now_ms);
+  if (entry == NULL) {
+    xSemaphoreGive(s_command_cache_mutex);
+    return COMMAND_CACHE_BUSY;
+  }
   memset(entry, 0, sizeof(*entry));
   entry->used = true;
   snprintf(entry->topic, sizeof(entry->topic), "%s", topic);
   snprintf(entry->request_id, sizeof(entry->request_id), "%s", request_id);
+  entry->created_at_ms = now_ms;
+  entry->last_accessed_at_ms = now_ms;
   xSemaphoreGive(s_command_cache_mutex);
   return COMMAND_CACHE_NEW;
 }
@@ -264,6 +344,16 @@ static esp_err_t enqueue_complete_command(const char *topic,
       ESP_LOGI(TAG, "Ignoring in-flight duplicate request_id=%s", request_id);
       return ESP_OK;
     }
+    if (cache_result == COMMAND_CACHE_BUSY) {
+      ESP_LOGW(TAG, "MQTT deduplication cache busy; command not queued");
+      (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_BUSY");
+      return ESP_ERR_TIMEOUT;
+    }
+    if (cache_result == COMMAND_CACHE_ERROR) {
+      ESP_LOGE(TAG, "MQTT deduplication cache unavailable; command not queued");
+      (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_ERROR");
+      return ESP_ERR_INVALID_STATE;
+    }
   }
 
   QueueHandle_t target_queue = command_is_safety_critical(topic)
@@ -278,7 +368,7 @@ static esp_err_t enqueue_complete_command(const char *topic,
   if (ok != pdTRUE) {
     __atomic_add_fetch(&s_dropped_command_count, 1u, __ATOMIC_RELAXED);
     ESP_LOGW(TAG, "MQTT command queue full. Publishing overload NACK.");
-    (void)publish_queue_overload_nack(payload);
+    (void)publish_queue_overload_nack(payload, "command_queue_overloaded");
     command_cache_remove_pending(topic, request_id);
     return ESP_ERR_NO_MEM;
   }
@@ -301,6 +391,35 @@ void mqtt_manager_reset_command_reassembly_for_test(void) {
   }
 }
 
+void mqtt_manager_reset_command_cache_for_test(void) {
+  atomic_store_explicit(&s_cache_lock_failure_for_test, false,
+                        memory_order_release);
+  if (s_command_cache_mutex != NULL &&
+      xSemaphoreTake(s_command_cache_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+    memset(s_command_cache, 0, sizeof(s_command_cache));
+    xSemaphoreGive(s_command_cache_mutex);
+  }
+}
+
+command_cache_result_t mqtt_manager_cache_check_for_test(
+    const char *topic, const char *request_id) {
+  if (topic == NULL || request_id == NULL || topic[0] == '\0' ||
+      request_id[0] == '\0') {
+    return COMMAND_CACHE_ERROR;
+  }
+  char suffix[MQTT_MANAGER_TOPIC_MAX_LEN] = {0};
+  char payload[MQTT_COMMAND_RESPONSE_MAX_LEN] = {0};
+  return command_cache_check_or_mark(topic, request_id, suffix,
+                                     sizeof(suffix), payload,
+                                     sizeof(payload));
+}
+
+esp_err_t mqtt_manager_set_cache_lock_failure_for_test(bool enabled) {
+  atomic_store_explicit(&s_cache_lock_failure_for_test, enabled,
+                        memory_order_release);
+  return ESP_OK;
+}
+
 esp_err_t mqtt_manager_handle_command_fragment_for_test(
     const char *topic, int topic_len, const char *data, int data_len,
     int total_data_len, int current_offset) {
@@ -308,15 +427,24 @@ esp_err_t mqtt_manager_handle_command_fragment_for_test(
   int offset = current_offset;
   int fragment_len = data_len;
 
-  if (total_len < 0 || fragment_len < 0 || offset < 0 ||
-      total_len >= MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN || offset > total_len ||
-      fragment_len > total_len - offset || (fragment_len > 0 && data == NULL)) {
+  if (topic_len < 0 || total_data_len < 0 || fragment_len < 0 || offset < 0 ||
+      (fragment_len > 0 && data == NULL)) {
+    ESP_LOGW(TAG,
+             "Invalid MQTT payload fragment arguments total=%d offset=%d len=%d",
+             total_len, offset, fragment_len);
+    reset_command_rx();
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  if (total_len <= 0 ||
+      total_len >= MQTT_MANAGER_COMMAND_PAYLOAD_MAX_LEN ||
+      offset > total_len || fragment_len > total_len - offset) {
     ESP_LOGW(TAG,
              "Invalid or oversized MQTT payload fragment total=%d offset=%d "
              "len=%d",
              total_len, offset, fragment_len);
     reset_command_rx();
-    return ESP_ERR_INVALID_ARG;
+    return offset > 0 ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_ARG;
   }
 
   char topic_copy[MQTT_MANAGER_COMMAND_TOPIC_MAX_LEN] = {0};
@@ -417,7 +545,8 @@ static esp_err_t publish_state_json_to_topic(const char *topic,
   return err;
 }
 
-static esp_err_t publish_queue_overload_nack(const char *payload) {
+static esp_err_t publish_queue_overload_nack(const char *payload,
+                                             const char *reason) {
   if (!mqtt_connected_load() || payload == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -446,7 +575,9 @@ static esp_err_t publish_queue_overload_nack(const char *payload) {
   cJSON_AddNumberToObject(reply, "event_id", 1000);
   cJSON_AddStringToObject(reply, "reply_id", request_id->valuestring);
   cJSON_AddStringToObject(reply, "status", "NACK");
-  cJSON_AddStringToObject(reply, "reason", "command_queue_overloaded");
+  cJSON_AddStringToObject(reply, "reason",
+                          reason != NULL ? reason
+                                         : "command_queue_overloaded");
   cJSON_AddNumberToObject(reply, "dropped_command_count",
                           mqtt_manager_get_dropped_command_count());
   char *reply_payload = cJSON_PrintUnformatted(reply);
@@ -632,7 +763,6 @@ esp_err_t mqtt_manager_start(const char *device_id, const char *mqtt_host,
   memcpy(s_device_id, device_id, strlen(device_id) + 1);
   if (xSemaphoreTake(s_command_cache_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
     memset(s_command_cache, 0, sizeof(s_command_cache));
-    s_command_cache_next = 0;
     xSemaphoreGive(s_command_cache_mutex);
   }
 
@@ -807,9 +937,10 @@ uint32_t mqtt_manager_get_dropped_command_count(void) {
 
 const char *mqtt_manager_get_device_id(void) { return s_device_id; }
 
-esp_err_t mqtt_manager_publish_status(
+esp_err_t mqtt_manager_publish_status_with_health(
     resq_state_t state, const network_config_t *network_config,
-    const calibration_config_t *calibration_config, bool session_active,
+    const calibration_config_t *calibration_config,
+    const sensor_runtime_health_t *runtime_health, bool session_active,
     const char *session_id, const char *ip) {
   if (!mqtt_connected_load() || network_config == NULL) {
     return ESP_ERR_INVALID_STATE;
@@ -849,17 +980,23 @@ esp_err_t mqtt_manager_publish_status(
         root, "pressure_mode",
         calibration_pressure_mode_to_string(calibration_config->pressure_mode));
     cJSON_AddBoolToObject(root, "pressure_degraded",
-                          calibration_config->pressure_degraded);
+                          runtime_health != NULL &&
+                              runtime_health->pressure_temporarily_degraded);
     cJSON_AddBoolToObject(root, "using_last_stable_pressure",
-                          calibration_config->using_last_stable_pressure);
+                          runtime_health != NULL &&
+                              runtime_health->using_last_stable_pressure);
     cJSON_AddBoolToObject(root, "pressure_valid",
                           io_mode_manager_is_sensor() &&
-                              calibration_config->pressure_valid);
-    cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
-    add_conversion_readiness_fields(root, calibration_config);
+                              runtime_health != NULL &&
+                              runtime_health->pressure_current_valid);
+    cJSON_AddBoolToObject(root, "hall_valid",
+                          runtime_health != NULL &&
+                              runtime_health->hall_current_valid);
+    add_conversion_readiness_fields(root, calibration_config, runtime_health);
     cJSON_AddBoolToObject(root, "ready_for_session",
                           calibrated &&
-                              calibration_hall_mm_ready(calibration_config));
+                              calibration_hall_mm_ready(calibration_config,
+                                                        runtime_health));
   }
 
   cJSON_AddStringToObject(root, "ip", ip ? ip : "");
@@ -877,9 +1014,19 @@ esp_err_t mqtt_manager_publish_status(
   return ret;
 }
 
-esp_err_t mqtt_manager_publish_error_status(
+esp_err_t mqtt_manager_publish_status(
     resq_state_t state, const network_config_t *network_config,
     const calibration_config_t *calibration_config, bool session_active,
+    const char *session_id, const char *ip) {
+  return mqtt_manager_publish_status_with_health(
+      state, network_config, calibration_config, NULL, session_active,
+      session_id, ip);
+}
+
+esp_err_t mqtt_manager_publish_error_status_with_health(
+    resq_state_t state, const network_config_t *network_config,
+    const calibration_config_t *calibration_config,
+    const sensor_runtime_health_t *runtime_health, bool session_active,
     const char *session_id, const char *ip, int last_error_id) {
   if (!mqtt_connected_load() || network_config == NULL) {
     return ESP_ERR_INVALID_STATE;
@@ -908,17 +1055,23 @@ esp_err_t mqtt_manager_publish_error_status(
         root, "pressure_mode",
         calibration_pressure_mode_to_string(calibration_config->pressure_mode));
     cJSON_AddBoolToObject(root, "pressure_degraded",
-                          calibration_config->pressure_degraded);
+                          runtime_health != NULL &&
+                              runtime_health->pressure_temporarily_degraded);
     cJSON_AddBoolToObject(root, "using_last_stable_pressure",
-                          calibration_config->using_last_stable_pressure);
+                          runtime_health != NULL &&
+                              runtime_health->using_last_stable_pressure);
     cJSON_AddBoolToObject(root, "pressure_valid",
                           io_mode_manager_is_sensor() &&
-                              calibration_config->pressure_valid);
-    cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
-    add_conversion_readiness_fields(root, calibration_config);
+                              runtime_health != NULL &&
+                              runtime_health->pressure_current_valid);
+    cJSON_AddBoolToObject(root, "hall_valid",
+                          runtime_health != NULL &&
+                              runtime_health->hall_current_valid);
+    add_conversion_readiness_fields(root, calibration_config, runtime_health);
     cJSON_AddBoolToObject(root, "ready_for_session",
                           calibrated &&
-                              calibration_hall_mm_ready(calibration_config));
+                              calibration_hall_mm_ready(calibration_config,
+                                                        runtime_health));
   }
 
   if (calibration_config) {
@@ -960,6 +1113,15 @@ esp_err_t mqtt_manager_publish_error_status(
   return ret;
 }
 
+esp_err_t mqtt_manager_publish_error_status(
+    resq_state_t state, const network_config_t *network_config,
+    const calibration_config_t *calibration_config, bool session_active,
+    const char *session_id, const char *ip, int last_error_id) {
+  return mqtt_manager_publish_error_status_with_health(
+      state, network_config, calibration_config, NULL, session_active,
+      session_id, ip, last_error_id);
+}
+
 esp_err_t
 mqtt_manager_publish_identity_event(const network_config_t *network_config) {
   if (!mqtt_connected_load() || network_config == NULL) {
@@ -998,11 +1160,12 @@ mqtt_manager_publish_identity_event(const network_config_t *network_config) {
 }
 
 esp_err_t
-mqtt_manager_publish_heartbeat(const network_config_t *network_config,
-                               const calibration_config_t *calibration_config,
-                               resq_state_t state, bool session_active,
-                               bool sensor_running, const char *session_id,
-                               const char *ip, int rssi) {
+mqtt_manager_publish_heartbeat_with_health(
+    const network_config_t *network_config,
+    const calibration_config_t *calibration_config,
+    const sensor_runtime_health_t *runtime_health, resq_state_t state,
+    bool session_active, bool sensor_running, const char *session_id,
+    const char *ip, int rssi) {
   if (!mqtt_connected_load() || network_config == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -1041,17 +1204,23 @@ mqtt_manager_publish_heartbeat(const network_config_t *network_config,
         root, "pressure_mode",
         calibration_pressure_mode_to_string(calibration_config->pressure_mode));
     cJSON_AddBoolToObject(root, "pressure_degraded",
-                          calibration_config->pressure_degraded);
+                          runtime_health != NULL &&
+                              runtime_health->pressure_temporarily_degraded);
     cJSON_AddBoolToObject(root, "using_last_stable_pressure",
-                          calibration_config->using_last_stable_pressure);
+                          runtime_health != NULL &&
+                              runtime_health->using_last_stable_pressure);
     cJSON_AddBoolToObject(root, "pressure_valid",
                           io_mode_manager_is_sensor() &&
-                              calibration_config->pressure_valid);
-    cJSON_AddBoolToObject(root, "hall_valid", calibration_config->hall_valid);
-    add_conversion_readiness_fields(root, calibration_config);
+                              runtime_health != NULL &&
+                              runtime_health->pressure_current_valid);
+    cJSON_AddBoolToObject(root, "hall_valid",
+                          runtime_health != NULL &&
+                              runtime_health->hall_current_valid);
+    add_conversion_readiness_fields(root, calibration_config, runtime_health);
     cJSON_AddBoolToObject(root, "ready_for_session",
                           calibrated &&
-                              calibration_hall_mm_ready(calibration_config));
+                              calibration_hall_mm_ready(calibration_config,
+                                                        runtime_health));
   }
 
   cJSON_AddStringToObject(root, "ip", ip ? ip : "");
@@ -1071,6 +1240,17 @@ mqtt_manager_publish_heartbeat(const network_config_t *network_config,
   esp_err_t ret = publish_state_json_to_topic(topic, payload, 0, 0);
   cJSON_free(payload);
   return ret;
+}
+
+esp_err_t
+mqtt_manager_publish_heartbeat(const network_config_t *network_config,
+                               const calibration_config_t *calibration_config,
+                               resq_state_t state, bool session_active,
+                               bool sensor_running, const char *session_id,
+                               const char *ip, int rssi) {
+  return mqtt_manager_publish_heartbeat_with_health(
+      network_config, calibration_config, NULL, state, session_active,
+      sensor_running, session_id, ip, rssi);
 }
 
 esp_err_t mqtt_manager_publish_event_json(const char *json_payload) {
@@ -1168,27 +1348,20 @@ esp_err_t mqtt_manager_cache_command_response(const char *command_topic,
     return ESP_ERR_TIMEOUT;
   }
 
-  mqtt_command_cache_entry_t *target = NULL;
-  for (size_t i = 0; i < MQTT_COMMAND_CACHE_LEN; ++i) {
-    if (s_command_cache[i].used &&
-        strcmp(s_command_cache[i].topic, command_topic) == 0 &&
-        strcmp(s_command_cache[i].request_id, request_id) == 0) {
-      target = &s_command_cache[i];
-      break;
-    }
-  }
-  if (target == NULL) {
-    target = &s_command_cache[s_command_cache_next++ % MQTT_COMMAND_CACHE_LEN];
-    memset(target, 0, sizeof(*target));
-    target->used = true;
-    memcpy(target->topic, command_topic, strlen(command_topic) + 1);
-    memcpy(target->request_id, request_id, strlen(request_id) + 1);
+  mqtt_command_cache_entry_t *target =
+      command_cache_find_locked(command_topic, request_id);
+  if (target == NULL || target->completed) {
+    xSemaphoreGive(s_command_cache_mutex);
+    if (ordered_payload != NULL) cJSON_free(ordered_payload);
+    return ESP_ERR_NOT_FOUND;
   }
   memcpy(target->response_suffix, response_suffix,
          strlen(response_suffix) + 1);
   memcpy(target->response_payload, payload_to_cache,
          strlen(payload_to_cache) + 1);
   target->completed = true;
+  target->completed_at_ms = esp_timer_get_time() / 1000;
+  target->last_accessed_at_ms = target->completed_at_ms;
   xSemaphoreGive(s_command_cache_mutex);
   if (ordered_payload != NULL) cJSON_free(ordered_payload);
   return ESP_OK;

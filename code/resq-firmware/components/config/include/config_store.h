@@ -79,7 +79,8 @@ esp_err_t config_store_save_network(network_config_t *config);
 esp_err_t config_store_load_calibration(calibration_config_t *config);
 
 /**
- * @brief Promote candidate calibration to committed active calibration in NVS.
+ * @brief Transactionally promote a candidate without invalidating the active
+ * calibration before the new record is committed and verified.
  */
 cal_store_outcome_t config_store_promote_calibration(
     const calibration_config_t *candidate,

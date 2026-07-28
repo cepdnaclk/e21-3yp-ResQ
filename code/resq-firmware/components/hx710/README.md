@@ -49,8 +49,8 @@ captured-but-invalid group value is published as a valid measurement.
 
 `hx710_sck_release_for_usb_mode()` is separate from transaction cleanup. The
 state-machine mode request calls it only after confirming that no sensor owner
-is active, then persists the reboot-only USB mode request. Native USB regains
-GPIO18/GPIO19 on the following reboot.
+is active, then persists the reboot-only USB mode request. The board-configured
+USB routing is restored on the following reboot.
 
 Hardware diagnostics acquire `SENSOR_OWNER_DIAGNOSTIC`; production calibration,
 session acquisition, and manual sensor streaming retain their existing owners.

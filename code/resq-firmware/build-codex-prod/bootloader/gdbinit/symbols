@@ -1,0 +1,9 @@
+
+
+# Load bootloader symbols
+set confirm off
+    # Bootloader elf was not found
+set confirm on
+
+# Load application symbols
+file D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/build-codex-prod/bootloader/bootloader.elf

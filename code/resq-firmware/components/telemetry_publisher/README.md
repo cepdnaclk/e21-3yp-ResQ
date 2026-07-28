@@ -30,5 +30,5 @@ read per interval, then calls `sensor_conversion_convert` once. Pressure
 acquisition is attempted in `CALIBRATION_PRESSURE_REQUIRED` and
 `CALIBRATION_PRESSURE_OPTIONAL` modes even when pressure calibration is not yet
 valid. `CALIBRATION_HALL_ONLY` and
-`CALIBRATION_HALL_WITH_LAST_STABLE_PRESSURE` keep their Hall-only manual stream
+Hall-only calibration profiles keep their Hall-only manual stream
 semantics.

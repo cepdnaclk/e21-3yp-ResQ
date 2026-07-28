@@ -1,0 +1,9 @@
+
+
+# Load bootloader symbols
+set confirm off
+    add-symbol-file D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/build-codex/bootloader/bootloader.elf
+set confirm on
+
+# Load application symbols
+file D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/build-codex/resq_firmware_unity.elf
