@@ -1,0 +1,51 @@
+
+> localhub-desktop@0.1.1 test D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-localhub\apps\localhub-desktop
+> vitest run "--" "--reporter=dot"
+
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mD:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-localhub/apps/localhub-desktop[39m
+
+ [32m✓[39m src/pages/LoginPage.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 178[2mms[22m[39m
+ [32m✓[39m src/utils/provisioningUrl.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32m✓[39m src/components/cpr/DeviceReadinessBadge.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 76[2mms[22m[39m
+ [32m✓[39m src/lib/liveClientTypes.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/lib/sensorStreamClient.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ [32m✓[39m src/components/cpr/CalibrationTargetTracking.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 226[2mms[22m[39m
+ [32m✓[39m src/layouts/AppShell.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 565[2mms[22m[39m
+   [33m[2m✓[22m[39m AppShell[2m > [22mshows simplified navigation, current user details, and sign out [33m 562[2mms[22m[39m
+ [32m✓[39m src/components/LiveMetricsPanel.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 850[2mms[22m[39m
+   [33m[2m✓[22m[39m LiveMetricsPanel[2m > [22mrenders normalized session metrics received from SSE [33m 567[2mms[22m[39m
+ [32m✓[39m src/pages/v2/InstructorDashboardPage.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 686[2mms[22m[39m
+   [33m[2m✓[22m[39m InstructorDashboardPage V2[2m > [22mdisables Start Session button on the device card when not ready [33m 414[2mms[22m[39m
+ [32m✓[39m src/pages/v2/LocalHubHomePage.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 959[2mms[22m[39m
+   [33m[2m✓[22m[39m LocalHubHomePage[2m > [22mrenders operational overview cards from API data [33m 614[2mms[22m[39m
+ [32m✓[39m src/components/FirmwareDiagnosticsPanel.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 1440[2mms[22m[39m
+   [33m[2m✓[22m[39m FirmwareDiagnosticsPanel sensor stream[2m > [22mvalidates intervals and does not claim running after HTTP publish [33m 698[2mms[22m[39m
+ [32m✓[39m src/pages/v2/LoginPage.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 2140[2mms[22m[39m
+   [33m[2m✓[22m[39m V2 LoginPage[2m > [22mrenders refined login copy and connected LocalHub status [33m 411[2mms[22m[39m
+   [33m[2m✓[22m[39m V2 LoginPage[2m > [22msubmits with Enter and maps invalid credentials to the friendly inline error [33m 719[2mms[22m[39m
+   [33m[2m✓[22m[39m V2 LoginPage[2m > [22mdisables repeated submissions while sign-in is pending [33m 710[2mms[22m[39m
+ [32m✓[39m src/pages/TraineeDashboard.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 331[2mms[22m[39m
+   [33m[2m✓[22m[39m TraineeDashboard[2m > [22mshows the waiting session story when no session is assigned [33m 329[2mms[22m[39m
+ [32m✓[39m src/pages/v2/CalibrationWizardPage.test.tsx [2m([22m[2m23 tests[22m[2m)[22m[33m 3176[2mms[22m[39m
+   [33m[2m✓[22m[39m CalibrationWizardPage[2m > [22mrenders the default form and options [33m 523[2mms[22m[39m
+   [33m[2m✓[22m[39m CalibrationWizardPage[2m > [22mblocks calibration start and shows inline messages on invalid values [33m 489[2mms[22m[39m
+   [33m[2m✓[22m[39m CalibrationWizardPage[2m > [22mcalls startCalibration API with snake_case keys when valid [33m 400[2mms[22m[39m
+ [32m✓[39m src/utils/calibrationTargetTracking.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/utils/telemetryNormalization.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/lib/browserManikinRegistryApi.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m src/utils/readinessState.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/lib/firmwareContract.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/utils/userFriendlyLabels.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/lib/liveClientSensorStreamIsolation.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/pages/InstructorDashboard.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 3841[2mms[22m[39m
+   [33m[2m✓[22m[39m InstructorDashboard[2m > [22mrenders the embedded dashboard shell [33m 887[2mms[22m[39m
+   [33m[2m✓[22m[39m InstructorDashboard[2m > [22mstarts a session for a manikin [33m 1279[2mms[22m[39m
+   [33m[2m✓[22m[39m InstructorDashboard[2m > [22menables session start when firmware is ready despite stale calibration status [33m 635[2mms[22m[39m
+   [33m[2m✓[22m[39m InstructorDashboard[2m > [22mresets the enrolled trainee when the course changes [33m 596[2mms[22m[39m
+   [33m[2m✓[22m[39m InstructorDashboard[2m > [22mends an active session [33m 441[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m22 passed[39m[22m[90m (22)[39m
+[2m      Tests [22m [1m[32m100 passed[39m[22m[90m (100)[39m
+[2m   Start at [22m 11:35:44
+[2m   Duration [22m 13.23s[2m (transform 7.41s, setup 23.25s, collect 16.39s, tests 14.60s, environment 80.80s, prepare 9.50s)[22m

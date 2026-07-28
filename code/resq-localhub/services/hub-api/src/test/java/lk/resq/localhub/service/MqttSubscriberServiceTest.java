@@ -34,13 +34,22 @@ class MqttSubscriberServiceTest {
         assertThat(service.parseTopic("resq/M01/status")).isNotNull();
         assertThat(service.parseTopic("resq/M01/status").messageType()).isEqualTo("status");
         assertThat(service.parseTopic("resq/M01/status").canonicalFirmwareTopic()).isTrue();
+        assertThat(service.parseTopic("resq/M01/heartbeat").messageType()).isEqualTo("heartbeat");
+        assertThat(service.parseTopic("resq/M01/telemetry").messageType()).isEqualTo("telemetry");
+        assertThat(service.parseTopic("resq/M01/debug").messageType()).isEqualTo("debug");
+        assertThat(service.parseTopic("resq/M01/events").messageType()).isEqualTo("events");
         assertThat(service.parseTopic("resq/M01/events/calibration").messageType()).isEqualTo("events/calibration");
         assertThat(service.parseTopic("resq/M01/events/calibration").canonicalFirmwareTopic()).isTrue();
         assertThat(service.parseTopic("resq/M01/events/error").messageType()).isEqualTo("events/error");
+        assertThat(service.parseTopic("resq/manikins/M01/status").messageType()).isEqualTo("status");
+        assertThat(service.parseTopic("resq/manikins/M01/heartbeat").messageType()).isEqualTo("heartbeat");
+        assertThat(service.parseTopic("resq/manikins/M01/telemetry").messageType()).isEqualTo("telemetry");
+        assertThat(service.parseTopic("resq/manikins/M01/debug").messageType()).isEqualTo("debug");
         assertThat(service.parseTopic("resq/manikins/M01/live").messageType()).isEqualTo("telemetry");
         assertThat(service.parseTopic("resq/manikins/M01/live").canonicalFirmwareTopic()).isFalse();
         assertThat(service.parseTopic("resq/manikins/M01/events").messageType()).isEqualTo("events");
         assertThat(service.parseTopic("resq/manikins/M01/events/calibration").messageType()).isEqualTo("events/calibration");
+        assertThat(service.parseTopic("resq/manikins/M01/events/error").messageType()).isEqualTo("events/error");
         assertThat(service.parseTopic("other/M01/status")).isNull();
     }
 
