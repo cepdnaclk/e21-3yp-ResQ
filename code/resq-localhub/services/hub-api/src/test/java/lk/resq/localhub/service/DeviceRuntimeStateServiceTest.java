@@ -2,6 +2,7 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
+import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import lk.resq.localhub.model.firmware.FirmwareCalibrationResultRecord;
 import org.junit.jupiter.api.Test;
@@ -138,6 +139,21 @@ class DeviceRuntimeStateServiceTest {
         assertThat(state.firmwareState()).isEqualTo("READY_FOR_SESSION");
         assertThat(state.calibrated()).isTrue();
         assertThat(state.readyForSession()).isTrue();
+    }
+
+    @Test
+    void heartbeatRefreshesLastSeenWithoutErasingCalibrationStartFailure() throws Exception {
+        DeviceRuntimeStateService service = new DeviceRuntimeStateService();
+
+        service.applyCalibrationEvent("M01", calibrationEvent(4000, null, "NACK", "PAIRED_IDLE", 100L));
+        DeviceRuntimeState state = service.applyHeartbeat("M01", objectMapper.readTree("""
+                {"state":"PAIRED_IDLE","calibrated":false,"wifi_connected":true,"mqtt_connected":true,"backend_registered":true,"uptime_ms":5000,"ts_ms":101}
+                """));
+
+        assertThat(state.firmwareState()).isEqualTo("PAIRED_IDLE");
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.FAILED.name());
+        assertThat(state.lastSeenEpochMs()).isGreaterThan(0);
+        assertThat(state.readyForSession()).isFalse();
     }
 
     static CalibrationMqttEvent calibrationEvent(Integer eventId, String result, String status, String state, Long tsMs) {

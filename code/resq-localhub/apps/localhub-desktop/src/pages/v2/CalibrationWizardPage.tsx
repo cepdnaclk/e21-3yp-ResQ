@@ -63,6 +63,10 @@ const REASON_DETAILS: Record<string, { title: string; action: string }> = {
     title: "Invalid calibration values",
     action: "Review the raw calibration configuration values and retry.",
   },
+  SENSOR_MODE_REQUIRED: {
+    title: "Calibration failed to start",
+    action: "Calibration failed to start: sensor acquisition mode was not active.",
+  },
   "08102": {
     title: "Calibration is already running",
     action: "Wait for the current calibration to finish or cancel it before retrying.",

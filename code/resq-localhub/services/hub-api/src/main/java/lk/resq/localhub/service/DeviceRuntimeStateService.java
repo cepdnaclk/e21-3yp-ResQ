@@ -718,12 +718,27 @@ public class DeviceRuntimeStateService {
             return CalibrationState.FAILED.name();
         }
         if ("PAIRED_IDLE".equals(normalizedState)) {
+            if (!calibrated && isCalibrationWorkflowState(previous)) {
+                return previous;
+            }
             return calibrated ? CalibrationState.READY.name() : CalibrationState.NOT_READY.name();
         }
         if ("SESSION_INTERRUPTED".equals(normalizedState)) {
             return CalibrationState.INTERRUPTED.name();
         }
         return previous != null ? previous : CalibrationState.UNKNOWN.name();
+    }
+
+    private static boolean isCalibrationWorkflowState(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim().toUpperCase();
+        return CalibrationState.STARTING.name().equals(normalized)
+                || CalibrationState.CALIBRATING.name().equals(normalized)
+                || CalibrationState.FAILED.name().equals(normalized)
+                || CalibrationState.CANCELLED.name().equals(normalized)
+                || CalibrationState.INTERRUPTED.name().equals(normalized);
     }
 
     private static String deriveReadinessReason(String firmwareState, boolean calibrated, boolean sessionActive, boolean ready, String fallback) {

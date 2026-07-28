@@ -79,6 +79,7 @@ public class MqttSubscriberService {
     private final CalibrationStreamService calibrationStreamService;
     private final CalibrationPersistenceRepository calibrationPersistenceRepository;
     private final SensorStreamService sensorStreamService;
+    private final MqttCommandPublisherService mqttCommandPublisherService;
 
     private final String brokerUrl;
     private final String clientId;
@@ -107,6 +108,7 @@ public class MqttSubscriberService {
             CalibrationStreamService calibrationStreamService,
             CalibrationPersistenceRepository calibrationPersistenceRepository,
             SensorStreamService sensorStreamService,
+            MqttCommandPublisherService mqttCommandPublisherService,
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.client-id:hub-api-live-registry}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
@@ -123,6 +125,7 @@ public class MqttSubscriberService {
         this.calibrationStreamService = calibrationStreamService;
         this.calibrationPersistenceRepository = calibrationPersistenceRepository;
         this.sensorStreamService = sensorStreamService == null ? new SensorStreamService() : sensorStreamService;
+        this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
@@ -156,6 +159,7 @@ public class MqttSubscriberService {
                 calibrationStreamService,
                 calibrationPersistenceRepository,
                 new SensorStreamService(),
+                null,
                 brokerUrl,
                 clientId,
                 username,
@@ -188,6 +192,7 @@ public class MqttSubscriberService {
                 calibrationStreamService,
                 null,
                 new SensorStreamService(),
+                null,
                 brokerUrl,
                 clientId,
                 username,
@@ -219,6 +224,7 @@ public class MqttSubscriberService {
                 calibrationStreamService,
                 null,
                 new SensorStreamService(),
+                null,
                 brokerUrl,
                 clientId,
                 username,
@@ -559,6 +565,7 @@ public class MqttSubscriberService {
                         } catch (Exception error) {
                             logger.error("Failed to persist calibration event/evidence for device {}", parsedTopic.deviceId, error);
                         }
+                        stopTemporarySensorModeAfterCalibrationStartNack(parsedTopic.deviceId, calEvent);
                     }
                     publishInstructorLiveSnapshot();
                     publishSessionLiveForPayload(payload);
@@ -603,6 +610,9 @@ public class MqttSubscriberService {
         String result = firstText(payload, "result");
         String reason = firstText(payload, "reason", "message", "error");
         String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
+        if (reasonId == null) {
+            reasonId = normalizedReasonId(firstScalarAsText(payload, "reason"));
+        }
         Integer actionId = integer(payload, "action_id", "actionId");
         Integer progressId = integer(payload, "progress_id", "progressId");
         String firmwareState = firstText(payload, "state");
@@ -689,6 +699,9 @@ public class MqttSubscriberService {
         String status = firstText(payload, "status");
         String reason = firstText(payload, "reason", "message", "error");
         String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
+        if (reasonId == null) {
+            reasonId = normalizedReasonId(firstScalarAsText(payload, "reason"));
+        }
         Integer actionId = integer(payload, "action_id", "actionId");
         String firmwareState = firstText(payload, "state");
         String sessionId = firstText(payload, "sessionId", "session_id");
@@ -738,6 +751,28 @@ public class MqttSubscriberService {
                 );
             }
         }
+    }
+
+    private void stopTemporarySensorModeAfterCalibrationStartNack(String deviceId, CalibrationMqttEvent calEvent) {
+        if (mqttCommandPublisherService == null || calEvent == null || !Integer.valueOf(4000).equals(calEvent.eventId())
+                || !"NACK".equalsIgnoreCase(calEvent.status())) {
+            return;
+        }
+        sensorStreamService.latestControl(deviceId).ifPresent(update -> {
+            if (!"RUNNING".equals(update.streamState()) && !"STARTING".equals(update.streamState())) {
+                return;
+            }
+            try {
+                MqttCommandPublisherService.FirmwareCommandPublishResult stopResult =
+                        mqttCommandPublisherService.publishTelemetryControl(deviceId, "STOP", null);
+                sensorStreamService.commandPublished(deviceId, stopResult.requestId(), "STOP");
+                logger.info("Calibration start NACK cleanup published sensor mode STOP deviceId={} calibrationRequestId={} stopRequestId={} reason={}",
+                        deviceId, calEvent.replyId(), stopResult.requestId(), calEvent.reasonId());
+            } catch (Exception cleanupError) {
+                logger.warn("Calibration start NACK cleanup failed to publish sensor mode STOP deviceId={} calibrationRequestId={} reason={} error={}",
+                        deviceId, calEvent.replyId(), calEvent.reasonId(), cleanupError.getMessage(), cleanupError);
+            }
+        });
     }
 
     private synchronized boolean isDuplicateCriticalEvent(ParsedTopic parsedTopic, JsonNode payload) {
@@ -793,6 +828,9 @@ public class MqttSubscriberService {
         Integer progressId = integer(payload, "progress_id", "progressId");
         String result = firstText(payload, "result");
         String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
+        if (reasonId == null) {
+            reasonId = normalizedReasonId(firstScalarAsText(payload, "reason"));
+        }
         Integer actionId = integer(payload, "action_id", "actionId");
         String firmwareState = firstText(payload, "state", "firmwareState", "firmware_state");
         Long tsMs = longValue(payload, "ts_ms", "tsMs");

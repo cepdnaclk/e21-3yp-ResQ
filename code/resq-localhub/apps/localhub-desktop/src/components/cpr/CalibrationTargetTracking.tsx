@@ -33,7 +33,6 @@ export default function CalibrationTargetTracking({
   lastUpdatedAt,
   guidanceAnnouncement,
 }: Props) {
-  const stateText = stale ? "STALE" : streamState;
   return (
     <Card className="border border-slate-100 shadow-[0_4px_12px_rgba(0,0,0,0.02)] p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-4">
@@ -42,15 +41,15 @@ export default function CalibrationTargetTracking({
           <p className="mt-1 text-xs text-slate-400">
             {streamState === "IDLE" && "Preparing live sensor stream…"}
             {streamState === "STARTING" && "Starting sensor stream…"}
-            {streamState === "RUNNING" && !stale && "Live SENSOR_STREAM raw samples"}
+            {streamState === "RUNNING" && "Live SENSOR_STREAM raw samples"}
             {streamState === "CALIBRATION_OWNED" && "Calibration-owned raw samples (manual stream paused by firmware)"}
             {streamState === "STOPPING" && "Stopping sensor stream…"}
             {streamState === "ERROR" && `Sensor stream unavailable${streamReasonId ? ` — reason ${streamReasonId}` : ""}`}
-            {stale && "Waiting for a fresh sensor sample"}
           </p>
+          {stale && <p className="mt-1 text-xs font-semibold text-amber-600">Sample data stale: waiting for a fresh sensor sample</p>}
         </div>
-        <span className={`w-fit rounded-full px-2.5 py-1 text-[10px] font-extrabold ${stale ? "bg-slate-100 text-slate-500" : streamState === "ERROR" ? "bg-rose-100 text-rose-700" : "bg-blue-50 text-blue-700"}`}>
-          {stateText}
+        <span className={`w-fit rounded-full px-2.5 py-1 text-[10px] font-extrabold ${streamState === "ERROR" ? "bg-rose-100 text-rose-700" : "bg-blue-50 text-blue-700"}`}>
+          {streamState}
         </span>
       </div>
 

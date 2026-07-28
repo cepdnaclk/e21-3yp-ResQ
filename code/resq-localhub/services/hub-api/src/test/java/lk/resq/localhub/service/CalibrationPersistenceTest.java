@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -331,7 +332,8 @@ class CalibrationPersistenceTest {
                 streamService,
                 failingRepo,
                 profileService,
-                fingerprintService
+                fingerprintService,
+                new PermissiveSensorStreamService()
         );
 
         CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, "adult", 20, 3000);
@@ -446,6 +448,33 @@ class CalibrationPersistenceTest {
                                                                     CalibrationStartRequest request) {
             this.lastPublishedDeviceId = deviceId;
             return new FirmwareCommandPublishResult("topic", requestId, java.util.Map.of());
+        }
+
+        @Override
+        public FirmwareCommandPublishResult publishTelemetryControl(String deviceId, String action, Integer intervalMs) {
+            return new FirmwareCommandPublishResult("resq/" + deviceId + "/cmd/telemetry", "telemetry-start-1", java.util.Map.of("action", action));
+        }
+    }
+
+    private static class PermissiveSensorStreamService extends SensorStreamService {
+        @Override
+        public SensorStreamCommandUpdate awaitCommandReply(String deviceId, String requestId, Duration timeout) {
+            return new SensorStreamCommandUpdate(
+                    "sensor_stream_command",
+                    deviceId,
+                    requestId,
+                    "START",
+                    "ACK",
+                    null,
+                    "PAIRED_IDLE",
+                    "RUNNING",
+                    Instant.now()
+            );
+        }
+
+        @Override
+        public boolean awaitFreshSnapshot(String deviceId, Instant notBefore, Duration timeout, Duration maxAge) {
+            return true;
         }
     }
 }

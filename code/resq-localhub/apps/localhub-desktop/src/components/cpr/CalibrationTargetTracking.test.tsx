@@ -30,7 +30,7 @@ it("marks last values stale instead of presenting them as current", () => {
     guidanceAnnouncement="Increase reference pressure"
   />);
 
-  expect(screen.getByText("STALE")).toBeInTheDocument();
-  expect(screen.getByText("Waiting for a fresh sensor sample")).toBeInTheDocument();
+  expect(screen.getByText("RUNNING")).toBeInTheDocument();
+  expect(screen.getByText("Sample data stale: waiting for a fresh sensor sample")).toBeInTheDocument();
   expect(screen.getByText(/Last sample:/)).toBeInTheDocument();
 });

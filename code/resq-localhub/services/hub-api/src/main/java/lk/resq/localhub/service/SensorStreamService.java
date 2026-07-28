@@ -8,12 +8,15 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class SensorStreamService {
@@ -26,6 +29,7 @@ public class SensorStreamService {
 
     private final ConcurrentMap<String, SensorStreamSnapshot> latestSnapshots = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, SensorStreamCommandUpdate> controlsByDeviceId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CompletableFuture<SensorStreamCommandUpdate>> pendingRepliesByRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>> emittersByDeviceId = new ConcurrentHashMap<>();
 
     public SensorStreamSnapshot parseSnapshot(String topicDeviceId, JsonNode payload, Instant receivedAt) {
@@ -137,6 +141,9 @@ public class SensorStreamService {
                 null, current == null ? null : current.firmwareState(),
                 "STOP".equals(action) ? "STOPPING" : "STARTING", Instant.now()
         ));
+        if (requestId != null && !requestId.isBlank()) {
+            pendingRepliesByRequestId.computeIfAbsent(requestId, ignored -> new CompletableFuture<>());
+        }
     }
 
     public synchronized void commandPublishFailed(String deviceId, String action, String reason) {
@@ -170,7 +177,57 @@ public class SensorStreamService {
                 "sensor_stream_command", deviceId, replyId, current.action(),
                 ack ? "ACK" : "NACK", reasonId, firmwareState, streamState, Instant.now()
         ));
+        CompletableFuture<SensorStreamCommandUpdate> pending = pendingRepliesByRequestId.remove(replyId);
+        if (pending != null) {
+            pending.complete(controlsByDeviceId.get(deviceId));
+        }
         return true;
+    }
+
+    public SensorStreamCommandUpdate awaitCommandReply(String deviceId, String requestId, Duration timeout) {
+        if (requestId == null || requestId.isBlank()) {
+            throw new IllegalArgumentException("requestId is required");
+        }
+        SensorStreamCommandUpdate current = controlsByDeviceId.get(deviceId);
+        if (current != null && requestId.equals(current.requestId())
+                && ("ACK".equalsIgnoreCase(current.status()) || "NACK".equalsIgnoreCase(current.status()))) {
+            return current;
+        }
+        CompletableFuture<SensorStreamCommandUpdate> future =
+                pendingRepliesByRequestId.computeIfAbsent(requestId, ignored -> new CompletableFuture<>());
+        try {
+            return future.get(Math.max(1L, timeout.toMillis()), TimeUnit.MILLISECONDS);
+        } catch (Exception error) {
+            pendingRepliesByRequestId.remove(requestId, future);
+            throw new IllegalStateException("Timed out waiting for sensor stream firmware reply", error);
+        }
+    }
+
+    public boolean hasFreshSnapshot(String deviceId, Instant notBefore, Duration maxAge) {
+        return latestSnapshot(deviceId).filter(snapshot -> {
+            Instant receivedAt = snapshot.receivedAt();
+            if (receivedAt == null) {
+                return false;
+            }
+            Instant now = Instant.now();
+            return !receivedAt.isBefore(notBefore) && Duration.between(receivedAt, now).compareTo(maxAge) <= 0;
+        }).isPresent();
+    }
+
+    public boolean awaitFreshSnapshot(String deviceId, Instant notBefore, Duration timeout, Duration maxAge) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(1L, timeout.toMillis()));
+        while (System.nanoTime() < deadline) {
+            if (hasFreshSnapshot(deviceId, notBefore, maxAge)) {
+                return true;
+            }
+            try {
+                Thread.sleep(25L);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return hasFreshSnapshot(deviceId, notBefore, maxAge);
     }
 
     public synchronized void markCalibrationOwned(String deviceId, String firmwareState) {

@@ -7,12 +7,14 @@ import lk.resq.localhub.model.firmware.CalibrationCommandResponse;
 import lk.resq.localhub.model.firmware.CalibrationStartRequest;
 import lk.resq.localhub.model.firmware.CalibrationState;
 import lk.resq.localhub.model.firmware.DeviceReadinessState;
+import lk.resq.localhub.model.firmware.SensorStreamCommandUpdate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
@@ -30,6 +32,7 @@ class CalibrationCommandServiceTest {
     private CommandRequestIdGenerator idGenerator;
     private CapturingCalibrationStreamService streamService;
     private CalibrationCommandService service;
+    private PermissiveSensorStreamService sensorStreamService;
 
     private CalibrationPersistenceRepository calRepo;
 
@@ -52,13 +55,14 @@ class CalibrationCommandServiceTest {
         registryService = new ManikinRegistryService(12);
         idGenerator = new CommandRequestIdGenerator("a4f18d2c");
         streamService = new CapturingCalibrationStreamService(readinessService);
+        sensorStreamService = new PermissiveSensorStreamService();
         CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
                 Path.of("target", "calibration-service-test-profile-" + UUID.randomUUID() + ".sqlite").toString()
         );
         profileRepository.initialize();
         CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
         CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
-        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService, calRepo, profileService, fingerprintService);
+        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService, calRepo, profileService, fingerprintService, sensorStreamService);
     }
 
     @Test
@@ -109,6 +113,8 @@ class CalibrationCommandServiceTest {
 
         assertThat(publisher.lastDeviceId).isEqualTo("M01");
         assertThat(publisher.lastRequestId).isEqualTo(response.requestId());
+        assertThat(publisher.lastTelemetryAction).isEqualTo("START");
+        assertThat(publisher.lastTelemetryRequestId).isNotBlank();
         CalibrationStartRequest expectedRequest = new CalibrationStartRequest(
                 13500, 20100, 15000, 15000, "adult-basic", 20, 3000,
                 null, null, null, null,
@@ -140,6 +146,24 @@ class CalibrationCommandServiceTest {
 
         DeviceReadinessState state = readinessService.getReadiness("M01");
         assertThat(state.calibrationState()).isEqualTo(CalibrationState.UNKNOWN);
+        assertThat(streamService.lastPublishedDeviceId).isNull();
+    }
+
+    @Test
+    void startCalibrationDoesNotPublishCalibrationWhenSensorModeStartIsRejected() {
+        registerDevice("M01");
+        sensorStreamService.rejectStart = true;
+
+        CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, "adult-basic", 20, 3000);
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Sensor acquisition mode could not start")
+                .hasMessageContaining("SENSOR_MODE_REQUIRED");
+
+        assertThat(publisher.lastTelemetryAction).isEqualTo("START");
+        assertThat(publisher.lastRequestId).isNull();
+        assertThat(publisher.lastStartRequest).isNull();
         assertThat(streamService.lastPublishedDeviceId).isNull();
     }
 
@@ -180,6 +204,8 @@ class CalibrationCommandServiceTest {
     private static final class CapturingPublisher extends MqttCommandPublisherService {
         private String lastDeviceId;
         private String lastRequestId;
+        private String lastTelemetryRequestId;
+        private String lastTelemetryAction;
         private CalibrationStartRequest lastStartRequest;
         private boolean shouldThrowOnPublish = false;
 
@@ -221,6 +247,50 @@ class CalibrationCommandServiceTest {
             this.lastDeviceId = deviceId;
             this.lastRequestId = requestId;
             return new FirmwareCommandPublishResult("topic", requestId, Map.of());
+        }
+
+        @Override
+        public FirmwareCommandPublishResult publishTelemetryControl(String deviceId, String action, Integer intervalMs) {
+            this.lastTelemetryAction = action;
+            this.lastTelemetryRequestId = "telemetry-start-1";
+            return new FirmwareCommandPublishResult("resq/" + deviceId + "/cmd/telemetry", lastTelemetryRequestId, Map.of("action", action));
+        }
+    }
+
+    private static final class PermissiveSensorStreamService extends SensorStreamService {
+        private boolean rejectStart;
+
+        @Override
+        public SensorStreamCommandUpdate awaitCommandReply(String deviceId, String requestId, Duration timeout) {
+            if (rejectStart) {
+                return new SensorStreamCommandUpdate(
+                        "sensor_stream_command",
+                        deviceId,
+                        requestId,
+                        "START",
+                        "NACK",
+                        "SENSOR_MODE_REQUIRED",
+                        "PAIRED_IDLE",
+                        "ERROR",
+                        Instant.now()
+                );
+            }
+            return new SensorStreamCommandUpdate(
+                    "sensor_stream_command",
+                    deviceId,
+                    requestId,
+                    "START",
+                    "ACK",
+                    null,
+                    "PAIRED_IDLE",
+                    "RUNNING",
+                    Instant.now()
+            );
+        }
+
+        @Override
+        public boolean awaitFreshSnapshot(String deviceId, Instant notBefore, Duration timeout, Duration maxAge) {
+            return true;
         }
     }
 }
