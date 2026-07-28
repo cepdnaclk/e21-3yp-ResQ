@@ -153,7 +153,7 @@ resq_state_t error_manager_run(network_config_t *network_config,
                          "BUTTON_1 short press in ERROR: retry/recover duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
                 if (mqtt_manager_is_connected() && network_config != NULL) {
-                    runtime_helpers_publish_command_result(
+                    runtime_helpers_publish_local_action_event(
                         network_config, RESQ_STATE_ERROR, "button/retry",
                         "ACK", "retry_error_recovery");
                 }
@@ -166,7 +166,7 @@ resq_state_t error_manager_run(network_config_t *network_config,
                          "BUTTON_2 short press in ERROR: flush configuration duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
                 if (mqtt_manager_is_connected() && network_config != NULL) {
-                    runtime_helpers_publish_command_result(
+                    runtime_helpers_publish_local_action_event(
                         network_config, RESQ_STATE_ERROR,
                         "button/provisioning", "ACK",
                         "clear_config_and_provision");

@@ -270,30 +270,38 @@ static esp_err_t enqueue_complete_command(const char *topic,
            command.payload_len);
 
   char request_id[MQTT_COMMAND_REQUEST_ID_MAX_LEN] = {0};
-  if (extract_command_request_id(payload, request_id, sizeof(request_id))) {
-    char cached_suffix[MQTT_MANAGER_TOPIC_MAX_LEN] = {0};
-    char cached_payload[MQTT_COMMAND_RESPONSE_MAX_LEN] = {0};
-    command_cache_result_t cache_result = command_cache_check_or_mark(
-        topic, request_id, cached_suffix, sizeof(cached_suffix), cached_payload,
-        sizeof(cached_payload));
-    if (cache_result == COMMAND_CACHE_DUPLICATE_COMPLETE) {
-      ESP_LOGI(TAG, "Replaying cached response for request_id=%s", request_id);
-      return mqtt_manager_publish_topic_json(cached_suffix, cached_payload);
-    }
-    if (cache_result == COMMAND_CACHE_DUPLICATE_PENDING) {
-      ESP_LOGI(TAG, "Ignoring in-flight duplicate request_id=%s", request_id);
-      return ESP_OK;
-    }
-    if (cache_result == COMMAND_CACHE_BUSY) {
-      ESP_LOGW(TAG, "MQTT deduplication cache busy; command not queued");
-      (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_BUSY");
-      return ESP_ERR_TIMEOUT;
-    }
-    if (cache_result == COMMAND_CACHE_ERROR) {
-      ESP_LOGE(TAG, "MQTT deduplication cache unavailable; command not queued");
-      (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_ERROR");
-      return ESP_ERR_INVALID_STATE;
-    }
+  if (!extract_command_request_id(payload, request_id, sizeof(request_id))) {
+    /*
+     * A reply cannot be correlated when the command supplies no usable
+     * identifier. Reject before queueing instead of executing a side effect
+     * and emitting an uncorrelated ACK/NACK.
+     */
+    ESP_LOGW(TAG, "Rejecting MQTT command without a valid request_id");
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  char cached_suffix[MQTT_MANAGER_TOPIC_MAX_LEN] = {0};
+  char cached_payload[MQTT_COMMAND_RESPONSE_MAX_LEN] = {0};
+  command_cache_result_t cache_result = command_cache_check_or_mark(
+      topic, request_id, cached_suffix, sizeof(cached_suffix), cached_payload,
+      sizeof(cached_payload));
+  if (cache_result == COMMAND_CACHE_DUPLICATE_COMPLETE) {
+    ESP_LOGI(TAG, "Replaying cached response for request_id=%s", request_id);
+    return mqtt_manager_publish_topic_json(cached_suffix, cached_payload);
+  }
+  if (cache_result == COMMAND_CACHE_DUPLICATE_PENDING) {
+    ESP_LOGI(TAG, "Ignoring in-flight duplicate request_id=%s", request_id);
+    return ESP_OK;
+  }
+  if (cache_result == COMMAND_CACHE_BUSY) {
+    ESP_LOGW(TAG, "MQTT deduplication cache busy; command not queued");
+    (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_BUSY");
+    return ESP_ERR_TIMEOUT;
+  }
+  if (cache_result == COMMAND_CACHE_ERROR) {
+    ESP_LOGE(TAG, "MQTT deduplication cache unavailable; command not queued");
+    (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_ERROR");
+    return ESP_ERR_INVALID_STATE;
   }
 
   QueueHandle_t target_queue = command_is_safety_critical(topic)
@@ -955,6 +963,37 @@ static esp_err_t mqtt_manager_publish_minimal_status(
   }
   xSemaphoreGive(s_status_mutex);
   return err;
+}
+
+esp_err_t mqtt_manager_cache_get_response_for_test(
+    const char *topic, const char *request_id, char *out_suffix,
+    size_t out_suffix_len, char *out_payload, size_t out_payload_len) {
+  if (topic == NULL || request_id == NULL || out_suffix == NULL ||
+      out_payload == NULL || topic[0] == '\0' || request_id[0] == '\0' ||
+      out_suffix_len == 0 || out_payload_len == 0 ||
+      s_command_cache_mutex == NULL ||
+      xSemaphoreTake(s_command_cache_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  mqtt_command_cache_entry_t *entry =
+      command_cache_find_locked(topic, request_id);
+  if (entry == NULL || !entry->completed) {
+    xSemaphoreGive(s_command_cache_mutex);
+    return ESP_ERR_NOT_FOUND;
+  }
+
+  int suffix_len = snprintf(out_suffix, out_suffix_len, "%s",
+                            entry->response_suffix);
+  int payload_len = snprintf(out_payload, out_payload_len, "%s",
+                             entry->response_payload);
+  xSemaphoreGive(s_command_cache_mutex);
+  if (suffix_len < 0 || payload_len < 0 ||
+      (size_t)suffix_len >= out_suffix_len ||
+      (size_t)payload_len >= out_payload_len) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  return ESP_OK;
 }
 
 esp_err_t mqtt_manager_publish_status_with_health(

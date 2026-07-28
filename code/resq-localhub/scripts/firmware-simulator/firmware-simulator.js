@@ -44,6 +44,8 @@ const ACTION_IDS = {
 
 const PRESSURE_CENTER_SCORE_THRESHOLD_PCT = 88;
 const PAUSE_CONDITION_THRESHOLD_S = 1;
+const COMMAND_CACHE_MAX_ENTRIES = 32;
+const COMMAND_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const DEFAULTS = {
   deviceId: process.env.DEVICE_ID || "M01",
@@ -90,6 +92,9 @@ class FirmwareSimulator {
     this.bootId = options.bootId || crypto.randomBytes(8).toString("hex");
     this.statusStateSeq = 0;
     this.lastStatusEffective = null;
+    this.commandCache = new Map();
+    this.commandExecutionCounts = new Map();
+    this.activeCommandCapture = null;
   }
 
   start() {
@@ -138,45 +143,135 @@ class FirmwareSimulator {
 
     const command = topic.slice(prefix.length);
     const payload = parseJson(payloadBuffer.toString("utf8"));
+    const requestId = stringOr(payload.request_id, stringOr(payload.command_id, ""));
     this.log(`command ${command} ${JSON.stringify(payload)}`);
 
-    switch (command) {
-      case "calibration/start":
-        this.handleCalibrationStart(payload);
-        break;
-      case "calibration/cancel":
-        this.handleCalibrationCancel(payload);
-        break;
-      case "session/start":
-        this.handleSessionStart(payload);
-        break;
-      case "session/stop":
-        this.handleSessionStop(payload);
-        break;
-      case "telemetry":
-        this.handleTelemetryControl(payload);
-        break;
-      case "debug":
-        this.handleDebug(payload);
-        break;
-      case "system/retry":
-      case "system/reset":
-        this.state = "PAIRED_IDLE";
-        this.lastErrorId = "00000";
-        this.publishEvent("events", {
-          event_id: EVENT_IDS.DEBUG_COMMAND_RESULT,
-          reply_id: payload.request_id,
-          status: "ACK",
-          state: this.state,
-          reason_id: "00000",
-          action_id: ACTION_IDS.NO_ACTION_REQUIRED,
-          ts_ms: this.tsMs(),
-        });
-        this.publishStatus();
-        break;
-      default:
-        this.log(`ignored unsupported command: ${command}`);
+    if (!requestId) {
+      this.publishCommandNack("", "REQUEST_ID_REQUIRED");
+      this.log(`rejected command without request_id: ${command}`);
+      return;
     }
+
+    payload.request_id = requestId;
+    this.expireCommandCache();
+    const cacheKey = `${command}\u0000${requestId}`;
+    const cached = this.commandCache.get(cacheKey);
+    if (cached?.state === "COMPLETE") {
+      cached.lastAccessedAt = Date.now();
+      cached.responses.forEach((response) => {
+        this.publish(response.suffix, response.payload, response.options);
+      });
+      this.log(`replayed command response ${command} request_id=${requestId}`);
+      return;
+    }
+    if (cached?.state === "PENDING") {
+      this.log(`suppressed in-flight duplicate ${command} request_id=${requestId}`);
+      return;
+    }
+    if (!this.reserveCommandCacheEntry(cacheKey, command, requestId)) {
+      this.publishCommandNack(requestId, "COMMAND_DEDUP_BUSY");
+      return;
+    }
+
+    this.commandExecutionCounts.set(
+      command,
+      (this.commandExecutionCounts.get(command) || 0) + 1,
+    );
+    this.activeCommandCapture = { requestId, responses: [] };
+    try {
+      switch (command) {
+        case "calibration/start":
+          this.handleCalibrationStart(payload);
+          break;
+        case "calibration/cancel":
+          this.handleCalibrationCancel(payload);
+          break;
+        case "session/start":
+          this.handleSessionStart(payload);
+          break;
+        case "session/stop":
+          this.handleSessionStop(payload);
+          break;
+        case "telemetry":
+          this.handleTelemetryControl(payload);
+          break;
+        case "debug":
+          this.handleDebug(payload);
+          break;
+        case "system/retry":
+        case "system/reset":
+        case "system/flush-config":
+          this.state = "PAIRED_IDLE";
+          this.lastErrorId = "00000";
+          this.publishEvent("events", {
+            event_id: EVENT_IDS.DEBUG_COMMAND_RESULT,
+            reply_id: requestId,
+            status: "ACK",
+            state: this.state,
+            reason_id: "00000",
+            action_id: ACTION_IDS.NO_ACTION_REQUIRED,
+            ts_ms: this.tsMs(),
+          });
+          this.publishStatus();
+          break;
+        default:
+          this.publishCommandNack(requestId, "UNKNOWN_COMMAND");
+          this.log(`rejected unsupported command: ${command}`);
+      }
+    } finally {
+      const completedAt = Date.now();
+      const entry = this.commandCache.get(cacheKey);
+      if (entry) {
+        entry.state = "COMPLETE";
+        entry.completedAt = completedAt;
+        entry.lastAccessedAt = completedAt;
+        entry.responses = this.activeCommandCapture.responses;
+      }
+      this.activeCommandCapture = null;
+    }
+  }
+
+  reserveCommandCacheEntry(cacheKey, command, requestId) {
+    if (this.commandCache.size >= COMMAND_CACHE_MAX_ENTRIES) {
+      const oldestComplete = [...this.commandCache.entries()]
+        .filter(([, entry]) => entry.state === "COMPLETE")
+        .sort((left, right) => left[1].completedAt - right[1].completedAt)[0];
+      if (!oldestComplete) {
+        return false;
+      }
+      this.commandCache.delete(oldestComplete[0]);
+    }
+    const now = Date.now();
+    this.commandCache.set(cacheKey, {
+      command,
+      requestId,
+      state: "PENDING",
+      createdAt: now,
+      lastAccessedAt: now,
+      responses: [],
+    });
+    return true;
+  }
+
+  expireCommandCache() {
+    const now = Date.now();
+    for (const [key, entry] of this.commandCache.entries()) {
+      if (entry.state === "COMPLETE" && now - entry.completedAt >= COMMAND_CACHE_TTL_MS) {
+        this.commandCache.delete(key);
+      }
+    }
+  }
+
+  publishCommandNack(replyId, reasonId) {
+    this.publishEvent("events", {
+      event_id: 1000,
+      reply_id: replyId,
+      status: "NACK",
+      state: this.state,
+      reason_id: reasonId,
+      action_id: ACTION_IDS.CHECK_SENSOR_AND_RETRY,
+      ts_ms: this.tsMs(),
+    });
   }
 
   handleCalibrationStart(payload) {
@@ -548,6 +643,16 @@ class FirmwareSimulator {
     }
     const topic = this.topic(suffix);
     const json = JSON.stringify(payload);
+    if (
+      this.activeCommandCapture
+      && payload.reply_id === this.activeCommandCapture.requestId
+    ) {
+      this.activeCommandCapture.responses.push({
+        suffix,
+        payload: JSON.parse(json),
+        options: { ...options },
+      });
+    }
     this.client.publish(topic, json, {
       qos: Number.isInteger(options.qos) ? options.qos : 0,
       retain: Boolean(options.retain),
@@ -790,6 +895,8 @@ function normalizeSessionMetric(metric) {
 }
 
 module.exports = {
+  COMMAND_CACHE_MAX_ENTRIES,
+  COMMAND_CACHE_TTL_MS,
   DEFAULTS,
   FirmwareSimulator,
   PAUSE_CONDITION_THRESHOLD_S,

@@ -233,7 +233,7 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
     char request_id[128] = {0};
     esp_err_t id_err = resq_command_extract_request_id(cmd->payload, request_id, sizeof(request_id));
     if (id_err != ESP_OK) {
-        request_id[0] = '\0';
+        return id_err;
     }
 
     /* Determine routing and event_id based on command suffix */
@@ -290,10 +290,8 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
         return identity_err;
     }
 
-    if (request_id[0] != '\0') {
-        (void)mqtt_manager_cache_command_response(cmd->topic, request_id,
-                                                  topic_suffix, payload);
-    }
+    (void)mqtt_manager_cache_command_response(cmd->topic, request_id,
+                                              topic_suffix, payload);
 
     if (!mqtt_manager_is_connected()) {
         cJSON_free(payload);
@@ -305,18 +303,17 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
     return publish_err;
 }
 
-esp_err_t runtime_helpers_publish_command_result(const network_config_t *network_config,
-                                                 resq_state_t state,
-                                                 const char *command,
-                                                 const char *status,
-                                                 const char *reason)
+esp_err_t runtime_helpers_publish_local_action_event(
+    const network_config_t *network_config, resq_state_t state,
+    const char *action, const char *status, const char *reason)
 {
     if (network_config == NULL) return ESP_ERR_INVALID_ARG;
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) return ESP_ERR_NO_MEM;
     cJSON_AddStringToObject(root, "device_id",
                            runtime_helpers_get_device_id(network_config));
-    cJSON_AddStringToObject(root, "command", command != NULL ? command : "");
+    cJSON_AddStringToObject(root, "source", "LOCAL_BUTTON");
+    cJSON_AddStringToObject(root, "action", action != NULL ? action : "");
     cJSON_AddStringToObject(root, "status", status != NULL ? status : "");
     cJSON_AddStringToObject(root, "reason", reason != NULL ? reason : "");
     cJSON_AddStringToObject(root, "state", resq_state_to_string(state));

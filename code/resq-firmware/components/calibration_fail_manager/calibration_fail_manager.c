@@ -106,7 +106,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                 esp_err_t retry_err =
                     calibration_manager_retry_last(network_config);
                 if (retry_err == ESP_OK) {
-                    runtime_helpers_publish_command_result(
+                    runtime_helpers_publish_local_action_event(
                         network_config, RESQ_STATE_CALIBRATION_FAIL,
                         "button/retry", "ACK", "retry_calibration");
                     return RESQ_STATE_CALIBRATING;
@@ -124,7 +124,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                     action = CAL_ACTION_WAIT_OR_CANCEL;
                 }
 
-                runtime_helpers_publish_command_result(
+                runtime_helpers_publish_local_action_event(
                     network_config, RESQ_STATE_CALIBRATION_FAIL,
                     "button/retry", "NACK", "retry_failed");
                 calibration_manager_publish_progress_event(
@@ -135,7 +135,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                          (unsigned long)button_event.duration_ms);
                 telemetry_publisher_stop_sensor_stream();
                 calibration_manager_drop_temporary_values();
-                runtime_helpers_publish_command_result(
+                runtime_helpers_publish_local_action_event(
                     network_config, RESQ_STATE_CALIBRATION_FAIL,
                     "button/idle", "ACK", "returning_to_paired_idle");
                 return RESQ_STATE_PAIRED_IDLE;

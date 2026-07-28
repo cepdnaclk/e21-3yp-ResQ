@@ -232,6 +232,8 @@ TEST_CASE("MQTT same request ID on different topics remains distinct",
 TEST_CASE("MQTT response completion updates matching cache entry",
           "[mqtt][dedup]") {
   const char *topic = "resq/node/cmd/session/start";
+  char cached_suffix[MQTT_MANAGER_TOPIC_MAX_LEN] = {0};
+  char cached_payload[640] = {0};
   TEST_ASSERT_EQUAL(ESP_OK, mqtt_manager_init());
   mqtt_manager_reset_command_cache_for_test();
   TEST_ASSERT_EQUAL(COMMAND_CACHE_NEW,
@@ -243,7 +245,26 @@ TEST_CASE("MQTT response completion updates matching cache entry",
       COMMAND_CACHE_DUPLICATE_COMPLETE,
       mqtt_manager_cache_check_for_test(topic, "complete-id"));
   TEST_ASSERT_EQUAL(
+      ESP_OK, mqtt_manager_cache_get_response_for_test(
+                  topic, "complete-id", cached_suffix, sizeof(cached_suffix),
+                  cached_payload, sizeof(cached_payload)));
+  TEST_ASSERT_EQUAL_STRING(RESQ_SUFFIX_DEBUG, cached_suffix);
+  TEST_ASSERT_EQUAL_STRING("{\"ok\":true}", cached_payload);
+  TEST_ASSERT_EQUAL(
       ESP_ERR_NOT_FOUND,
       mqtt_manager_cache_command_response(
           topic, "missing-id", RESQ_SUFFIX_DEBUG, "{\"ok\":true}"));
+}
+
+TEST_CASE("MQTT command without request ID is rejected before queueing",
+          "[mqtt][correlation]") {
+  const char *topic = "resq/node-1/cmd/session/start";
+  const char *payload = "{\"session_id\":\"S-001\"}";
+
+  prepare_command_fragment_test();
+  TEST_ASSERT_EQUAL(
+      ESP_ERR_INVALID_ARG,
+      mqtt_manager_handle_command_fragment_for_test(
+          topic, strlen(topic), payload, strlen(payload), strlen(payload), 0));
+  assert_command_queue_empty();
 }

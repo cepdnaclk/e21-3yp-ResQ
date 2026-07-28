@@ -5,6 +5,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const {
+  COMMAND_CACHE_MAX_ENTRIES,
+  COMMAND_CACHE_TTL_MS,
   DEFAULTS,
   FirmwareSimulator,
   PAUSE_CONDITION_THRESHOLD_S,
@@ -58,6 +60,13 @@ function simulatorHarness() {
     },
   };
   return { publications, simulator };
+}
+
+function sendCommand(simulator, command, payload) {
+  simulator.handleCommand(
+    simulator.topic(`cmd/${command}`),
+    Buffer.from(JSON.stringify(payload), "utf8"),
+  );
 }
 
 function depthFlagsConsistent(payload) {
@@ -275,6 +284,98 @@ test("final calibration result is qos one", () => {
     result: "PASS",
   });
   assert.equal(publications.at(-1).options.qos, 1);
+});
+
+test("duplicate commands replay correlated results without duplicate transitions", () => {
+  const cases = [
+    ["session/start", { session_id: "S-IDEMPOTENT" }],
+    ["session/stop", {}],
+    ["calibration/start", {}],
+    ["calibration/cancel", {}],
+    ["telemetry", { action: "START", interval_ms: 200 }],
+    ["telemetry", { action: "STOP" }],
+    ["debug", {}],
+    ["system/retry", {}],
+    ["system/reset", {}],
+    ["system/flush-config", {}],
+  ];
+
+  cases.forEach(([command, extra], index) => {
+    const { publications, simulator } = simulatorHarness();
+    simulator.startTelemetry = () => {};
+    simulator.stopTelemetry = () => {};
+    simulator.startManualTelemetry = () => {
+      simulator.manualTelemetryTimer = { active: true };
+    };
+    simulator.stopManualTelemetry = () => {
+      simulator.manualTelemetryTimer = null;
+    };
+    const requestId = `dedup-${index}`;
+    sendCommand(simulator, command, { request_id: requestId, ...extra });
+    const firstResults = publications.filter(
+      (entry) => entry.payload.reply_id === requestId,
+    ).map((entry) => ({
+      topic: entry.topic,
+      payload: entry.payload,
+      options: entry.options,
+    }));
+    const transitionCount = simulator.commandExecutionCounts.get(command);
+
+    sendCommand(simulator, command, { request_id: requestId, ...extra });
+    const allResults = publications.filter(
+      (entry) => entry.payload.reply_id === requestId,
+    ).map((entry) => ({
+      topic: entry.topic,
+      payload: entry.payload,
+      options: entry.options,
+    }));
+
+    assert.equal(transitionCount, 1, `${command} must execute once`);
+    assert.equal(simulator.commandExecutionCounts.get(command), 1);
+    assert.ok(firstResults.length >= 1, `${command} must publish a correlated result`);
+    assert.deepEqual(allResults.slice(firstResults.length), firstResults);
+    simulator.clearCalibrationTimers();
+  });
+});
+
+test("request IDs are scoped by command and missing IDs never execute", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.startTelemetry = () => {};
+  simulator.stopTelemetry = () => {};
+
+  sendCommand(simulator, "session/start", {
+    request_id: "shared-id",
+    session_id: "S-001",
+  });
+  sendCommand(simulator, "session/stop", { request_id: "shared-id" });
+  assert.equal(simulator.commandExecutionCounts.get("session/start"), 1);
+  assert.equal(simulator.commandExecutionCounts.get("session/stop"), 1);
+
+  const executionCount = [...simulator.commandExecutionCounts.values()]
+    .reduce((total, value) => total + value, 0);
+  sendCommand(simulator, "debug", {});
+  assert.equal(
+    [...simulator.commandExecutionCounts.values()]
+      .reduce((total, value) => total + value, 0),
+    executionCount,
+  );
+  const nack = publications.at(-1).payload;
+  assert.equal(nack.reply_id, "");
+  assert.equal(nack.status, "NACK");
+  assert.equal(nack.reason_id, "REQUEST_ID_REQUIRED");
+});
+
+test("simulator command cache is bounded and documents its TTL", () => {
+  const { simulator } = simulatorHarness();
+  simulator.handleDebug = (payload) => simulator.publishCommandNack(
+    payload.request_id,
+    "TEST_COMPLETE",
+  );
+  for (let index = 0; index < COMMAND_CACHE_MAX_ENTRIES + 5; index += 1) {
+    sendCommand(simulator, "debug", { request_id: `bounded-${index}` });
+  }
+  assert.equal(simulator.commandCache.size, COMMAND_CACHE_MAX_ENTRIES);
+  assert.equal(COMMAND_CACHE_TTL_MS, 5 * 60 * 1000);
 });
 
 test("simulator status is minimal qos-one retained and deduplicated", () => {
