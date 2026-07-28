@@ -20,6 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class LiveStreamService {
@@ -30,6 +31,9 @@ public class LiveStreamService {
     private final CopyOnWriteArrayList<SseEmitter> instructorEmitters = new CopyOnWriteArrayList<>();
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> sessionEmittersBySessionId = new ConcurrentHashMap<>();
     private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
+    private volatile List<ManikinLiveSummary> lastInstructorPayload;
+    private final ConcurrentHashMap<String, SessionLiveView> lastSessionPayloadBySessionId = new ConcurrentHashMap<>();
+    private final AtomicLong suppressedDuplicateUpdateCount = new AtomicLong();
 
     @PostConstruct
     public void startHeartbeat() {
@@ -61,12 +65,22 @@ public class LiveStreamService {
     }
 
     public void publishInstructorLive(List<ManikinLiveSummary> payload) {
+        List<ManikinLiveSummary> boundedPayload = payload == null ? List.of() : List.copyOf(payload);
+        if (boundedPayload.equals(lastInstructorPayload)) {
+            suppressedDuplicateUpdateCount.incrementAndGet();
+            return;
+        }
+        lastInstructorPayload = boundedPayload;
         for (SseEmitter emitter : instructorEmitters) {
-            sendEvent(emitter, "manikins-live", payload, () -> instructorEmitters.remove(emitter));
+            sendEvent(emitter, "manikins-live", boundedPayload, () -> instructorEmitters.remove(emitter));
         }
     }
 
     public void publishSessionLive(String sessionId, SessionLiveView payload) {
+        if (payload != null && payload.equals(lastSessionPayloadBySessionId.put(sessionId, payload))) {
+            suppressedDuplicateUpdateCount.incrementAndGet();
+            return;
+        }
         CopyOnWriteArrayList<SseEmitter> emitters = sessionEmittersBySessionId.get(sessionId);
         if (emitters == null || emitters.isEmpty()) {
             return;
@@ -75,6 +89,10 @@ public class LiveStreamService {
         for (SseEmitter emitter : emitters) {
             sendEvent(emitter, "session-live", payload, () -> removeSessionEmitter(sessionId, emitter));
         }
+    }
+
+    long suppressedDuplicateUpdateCount() {
+        return suppressedDuplicateUpdateCount.get();
     }
 
     private void sendHeartbeats() {
@@ -129,6 +147,7 @@ public class LiveStreamService {
         emitters.remove(emitter);
         if (emitters.isEmpty()) {
             sessionEmittersBySessionId.remove(sessionId, emitters);
+            lastSessionPayloadBySessionId.remove(sessionId);
         }
     }
 }

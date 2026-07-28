@@ -21,7 +21,6 @@ export type LiveClientUpdate = {
   actionId?: number | null;
   progressId?: number | null;
   eventId?: number | null;
-  debugRaw?: unknown;
 };
 
 export function isLiveUpdateForSelection(
@@ -83,7 +82,6 @@ export function toLiveClientUpdate(raw: unknown): LiveClientUpdate | null {
     actionId: numberOrNull(raw.actionId) ?? numberOrNull(raw.calibrationActionId) ?? numberOrNull(raw.action_id) ?? firmware?.actionId ?? null,
     progressId: numberOrNull(raw.progressId) ?? numberOrNull(raw.calibrationProgressId) ?? numberOrNull(raw.progress_id) ?? firmware?.progressId ?? null,
     eventId: numberOrNull(raw.eventId) ?? numberOrNull(raw.event_id) ?? firmware?.eventId ?? null,
-    debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
   };
 }
 
@@ -183,8 +181,6 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
           raw.pressure_balance_pct ??
           firmware?.pressureBalanceScorePct,
       ),
-      rawPayload: raw,
-      debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
     },
     warnings,
   };

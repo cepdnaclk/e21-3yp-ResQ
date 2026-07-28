@@ -53,7 +53,6 @@ class MinimalMqttContractFixtureTest {
         assertThat(minimal.value().tsMs()).isEqualTo(123456L);
         assertThat(legacy.ok()).isTrue();
         assertThat(legacy.value().sessionId()).isEqualTo("S-LEGACY");
-        assertThat(legacy.value().debugRaw()).isNotNull();
         assertThat(fieldNames(fixtures.path("minimal"))).containsExactlyInAnyOrderElementsOf(requiredFamilies);
         assertThat(fieldNames(fixtures.path("legacyFull"))).containsExactlyInAnyOrderElementsOf(requiredFamilies);
     }
@@ -140,8 +139,8 @@ class MinimalMqttContractFixtureTest {
         fixtures.at("/publicDtoCoverage/sessionMetricRequired").forEach(field ->
                 assertThat(metricFields).contains(field.asText())
         );
-        assertThat(metricFields).contains("debugRaw");
-        assertThat(fixtures.at("/publicDtoCoverage/pendingRemoval/0").asText()).isEqualTo("debugRaw");
+        assertThat(metricFields).doesNotContain("debugRaw");
+        assertThat(fixtures.at("/publicDtoCoverage/pendingRemoval")).isEmpty();
     }
 
     @Test

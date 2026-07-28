@@ -40,7 +40,6 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.value().validCompressionCount()).isEqualTo(16);
         assertThat(result.value().handPlacement()).isEqualTo("CENTER");
         assertThat(result.value().sourceMode()).isEqualTo("calibration");
-        assertThat(result.value().debugRaw()).isNotNull();
     }
 
     @Test
@@ -87,7 +86,6 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.value().pressureBalanceScorePct()).isEqualTo(92.9);
         assertThat(result.value().flags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
         assertThat(result.value().tsMs()).isEqualTo(100432L);
-        assertThat(result.value().debugRaw()).isNotNull();
     }
 
     @Test

@@ -74,8 +74,6 @@ export type LiveMetricPayload = {
   actionId?: number | null;
   progressId?: number | null;
   sourceMode?: LiveMetricSourceMode;
-  rawPayload?: unknown;
-  debugRaw?: unknown;
 };
 
 export type LiveFallbackSnapshot = {

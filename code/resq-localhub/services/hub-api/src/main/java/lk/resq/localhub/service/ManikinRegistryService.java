@@ -136,10 +136,6 @@ public class ManikinRegistryService {
             state.depthSource = firstTextWithFallback(payload, state.depthSource, "depthSource", "depth_source", "sourceMode", "source_mode");
 
             state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
-            Object debugRaw = jsonValue(payload.get("debugRaw"));
-            if (debugRaw == null && isSensorStreamTelemetry(payload)) {
-                debugRaw = jsonValue(payload);
-            }
             state.latestMetric = new LiveMetricPayload(
                     firstText(payload, "deviceId", "device_id", state.deviceId),
                     state.manikinId,
@@ -166,8 +162,7 @@ public class ManikinRegistryService {
                     firstText(payload, "handPlacement", "hand_placement", null),
                     jsonValue(payload.get("flags")),
                     state.pressureBalanceScorePct,
-                    firstTextWithFallback(payload, state.depthSource, "sourceMode", "source_mode", "depthSource", "depth_source"),
-                    debugRaw
+                    firstTextWithFallback(payload, state.depthSource, "sourceMode", "source_mode", "depthSource", "depth_source")
             );
             indexSession(state);
         });

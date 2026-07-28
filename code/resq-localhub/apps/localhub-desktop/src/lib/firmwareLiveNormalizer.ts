@@ -24,8 +24,6 @@ export type FirmwareLiveFields = {
   flags: string | string[] | null;
   tsMs: number | null;
   timestamp: string | number | null;
-  debugRaw: unknown;
-  rawPayload: Record<string, unknown>;
 };
 
 export function normalizeFirmwareLivePayload(raw: unknown): FirmwareLiveFields | null {
@@ -62,8 +60,6 @@ export function normalizeFirmwareLivePayload(raw: unknown): FirmwareLiveFields |
   const flags = flagsOrNull(rawPayload.flags);
   const tsMs = intOrNull(rawPayload.tsMs ?? rawPayload.ts_ms);
   const timestamp = timestampOrNull(rawPayload.timestamp);
-  const debugRaw = rawPayload.debugRaw ?? rawPayload.debug_raw ?? rawPayload;
-
   return {
     deviceId,
     sessionId,
@@ -88,8 +84,6 @@ export function normalizeFirmwareLivePayload(raw: unknown): FirmwareLiveFields |
     flags,
     tsMs,
     timestamp,
-    debugRaw,
-    rawPayload,
   };
 }
 

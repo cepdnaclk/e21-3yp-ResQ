@@ -20,7 +20,6 @@ public record LiveMetricPayload(
         String handPlacement,
         Object flags,
         Double pressureBalanceScorePct,
-        String sourceMode,
-        Object debugRaw
+        String sourceMode
 ) {
 }

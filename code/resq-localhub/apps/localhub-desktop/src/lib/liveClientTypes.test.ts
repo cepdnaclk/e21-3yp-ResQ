@@ -17,7 +17,6 @@ describe("live telemetry normalization", () => {
       handPlacement: "CENTER",
       flags: ["DEPTH_OK", "RATE_OK", "RECOIL_OK"],
       sourceMode: "simulator",
-      debugRaw: { hallRaw: 3420 },
     });
 
     expect(result.ok).toBe(true);
@@ -37,8 +36,9 @@ describe("live telemetry normalization", () => {
       handPlacement: "CENTER",
       flags: ["DEPTH_OK", "RATE_OK", "RECOIL_OK"],
       sourceMode: "simulator",
-      debugRaw: { hallRaw: 3420 },
     });
+    expect(result.value).not.toHaveProperty("debugRaw");
+    expect(result.value).not.toHaveProperty("rawPayload");
   });
 
   it("converts safe legacy simulator fields without requiring raw values in the UI", () => {
