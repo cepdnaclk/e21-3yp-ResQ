@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { FirmwareSimulator } = require("./firmware-simulator.js");
+const { DEFAULTS, FirmwareSimulator } = require("./firmware-simulator.js");
 
 const localHubRoot = path.resolve(__dirname, "../..");
 const repositoryRoot = path.resolve(localHubRoot, "../..");
@@ -152,4 +152,41 @@ test("manual telemetry startup does not create duplicate status", () => {
   const after = publications.filter((entry) => entry.topic.endsWith("/status")).length;
   simulator.stopManualTelemetry();
   assert.ok(after - before <= 1);
+});
+
+test("simulator heartbeat is minimal and uses the five-second default", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.publishHeartbeat();
+  const heartbeat = publications.at(-1);
+  assert.ok(heartbeat.topic.endsWith("/heartbeat"));
+  assert.equal(DEFAULTS.heartbeatIntervalMs, 5000);
+  assert.deepEqual(Object.keys(heartbeat.payload).sort(), [
+    "calibrated",
+    "sensor_running",
+    "session_active",
+    "state",
+    "ts_ms",
+    "uptime_ms",
+  ]);
+  assert.equal(heartbeat.payload.uptime_ms, heartbeat.payload.ts_ms);
+  assert.equal(heartbeat.payload.device_id, undefined);
+  assert.equal(heartbeat.payload.ip, undefined);
+  assert.equal(heartbeat.payload.wifi_connected, undefined);
+  assert.equal(heartbeat.options.retain, false);
+});
+
+test("heartbeat pauses while disconnected and resumes without status traffic", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.client.connected = false;
+  simulator.publishHeartbeat();
+  assert.equal(publications.length, 0);
+
+  simulator.client.connected = true;
+  simulator.publishHeartbeat();
+  assert.equal(publications.length, 1);
+  assert.ok(publications[0].topic.endsWith("/heartbeat"));
+  assert.equal(
+    publications.filter((entry) => entry.topic.endsWith("/status")).length,
+    0,
+  );
 });

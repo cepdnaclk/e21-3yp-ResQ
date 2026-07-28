@@ -17,6 +17,9 @@ extern "C" {
 #define RESQ_STATUS_LAST_ERROR_ID_LEN 5
 #define RESQ_STATUS_BOOT_ID_LEN 16
 #define RESQ_STATUS_SESSION_ID_MAX_LEN 64
+#ifndef RESQ_HEARTBEAT_INTERVAL_MS
+#define RESQ_HEARTBEAT_INTERVAL_MS 5000
+#endif
 
 typedef struct {
   resq_state_t state;
@@ -28,6 +31,16 @@ typedef struct {
   uint32_t state_seq;
   int64_t ts_ms;
 } resq_status_contract_t;
+
+typedef struct {
+  resq_state_t state;
+  bool session_active;
+  bool sensor_running;
+  bool calibrated;
+  /* Compatibility alias. ts_ms is the canonical monotonic timestamp. */
+  int64_t uptime_ms;
+  int64_t ts_ms;
+} resq_heartbeat_contract_t;
 
 /**
  * Build the locked minimal retained-status payload.
@@ -45,6 +58,16 @@ esp_err_t resq_mqtt_contract_build_status(
 bool resq_mqtt_contract_status_equivalent(
     const resq_status_contract_t *left,
     const resq_status_contract_t *right);
+
+esp_err_t resq_mqtt_contract_build_heartbeat(
+    const resq_heartbeat_contract_t *heartbeat, char **out_payload);
+
+/**
+ * Return the next stable heartbeat deadline. A late caller advances by whole
+ * intervals instead of scheduling relative to completion time.
+ */
+uint32_t resq_mqtt_contract_next_heartbeat_deadline(
+    uint32_t previous_deadline_ms, uint32_t now_ms, uint32_t interval_ms);
 
 #ifdef __cplusplus
 }

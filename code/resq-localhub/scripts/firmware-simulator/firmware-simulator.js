@@ -49,7 +49,7 @@ const DEFAULTS = {
   profileId: process.env.PROFILE_ID || "adult-basic",
   calibrationMode: process.env.CALIBRATION_MODE || "pass",
   telemetryIntervalMs: numberFromEnv("TELEMETRY_INTERVAL_MS", 200),
-  heartbeatIntervalMs: numberFromEnv("HEARTBEAT_INTERVAL_MS", 1000),
+  heartbeatIntervalMs: numberFromEnv("HEARTBEAT_INTERVAL_MS", 5000),
   exitAfterMs: numberFromEnv("EXIT_AFTER_MS", 0),
 };
 
@@ -420,17 +420,15 @@ class FirmwareSimulator {
   }
 
   publishHeartbeat() {
+    const nowMs = this.tsMs();
     this.publish("heartbeat", {
       state: this.state,
-      wifi_connected: true,
-      mqtt_connected: true,
-      backend_registered: true,
       session_active: this.sessionActive,
       sensor_running: this.sessionActive || Boolean(this.manualTelemetryTimer),
-      session_id: this.sessionActive ? this.currentSessionId : "",
       calibrated: this.calibrated,
-      uptime_ms: this.tsMs(),
-      ts_ms: this.tsMs(),
+      // Compatibility alias; ts_ms is the canonical monotonic timestamp.
+      uptime_ms: nowMs,
+      ts_ms: nowMs,
     });
   }
 

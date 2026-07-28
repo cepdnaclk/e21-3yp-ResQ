@@ -22,71 +22,6 @@
 
 static const char *TAG = "mqtt_manager";
 
-static void add_io_mode_fields(cJSON *root)
-{
-  bool pressure_enabled = io_mode_manager_is_sensor();
-  cJSON_AddStringToObject(root, "io_mode",
-                         io_mode_to_string(io_mode_manager_get()));
-  cJSON_AddBoolToObject(root, "pressure_sensor_enabled", pressure_enabled);
-}
-
-static const char *
-calibration_pressure_mode_to_string(calibration_pressure_mode_t mode) {
-  switch (mode) {
-  case CALIBRATION_PRESSURE_REQUIRED:
-    return "REQUIRED";
-  case CALIBRATION_PRESSURE_OPTIONAL:
-    return "OPTIONAL";
-  case CALIBRATION_HALL_ONLY:
-    return "HALL_ONLY";
-  default:
-    return "OPTIONAL";
-  }
-}
-
-static bool
-calibration_pressure_kpa_ready(
-    const calibration_config_t *calibration,
-    const sensor_runtime_health_t *runtime_health) {
-  return calibration != NULL && calibration->calibrated &&
-         runtime_health != NULL && runtime_health->pressure_current_valid &&
-         !runtime_health->pressure_temporarily_degraded &&
-         calibration->pressure_policy != CALIBRATION_HALL_ONLY &&
-         calibration->pressure_0_baseline != 0 &&
-         calibration->pressure_1_baseline != 0 &&
-         calibration->pressure_2_baseline != 0 &&
-         calibration->pressure_0_kpa_per_count > 0.0f &&
-         calibration->pressure_1_kpa_per_count > 0.0f &&
-         calibration->pressure_2_kpa_per_count > 0.0f;
-}
-
-static bool calibration_hall_mm_ready(
-    const calibration_config_t *calibration,
-    const sensor_runtime_health_t *runtime_health) {
-  return calibration != NULL && calibration->calibrated &&
-         runtime_health != NULL && runtime_health->hall_current_valid &&
-         calibration->hall_baseline > 0 &&
-         calibration->hall_range_raw > 0 && calibration->full_depth_mm > 0.0f &&
-         (calibration->hall_direction == 1 ||
-          calibration->hall_direction == -1);
-}
-
-static void
-add_conversion_readiness_fields(cJSON *root,
-                                const calibration_config_t *calibration,
-                                const sensor_runtime_health_t *runtime_health) {
-  bool pressure_ready =
-      calibration_pressure_kpa_ready(calibration, runtime_health);
-  bool hall_ready = calibration_hall_mm_ready(calibration, runtime_health);
-
-  cJSON_AddNumberToObject(root, "full_depth_mm",
-                          calibration ? calibration->full_depth_mm : 0.0f);
-  cJSON_AddBoolToObject(root, "pressure_kpa_calibrated", pressure_ready);
-  cJSON_AddBoolToObject(root, "hall_mm_calibrated", hall_ready);
-  cJSON_AddBoolToObject(root, "pressure_kpa_valid", pressure_ready);
-  cJSON_AddBoolToObject(root, "hall_mm_valid", hall_ready);
-}
-
 /* Topic model centralized in mqtt_topics.h */
 #include "mqtt_topics.h"
 
@@ -1107,6 +1042,10 @@ mqtt_manager_publish_heartbeat_with_health(
     const sensor_runtime_health_t *runtime_health, resq_state_t state,
     bool session_active, bool sensor_running, const char *session_id,
     const char *ip, int rssi) {
+  (void)runtime_health;
+  (void)session_id;
+  (void)ip;
+  (void)rssi;
   if (!mqtt_connected_load() || network_config == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -1117,68 +1056,23 @@ mqtt_manager_publish_heartbeat_with_health(
       sizeof(topic));
   if (topic_err != ESP_OK) return topic_err;
 
-  cJSON *root = cJSON_CreateObject();
-  if (!root)
-    return ESP_ERR_NO_MEM;
-
-  cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
-  cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
-  add_io_mode_fields(root);
-
-  bool wifi_connected = (ip && ip[0] != '\0');
-  cJSON_AddBoolToObject(root, "wifi_connected", wifi_connected);
-  cJSON_AddBoolToObject(root, "mqtt_connected", mqtt_connected_load());
-
-  bool backend_registered = (s_device_id[0] != '\0');
-  cJSON_AddBoolToObject(root, "backend_registered", backend_registered);
-
-  cJSON_AddBoolToObject(root, "session_active", session_active);
-  cJSON_AddBoolToObject(root, "sensor_running",
-                        io_mode_manager_is_sensor() && sensor_running);
-  cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
-
-  bool calibrated = io_mode_manager_is_sensor() &&
-                    calibration_config && calibration_config->calibrated;
-  cJSON_AddBoolToObject(root, "calibrated", calibrated);
-  if (calibration_config) {
-    cJSON_AddStringToObject(
-        root, "pressure_mode",
-        calibration_pressure_mode_to_string(calibration_config->pressure_mode));
-    cJSON_AddBoolToObject(root, "pressure_degraded",
-                          runtime_health != NULL &&
-                              runtime_health->pressure_temporarily_degraded);
-    cJSON_AddBoolToObject(root, "using_last_stable_pressure",
-                          runtime_health != NULL &&
-                              runtime_health->using_last_stable_pressure);
-    cJSON_AddBoolToObject(root, "pressure_valid",
-                          io_mode_manager_is_sensor() &&
-                              runtime_health != NULL &&
-                              runtime_health->pressure_current_valid);
-    cJSON_AddBoolToObject(root, "hall_valid",
-                          runtime_health != NULL &&
-                              runtime_health->hall_current_valid);
-    add_conversion_readiness_fields(root, calibration_config, runtime_health);
-    cJSON_AddBoolToObject(root, "ready_for_session",
-                          calibrated &&
-                              calibration_hall_mm_ready(calibration_config,
-                                                        runtime_health));
+  int64_t now_ms = esp_timer_get_time() / 1000;
+  resq_heartbeat_contract_t heartbeat = {
+      .state = state,
+      .session_active = session_active,
+      .sensor_running = io_mode_manager_is_sensor() && sensor_running,
+      .calibrated = io_mode_manager_is_sensor() &&
+                    calibration_config != NULL &&
+                    calibration_config->calibrated,
+      .uptime_ms = now_ms,
+      .ts_ms = now_ms,
+  };
+  char *payload = NULL;
+  esp_err_t ret =
+      resq_mqtt_contract_build_heartbeat(&heartbeat, &payload);
+  if (ret == ESP_OK) {
+    ret = publish_to_topic(topic, payload, 0, 0);
   }
-
-  cJSON_AddStringToObject(root, "ip", ip ? ip : "");
-  cJSON_AddNumberToObject(root, "rssi", rssi);
-
-  int64_t uptime_ms = esp_timer_get_time() / 1000;
-  cJSON_AddNumberToObject(root, "uptime_ms", uptime_ms);
-
-  int64_t ts_ms = esp_timer_get_time() / 1000;
-  cJSON_AddNumberToObject(root, "ts_ms", ts_ms);
-
-  char *payload = cJSON_PrintUnformatted(root);
-  cJSON_Delete(root);
-  if (!payload)
-    return ESP_ERR_NO_MEM;
-
-  esp_err_t ret = publish_state_json_to_topic(topic, payload, 0, 0);
   cJSON_free(payload);
   return ret;
 }

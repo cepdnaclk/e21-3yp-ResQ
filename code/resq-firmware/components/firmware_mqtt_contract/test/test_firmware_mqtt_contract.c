@@ -139,3 +139,53 @@ TEST_CASE("status transport policy remains qos one and retained",
   TEST_ASSERT_EQUAL(1, RESQ_STATUS_QOS);
   TEST_ASSERT_TRUE(RESQ_STATUS_RETAIN);
 }
+
+TEST_CASE("heartbeat contract contains only minimal liveness fields",
+          "[mqtt-contract][heartbeat]") {
+  resq_heartbeat_contract_t heartbeat = {
+      .state = RESQ_STATE_READY_FOR_SESSION,
+      .session_active = false,
+      .sensor_running = false,
+      .calibrated = true,
+      .uptime_ms = 373044,
+      .ts_ms = 373044,
+  };
+  char *payload = NULL;
+  TEST_ASSERT_EQUAL(
+      ESP_OK, resq_mqtt_contract_build_heartbeat(&heartbeat, &payload));
+  cJSON *root = cJSON_Parse(payload);
+  TEST_ASSERT_NOT_NULL(root);
+  TEST_ASSERT_EQUAL(6, cJSON_GetArraySize(root));
+  TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(root, "device_id"));
+  TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(root, "ip"));
+  TEST_ASSERT_NULL(
+      cJSON_GetObjectItemCaseSensitive(root, "wifi_connected"));
+  TEST_ASSERT_NULL(
+      cJSON_GetObjectItemCaseSensitive(root, "mqtt_connected"));
+  TEST_ASSERT_NULL(
+      cJSON_GetObjectItemCaseSensitive(root, "backend_registered"));
+  TEST_ASSERT_NULL(
+      cJSON_GetObjectItemCaseSensitive(root, "pressure_valid"));
+  TEST_ASSERT_EQUAL_INT64(
+      373044,
+      (int64_t)cJSON_GetObjectItemCaseSensitive(root, "uptime_ms")->valuedouble);
+  TEST_ASSERT_EQUAL_INT64(
+      373044,
+      (int64_t)cJSON_GetObjectItemCaseSensitive(root, "ts_ms")->valuedouble);
+  cJSON_Delete(root);
+  cJSON_free(payload);
+}
+
+TEST_CASE("heartbeat cadence has one five-second source of truth",
+          "[mqtt-contract][heartbeat][cadence]") {
+  TEST_ASSERT_EQUAL_UINT32(5000, RESQ_HEARTBEAT_INTERVAL_MS);
+  TEST_ASSERT_EQUAL_UINT32(
+      15000,
+      resq_mqtt_contract_next_heartbeat_deadline(10000, 12000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(
+      25000,
+      resq_mqtt_contract_next_heartbeat_deadline(10000, 22000, 5000));
+  TEST_ASSERT_EQUAL_UINT32(
+      27000,
+      resq_mqtt_contract_next_heartbeat_deadline(0, 22000, 5000));
+}

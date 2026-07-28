@@ -24,6 +24,7 @@
 #include "cpr_metrics.h"
 #include "error_manager.h"
 #include "firmware_bootstrap.h"
+#include "firmware_mqtt_contract.h"
 #include "firmware_state_machine.h"
 #include "hx710.h"
 #include "io_mode_manager.h"
@@ -41,7 +42,6 @@
 #include "wifi_manager.h"
 
 #define MAIN_LOOP_DELAY_MS 100
-#define HEARTBEAT_INTERVAL_MS 5000
 #define HEARTBEAT_TASK_STACK_SIZE 3072
 #define HEARTBEAT_TASK_PRIORITY 3
 
@@ -319,11 +319,24 @@ static void get_heartbeat_session(bool *active,
     session_id[session_id_len - 1] = '\0';
 }
 
+static void heartbeat_wait_for_next(uint32_t *next_deadline_ms)
+{
+    uint32_t now_ms =
+        (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    *next_deadline_ms = resq_mqtt_contract_next_heartbeat_deadline(
+        *next_deadline_ms, now_ms, RESQ_HEARTBEAT_INTERVAL_MS);
+    uint32_t wait_ms = (int32_t)(*next_deadline_ms - now_ms) > 0
+        ? *next_deadline_ms - now_ms
+        : 0;
+    (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait_ms));
+}
+
 static void heartbeat_task(void *arg)
 {
     (void)arg;
     task_diagnostics_record_stack_watermark("heartbeat");
     xEventGroupSetBits(s_heartbeat_events, HEARTBEAT_STARTED_BIT);
+    uint32_t next_deadline_ms = 0;
 
     while ((xEventGroupGetBits(s_heartbeat_events) &
             HEARTBEAT_STOP_REQUESTED_BIT) == 0) {
@@ -332,7 +345,7 @@ static void heartbeat_task(void *arg)
             if (xSemaphoreTake(s_heartbeat_snapshot_mutex,
                                pdMS_TO_TICKS(100)) != pdTRUE) {
                 ESP_LOGW(TAG, "Unable to read heartbeat state snapshot");
-                ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
+                heartbeat_wait_for_next(&next_deadline_ms);
                 continue;
             }
             snapshot = s_heartbeat_snapshot;
@@ -395,7 +408,7 @@ static void heartbeat_task(void *arg)
         }
 
         task_diagnostics_record_stack_watermark("heartbeat");
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
+        heartbeat_wait_for_next(&next_deadline_ms);
     }
 
     task_diagnostics_record_stack_watermark("heartbeat");

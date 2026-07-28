@@ -54,3 +54,48 @@ bool resq_mqtt_contract_status_equivalent(
          strcmp(left->boot_id, right->boot_id) == 0 &&
          left->state_seq == right->state_seq;
 }
+
+esp_err_t resq_mqtt_contract_build_heartbeat(
+    const resq_heartbeat_contract_t *heartbeat, char **out_payload) {
+  if (heartbeat == NULL || out_payload == NULL ||
+      heartbeat->uptime_ms < 0 || heartbeat->ts_ms < 0) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  *out_payload = NULL;
+
+  cJSON *root = cJSON_CreateObject();
+  if (root == NULL) {
+    return ESP_ERR_NO_MEM;
+  }
+  cJSON_AddStringToObject(root, "state",
+                         resq_state_to_string(heartbeat->state));
+  cJSON_AddBoolToObject(root, "session_active",
+                        heartbeat->session_active);
+  cJSON_AddBoolToObject(root, "sensor_running",
+                        heartbeat->sensor_running);
+  cJSON_AddBoolToObject(root, "calibrated", heartbeat->calibrated);
+  cJSON_AddNumberToObject(root, "uptime_ms", heartbeat->uptime_ms);
+  cJSON_AddNumberToObject(root, "ts_ms", heartbeat->ts_ms);
+
+  *out_payload = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+  return *out_payload == NULL ? ESP_ERR_NO_MEM : ESP_OK;
+}
+
+uint32_t resq_mqtt_contract_next_heartbeat_deadline(
+    uint32_t previous_deadline_ms, uint32_t now_ms, uint32_t interval_ms) {
+  if (interval_ms == 0) {
+    return now_ms;
+  }
+  if (previous_deadline_ms == 0) {
+    return now_ms + interval_ms;
+  }
+
+  uint32_t next = previous_deadline_ms + interval_ms;
+  if ((int32_t)(now_ms - next) < 0) {
+    return next;
+  }
+  uint32_t elapsed = now_ms - previous_deadline_ms;
+  uint32_t intervals = elapsed / interval_ms + 1;
+  return previous_deadline_ms + intervals * interval_ms;
+}
