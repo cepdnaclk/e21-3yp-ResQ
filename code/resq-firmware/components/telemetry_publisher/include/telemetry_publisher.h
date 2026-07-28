@@ -42,8 +42,7 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
                                                      char *out_payload,
                                                      size_t out_payload_len);
 
-esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
-                                                          resq_state_t state,
+esp_err_t telemetry_publisher_build_sensor_stream_payload(resq_state_t state,
                                                           const sensor_raw_sample_t *raw,
                                                           const sensor_converted_sample_t *converted,
                                                           uint32_t interval_ms,

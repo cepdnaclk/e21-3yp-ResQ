@@ -93,6 +93,7 @@
       "ts_ms": 123456
     },
     "debugSnapshot": {
+      "reply_id": "req-debug-001",
       "source": "DIRECT_SENSOR_SNAPSHOT",
       "pressure_0_raw": 1000,
       "pressure_1_raw": 1100,

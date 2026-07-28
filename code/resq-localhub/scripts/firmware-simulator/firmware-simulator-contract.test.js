@@ -198,9 +198,83 @@ test("session telemetry is gated and counters reset only at session start", () =
 test("fixture modes remain separated", () => {
   assert.equal(fixtures.minimal.sensorStream.telemetry_mode, "SENSOR_STREAM");
   assert.equal(fixtures.minimal.debugSnapshot.source, "DIRECT_SENSOR_SNAPSHOT");
+  assert.equal(fixtures.minimal.debugSnapshot.reply_id, "req-debug-001");
   assert.equal(fixtures.minimal.calibrationProgress.event_id, 4001);
   assert.equal(fixtures.minimal.calibrationResult.event_id, 4002);
   assert.equal(fixtures.minimal.errorEvent.event_id, 5000);
+});
+
+test("debug traffic is one-shot correlated and absent while idle", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.publishHeartbeat();
+  assert.equal(publications.filter((entry) => entry.topic.endsWith("/debug")).length, 0);
+
+  simulator.handleDebug({ request_id: "debug-1" });
+  const debug = publications.filter((entry) => entry.topic.endsWith("/debug"));
+  assert.equal(debug.length, 1);
+  assert.equal(debug[0].payload.reply_id, "debug-1");
+  assert.equal(debug[0].payload.source, "DIRECT_SENSOR_SNAPSHOT");
+  assert.equal(typeof debug[0].payload.ts_ms, "number");
+  assert.equal(debug[0].options.retain, false);
+  assert.equal(
+    publications.filter(
+      (entry) => entry.topic.endsWith("/events") && entry.payload.reply_id === "debug-1",
+    ).length,
+    1,
+  );
+});
+
+test("sensor stream is explicit bounded diagnostics and does not change session counters", () => {
+  const { publications, simulator } = simulatorHarness();
+  const beforeCounter = simulator.telemetryCount;
+  simulator.handleTelemetryControl({
+    request_id: "stream-start-1",
+    action: "START",
+    interval_ms: 200,
+  });
+  const stream = publications.find(
+    (entry) => entry.topic.endsWith("/telemetry")
+      && entry.payload.telemetry_mode === "SENSOR_STREAM",
+  );
+  assert.ok(stream);
+  assert.equal(stream.payload.device_id, undefined);
+  assert.equal(typeof stream.payload.pressure_0_raw, "number");
+  assert.equal(stream.payload.session_id, undefined);
+  assert.equal(stream.payload.compression_count, undefined);
+  assert.equal(simulator.telemetryCount, beforeCounter);
+
+  simulator.handleTelemetryControl({
+    request_id: "stream-stop-1",
+    action: "STOP",
+  });
+  assert.equal(simulator.manualTelemetryTimer, null);
+});
+
+test("session and calibration transitions stop an active manual stream", () => {
+  const { simulator } = simulatorHarness();
+  simulator.startTelemetry = () => {};
+  simulator.startManualTelemetry();
+  assert.notEqual(simulator.manualTelemetryTimer, null);
+  simulator.handleSessionStart({ request_id: "session-start-1", session_id: "S-001" });
+  assert.equal(simulator.manualTelemetryTimer, null);
+
+  simulator.sessionActive = false;
+  simulator.state = "PAIRED_IDLE";
+  simulator.startManualTelemetry();
+  assert.notEqual(simulator.manualTelemetryTimer, null);
+  simulator.handleCalibrationStart({ request_id: "cal-start-1" });
+  assert.equal(simulator.manualTelemetryTimer, null);
+  simulator.clearCalibrationTimers();
+});
+
+test("final calibration result is qos one", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.publishCalibrationEvent({
+    event_id: 4002,
+    reply_id: "cal-final-1",
+    result: "PASS",
+  });
+  assert.equal(publications.at(-1).options.qos, 1);
 });
 
 test("simulator status is minimal qos-one retained and deduplicated", () => {

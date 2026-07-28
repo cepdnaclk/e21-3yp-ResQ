@@ -244,7 +244,6 @@ TEST_CASE("Sensor stream payload contains diagnostics fields without session sco
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_build_sensor_stream_payload(
-                          "M-DEV",
                           RESQ_STATE_PAIRED_IDLE,
                           &raw,
                           &converted,
@@ -252,7 +251,7 @@ TEST_CASE("Sensor stream payload contains diagnostics fields without session sco
                           payload,
                           sizeof(payload)));
 
-    assert_contains(payload, "\"device_id\":\"M-DEV\"");
+    assert_not_contains(payload, "\"device_id\"");
     assert_contains(payload, "\"telemetry_mode\":\"SENSOR_STREAM\"");
     assert_contains(payload, "\"state\":\"PAIRED_IDLE\"");
     assert_contains(payload, "\"pressure_0_raw\":1010");
@@ -273,13 +272,13 @@ TEST_CASE("Sensor stream payload contains diagnostics fields without session sco
     assert_contains(payload, "\"hall_mm\":24.500");
     assert_contains(payload, "\"hall_progress\":0.490");
     assert_contains(payload, "\"hall_mm_valid\":true");
-    assert_contains(payload, "\"pressure_profile_valid\":true");
-    assert_contains(payload, "\"hall_profile_valid\":true");
     assert_contains(payload, "\"pressure_saturation_mask\":0");
-    assert_contains(payload, "\"pressure_stable_mask\":7");
-    assert_contains(payload, "\"pressure_decision_usable_mask\":7");
-    assert_contains(payload, "\"pressure_last_stable_available\":true");
-    assert_contains(payload, "\"pressure_using_last_stable\":false");
+    assert_not_contains(payload, "\"pressure_profile_valid\"");
+    assert_not_contains(payload, "\"hall_profile_valid\"");
+    assert_not_contains(payload, "\"pressure_stable_mask\"");
+    assert_not_contains(payload, "\"pressure_decision_usable_mask\"");
+    assert_not_contains(payload, "\"pressure_last_stable_available\"");
+    assert_not_contains(payload, "\"pressure_using_last_stable\"");
     assert_contains(payload, "\"interval_ms\":200");
     assert_contains(payload, "\"ts_ms\":124700");
     assert_not_contains(payload, "session_id");
@@ -308,7 +307,6 @@ TEST_CASE("Sensor stream payload zeros saturated or invalid converted values", "
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_build_sensor_stream_payload(
-                          "M-DEV",
                           RESQ_STATE_READY_FOR_SESSION,
                           &raw,
                           &converted,
@@ -325,8 +323,8 @@ TEST_CASE("Sensor stream payload zeros saturated or invalid converted values", "
     assert_contains(payload, "\"pressure_kpa_valid\":false");
     assert_contains(payload, "\"hall_mm\":0.000");
     assert_contains(payload, "\"hall_mm_valid\":false");
-    assert_contains(payload, "\"pressure_profile_valid\":true");
-    assert_contains(payload, "\"hall_profile_valid\":false");
+    assert_not_contains(payload, "\"pressure_profile_valid\"");
+    assert_not_contains(payload, "\"hall_profile_valid\"");
     assert_contains(payload, "\"pressure_saturation_mask\":4");
     TEST_ASSERT_NULL(strstr(payload, "nan"));
     TEST_ASSERT_NULL(strstr(payload, "inf"));
@@ -352,7 +350,6 @@ TEST_CASE("Sensor stream payload includes valid raw readings before calibration"
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_build_sensor_stream_payload(
-                          "M-DEV",
                           RESQ_STATE_CALIBRATING,
                           &raw,
                           &converted,
@@ -378,8 +375,8 @@ TEST_CASE("Sensor stream payload includes valid raw readings before calibration"
     assert_contains(payload, "\"hall_mm\":0.000");
     assert_contains(payload, "\"hall_progress\":0.000");
     assert_contains(payload, "\"hall_mm_valid\":false");
-    assert_contains(payload, "\"pressure_profile_valid\":false");
-    assert_contains(payload, "\"hall_profile_valid\":false");
+    assert_not_contains(payload, "\"pressure_profile_valid\"");
+    assert_not_contains(payload, "\"hall_profile_valid\"");
     assert_not_contains(payload, "session_id");
     assert_not_contains(payload, "compression_count");
 }
@@ -392,7 +389,6 @@ TEST_CASE("Sensor stream payload preserves calibrated converted values", "[telem
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_build_sensor_stream_payload(
-                          "M-DEV",
                           RESQ_STATE_READY_FOR_SESSION,
                           &raw,
                           &converted,

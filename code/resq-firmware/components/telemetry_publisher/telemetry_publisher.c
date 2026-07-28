@@ -309,7 +309,6 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
     }
 
     esp_err_t build_err = telemetry_publisher_build_sensor_stream_payload(
-        runtime_helpers_get_device_id(NULL),
         state,
         &raw,
         &converted,
@@ -547,8 +546,7 @@ esp_err_t telemetry_publisher_validate_sensor_stream_command(const char *payload
     return ESP_OK;
 }
 
-esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
-                                                          resq_state_t state,
+esp_err_t telemetry_publisher_build_sensor_stream_payload(resq_state_t state,
                                                           const sensor_raw_sample_t *raw,
                                                           const sensor_converted_sample_t *converted,
                                                           uint32_t interval_ms,
@@ -581,7 +579,6 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
     int written = snprintf(out_payload,
                            out_payload_len,
                            "{"
-                           "\"device_id\":\"%s\","
                            "\"telemetry_mode\":\"SENSOR_STREAM\","
                            "\"state\":\"%s\","
                            "\"pressure_0_raw\":%ld,"
@@ -602,17 +599,10 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
                            "\"hall_mm\":%.3f,"
                            "\"hall_progress\":%.3f,"
                            "\"hall_mm_valid\":%s,"
-                           "\"pressure_profile_valid\":%s,"
-                           "\"hall_profile_valid\":%s,"
                            "\"pressure_saturation_mask\":%u,"
-                           "\"pressure_stable_mask\":%u,"
-                           "\"pressure_decision_usable_mask\":%u,"
-                           "\"pressure_last_stable_available\":%s,"
-                           "\"pressure_using_last_stable\":%s,"
                            "\"interval_ms\":%" PRIu32 ","
                            "\"ts_ms\":%lld"
                            "}",
-                           device_id ? device_id : "",
                            resq_state_to_string(state),
                            (long)raw->pressure_raw[0],
                            raw->pressure_read_valid[0] ? "true" : "false",
@@ -632,15 +622,7 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
                            hall_mm,
                            hall_progress,
                            hall_valid ? "true" : "false",
-                           converted->pressure_profile_valid ? "true" : "false",
-                           converted->hall_profile_valid ? "true" : "false",
                            (unsigned int)converted->pressure_saturation_mask,
-                           (unsigned int)raw->pressure_stable_mask,
-                           (unsigned int)raw->pressure_decision_usable_mask,
-                           raw->pressure_last_stable_available ? "true"
-                                                              : "false",
-                           raw->pressure_using_last_stable ? "true"
-                                                          : "false",
                            interval_ms,
                            (long long)converted->timestamp_ms);
 

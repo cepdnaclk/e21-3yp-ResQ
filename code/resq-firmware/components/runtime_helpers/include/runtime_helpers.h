@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+#define RESQ_COMMAND_REPLY_ID_MAX_LEN 128
+
 /**
  * @brief Get best available firmware device identifier.
  *
@@ -87,11 +89,13 @@ esp_err_t resq_command_extract_request_id(const char *payload, char *out, size_t
  * from `calibration_manager.h` instead. */
 
 /**
- * @brief Publish a debug snapshot (raw sensor readings) to debug topic.
+ * @brief Publish one command-correlated debug snapshot to the debug topic.
  */
-esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config);
+esp_err_t runtime_helpers_publish_debug_snapshot(
+    const network_config_t *network_config,
+    const resq_mqtt_command_t *command);
 
-esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *network_config,
+esp_err_t runtime_helpers_build_direct_debug_payload(const char *reply_id,
                                                      const sensor_raw_sample_t *raw,
                                                      const sensor_converted_sample_t *converted,
                                                      bool converted_ok,

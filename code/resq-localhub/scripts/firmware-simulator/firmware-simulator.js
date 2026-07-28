@@ -478,17 +478,25 @@ class FirmwareSimulator {
     }
     this.manualTelemetryCount += 1;
     const wobble = Math.sin(this.manualTelemetryCount / 4);
+    const pressure1Valid = this.manualTelemetryCount % 13 !== 0;
     this.publish("telemetry", {
-      device_id: this.options.deviceId,
       telemetry_mode: "SENSOR_STREAM",
       state: this.state,
+      pressure_0_raw: 1230 + this.manualTelemetryCount,
+      pressure_0_raw_valid: true,
+      pressure_1_raw: 1650 + this.manualTelemetryCount,
+      pressure_1_raw_valid: pressure1Valid,
+      pressure_2_raw: 1640 + this.manualTelemetryCount,
+      pressure_2_raw_valid: true,
+      hall_raw: 2990 + this.manualTelemetryCount,
+      hall_raw_valid: true,
       pressure_0_kpa: Number((0.8 + wobble * 0.12).toFixed(3)),
       pressure_0_kpa_valid: true,
       pressure_1_kpa: Number((1.4 + wobble * 0.08).toFixed(3)),
-      pressure_1_kpa_valid: this.manualTelemetryCount % 13 !== 0,
+      pressure_1_kpa_valid: pressure1Valid,
       pressure_2_kpa: Number((1.35 - wobble * 0.06).toFixed(3)),
       pressure_2_kpa_valid: true,
-      pressure_kpa_valid: this.manualTelemetryCount % 13 !== 0,
+      pressure_kpa_valid: pressure1Valid,
       hall_mm: Number((12.5 + wobble * 2.5).toFixed(2)),
       hall_progress: Number(clamp(0.42 + wobble * 0.08, 0, 1).toFixed(3)),
       hall_mm_valid: true,
@@ -501,7 +509,8 @@ class FirmwareSimulator {
   publishDebugSnapshot(requestId) {
     const offset = this.telemetryCount * 3;
     this.publish("debug", {
-      request_id: requestId,
+      reply_id: requestId,
+      source: "DIRECT_SENSOR_SNAPSHOT",
       pressure_0_raw: 1230 + offset,
       pressure_1_raw: 1650 + offset,
       pressure_2_raw: 1640 + offset,
@@ -524,7 +533,9 @@ class FirmwareSimulator {
   }
 
   publishCalibrationEvent(payload) {
-    this.publishEvent("events/calibration", payload);
+    this.publish("events/calibration", payload, {
+      qos: payload.event_id === EVENT_IDS.CALIBRATION_FINAL_RESULT ? 1 : 0,
+    });
   }
 
   publishEvent(suffix, payload) {

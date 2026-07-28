@@ -554,8 +554,18 @@ esp_err_t session_active_manager_stop_sensor_acquisition(void) {
   return stop_runtime_components(NULL);
 }
 
-static esp_err_t
-publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
+static esp_err_t publish_debug_snapshot_from_metrics(
+    const resq_mqtt_command_t *command) {
+  if (command == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  char reply_id[RESQ_COMMAND_REPLY_ID_MAX_LEN] = {0};
+  esp_err_t request_err = resq_command_extract_request_id(
+      command->payload, reply_id, sizeof(reply_id));
+  if (request_err != ESP_OK) {
+    return request_err;
+  }
+
   cpr_metrics_snapshot_t snap = {0};
   esp_err_t err = cpr_metrics_get_snapshot(&snap);
   if (err != ESP_OK) {
@@ -569,7 +579,7 @@ publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
   int written = snprintf(
       payload, 2048,
       "{"
-      "\"device_id\":\"%s\","
+      "\"reply_id\":\"%s\","
       "\"source\":\"SESSION_METRICS\","
       "\"depth_progress\":%.3f,"
       "\"depth_mm\":%.3f,"
@@ -611,7 +621,7 @@ publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
       "\"flags\":\"%s\","
       "\"ts_ms\":%lld"
       "}",
-      runtime_helpers_get_device_id(network_config), snap.depth_progress,
+      reply_id, snap.depth_progress,
       snap.depth_mm, snap.depth_ok ? "true" : "false", snap.rate_cpm,
       snap.hand_placement, snap.pressure_balance_pct,
       snap.pressure_balance_reliable ? "true" : "false",
@@ -1237,7 +1247,7 @@ static resq_state_t session_active_manager_run_internal(
     }
 
     if (strcmp(command_suffix, "cmd/debug") == 0) {
-      esp_err_t debug_err = publish_debug_snapshot_from_metrics(network_config);
+      esp_err_t debug_err = publish_debug_snapshot_from_metrics(&command);
       if (debug_err != ESP_OK) {
         runtime_helpers_publish_command_result_from_command(
             network_config, RESQ_STATE_SESSION_ACTIVE, &command, "cmd/debug",

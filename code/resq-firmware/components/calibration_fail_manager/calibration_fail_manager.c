@@ -235,7 +235,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
         }
 
         if (strcmp(suffix, "cmd/debug") == 0) {
-            esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
+            esp_err_t debug_err =
+                runtime_helpers_publish_debug_snapshot(network_config, &command);
 
             if (debug_err != ESP_OK) {
                 runtime_helpers_publish_command_result_from_command(network_config,
