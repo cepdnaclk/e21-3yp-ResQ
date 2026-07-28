@@ -42,6 +42,9 @@ const ACTION_IDS = {
   DEVICE_IN_ERROR_USE_SYSTEM_RECOVERY: 13,
 };
 
+const PRESSURE_CENTER_SCORE_THRESHOLD_PCT = 88;
+const PAUSE_CONDITION_THRESHOLD_S = 1;
+
 const DEFAULTS = {
   deviceId: process.env.DEVICE_ID || "M01",
   mqttUrl: process.env.MQTT_URL || "mqtt://127.0.0.1:1883",
@@ -76,6 +79,7 @@ class FirmwareSimulator {
     this.currentSessionId = options.sessionId;
     this.lastErrorId = options.simulateError ? "06201" : "00000";
     this.telemetryCount = 0;
+    this.latestSessionMetric = null;
     this.manualTelemetryCount = 0;
     this.heartbeatTimer = null;
     this.telemetryTimer = null;
@@ -280,6 +284,8 @@ class FirmwareSimulator {
   handleSessionStart(payload) {
     this.stopManualTelemetry();
     this.currentSessionId = stringOr(payload.session_id, this.options.sessionId);
+    this.telemetryCount = 0;
+    this.latestSessionMetric = null;
     this.sessionActive = true;
     this.state = "SESSION_ACTIVE";
     this.publishEvent("events", {
@@ -301,6 +307,12 @@ class FirmwareSimulator {
 
   handleSessionStop(payload) {
     this.stopTelemetry();
+    const finalMetric = this.latestSessionMetric || {
+      compression_count: 0,
+      valid_compression_count: 0,
+      recoil_ok_count: 0,
+      incomplete_recoil_count: 0,
+    };
     this.sessionActive = false;
     this.state = this.calibrated ? "READY_FOR_SESSION" : "PAIRED_IDLE";
     this.publishEvent("events", {
@@ -310,10 +322,10 @@ class FirmwareSimulator {
       result: "STOPPED",
       state: this.state,
       session_id: this.currentSessionId,
-      total_compressions: this.telemetryCount,
-      valid_compressions: Math.max(0, this.telemetryCount - 2),
-      recoil_ok_count: Math.max(0, this.telemetryCount - 1),
-      incomplete_recoil_count: this.telemetryCount > 0 ? 1 : 0,
+      total_compressions: finalMetric.compression_count,
+      valid_compressions: finalMetric.valid_compression_count,
+      recoil_ok_count: finalMetric.recoil_ok_count,
+      incomplete_recoil_count: finalMetric.incomplete_recoil_count,
       reason_id: "00000",
       action_id: ACTION_IDS.STOP_SESSION_AND_RETURN_READY,
       ts_ms: this.tsMs(),
@@ -438,22 +450,26 @@ class FirmwareSimulator {
     }
     this.telemetryCount += 1;
     const wobble = Math.sin(this.telemetryCount / 3);
-    this.publish("telemetry", {
+    const depthProgress = clamp(0.75 + wobble * 0.12, 0, 1);
+    const metric = normalizeSessionMetric({
       session_id: this.currentSessionId,
       state: "SESSION_ACTIVE",
-      depth_progress: clamp(0.75 + wobble * 0.12, 0, 1),
+      depth_mm: depthProgress * 55,
+      depth_progress: depthProgress,
       depth_ok: Math.abs(wobble) < 0.85,
       rate_cpm: 108 + Math.round(wobble * 8),
       compression_count: this.telemetryCount,
       valid_compression_count: Math.max(0, this.telemetryCount - 1),
+      recoil_ok: this.telemetryCount % 7 !== 0,
       recoil_ok_count: Math.max(0, this.telemetryCount - 1),
       incomplete_recoil_count: this.telemetryCount > 5 ? 1 : 0,
       pause_s: this.telemetryCount % 20 === 0 ? 0.7 : 0.2,
       hand_placement: "CENTER",
-      pressure_balance_pct: 92 + wobble * 3,
-      flags: "DEPTH_OK,RATE_OK,RECOIL_OK",
+      pressure_balance_score_pct: 92 + wobble * 3,
       ts_ms: this.tsMs(),
     });
+    this.latestSessionMetric = metric;
+    this.publish("telemetry", metric);
   }
 
   publishSensorStream() {
@@ -721,10 +737,55 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function deriveSessionFlags(metric) {
+  const flags = [];
+  if (metric.depth_ok) {
+    flags.push("DEPTH_OK");
+  }
+  if (metric.rate_cpm > 0.1) {
+    flags.push(metric.rate_cpm < 100 ? "RATE_SLOW" : metric.rate_cpm <= 120 ? "RATE_OK" : "RATE_FAST");
+  }
+  if (metric.recoil_ok) {
+    flags.push("RECOIL_OK");
+  }
+  if (metric.pause_s > PAUSE_CONDITION_THRESHOLD_S) {
+    flags.push("PAUSE_DETECTED");
+  }
+  if (metric.hand_placement === "LEFT") {
+    flags.push("HAND_LEFT");
+  } else if (metric.hand_placement === "RIGHT") {
+    flags.push("HAND_RIGHT");
+  } else if (metric.hand_placement === "SKEWED") {
+    flags.push("HAND_SKEWED");
+  }
+  return flags.join(",");
+}
+
+function normalizeSessionMetric(metric) {
+  const normalized = { ...metric };
+  const score = Number.isFinite(normalized.pressure_balance_score_pct)
+    ? clamp(normalized.pressure_balance_score_pct, 0, 100)
+    : 0;
+  normalized.pressure_balance_score_pct = score;
+  // Deprecated compatibility alias; remove only after LocalHub Phase 6.
+  normalized.pressure_balance_pct = score;
+  if (score >= PRESSURE_CENTER_SCORE_THRESHOLD_PCT) {
+    normalized.hand_placement = "CENTER";
+  } else if (normalized.hand_placement === "CENTER") {
+    normalized.hand_placement = "SKEWED";
+  }
+  normalized.flags = deriveSessionFlags(normalized);
+  return normalized;
+}
+
 module.exports = {
   DEFAULTS,
   FirmwareSimulator,
+  PAUSE_CONDITION_THRESHOLD_S,
+  PRESSURE_CENTER_SCORE_THRESHOLD_PCT,
   clamp,
+  deriveSessionFlags,
+  normalizeSessionMetric,
 };
 
 if (require.main === module) {

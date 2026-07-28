@@ -103,6 +103,59 @@ TEST_CASE("CPR metrics validates lifecycle inputs", "[metrics]")
     TEST_ASSERT_EQUAL(0, snapshot.total_compressions);
 }
 
+TEST_CASE("CPR metric normalization derives flags from authoritative values",
+          "[metrics][contract]")
+{
+    cpr_metrics_snapshot_t snapshot = {
+        .depth_ok = false,
+        .recoil_ok = false,
+        .last_compression_incomplete_recoil = true,
+        .rate_cpm = 108.0f,
+        .pause_s = CPR_PAUSE_CONDITION_THRESHOLD_S + 0.1f,
+        .pressure_balance_pct = 93.5f,
+        .pressure_balance_reliable = true,
+        .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
+    };
+    strcpy(snapshot.hand_placement, "LEFT");
+    strcpy(snapshot.flags, "DEPTH_OK,RECOIL_OK");
+
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      cpr_metrics_normalize_snapshot(NULL));
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      cpr_metrics_normalize_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL_STRING("CENTER", snapshot.hand_placement);
+    TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "RATE_OK"));
+    TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "INCOMPLETE_RECOIL"));
+    TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "PAUSE_DETECTED"));
+    TEST_ASSERT_NULL(strstr(snapshot.flags, "DEPTH_OK"));
+    TEST_ASSERT_NULL(strstr(snapshot.flags, "RECOIL_OK"));
+    TEST_ASSERT_NULL(strstr(snapshot.flags, "HAND_LEFT"));
+}
+
+TEST_CASE("CPR pressure centeredness uses the shared 88 percent threshold",
+          "[metrics][contract]")
+{
+    cpr_metrics_snapshot_t snapshot = {
+        .pressure_balance_pct =
+            CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT - 0.1f,
+        .pressure_balance_reliable = true,
+        .pressure_mode = CALIBRATION_PRESSURE_OPTIONAL,
+    };
+    strcpy(snapshot.hand_placement, "CENTER");
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      cpr_metrics_normalize_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL_STRING("SKEWED", snapshot.hand_placement);
+    TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "HAND_SKEWED"));
+
+    snapshot.pressure_balance_pct =
+        CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT;
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      cpr_metrics_normalize_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL_STRING("CENTER", snapshot.hand_placement);
+    TEST_ASSERT_NULL(strstr(snapshot.flags, "HAND_SKEWED"));
+}
+
 TEST_CASE("CPR metrics tracks valid compression recoil depth and rate", "[metrics]")
 {
     calibration_config_t calibration = metrics_calibration();

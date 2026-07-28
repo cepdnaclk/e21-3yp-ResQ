@@ -4,7 +4,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const { DEFAULTS, FirmwareSimulator } = require("./firmware-simulator.js");
+const {
+  DEFAULTS,
+  FirmwareSimulator,
+  PAUSE_CONDITION_THRESHOLD_S,
+  PRESSURE_CENTER_SCORE_THRESHOLD_PCT,
+  normalizeSessionMetric,
+} = require("./firmware-simulator.js");
 
 const localHubRoot = path.resolve(__dirname, "../..");
 const repositoryRoot = path.resolve(localHubRoot, "../..");
@@ -63,14 +69,20 @@ function depthFlagsConsistent(payload) {
 }
 
 function pressureBalanceValid(payload) {
-  const score = payload.pressure_balance_pct;
+  const score = payload.pressure_balance_score_pct ?? payload.pressure_balance_pct;
   if (score === undefined) {
     return true;
   }
   if (typeof score !== "number" || score < 0 || score > 100) {
     return false;
   }
-  return payload.hand_placement !== "CENTER" || score >= 88;
+  if (
+    payload.pressure_balance_score_pct !== undefined
+    && payload.pressure_balance_pct !== payload.pressure_balance_score_pct
+  ) {
+    return false;
+  }
+  return payload.hand_placement !== "CENTER" || score >= PRESSURE_CENTER_SCORE_THRESHOLD_PCT;
 }
 
 test("minimal simulator-shaped session fixture follows locked metric semantics", () => {
@@ -94,6 +106,93 @@ test("captured contradictory depth flags are detected as pending simulator non-c
 test("pressure balance is a centeredness score and rejects invalid range", () => {
   assert.equal(pressureBalanceValid(fixtures.minimal.sessionTelemetry), true);
   assert.equal(pressureBalanceValid(fixtures.invalid.outOfRangePressureBalance), false);
+});
+
+test("simulator session telemetry is minimal and fixture-compatible", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.sessionActive = true;
+  simulator.publishTelemetry();
+  const metric = publications.at(-1).payload;
+
+  assert.deepEqual(Object.keys(metric).sort(), [
+    "compression_count",
+    "depth_mm",
+    "depth_ok",
+    "depth_progress",
+    "flags",
+    "hand_placement",
+    "incomplete_recoil_count",
+    "pause_s",
+    "pressure_balance_pct",
+    "pressure_balance_score_pct",
+    "rate_cpm",
+    "recoil_ok",
+    "recoil_ok_count",
+    "session_id",
+    "state",
+    "ts_ms",
+    "valid_compression_count",
+  ]);
+  assert.equal(metric.state, "SESSION_ACTIVE");
+  assert.equal(metric.telemetry_mode, undefined);
+  assert.equal(metric.device_id, undefined);
+  assert.equal(metric.pressure_0_kpa, undefined);
+  assert.equal(depthFlagsConsistent(metric), true);
+  assert.equal(pressureBalanceValid(metric), true);
+});
+
+test("simulator derives flags and pressure aliases from one normalized metric", () => {
+  const metric = normalizeSessionMetric({
+    session_id: "S-001",
+    state: "SESSION_ACTIVE",
+    depth_ok: false,
+    rate_cpm: 108,
+    recoil_ok: false,
+    pause_s: PAUSE_CONDITION_THRESHOLD_S + 0.1,
+    hand_placement: "CENTER",
+    pressure_balance_score_pct: 120,
+    flags: "DEPTH_OK,RECOIL_OK",
+  });
+
+  assert.equal(metric.flags.includes("DEPTH_OK"), false);
+  assert.equal(metric.flags.includes("RECOIL_OK"), false);
+  assert.equal(metric.flags.includes("PAUSE_DETECTED"), true);
+  assert.equal(metric.hand_placement, "CENTER");
+  assert.equal(metric.pressure_balance_score_pct, 100);
+  assert.equal(metric.pressure_balance_pct, 100);
+
+  const skewed = normalizeSessionMetric({
+    ...metric,
+    hand_placement: "CENTER",
+    pressure_balance_score_pct: PRESSURE_CENTER_SCORE_THRESHOLD_PCT - 0.1,
+  });
+  assert.equal(skewed.hand_placement, "SKEWED");
+  assert.equal(skewed.flags.includes("HAND_SKEWED"), true);
+});
+
+test("session telemetry is gated and counters reset only at session start", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.startTelemetry = () => {};
+  simulator.stopTelemetry = () => {};
+
+  simulator.publishTelemetry();
+  assert.equal(publications.filter((entry) => entry.topic.endsWith("/telemetry")).length, 0);
+
+  simulator.telemetryCount = 9;
+  simulator.handleSessionStart({ request_id: "start-1", session_id: "S-001" });
+  assert.equal(simulator.telemetryCount, 0);
+  simulator.publishTelemetry();
+  simulator.publishTelemetry();
+  assert.equal(simulator.telemetryCount, 2);
+  assert.equal(simulator.latestSessionMetric.compression_count, 2);
+
+  simulator.handleSessionStop({ request_id: "stop-1" });
+  const before = publications.filter((entry) => entry.topic.endsWith("/telemetry")).length;
+  simulator.publishTelemetry();
+  assert.equal(
+    publications.filter((entry) => entry.topic.endsWith("/telemetry")).length,
+    before,
+  );
 });
 
 test("fixture modes remain separated", () => {

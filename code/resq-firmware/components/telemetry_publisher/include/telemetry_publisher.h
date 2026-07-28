@@ -38,7 +38,6 @@ bool telemetry_publisher_is_sensor_stream_running(void);
 #define TELEMETRY_SENSOR_STREAM_INTERVAL_MAX_MS 1000u
 
 esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t *snap,
-                                                     const char *device_id,
                                                      const char *session_id,
                                                      char *out_payload,
                                                      size_t out_payload_len);

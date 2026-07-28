@@ -1,6 +1,7 @@
 #include "cpr_metrics.h"
 
 #include <limits.h>
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -388,7 +389,13 @@ static void compression_pressure_update_decision(void)
             : p2_delta;
 
     s_pressure_balance_pct = (float)(100 - imbalance_pct);
-    if (imbalance_pct <= s_calib.pressure_balance_allowed_pct) {
+    if (s_pressure_balance_pct < 0.0f) {
+        s_pressure_balance_pct = 0.0f;
+    } else if (s_pressure_balance_pct > 100.0f) {
+        s_pressure_balance_pct = 100.0f;
+    }
+    if (s_pressure_balance_pct >=
+        CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT) {
         strncpy(s_hand_placement, "CENTER", sizeof(s_hand_placement) - 1);
     } else if (p1_normalized > p2_normalized) {
         strncpy(s_hand_placement, CPR_SENSOR_1_SIDE_LABEL,
@@ -603,13 +610,20 @@ static sensor_conversion_profile_t conversion_profile_from_calibration(
     return profile;
 }
 
-static void append_snapshot_flag(char *flags, size_t flags_len, size_t *pos, const char *flag)
+static void append_snapshot_flag(char *flags,
+                                 size_t flags_len,
+                                 size_t *pos,
+                                 const char *flag)
 {
     if (flags == NULL || pos == NULL || flag == NULL || *pos >= flags_len) {
         return;
     }
 
-    int written = snprintf(flags + *pos, flags_len - *pos, "%s", flag);
+    int written = snprintf(flags + *pos,
+                           flags_len - *pos,
+                           "%s%s",
+                           *pos > 0 ? "," : "",
+                           flag);
     if (written <= 0) {
         return;
     }
@@ -619,6 +633,175 @@ static void append_snapshot_flag(char *flags, size_t flags_len, size_t *pos, con
     } else {
         *pos += (size_t)written;
     }
+}
+
+esp_err_t cpr_metrics_normalize_snapshot(cpr_metrics_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!isfinite(snapshot->pressure_balance_pct)) {
+        snapshot->pressure_balance_pct = 0.0f;
+    } else if (snapshot->pressure_balance_pct < 0.0f) {
+        snapshot->pressure_balance_pct = 0.0f;
+    } else if (snapshot->pressure_balance_pct > 100.0f) {
+        snapshot->pressure_balance_pct = 100.0f;
+    }
+
+    if (snapshot->pressure_balance_reliable) {
+        if (snapshot->pressure_balance_pct >=
+            CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT) {
+            strncpy(snapshot->hand_placement,
+                    "CENTER",
+                    sizeof(snapshot->hand_placement) - 1);
+            snapshot->hand_placement[sizeof(snapshot->hand_placement) - 1] =
+                '\0';
+        } else if (strcmp(snapshot->hand_placement, "CENTER") == 0) {
+            strncpy(snapshot->hand_placement,
+                    "SKEWED",
+                    sizeof(snapshot->hand_placement) - 1);
+            snapshot->hand_placement[sizeof(snapshot->hand_placement) - 1] =
+                '\0';
+        }
+    }
+
+    snapshot->flags[0] = '\0';
+    size_t pos = 0;
+    if (snapshot->depth_ok) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "DEPTH_OK");
+    }
+
+    if (snapshot->rate_cpm > 0.1f) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             snapshot->rate_cpm < 100.0f
+                                 ? "RATE_SLOW"
+                                 : snapshot->rate_cpm <= 120.0f
+                                       ? "RATE_OK"
+                                       : "RATE_FAST");
+    }
+
+    if (snapshot->last_compression_incomplete_recoil) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "INCOMPLETE_RECOIL");
+    } else if (snapshot->recoil_ok) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "RECOIL_OK");
+    }
+
+    if (snapshot->pause_s > CPR_PAUSE_CONDITION_THRESHOLD_S) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PAUSE_DETECTED");
+    }
+
+    if (snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_MISSED) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_MISSED");
+    }
+    if (snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_HALL_MISSED) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HALL_MISSED");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_SATURATED) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_SATURATED");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_OUT_OF_RANGE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_OUT_OF_RANGE");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_BELOW_CONTACT) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_BELOW_CONTACT");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_STALE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_STALE");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_BALANCE_HELD");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_HAND_PLACEMENT_UNAVAILABLE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_PLACEMENT_UNAVAILABLE");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_UNSTABLE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_UNSTABLE");
+    }
+    if (snapshot->hand_placement_locked) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_PLACEMENT_LOCKED");
+    }
+    if (snapshot->pressure_mode == CALIBRATION_HALL_ONLY) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HALL_ONLY");
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_UNAVAILABLE");
+    }
+
+    if (strcmp(snapshot->hand_placement, "LEFT") == 0) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_LEFT");
+    } else if (strcmp(snapshot->hand_placement, "RIGHT") == 0) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_RIGHT");
+    } else if (strcmp(snapshot->hand_placement, "SKEWED") == 0) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_SKEWED");
+    }
+
+    snapshot->flags[sizeof(snapshot->flags) - 1] = '\0';
+    return ESP_OK;
 }
 
 esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
@@ -1179,98 +1362,8 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->sensor_quality_flags = s_sensor_quality_flags;
     out_snapshot->missed_pressure_samples = s_missed_pressure_samples;
     out_snapshot->missed_hall_samples = s_missed_hall_samples;
-    /* build flags string */
-    out_snapshot->flags[0] = '\0';
-    size_t pos = 0;
-    if (out_snapshot->depth_ok) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "DEPTH_OK,");
-    }
-
-    /* Only emit rate flags if rate is known (requires at least two compression starts) */
-    if (out_snapshot->rate_cpm <= 0.1f) {
-        /* rate not known yet: do not add RATE_SLOW/RATE_OK/RATE_FAST */
-    } else if (out_snapshot->rate_cpm < 100.0f) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RATE_SLOW,");
-    } else if (out_snapshot->rate_cpm <= 120.0f) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RATE_OK,");
-    } else {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RATE_FAST,");
-    }
-
-    if (out_snapshot->last_compression_incomplete_recoil) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "INCOMPLETE_RECOIL,");
-    } else if (out_snapshot->recoil_ok) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RECOIL_OK,");
-    }
-
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_MISSED) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "PRESSURE_MISSED,");
-    }
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_HALL_MISSED) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HALL_MISSED,");
-    }
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_SATURATED) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "PRESSURE_SATURATED,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_OUT_OF_RANGE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_OUT_OF_RANGE,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_BELOW_CONTACT) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_BELOW_CONTACT,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_STALE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_STALE,");
-    }
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "PRESSURE_BALANCE_HELD,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_HAND_PLACEMENT_UNAVAILABLE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "HAND_PLACEMENT_UNAVAILABLE,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_UNSTABLE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_UNSTABLE,");
-    }
-    if (out_snapshot->hand_placement_locked) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "HAND_PLACEMENT_LOCKED,");
-    }
-    if (calibration_uses_hall_only_pressure()) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HALL_ONLY,PRESSURE_UNAVAILABLE,");
-    }
-
-    if (strcmp(out_snapshot->hand_placement, "CENTER") == 0) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HAND_CENTERED");
-    } else if (strcmp(out_snapshot->hand_placement, "LEFT") == 0) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HAND_LEFT");
-    } else if (strcmp(out_snapshot->hand_placement, "RIGHT") == 0) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HAND_RIGHT");
-    } else {
-        /* NO_CONTACT -> leave empty or no flag */
-    }
-    out_snapshot->flags[sizeof(out_snapshot->flags) - 1] = '\0';
     out_snapshot->ts_ms = s_last_sample_ms;
+    cpr_metrics_normalize_snapshot(out_snapshot);
 
     xSemaphoreGive(s_mutex);
 

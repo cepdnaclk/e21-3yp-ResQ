@@ -1,5 +1,5 @@
 {
-  "contractVersion": "phase-04",
+  "contractVersion": "phase-05",
   "identity": {
     "topicDeviceIdAuthoritative": true,
     "payloadDeviceIdOptional": true
@@ -56,9 +56,13 @@
       "depth_ok": true,
       "rate_cpm": 108,
       "compression_count": 18,
+      "valid_compression_count": 15,
       "recoil_ok": true,
+      "recoil_ok_count": 14,
+      "incomplete_recoil_count": 3,
       "pause_s": 0.2,
       "hand_placement": "CENTER",
+      "pressure_balance_score_pct": 93.5,
       "pressure_balance_pct": 93.5,
       "flags": "DEPTH_OK,RATE_OK,RECOIL_OK",
       "ts_ms": 123456
@@ -324,6 +328,7 @@
       "session_id": "S-BAD-BALANCE",
       "state": "SESSION_ACTIVE",
       "depth_ok": true,
+      "pressure_balance_score_pct": 101.0,
       "pressure_balance_pct": 101.0,
       "ts_ms": 323457
     },

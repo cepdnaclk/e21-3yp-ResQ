@@ -13,6 +13,10 @@ extern "C" {
 
 #define CPR_FLAGS_MAX_LEN 160
 #define CPR_HAND_PLACEMENT_MAX_LEN 24
+#define CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT 88.0f
+#ifndef CPR_PAUSE_CONDITION_THRESHOLD_S
+#define CPR_PAUSE_CONDITION_THRESHOLD_S 1.0f
+#endif
 
 #define CPR_SAMPLE_PRESSURE_0_READ_FAILED    (1u << 0)
 #define CPR_SAMPLE_PRESSURE_1_READ_FAILED    (1u << 1)
@@ -186,6 +190,12 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration);
 esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample);
 
 esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot);
+
+/**
+ * Clamp and reconcile a CPR metric snapshot, then derive its compatible
+ * comma-separated flags from the authoritative metric booleans/conditions.
+ */
+esp_err_t cpr_metrics_normalize_snapshot(cpr_metrics_snapshot_t *snapshot);
 
 const char *cpr_pressure_lock_reason_to_string(
     cpr_pressure_lock_reason_t reason);
