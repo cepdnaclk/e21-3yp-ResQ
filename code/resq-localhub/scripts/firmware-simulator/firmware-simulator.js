@@ -334,6 +334,13 @@ class FirmwareSimulator {
           state: this.state,
           reason_id: "06401",
           action_id: ACTION_IDS.CHECK_SENSOR_AND_RETRY,
+          calibration_schema_version: 1,
+          calibration_generation: 1,
+          calibration_storage_status: "INVALID",
+          recalibration_required: true,
+          profile_id: stringOr(payload.profile_id, this.options.profileId),
+          profile_version: payload.profile_version,
+          profile_hash: payload.profile_hash,
           ts_ms: this.tsMs(),
         });
         this.publishStatus();
@@ -351,6 +358,13 @@ class FirmwareSimulator {
         state: this.state,
         reason_id: "00000",
         action_id: ACTION_IDS.NO_ACTION_REQUIRED,
+        calibration_schema_version: 1,
+        calibration_generation: 1,
+        calibration_storage_status: "VALID",
+        recalibration_required: false,
+        profile_id: stringOr(payload.profile_id, this.options.profileId),
+        profile_version: payload.profile_version,
+        profile_hash: payload.profile_hash,
         ts_ms: this.tsMs(),
       });
       this.publishStatus();
@@ -642,10 +656,22 @@ class FirmwareSimulator {
       return;
     }
     const topic = this.topic(suffix);
-    const json = JSON.stringify(payload);
+    const stateBearing = suffix === "status"
+      || suffix === "heartbeat"
+      || suffix === "events"
+      || suffix === "events/calibration"
+      || suffix === "events/error";
+    const orderedPayload = stateBearing && (!payload.boot_id || !Number.isInteger(payload.state_seq))
+      ? {
+        ...payload,
+        boot_id: this.bootId,
+        state_seq: ++this.statusStateSeq,
+      }
+      : payload;
+    const json = JSON.stringify(orderedPayload);
     if (
       this.activeCommandCapture
-      && payload.reply_id === this.activeCommandCapture.requestId
+      && orderedPayload.reply_id === this.activeCommandCapture.requestId
     ) {
       this.activeCommandCapture.responses.push({
         suffix,

@@ -106,6 +106,24 @@ public class DeviceRuntimeStateService {
             Boolean recalibrationRequired = base.recalibrationRequired();
             Integer profileVersion = base.profileVersion();
             String profileHash = base.profileHash();
+            Integer calibrationSchemaVersion = event.calibrationSchemaVersion() != null
+                    ? event.calibrationSchemaVersion()
+                    : base.calibrationSchemaVersion();
+            Integer calibrationGeneration = event.calibrationGeneration() != null
+                    ? event.calibrationGeneration()
+                    : base.calibrationGeneration();
+            if (event.calibrationStorageStatus() != null) {
+                calibrationStorageStatus = event.calibrationStorageStatus();
+            }
+            if (event.recalibrationRequired() != null) {
+                recalibrationRequired = event.recalibrationRequired();
+            }
+            if (event.profileVersion() != null) {
+                profileVersion = event.profileVersion();
+            }
+            if (event.profileHash() != null) {
+                profileHash = event.profileHash();
+            }
 
             String status = clean(event.status());
             String result = clean(event.result());
@@ -207,8 +225,8 @@ public class DeviceRuntimeStateService {
                     null, // bootId
                     null, // stateSeq
                     RuntimeOrderingConfidence.UNKNOWN, // orderingConfidence
-                    base.calibrationSchemaVersion(),
-                    base.calibrationGeneration(),
+                    calibrationSchemaVersion,
+                    calibrationGeneration,
                     calibrationStorageStatus,
                     recalibrationRequired,
                     profileVersion,

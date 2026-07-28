@@ -239,7 +239,6 @@ export type CalibrationEventLog = {
   firmwareState: string | null;
   tsMs: number | null;
   receivedAt: string;
-  rawPayloadJson: string | null;
 };
 
 export type CalibrationEvidenceDetail = {

@@ -886,6 +886,13 @@ public class MqttSubscriberService {
                 booleanValue(payload, "hall_raw_valid", "hallRawValid"),
                 integer(payload, "hall_baseline_raw", "hallBaselineRaw"),
                 booleanValue(payload, "hall_baseline_raw_valid", "hallBaselineRawValid")
+        ).withCalibrationIdentity(
+                integer(payload, "calibration_schema_version", "calibrationSchemaVersion"),
+                integer(payload, "calibration_generation", "calibrationGeneration"),
+                firstText(payload, "calibration_storage_status", "calibrationStorageStatus"),
+                booleanValue(payload, "recalibration_required", "recalibrationRequired"),
+                integer(payload, "profile_version", "profileVersion"),
+                firstText(payload, "profile_hash", "profileHash")
         ).withOrdering(
                 firstText(payload, "boot_id", "bootId"),
                 longValue(payload, "state_seq", "stateSeq")

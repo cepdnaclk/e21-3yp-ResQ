@@ -140,6 +140,42 @@ class DeviceRuntimeStateServiceTest {
         assertThat(state.readyForSession()).isTrue();
     }
 
+    @Test
+    void calibrationPassCarriesCompleteProfileIdentityIntoReadiness() {
+        DeviceRuntimeStateService service = new DeviceRuntimeStateService();
+        String profileHash = "4da18fea2e079ce05c14f50a7dc687db762db3f6f0b8c93fc7c6b345e5cdab31";
+
+        DeviceRuntimeState state = service.applyCalibrationEvent(
+                "M01",
+                new CalibrationMqttEvent(
+                        "M01",
+                        4002,
+                        "req-phase6",
+                        "ACK",
+                        11,
+                        "PASS",
+                        "00000",
+                        0,
+                        "READY_FOR_SESSION",
+                        100L,
+                        Instant.now(),
+                        "adult-basic"
+                )
+                        .withCalibrationIdentity(1, 3, "VALID", false, 7, profileHash)
+                        .withOrdering("0123456789abcdef", 42L)
+        );
+
+        assertThat(state.readyForSession()).isTrue();
+        assertThat(state.calibrationSchemaVersion()).isEqualTo(1);
+        assertThat(state.calibrationGeneration()).isEqualTo(3);
+        assertThat(state.calibrationStorageStatus()).isEqualTo("VALID");
+        assertThat(state.recalibrationRequired()).isFalse();
+        assertThat(state.profileVersion()).isEqualTo(7);
+        assertThat(state.profileHash()).isEqualTo(profileHash);
+        assertThat(state.bootId()).isEqualTo("0123456789abcdef");
+        assertThat(state.stateSeq()).isEqualTo(42L);
+    }
+
     static CalibrationMqttEvent calibrationEvent(Integer eventId, String result, String status, String state, Long tsMs) {
         return new CalibrationMqttEvent(
                 "M01",

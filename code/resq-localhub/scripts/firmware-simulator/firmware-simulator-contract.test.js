@@ -435,10 +435,12 @@ test("simulator heartbeat is minimal and uses the five-second default", () => {
   assert.ok(heartbeat.topic.endsWith("/heartbeat"));
   assert.equal(DEFAULTS.heartbeatIntervalMs, 5000);
   assert.deepEqual(Object.keys(heartbeat.payload).sort(), [
+    "boot_id",
     "calibrated",
     "sensor_running",
     "session_active",
     "state",
+    "state_seq",
     "ts_ms",
     "uptime_ms",
   ]);
@@ -447,6 +449,24 @@ test("simulator heartbeat is minimal and uses the five-second default", () => {
   assert.equal(heartbeat.payload.ip, undefined);
   assert.equal(heartbeat.payload.wifi_connected, undefined);
   assert.equal(heartbeat.options.retain, false);
+});
+
+test("state-bearing simulator events share boot-aware ordering with status", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.publishStatus();
+  simulator.publishHeartbeat();
+  simulator.publishCalibrationEvent({
+    event_id: 4002,
+    result: "PASS",
+    state: "READY_FOR_SESSION",
+    ts_ms: simulator.tsMs(),
+  });
+
+  assert.deepEqual(
+    publications.map((entry) => entry.payload.state_seq),
+    [1, 2, 3],
+  );
+  assert.ok(publications.every((entry) => entry.payload.boot_id === simulator.bootId));
 });
 
 test("heartbeat pauses while disconnected and resumes without status traffic", () => {
