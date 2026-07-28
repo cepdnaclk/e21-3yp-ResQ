@@ -12,6 +12,7 @@ import lk.resq.localhub.model.firmware.RuntimeMessageApplyResult;
 import lk.resq.localhub.model.firmware.CalibrationEventLog;
 import lk.resq.localhub.model.firmware.CalibrationEvidence;
 import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
+import lk.resq.localhub.model.ingestion.MqttIngestionEnvelope;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
 import org.eclipse.paho.client.mqttv3.MqttClient;
@@ -43,6 +44,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class MqttSubscriberService {
@@ -79,6 +81,9 @@ public class MqttSubscriberService {
     private final CalibrationStreamService calibrationStreamService;
     private final CalibrationPersistenceRepository calibrationPersistenceRepository;
     private final SensorStreamService sensorStreamService;
+    private final CanonicalMqttIngestion canonicalMqttIngestion;
+    private final MqttIngressValidator ingressValidator = new MqttIngressValidator();
+    private final ConcurrentHashMap<String, Long> lastValidationWarningAt = new ConcurrentHashMap<>();
 
     private final String brokerUrl;
     private final String clientId;
@@ -123,6 +128,7 @@ public class MqttSubscriberService {
         this.calibrationStreamService = calibrationStreamService;
         this.calibrationPersistenceRepository = calibrationPersistenceRepository;
         this.sensorStreamService = sensorStreamService == null ? new SensorStreamService() : sensorStreamService;
+        this.canonicalMqttIngestion = new CanonicalMqttIngestion(objectMapper);
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
         this.username = normalize(username);
@@ -367,24 +373,28 @@ public class MqttSubscriberService {
     }
 
     void handleMessage(String topic, MqttMessage message) {
-        ParsedTopic parsedTopic = parseTopic(topic);
-        if (parsedTopic == null) {
-            logger.debug("Ignored MQTT topic outside the firmware contract: {}", topic);
+        CanonicalMqttIngestion.ParseResult parseResult =
+                canonicalMqttIngestion.parse(topic, message.getPayload());
+        if (!parseResult.accepted()) {
+            warnValidationFailure("unknown", parseResult.validationResult().reasonCode(), parseResult.validationResult().detail());
             return;
         }
 
-        String payloadText = new String(message.getPayload(), StandardCharsets.UTF_8);
+        MqttIngestionEnvelope envelope = parseResult.envelope();
+        ParsedTopic parsedTopic = new ParsedTopic(
+                envelope.canonicalDeviceId(),
+                envelope.topicFamily().canonicalSuffix(),
+                !envelope.legacyTopicUsed()
+        );
+        JsonNode payload = envelope.normalizedPayload();
+        String payloadText = payload.toString();
 
-        JsonNode payload;
-        try {
-            payload = parsePayload(payloadText, topic);
-        } catch (Exception error) {
-            logger.warn(
-                    "Invalid MQTT JSON payload on topic {}. Raw payload: {}. Error message: {}",
-                    topic,
-                    payloadText,
-                    error.getMessage(),
-                    error
+        MqttIngressValidator.ValidationDecision ingressDecision = ingressValidator.validate(envelope);
+        if (!ingressDecision.accepted()) {
+            warnValidationFailure(
+                    envelope.canonicalDeviceId(),
+                    ingressDecision.disposition().name(),
+                    ingressDecision.reason()
             );
             return;
         }
@@ -584,11 +594,28 @@ public class MqttSubscriberService {
             }
         } catch (Exception error) {
             logger.warn(
-                    "Failed to process MQTT payload on topic {}. Raw payload: {}. Error message: {}",
-                    topic,
-                    payloadText,
-                    error.getMessage(),
-                    error
+                    "Failed to process MQTT family={} deviceId={}: {}",
+                    parsedTopic.messageType,
+                    parsedTopic.deviceId,
+                    error.getMessage()
+            );
+        }
+    }
+
+    MqttIngressValidator.DiagnosticCounters ingestionDiagnosticCounters() {
+        return ingressValidator.counters();
+    }
+
+    private void warnValidationFailure(String deviceId, String reasonCode, String detail) {
+        String key = deviceId + "|" + reasonCode;
+        long now = System.currentTimeMillis();
+        Long previous = lastValidationWarningAt.put(key, now);
+        if (previous == null || now - previous >= 5_000L) {
+            logger.warn(
+                    "Rejected MQTT message deviceId={} reasonCode={} detail={}",
+                    deviceId,
+                    reasonCode,
+                    detail
             );
         }
     }

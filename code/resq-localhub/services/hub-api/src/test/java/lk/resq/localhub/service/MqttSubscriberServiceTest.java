@@ -54,6 +54,52 @@ class MqttSubscriberServiceTest {
     }
 
     @Test
+    void identityMismatchHasNoPersistenceRegistryOrSseEffect() throws Exception {
+        FirmwarePersistenceRepository repository = newRepository();
+        ServiceFixture fixture = newFixture(repository);
+
+        fixture.subscriber().handleMessage("resq/M01/status", message("""
+                {
+                  "device_id":"M02",
+                  "state":"PAIRED_IDLE",
+                  "boot_id":"boot-a",
+                  "state_seq":1
+                }
+                """));
+
+        assertThat(repository.findRecentEvents("M01", 10)).isEmpty();
+        assertThat(fixture.registry().getLiveSummary("M01")).isEmpty();
+        assertThat(fixture.registry().getLiveSummary("M02")).isEmpty();
+        assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).isEmpty();
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().identityMismatchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void staleDuplicateAndConflictingStateMessagesHaveNoSecondDomainEffect() throws Exception {
+        FirmwarePersistenceRepository repository = newRepository();
+        ServiceFixture fixture = newFixture(repository);
+        String accepted = """
+                {"device_id":"M01","state":"READY_FOR_SESSION","boot_id":"boot-a","state_seq":5}
+                """;
+
+        fixture.subscriber().handleMessage("resq/M01/status", message(accepted));
+        int snapshotCount = fixture.liveStreamService().getInstructorLiveSnapshots().size();
+        fixture.subscriber().handleMessage("resq/M01/status", message(accepted));
+        fixture.subscriber().handleMessage("resq/M01/status", message("""
+                {"device_id":"M01","state":"PAIRED_IDLE","boot_id":"boot-a","state_seq":5}
+                """));
+        fixture.subscriber().handleMessage("resq/M01/status", message("""
+                {"device_id":"M01","state":"BOOTING","boot_id":"boot-a","state_seq":4}
+                """));
+
+        assertThat(repository.findRecentEvents("M01", 10)).hasSize(1);
+        assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).hasSize(snapshotCount);
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().duplicateSequenceCount()).isEqualTo(1);
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().conflictingSequenceCount()).isEqualTo(1);
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().staleSequenceCount()).isEqualTo(1);
+    }
+
+    @Test
     void mapsSubscriptionsToConfiguredQos() {
         MqttQosPolicy policy = MqttQosPolicy.defaults();
 
