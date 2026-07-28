@@ -95,6 +95,10 @@ public class LiveStreamService {
         return suppressedDuplicateUpdateCount.get();
     }
 
+    int instructorEmitterCount() {
+        return instructorEmitters.size();
+    }
+
     private void sendHeartbeats() {
         Map<String, String> heartbeatPayload = Map.of("ts", Instant.now().toString());
 
@@ -119,7 +123,7 @@ public class LiveStreamService {
         emitter.onError(error -> cleanup.run());
     }
 
-    private void sendEvent(SseEmitter emitter, String eventName, Object payload, Runnable onFailure) {
+    protected void sendEvent(SseEmitter emitter, String eventName, Object payload, Runnable onFailure) {
         try {
             Object safePayload = (payload != null) ? payload : Map.of();
             emitter.send(SseEmitter.event().name(eventName).data(safePayload, MediaType.APPLICATION_JSON));

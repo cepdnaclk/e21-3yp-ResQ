@@ -75,6 +75,21 @@ class MqttIngressValidatorTest {
         assertThat(validate("resq/M01/telemetry", sample).accepted()).isTrue();
     }
 
+    @Test
+    void countsLegacyTopicsPayloadAliasesAndUnorderedMessagesIndependently() {
+        assertThat(validate("resq/manikins/M01/status", """
+                {"deviceId":"M01"}
+                """).accepted()).isTrue();
+        assertThat(validate("resq/M01/telemetry", """
+                {"device_id":"M01","state":"SESSION_ACTIVE","pressure_balance_pct":90}
+                """).accepted()).isTrue();
+
+        var counters = validator.counters();
+        assertThat(counters.legacyTopicMessageCount()).isEqualTo(1);
+        assertThat(counters.legacyPayloadAliasCount()).isEqualTo(2);
+        assertThat(counters.unorderedLegacyMessageCount()).isEqualTo(1);
+    }
+
     private MqttIngressValidator.ValidationDecision validate(String topic, String json) {
         return validator.validate(envelope(topic, json));
     }

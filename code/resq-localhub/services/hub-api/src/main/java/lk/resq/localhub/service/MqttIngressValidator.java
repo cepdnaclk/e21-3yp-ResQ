@@ -18,12 +18,16 @@ final class MqttIngressValidator {
     private final LongAdder duplicateSequenceCount = new LongAdder();
     private final LongAdder conflictingSequenceCount = new LongAdder();
     private final LongAdder malformedOrderingCount = new LongAdder();
-    private final LongAdder legacyUnorderedMessageCount = new LongAdder();
+    private final LongAdder unorderedLegacyMessageCount = new LongAdder();
     private final LongAdder legacyTopicMessageCount = new LongAdder();
+    private final LongAdder legacyPayloadAliasCount = new LongAdder();
 
     synchronized ValidationDecision validate(MqttIngestionEnvelope envelope) {
         if (envelope.legacyTopicUsed()) {
             legacyTopicMessageCount.increment();
+        }
+        if (usesLegacyPayloadAlias(envelope)) {
+            legacyPayloadAliasCount.increment();
         }
 
         String identityError = validatePayloadIdentity(envelope.canonicalDeviceId(), envelope.normalizedPayload());
@@ -39,7 +43,7 @@ final class MqttIngressValidator {
         String bootId = normalized(envelope.bootId());
         Long sequence = envelope.stateSequence();
         if (bootId == null && sequence == null) {
-            legacyUnorderedMessageCount.increment();
+            unorderedLegacyMessageCount.increment();
             return ValidationDecision.acceptedLegacyUnordered();
         }
         if (bootId == null || sequence == null || sequence < 0) {
@@ -108,13 +112,30 @@ final class MqttIngressValidator {
                 duplicateSequenceCount.sum(),
                 conflictingSequenceCount.sum(),
                 malformedOrderingCount.sum(),
-                legacyUnorderedMessageCount.sum(),
-                legacyTopicMessageCount.sum()
+                unorderedLegacyMessageCount.sum(),
+                legacyTopicMessageCount.sum(),
+                legacyPayloadAliasCount.sum()
         );
     }
 
     private static boolean usesStateOrdering(MqttTopicFamily family) {
         return family != MqttTopicFamily.TELEMETRY && family != MqttTopicFamily.DEBUG;
+    }
+
+    private static boolean usesLegacyPayloadAlias(MqttIngestionEnvelope envelope) {
+        JsonNode payload = envelope.normalizedPayload();
+        for (String alias : new String[]{
+                "deviceId", "manikin_id", "manikinId",
+                "bootId", "stateSeq", "sessionId", "telemetryMode",
+                "pressure_balance_pct", "pressureBalancePct"
+        }) {
+            if (payload.has(alias)) {
+                return true;
+            }
+        }
+        return envelope.topicFamily() == MqttTopicFamily.TELEMETRY
+                && payload.has("state")
+                && !payload.has("telemetry_mode");
     }
 
     private static String validatePayloadIdentity(String canonicalDeviceId, JsonNode payload) {
@@ -176,8 +197,9 @@ final class MqttIngressValidator {
             long duplicateSequenceCount,
             long conflictingSequenceCount,
             long malformedOrderingCount,
-            long legacyUnorderedMessageCount,
-            long legacyTopicMessageCount
+            long unorderedLegacyMessageCount,
+            long legacyTopicMessageCount,
+            long legacyPayloadAliasCount
     ) {
     }
 

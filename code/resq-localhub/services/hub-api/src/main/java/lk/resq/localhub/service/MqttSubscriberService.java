@@ -570,7 +570,15 @@ public class MqttSubscriberService {
                             logger.debug("Ignored MQTT calibration event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                             return;
                         }
-                        persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
+                        try {
+                            persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
+                        } catch (Exception error) {
+                            logger.error(
+                                    "Failed to persist validated calibration event for device {}",
+                                    parsedTopic.deviceId,
+                                    error
+                            );
+                        }
                         DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                         manikinRegistryService.updateFromCalibrationEvent(parsedTopic.deviceId, payload);
                         deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);

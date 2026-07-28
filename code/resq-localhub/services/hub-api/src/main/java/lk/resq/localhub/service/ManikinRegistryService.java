@@ -7,8 +7,10 @@ import lk.resq.localhub.model.SessionLiveView;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,16 +26,32 @@ import java.util.function.Consumer;
 public class ManikinRegistryService {
 
     private final Duration staleAfter;
+    private final Duration offlineAfter;
+    private final Clock clock;
     private final ConcurrentMap<String, MutableManikinState> registry = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, MutableManikinState> registryBySessionId = new ConcurrentHashMap<>();
 
-    public ManikinRegistryService(@Value("${resq.live.stale-after-seconds:12}") long staleAfterSeconds) {
+    @Autowired
+    public ManikinRegistryService(
+            @Value("${resq.live.stale-after-seconds:12}") long staleAfterSeconds,
+            @Value("${resq.live.offline-after-seconds:22}") long offlineAfterSeconds
+    ) {
+        this(staleAfterSeconds, offlineAfterSeconds, Clock.systemUTC());
+    }
+
+    public ManikinRegistryService(long staleAfterSeconds) {
+        this(staleAfterSeconds, staleAfterSeconds, Clock.systemUTC());
+    }
+
+    ManikinRegistryService(long staleAfterSeconds, long offlineAfterSeconds, Clock clock) {
         this.staleAfter = Duration.ofSeconds(Math.max(1L, staleAfterSeconds));
+        this.offlineAfter = Duration.ofSeconds(Math.max(this.staleAfter.toSeconds(), offlineAfterSeconds));
+        this.clock = clock;
     }
 
     public void updateFromStatus(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id", "deviceId", "device_id");
             state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
@@ -51,7 +69,7 @@ public class ManikinRegistryService {
 
     public void seedFromRegistration(String deviceId, lk.resq.localhub.model.DeviceRegistrationRequest request) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.state = "ONLINE";
             state.fw = firstText(request == null ? null : request.firmwareVersion(), state.fw);
@@ -60,7 +78,7 @@ public class ManikinRegistryService {
 
     public void updateFromHeartbeat(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
             state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
@@ -79,7 +97,7 @@ public class ManikinRegistryService {
 
     public void updateFromDebug(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
             state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
@@ -95,7 +113,7 @@ public class ManikinRegistryService {
 
     public void updateFromTelemetry(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
@@ -179,7 +197,7 @@ public class ManikinRegistryService {
 
     public void updateFromEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type", "type");
@@ -189,7 +207,7 @@ public class ManikinRegistryService {
 
     public void updateFromCalibrationEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type");
@@ -243,7 +261,7 @@ public class ManikinRegistryService {
 
     public void updateFromErrorEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type");
@@ -341,7 +359,7 @@ public class ManikinRegistryService {
     }
 
     public List<String> markStaleOfflineAndGetChangedDeviceIds() {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<String> changedDeviceIds = new ArrayList<>();
 
         for (MutableManikinState state : registry.values()) {
@@ -349,7 +367,7 @@ public class ManikinRegistryService {
                 continue;
             }
 
-            if (Duration.between(state.lastSeen, now).compareTo(staleAfter) > 0 && state.online) {
+            if (Duration.between(state.lastSeen, now).compareTo(offlineAfter) > 0 && state.online) {
                 state.online = false;
                 if (state.state == null || state.state.isBlank() || "online".equalsIgnoreCase(state.state)) {
                     state.state = "offline";
@@ -370,7 +388,7 @@ public class ManikinRegistryService {
             return false;
         }
 
-        if (Duration.between(state.lastSeen, now).compareTo(staleAfter) > 0 && state.online) {
+        if (Duration.between(state.lastSeen, now).compareTo(offlineAfter) > 0 && state.online) {
             state.online = false;
             if (state.state == null || state.state.isBlank() || "online".equalsIgnoreCase(state.state)) {
                 state.state = "offline";
@@ -529,7 +547,7 @@ public class ManikinRegistryService {
     }
 
     private boolean isStale(MutableManikinState state) {
-        return state.lastSeen != null && Duration.between(state.lastSeen, Instant.now()).compareTo(staleAfter) > 0;
+        return state.lastSeen != null && Duration.between(state.lastSeen, clock.instant()).compareTo(staleAfter) > 0;
     }
 
     private String connectionState(MutableManikinState state, boolean stale, boolean offline) {
