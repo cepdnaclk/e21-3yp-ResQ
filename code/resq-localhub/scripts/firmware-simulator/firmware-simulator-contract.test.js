@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { FirmwareSimulator } = require("./firmware-simulator.js");
 
 const localHubRoot = path.resolve(__dirname, "../..");
 const repositoryRoot = path.resolve(localHubRoot, "../..");
@@ -22,6 +23,36 @@ const capturePath = path.join(
   "phase-03-active-session-120s.log",
 );
 const fixtures = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+
+function simulatorHarness() {
+  const publications = [];
+  const options = {
+    deviceId: "M-CONTRACT",
+    mqttUrl: "mqtt://unused",
+    sessionId: "S-001",
+    profileId: "adult-basic",
+    calibrationMode: "pass",
+    telemetryIntervalMs: 200,
+    heartbeatIntervalMs: 5000,
+    exitAfterMs: 0,
+    simulateError: false,
+    simulateInterrupted: false,
+    quiet: true,
+    bootId: "51ee328114907a52",
+  };
+  const simulator = new FirmwareSimulator({}, options);
+  simulator.client = {
+    connected: true,
+    publish(topic, payload, publishOptions) {
+      publications.push({
+        topic,
+        payload: JSON.parse(payload),
+        options: publishOptions,
+      });
+    },
+  };
+  return { publications, simulator };
+}
 
 function depthFlagsConsistent(payload) {
   if (typeof payload.depth_ok !== "boolean" || typeof payload.flags !== "string") {
@@ -71,4 +102,54 @@ test("fixture modes remain separated", () => {
   assert.equal(fixtures.minimal.calibrationProgress.event_id, 4001);
   assert.equal(fixtures.minimal.calibrationResult.event_id, 4002);
   assert.equal(fixtures.minimal.errorEvent.event_id, 5000);
+});
+
+test("simulator status is minimal qos-one retained and deduplicated", () => {
+  const { publications, simulator } = simulatorHarness();
+
+  assert.equal(simulator.publishStatus(), true);
+  assert.equal(simulator.publishStatus(), false);
+  const statuses = publications.filter((entry) => entry.topic.endsWith("/status"));
+  assert.equal(statuses.length, 1);
+  assert.deepEqual(Object.keys(statuses[0].payload).sort(), [
+    "boot_id",
+    "calibrated",
+    "last_error_id",
+    "session_active",
+    "state",
+    "state_seq",
+    "ts_ms",
+  ]);
+  assert.equal(statuses[0].payload.device_id, undefined);
+  assert.equal(statuses[0].payload.ip, undefined);
+  assert.equal(statuses[0].options.qos, 1);
+  assert.equal(statuses[0].options.retain, true);
+});
+
+test("simulator status publishes for state sequence boot and reconnect changes", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.publishStatus();
+  simulator.state = "READY_FOR_SESSION";
+  simulator.calibrated = true;
+  simulator.publishStatus();
+  assert.equal(publications.at(-1).payload.state_seq, 2);
+
+  simulator.bootId = "61ee328114907a52";
+  simulator.publishStatus();
+  assert.equal(publications.at(-1).payload.boot_id, "61ee328114907a52");
+  assert.equal(publications.at(-1).payload.state_seq, 3);
+
+  simulator.publishStatus(true);
+  assert.equal(publications.at(-1).payload.state_seq, 4);
+  assert.equal(publications.filter((entry) => entry.topic.endsWith("/status")).length, 4);
+});
+
+test("manual telemetry startup does not create duplicate status", () => {
+  const { publications, simulator } = simulatorHarness();
+  simulator.publishStatus();
+  const before = publications.filter((entry) => entry.topic.endsWith("/status")).length;
+  simulator.startManualTelemetry();
+  const after = publications.filter((entry) => entry.topic.endsWith("/status")).length;
+  simulator.stopManualTelemetry();
+  assert.ok(after - before <= 1);
 });

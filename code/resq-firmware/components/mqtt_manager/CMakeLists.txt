@@ -12,6 +12,7 @@ idf_component_register(
         esp_timer
         runtime
         runtime_identity
+        firmware_mqtt_contract
         io_mode_manager
         freertos
 )

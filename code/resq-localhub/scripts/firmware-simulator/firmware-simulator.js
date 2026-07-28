@@ -2,6 +2,7 @@
 "use strict";
 
 const path = require("path");
+const crypto = require("crypto");
 const { createRequire } = require("module");
 
 const EVENT_IDS = {
@@ -82,6 +83,9 @@ class FirmwareSimulator {
     this.manualTelemetryIntervalMs = 200;
     this.calibrationTimers = [];
     this.startedAt = Date.now();
+    this.bootId = options.bootId || crypto.randomBytes(8).toString("hex");
+    this.statusStateSeq = 0;
+    this.lastStatusEffective = null;
   }
 
   start() {
@@ -164,7 +168,7 @@ class FirmwareSimulator {
           action_id: ACTION_IDS.NO_ACTION_REQUIRED,
           ts_ms: this.tsMs(),
         });
-        this.publishStatus(true);
+        this.publishStatus();
         break;
       default:
         this.log(`ignored unsupported command: ${command}`);
@@ -179,7 +183,7 @@ class FirmwareSimulator {
     this.state = "CALIBRATING";
     this.calibrated = false;
     this.lastErrorId = "00000";
-    this.publishStatus(true);
+    this.publishStatus();
     this.publishCalibrationEvent({
       event_id: EVENT_IDS.CALIBRATION_COMMAND_RESULT,
       reply_id: payload.request_id,
@@ -233,7 +237,7 @@ class FirmwareSimulator {
           action_id: ACTION_IDS.CHECK_SENSOR_AND_RETRY,
           ts_ms: this.tsMs(),
         });
-        this.publishStatus(true);
+        this.publishStatus();
         return;
       }
 
@@ -250,7 +254,7 @@ class FirmwareSimulator {
         action_id: ACTION_IDS.NO_ACTION_REQUIRED,
         ts_ms: this.tsMs(),
       });
-      this.publishStatus(true);
+      this.publishStatus();
     }, 150 + progressIds.length * 120));
   }
 
@@ -270,7 +274,7 @@ class FirmwareSimulator {
       action_id: ACTION_IDS.MOVE_TO_PAIRED_IDLE,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
   handleSessionStart(payload) {
@@ -288,7 +292,7 @@ class FirmwareSimulator {
       action_id: ACTION_IDS.NO_ACTION_REQUIRED,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
     this.startTelemetry();
     if (this.options.simulateInterrupted) {
       setTimeout(() => this.interruptSession(payload.request_id), 3000);
@@ -314,7 +318,7 @@ class FirmwareSimulator {
       action_id: ACTION_IDS.STOP_SESSION_AND_RETURN_READY,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
   handleDebug(payload) {
@@ -387,19 +391,32 @@ class FirmwareSimulator {
       action_id: ACTION_IDS.STOP_SESSION_AND_RETURN_READY,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
-  publishStatus(retain) {
-    this.publish("status", {
+  publishStatus(force = false) {
+    const effective = {
       state: this.state,
       session_active: this.sessionActive,
-      session_id: this.sessionActive ? this.currentSessionId : "",
       calibrated: this.calibrated,
       last_error_id: this.lastErrorId,
-      ip: "192.168.8.120",
+      boot_id: this.bootId,
+    };
+    if (this.sessionActive || this.state === "SESSION_INTERRUPTED") {
+      effective.session_id = this.currentSessionId;
+    }
+    const fingerprint = JSON.stringify(effective);
+    if (!force && fingerprint === this.lastStatusEffective) {
+      return false;
+    }
+    this.statusStateSeq += 1;
+    this.publish("status", {
+      ...effective,
+      state_seq: this.statusStateSeq,
       ts_ms: this.tsMs(),
-    }, { retain: Boolean(retain) });
+    }, { qos: 1, retain: true });
+    this.lastStatusEffective = fingerprint;
+    return true;
   }
 
   publishHeartbeat() {
@@ -489,7 +506,7 @@ class FirmwareSimulator {
       action_id: actionId,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
   publishCalibrationEvent(payload) {
@@ -506,7 +523,10 @@ class FirmwareSimulator {
     }
     const topic = this.topic(suffix);
     const json = JSON.stringify(payload);
-    this.client.publish(topic, json, { qos: 0, retain: Boolean(options.retain) });
+    this.client.publish(topic, json, {
+      qos: Number.isInteger(options.qos) ? options.qos : 0,
+      retain: Boolean(options.retain),
+    });
     this.log(`publish ${topic} ${json}`);
   }
 
@@ -531,13 +551,11 @@ class FirmwareSimulator {
     this.state = this.calibrated ? "READY_FOR_SESSION" : "PAIRED_IDLE";
     this.manualTelemetryTimer = setInterval(() => this.publishSensorStream(), this.manualTelemetryIntervalMs);
     this.publishSensorStream();
-    this.publishStatus(false);
   }
 
   stopManualTelemetry() {
     clearInterval(this.manualTelemetryTimer);
     this.manualTelemetryTimer = null;
-    this.publishStatus(false);
   }
 
   clearCalibrationTimers() {
@@ -705,9 +723,17 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+module.exports = {
+  DEFAULTS,
+  FirmwareSimulator,
+  clamp,
+};
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
