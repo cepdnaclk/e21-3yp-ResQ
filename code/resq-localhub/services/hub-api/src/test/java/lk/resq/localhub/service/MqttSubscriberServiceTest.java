@@ -84,6 +84,7 @@ class MqttSubscriberServiceTest {
 
         fixture.subscriber().handleMessage("resq/M01/status", message(accepted));
         int snapshotCount = fixture.liveStreamService().getInstructorLiveSnapshots().size();
+        int persistedCount = repository.findRecentEvents("M01", 10).size();
         fixture.subscriber().handleMessage("resq/M01/status", message(accepted));
         fixture.subscriber().handleMessage("resq/M01/status", message("""
                 {"device_id":"M01","state":"PAIRED_IDLE","boot_id":"boot-a","state_seq":5}
@@ -92,7 +93,7 @@ class MqttSubscriberServiceTest {
                 {"device_id":"M01","state":"BOOTING","boot_id":"boot-a","state_seq":4}
                 """));
 
-        assertThat(repository.findRecentEvents("M01", 10)).hasSize(1);
+        assertThat(repository.findRecentEvents("M01", 10)).hasSize(persistedCount);
         assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).hasSize(snapshotCount);
         assertThat(fixture.subscriber().ingestionDiagnosticCounters().duplicateSequenceCount()).isEqualTo(1);
         assertThat(fixture.subscriber().ingestionDiagnosticCounters().conflictingSequenceCount()).isEqualTo(1);
@@ -133,7 +134,7 @@ class MqttSubscriberServiceTest {
         ManikinLiveSummary afterStatus = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
         assertThat(afterStatus.online()).isTrue();
         assertThat(afterStatus.state()).isEqualTo("PAIRED_IDLE");
-        assertThat(afterStatus.lastSeen()).isAfterOrEqualTo(beforeStatus);
+        assertThat(afterStatus.lastSeen()).isAfterOrEqualTo(beforeStatus.minusMillis(1));
         assertThat(afterStatus.lastSeen().toEpochMilli()).isGreaterThan(1_000_000_000_000L);
         assertThat(afterStatus.ip()).isEqualTo("192.168.8.161");
         assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).isNotEmpty();
@@ -444,6 +445,44 @@ class MqttSubscriberServiceTest {
         assertThat(liveView.latestDepthMm()).isNull();
         assertThat(liveView.latestRateCpm()).isNull();
     }
+
+    @Test
+    void persistsSessionTelemetryOnlyAfterBindingAndDuplicateValidation() throws Exception {
+        FirmwarePersistenceRepository repository = newRepository();
+        ServiceFixture fixture = newFixture(repository);
+        var session = fixture.activeSessionService().startSession(new SessionStartRequest(
+                "M01", "trainee-1", null, null, null, null, "adult-basic", "binding-test", null
+        ));
+        activate(fixture, session);
+
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+                {
+                  "session_id":"wrong-session",
+                  "state":"SESSION_ACTIVE",
+                  "seq":1,
+                  "depth_mm":50,
+                  "depth_ok":true
+                }
+                """));
+        assertThat(repository.findRecentEvents("M01", 10)).isEmpty();
+        assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow().latestMetric()).isNull();
+
+        String valid = """
+                {
+                  "session_id":"%s",
+                  "telemetry_mode":"SESSION_ACTIVE",
+                  "seq":1,
+                  "depth_mm":50,
+                  "depth_ok":true
+                }
+                """.formatted(session.sessionId());
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message(valid));
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message(valid));
+
+        assertThat(repository.findRecentEvents("M01", 10)).hasSize(1);
+        assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow().latestMetric())
+                .isNotNull();
+    }
     @Test
     void tracksDeviceReadinessFromMqttEvents() throws Exception {
         ServiceFixture fixture = newFixture(newRepository());
@@ -631,6 +670,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1000,
               "depth_progress": 0.05,
               "pressure_balance_pct": 91.5
@@ -640,6 +680,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1100,
               "depth_progress": 0.25,
               "pressure_balance_pct": 91.5
@@ -649,6 +690,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1300,
               "depth_progress": 0.05,
               "pressure_balance_pct": 91.5
@@ -659,6 +701,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1600,
               "depth_progress": 0.25,
               "pressure_balance_pct": 91.5

@@ -41,6 +41,7 @@ final class CanonicalMqttIngestion {
         }
 
         Instant receivedAt = clock.instant();
+        IngestionValidationResult validation = discriminatorValidation(parsedTopic.family(), payload);
         MqttIngestionEnvelope envelope = new MqttIngestionEnvelope(
                 parsedTopic.deviceId(),
                 parsedTopic.family(),
@@ -53,9 +54,9 @@ final class CanonicalMqttIngestion {
                 firstLong(payload, "state_seq", "stateSeq"),
                 firstText(payload, "session_id", "sessionId"),
                 payload.deepCopy(),
-                IngestionValidationResult.valid()
+                validation
         );
-        return ParseResult.accepted(envelope);
+        return new ParseResult(envelope, validation);
     }
 
     ParsedTopic parseTopic(String topic) {
@@ -133,6 +134,24 @@ final class CanonicalMqttIngestion {
             case "CALIBRATION", "CALIBRATING" -> TelemetryMode.CALIBRATION;
             default -> TelemetryMode.UNKNOWN;
         };
+    }
+
+    private static IngestionValidationResult discriminatorValidation(MqttTopicFamily family, JsonNode payload) {
+        if (family != MqttTopicFamily.TELEMETRY) {
+            return IngestionValidationResult.valid();
+        }
+        String canonical = firstText(payload, "telemetry_mode", "telemetryMode");
+        String compatibility = firstText(payload, "state");
+        boolean stateIsDiscriminator = compatibility != null
+                && ("SESSION_ACTIVE".equalsIgnoreCase(compatibility)
+                || "SENSOR_STREAM".equalsIgnoreCase(compatibility));
+        if (canonical != null && stateIsDiscriminator && !canonical.equalsIgnoreCase(compatibility)) {
+            return IngestionValidationResult.rejected(
+                    "CONFLICTING_TELEMETRY_MODE",
+                    "telemetry_mode conflicts with state"
+            );
+        }
+        return IngestionValidationResult.valid();
     }
 
     private static String canonicalTopic(String deviceId, MqttTopicFamily family) {

@@ -376,7 +376,14 @@ public class MqttSubscriberService {
         CanonicalMqttIngestion.ParseResult parseResult =
                 canonicalMqttIngestion.parse(topic, message.getPayload());
         if (!parseResult.accepted()) {
-            warnValidationFailure("unknown", parseResult.validationResult().reasonCode(), parseResult.validationResult().detail());
+            String rejectedDeviceId = parseResult.envelope() == null
+                    ? "unknown"
+                    : parseResult.envelope().canonicalDeviceId();
+            warnValidationFailure(
+                    rejectedDeviceId,
+                    parseResult.validationResult().reasonCode(),
+                    parseResult.validationResult().detail()
+            );
             return;
         }
 
@@ -405,10 +412,6 @@ public class MqttSubscriberService {
                 return;
             }
 
-            if (parsedTopic.canonicalFirmwareTopic) {
-                persistCanonicalMessage(topic, parsedTopic, payload);
-            }
-
             switch (parsedTopic.messageType) {
                 case "status" -> {
                     RuntimeMessageApplyResult applyResult = deviceReadinessService.handleStatusResult(parsedTopic.deviceId, payload);
@@ -416,6 +419,7 @@ public class MqttSubscriberService {
                         logger.debug("Ignored MQTT status for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                         return;
                     }
+                    persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
                     DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                     manikinRegistryService.updateFromStatus(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
@@ -432,6 +436,7 @@ public class MqttSubscriberService {
                         logger.debug("Ignored MQTT heartbeat for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                         return;
                     }
+                    persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
                     DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                     manikinRegistryService.updateFromHeartbeat(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
@@ -443,8 +448,12 @@ public class MqttSubscriberService {
                     logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
                 }
                 case "telemetry" -> {
-                    if (isSensorStreamTelemetry(payload)) {
-                        SensorStreamSnapshot snapshot = sensorStreamService.parseSnapshot(parsedTopic.deviceId, payload, Instant.now());
+                    if (envelope.telemetryMode() == lk.resq.localhub.model.ingestion.TelemetryMode.SENSOR_STREAM) {
+                        SensorStreamSnapshot snapshot = sensorStreamService.parseSnapshot(
+                                parsedTopic.deviceId,
+                                payload,
+                                envelope.backendReceivedAt()
+                        );
                         manikinRegistryService.updateFromSensorStream(parsedTopic.deviceId, snapshot);
                         sensorStreamService.recordSnapshot(snapshot);
                         publishInstructorLiveSnapshot();
@@ -452,18 +461,21 @@ public class MqttSubscriberService {
                         return;
                     }
 
-                    String telemetryMode = firstText(payload, "telemetry_mode", "telemetryMode");
-                    if (telemetryMode != null) {
+                    if (envelope.telemetryMode() != lk.resq.localhub.model.ingestion.TelemetryMode.SESSION_ACTIVE) {
                         rejectedTelemetryCount.incrementAndGet();
-                        logger.warn("Rejected unsupported telemetry_mode {} for device {}", telemetryMode, parsedTopic.deviceId);
+                        warnValidationFailure(
+                                parsedTopic.deviceId,
+                                "NOT_SESSION_ACTIVE",
+                                "telemetry must declare SESSION_ACTIVE"
+                        );
                         return;
                     }
 
-                    String payloadSessionId = firstText(payload, "sessionId", "session_id");
+                    String payloadSessionId = envelope.sessionId();
                     if (payloadSessionId == null) {
-                        payloadSessionId = activeSessionService.findActiveSessionForDevice(parsedTopic.deviceId)
-                                .map(lk.resq.localhub.model.ActiveSessionInfo::sessionId)
-                                .orElse(null);
+                        rejectedTelemetryCount.incrementAndGet();
+                        warnValidationFailure(parsedTopic.deviceId, "MISSING_SESSION_ID", "session telemetry requires session_id");
+                        return;
                     }
 
                     TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
@@ -504,6 +516,7 @@ public class MqttSubscriberService {
                         );
                     }
 
+                    persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, normalizedPayload);
                     manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, normalizedPayload);
                     activeSessionService.recordTelemetry(parsedTopic.deviceId, normalizedPayload);
                     acceptedTelemetryCount.incrementAndGet();
@@ -523,9 +536,9 @@ public class MqttSubscriberService {
                     );
                 }
                 case "debug" -> {
+                    persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
                     manikinRegistryService.updateFromDebug(parsedTopic.deviceId, payload);
                     publishInstructorLiveSnapshot();
-                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT debug message for {}", parsedTopic.deviceId);
                 }
                 case "events" -> {
@@ -534,6 +547,7 @@ public class MqttSubscriberService {
                         logger.debug("Ignored MQTT event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                         return;
                     }
+                    persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
                     DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                     reconcileFirmwareBootChange(parsedTopic.deviceId, applyResult);
                     applyCanonicalEventSideEffects(parsedTopic, payload);
@@ -556,6 +570,7 @@ public class MqttSubscriberService {
                             logger.debug("Ignored MQTT calibration event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                             return;
                         }
+                        persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
                         DeviceReadinessState readiness = deviceReadinessService.toReadinessState(applyResult.state());
                         manikinRegistryService.updateFromCalibrationEvent(parsedTopic.deviceId, payload);
                         deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
@@ -571,7 +586,6 @@ public class MqttSubscriberService {
                         }
                     }
                     publishInstructorLiveSnapshot();
-                    publishSessionLiveForPayload(payload);
                     logger.info("Processed MQTT calibration event for {}", parsedTopic.deviceId);
                 }
                 case "events/error" -> {
@@ -580,6 +594,7 @@ public class MqttSubscriberService {
                         logger.debug("Ignored MQTT error event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
                         return;
                     }
+                    persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);
                     manikinRegistryService.updateFromErrorEvent(parsedTopic.deviceId, payload);
                     deviceReadinessService.findRuntimeState(parsedTopic.deviceId).ifPresent(manikinRegistryService::applyRuntimeState);
                     reconcileFirmwareBootChange(parsedTopic.deviceId, applyResult);

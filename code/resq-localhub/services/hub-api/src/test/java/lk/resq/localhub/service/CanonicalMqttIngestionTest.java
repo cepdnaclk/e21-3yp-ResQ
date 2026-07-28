@@ -96,6 +96,18 @@ class CanonicalMqttIngestionTest {
                 .isEqualTo("MALFORMED_JSON");
     }
 
+    @Test
+    void rejectsConflictingSessionDiscriminators() {
+        var result = ingestion.parse(
+                "resq/M01/telemetry",
+                bytes("{\"telemetry_mode\":\"SESSION_ACTIVE\",\"state\":\"SENSOR_STREAM\"}")
+        );
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.envelope().canonicalDeviceId()).isEqualTo("M01");
+        assertThat(result.validationResult().reasonCode()).isEqualTo("CONFLICTING_TELEMETRY_MODE");
+    }
+
     private lk.resq.localhub.model.ingestion.MqttIngestionEnvelope parse(String topic, String json) {
         var result = ingestion.parse(topic, bytes(json));
         assertThat(result.accepted()).isTrue();
