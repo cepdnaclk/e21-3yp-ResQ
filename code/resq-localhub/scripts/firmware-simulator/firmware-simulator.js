@@ -882,9 +882,13 @@ function normalizeSessionMetric(metric) {
   const score = Number.isFinite(normalized.pressure_balance_score_pct)
     ? clamp(normalized.pressure_balance_score_pct, 0, 100)
     : 0;
-  normalized.pressure_balance_score_pct = score;
+  normalized.depth_mm = roundTo(normalized.depth_mm, 3);
+  normalized.depth_progress = roundTo(normalized.depth_progress, 3);
+  normalized.rate_cpm = roundTo(normalized.rate_cpm, 1);
+  normalized.pause_s = roundTo(normalized.pause_s, 3);
+  normalized.pressure_balance_score_pct = roundTo(score, 2);
   // Deprecated compatibility alias; remove only after LocalHub Phase 6.
-  normalized.pressure_balance_pct = score;
+  normalized.pressure_balance_pct = normalized.pressure_balance_score_pct;
   if (score >= PRESSURE_CENTER_SCORE_THRESHOLD_PCT) {
     normalized.hand_placement = "CENTER";
   } else if (normalized.hand_placement === "CENTER") {
@@ -892,6 +896,12 @@ function normalizeSessionMetric(metric) {
   }
   normalized.flags = deriveSessionFlags(normalized);
   return normalized;
+}
+
+function roundTo(value, digits) {
+  if (!Number.isFinite(value)) return 0;
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }
 
 module.exports = {

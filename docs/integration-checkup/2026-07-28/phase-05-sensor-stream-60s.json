@@ -1,0 +1,64 @@
+{
+  "mode": "sensor-stream",
+  "seconds": 60,
+  "heartbeatIntervalMs": 5000,
+  "telemetryIntervalMs": 200,
+  "deviceId": "M01",
+  "topics": [
+    {
+      "topic": "resq/M01/telemetry",
+      "messages": 289,
+      "messagesPerSecond": 4.817,
+      "averagePayloadBytes": 542.194,
+      "bytesPerSecond": 2611.567,
+      "bytesPerMinute": 156694,
+      "uniquePayloadCount": 289
+    },
+    {
+      "topic": "resq/M01/heartbeat",
+      "messages": 13,
+      "messagesPerSecond": 0.217,
+      "averagePayloadBytes": 118.462,
+      "bytesPerSecond": 25.667,
+      "bytesPerMinute": 1540,
+      "uniquePayloadCount": 13
+    },
+    {
+      "topic": "resq/M01/status",
+      "messages": 1,
+      "messagesPerSecond": 0.017,
+      "averagePayloadBytes": 143,
+      "bytesPerSecond": 2.383,
+      "bytesPerMinute": 143,
+      "uniquePayloadCount": 1
+    },
+    {
+      "topic": "resq/M01/events",
+      "messages": 1,
+      "messagesPerSecond": 0.017,
+      "averagePayloadBytes": 136,
+      "bytesPerSecond": 2.267,
+      "bytesPerMinute": 136,
+      "uniquePayloadCount": 1
+    },
+    {
+      "topic": "resq/M01/cmd/telemetry",
+      "messages": 1,
+      "messagesPerSecond": 0.017,
+      "averagePayloadBytes": 74,
+      "bytesPerSecond": 1.233,
+      "bytesPerMinute": 74,
+      "uniquePayloadCount": 1
+    }
+  ],
+  "total": {
+    "messages": 305,
+    "messagesPerSecond": 5.083,
+    "averagePayloadBytes": 519.957,
+    "bytesPerSecond": 2643.117,
+    "bytesPerMinute": 158587,
+    "uniquePayloadCount": 305
+  },
+  "duplicateStatusCount": 0,
+  "capturedAt": "2026-07-28T07:50:31.975Z"
+}

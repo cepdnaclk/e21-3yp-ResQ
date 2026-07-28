@@ -53,14 +53,20 @@ async function main() {
     });
     const simulatorErrors = [];
     simulator.stderr.on("data", (chunk) => simulatorErrors.push(chunk.toString()));
+    if (options.mode !== "idle") {
+      await wait(750);
+      await publishModeCommand(collector, options);
+    }
     await wait(options.seconds * 1000);
 
     const result = {
-      mode: "idle",
+      mode: options.mode,
       seconds: options.seconds,
       heartbeatIntervalMs: options.heartbeatIntervalMs,
+      telemetryIntervalMs: options.telemetryIntervalMs,
       deviceId: options.deviceId,
       topics: metrics(rows, options.seconds),
+      total: aggregateMetrics(rows, options.seconds),
       duplicateStatusCount: duplicateStatusCount(rows),
       capturedAt: new Date().toISOString(),
     };
@@ -71,12 +77,49 @@ async function main() {
     if (options.output) {
       fs.writeFileSync(path.resolve(options.output), json, "utf8");
     }
-    process.stdout.write(json);
+    if (!options.noStdout) process.stdout.write(json);
   } finally {
     if (simulator && !simulator.killed) simulator.kill();
     if (collector) collector.end(true);
     if (!broker.killed) broker.kill();
   }
+}
+
+function publishModeCommand(client, options) {
+  const requestId = `phase-05-${options.mode}`;
+  let suffix;
+  let payload;
+  if (options.mode === "sensor-stream") {
+    suffix = "cmd/telemetry";
+    payload = {
+      request_id: requestId,
+      action: "START",
+      interval_ms: options.telemetryIntervalMs,
+    };
+  } else if (options.mode === "calibration") {
+    suffix = "cmd/calibration/start";
+    payload = { request_id: requestId };
+  } else if (options.mode === "session") {
+    suffix = "cmd/session/start";
+    payload = {
+      request_id: requestId,
+      session_id: options.sessionId,
+      profile_id: "adult-basic",
+    };
+  } else {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    client.publish(
+      `resq/${options.deviceId}/${suffix}`,
+      JSON.stringify(payload),
+      { qos: 1, retain: false },
+      (error) => {
+        if (error) reject(error);
+        else resolve();
+      },
+    );
+  });
 }
 
 function metrics(rows, seconds) {
@@ -98,6 +141,18 @@ function metrics(rows, seconds) {
       uniquePayloadCount: new Set(group.map((row) => row.payload)).size,
     };
   }).sort((left, right) => right.bytesPerSecond - left.bytesPerSecond);
+}
+
+function aggregateMetrics(rows, seconds) {
+  const totalBytes = rows.reduce((sum, row) => sum + row.bytes, 0);
+  return {
+    messages: rows.length,
+    messagesPerSecond: round(rows.length / seconds),
+    averagePayloadBytes: rows.length === 0 ? 0 : round(totalBytes / rows.length),
+    bytesPerSecond: round(totalBytes / seconds),
+    bytesPerMinute: round((totalBytes * 60) / seconds),
+    uniquePayloadCount: new Set(rows.map((row) => `${row.topic}\u0000${row.payload}`)).size,
+  };
 }
 
 function duplicateStatusCount(rows) {
@@ -149,24 +204,37 @@ function subscribe(client, topic) {
 
 function parseArgs(args) {
   const options = {
+    mode: "idle",
     seconds: 60,
     port: 18884,
     deviceId: "M01",
     heartbeatIntervalMs: 5000,
+    telemetryIntervalMs: 200,
+    sessionId: "S-PHASE-05",
     mosquitto: process.env.MOSQUITTO_EXE ||
       "C:\\Program Files\\Mosquitto\\mosquitto.exe",
     output: "",
+    noStdout: false,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const value = () => args[++index];
-    if (arg === "--seconds") options.seconds = positiveInteger(arg, value());
+    if (arg === "--mode") {
+      options.mode = value();
+      if (!["idle", "sensor-stream", "calibration", "session"].includes(options.mode)) {
+        throw new Error("--mode must be idle, sensor-stream, calibration, or session");
+      }
+    } else if (arg === "--seconds") options.seconds = positiveInteger(arg, value());
     else if (arg === "--port") options.port = positiveInteger(arg, value());
     else if (arg === "--device-id") options.deviceId = value();
     else if (arg === "--heartbeat-interval-ms") {
       options.heartbeatIntervalMs = positiveInteger(arg, value());
-    } else if (arg === "--mosquitto") options.mosquitto = value();
+    } else if (arg === "--telemetry-interval-ms") {
+      options.telemetryIntervalMs = positiveInteger(arg, value());
+    } else if (arg === "--session-id") options.sessionId = value();
+    else if (arg === "--mosquitto") options.mosquitto = value();
     else if (arg === "--output") options.output = value();
+    else if (arg === "--no-stdout") options.noStdout = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
   return options;
