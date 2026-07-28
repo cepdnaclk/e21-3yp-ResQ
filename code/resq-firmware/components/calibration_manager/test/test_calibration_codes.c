@@ -355,6 +355,14 @@ TEST_CASE("Calibration target windows are strict and overflow safe",
       3219999, target, tolerance));
   TEST_ASSERT_FALSE(calibration_manager_value_within_target(
       3780001, target, tolerance));
+  TEST_ASSERT_FALSE(calibration_manager_value_within_target(
+      1286000, target, tolerance));
+  TEST_ASSERT_FALSE(calibration_manager_value_within_target(
+      4190000, 3100000,
+      calibration_manager_pressure_target_tolerance(3100000)));
+  TEST_ASSERT_FALSE(calibration_manager_value_within_target(
+      3980000, 3100000,
+      calibration_manager_pressure_target_tolerance(3100000)));
   TEST_ASSERT_FALSE(
       calibration_manager_value_within_target(target, target, -1));
   TEST_ASSERT_TRUE(calibration_manager_value_within_target(
@@ -414,26 +422,55 @@ TEST_CASE("Calibration target hold requires consecutive in-range samples",
       calibration_manager_pressure_target_tolerance(3100000);
 
   TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
-      &tracker, &sample, 3100000, tolerance, 3, 200));
-  sample.timestamp_ms = 1100;
+      &tracker, &sample, 3100000, tolerance,
+      CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+      CALIBRATION_PRESSURE_TARGET_HOLD_MS));
+  sample.timestamp_ms = 1125;
   TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
-      &tracker, &sample, 3100000, tolerance, 3, 200));
-  sample.timestamp_ms = 1200;
+      &tracker, &sample, 3100000, tolerance,
+      CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+      CALIBRATION_PRESSURE_TARGET_HOLD_MS));
+  sample.timestamp_ms = 1250;
   TEST_ASSERT_TRUE(calibration_manager_pressure_target_tracker_observe(
-      &tracker, &sample, 3100000, tolerance, 3, 200));
+      &tracker, &sample, 3100000, tolerance,
+      CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+      CALIBRATION_PRESSURE_TARGET_HOLD_MS));
 
   sample.value = 4000000;
   sample.timestamp_ms = 1300;
   TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
-      &tracker, &sample, 3100000, tolerance, 3, 200));
+      &tracker, &sample, 3100000, tolerance,
+      CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+      CALIBRATION_PRESSURE_TARGET_HOLD_MS));
   TEST_ASSERT_EQUAL_UINT(0, tracker.consecutive_matches);
 
   sample.value = 3100000;
   sample.using_last_stable = true;
   sample.timestamp_ms = 1400;
   TEST_ASSERT_FALSE(calibration_manager_pressure_target_tracker_observe(
-      &tracker, &sample, 3100000, tolerance, 3, 200));
+      &tracker, &sample, 3100000, tolerance,
+      CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+      CALIBRATION_PRESSURE_TARGET_HOLD_MS));
   TEST_ASSERT_EQUAL_UINT(0, tracker.consecutive_matches);
+}
+
+TEST_CASE("Calibration terminal result is committed exactly once",
+          "[calibration][lifecycle]") {
+  calibration_attempt_result_t result = CALIBRATION_ATTEMPT_RUNNING;
+
+  TEST_ASSERT_TRUE(calibration_manager_attempt_result_try_finalize(
+      &result, CALIBRATION_ATTEMPT_PASS));
+  TEST_ASSERT_EQUAL(CALIBRATION_ATTEMPT_PASS, result);
+  TEST_ASSERT_FALSE(calibration_manager_attempt_result_try_finalize(
+      &result, CALIBRATION_ATTEMPT_CANCELLED));
+  TEST_ASSERT_EQUAL(CALIBRATION_ATTEMPT_PASS, result);
+
+  result = CALIBRATION_ATTEMPT_RUNNING;
+  TEST_ASSERT_TRUE(calibration_manager_attempt_result_try_finalize(
+      &result, CALIBRATION_ATTEMPT_CANCELLED));
+  TEST_ASSERT_FALSE(calibration_manager_attempt_result_try_finalize(
+      &result, CALIBRATION_ATTEMPT_FAIL));
+  TEST_ASSERT_EQUAL(CALIBRATION_ATTEMPT_CANCELLED, result);
 }
 
 TEST_CASE("Only explicit Hall-only policy skips pressure targets",

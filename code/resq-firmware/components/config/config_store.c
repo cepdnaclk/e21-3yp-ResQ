@@ -1277,20 +1277,19 @@ cal_store_outcome_t config_store_promote_calibration(
     // 3. Read metadata
     calibration_meta_t meta;
     cal_store_outcome_t meta_outcome = read_calibration_meta_locked(handle, &meta);
-    if (meta_outcome != CAL_STORE_VALID) {
+    if (meta_outcome == CAL_STORE_NOT_FOUND) {
+        memset(&meta, 0, sizeof(meta));
+        meta.magic = CALIBRATION_META_MAGIC;
+        meta.schema_version = CALIBRATION_META_SCHEMA_VERSION;
+        meta.active_slot = CALIBRATION_SLOT_NONE;
+    } else if (meta_outcome != CAL_STORE_VALID) {
         nvs_close(handle);
         UNLOCK_STORE();
         return meta_outcome;  // propagate CORRUPT / UNSUPPORTED_SCHEMA / IO_ERROR
     }
 
-    // 4. Verify recalibration_required is 1
-    if (meta.recalibration_required != 1) {
-        nvs_close(handle);
-        UNLOCK_STORE();
-        return CAL_STORE_IO_ERROR;  // no pending recalibration
-    }
-
-    // 5. Determine next slot
+    // 4. Determine next slot. The current calibration remains trusted until
+    // the new slot and metadata are committed and verified.
     uint8_t next_slot = (meta.active_slot == 0) ? 1 : 0;
     if (meta.active_slot == CALIBRATION_SLOT_NONE) {
         next_slot = 0;

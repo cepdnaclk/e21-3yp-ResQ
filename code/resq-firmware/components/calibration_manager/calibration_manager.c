@@ -418,6 +418,18 @@ bool calibration_manager_pressure_targets_required(
   return mode != CALIBRATION_HALL_ONLY;
 }
 
+bool calibration_manager_attempt_result_try_finalize(
+    calibration_attempt_result_t *current,
+    calibration_attempt_result_t terminal_result) {
+  if (current == NULL || *current != CALIBRATION_ATTEMPT_RUNNING ||
+      terminal_result < CALIBRATION_ATTEMPT_PASS ||
+      terminal_result > CALIBRATION_ATTEMPT_INTERNAL_ERROR) {
+    return false;
+  }
+  *current = terminal_result;
+  return true;
+}
+
 static bool
 calibration_pressure_targets_usable(const calibration_config_t *config) {
   return config != NULL && config->ref_pressure > 0 &&
@@ -2199,6 +2211,7 @@ static esp_err_t calibration_wait_for_pressure_target(
       esp_timer_get_time() + ((int64_t)CALIBRATION_MAX_WAIT_MS * 1000LL);
   int consecutive_read_failures = 0;
   int64_t last_progress_publish_us = 0;
+  int64_t last_stage_log_us = 0;
   int32_t last_fresh_value = 0;
   unsigned valid_samples = 0;
   unsigned invalid_samples = 0;
@@ -2291,17 +2304,21 @@ static esp_err_t calibration_wait_for_pressure_target(
         tracker.consecutive_matches > 0
             ? sample.timestamp_ms - tracker.first_match_timestamp_ms
             : 0;
-    ESP_LOGI(
-        TAG,
-        "stage=%s current=%ld target=%ld tolerance=%ld range=[%lld,%lld] "
-        "fresh=1 valid=1 saturated=0 stale=0 using_last_stable=0 "
-        "consecutive=%u/%u hold_ms=%lld",
-        label, (long)current_value, (long)target_value, (long)tolerance,
-        (long long)((int64_t)target_value - tolerance),
-        (long long)((int64_t)target_value + tolerance),
-        tracker.consecutive_matches,
-        CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
-        (long long)held_ms);
+    if (matched || last_stage_log_us == 0 ||
+        now_us - last_stage_log_us >= 500000) {
+      ESP_LOGI(
+          TAG,
+          "stage=%s current=%ld target=%ld tolerance=%ld range=[%lld,%lld] "
+          "fresh=1 valid=1 saturated=0 stale=0 using_last_stable=0 "
+          "consecutive=%u/%u hold_ms=%lld",
+          label, (long)current_value, (long)target_value, (long)tolerance,
+          (long long)((int64_t)target_value - tolerance),
+          (long long)((int64_t)target_value + tolerance),
+          tracker.consecutive_matches,
+          CALIBRATION_PRESSURE_TARGET_CONSECUTIVE_MATCHES,
+          (long long)held_ms);
+      last_stage_log_us = now_us;
+    }
 
     /* Also log the last raw triplet at DEBUG level so hex patterns are
      * available when needed */
@@ -2350,10 +2367,26 @@ static esp_err_t calibration_wait_for_pressure_target(
  * @brief Mark calibration as failed and update indicator.
  */
 static void calibration_manager_fail(calibration_reason_id_t reason_id) {
-  s_attempt_result = CALIBRATION_ATTEMPT_FAIL;
+  calibration_attempt_result_t existing_result;
+  LOCK_MGR();
+  if (!calibration_manager_attempt_result_try_finalize(
+          &s_attempt_result, CALIBRATION_ATTEMPT_FAIL)) {
+    existing_result = s_attempt_result;
+    UNLOCK_MGR();
+    ESP_LOGW(TAG,
+             "Ignoring late calibration failure reason_id=%d; result=%d "
+             "already committed",
+             (int)reason_id, (int)existing_result);
+    return;
+  }
   s_last_failure_reason = reason_id;
   s_last_failure_action =
       calibration_codes_default_action_for_reason(reason_id);
+  s_candidate_config.calibrated = false;
+  s_candidate_profile_id[0] = '\0';
+  s_candidate_profile_version = 0;
+  s_candidate_profile_hash[0] = '\0';
+  UNLOCK_MGR();
 
   ESP_LOGE(TAG,
            "Calibration failed reason_id=%d reason=%s action_id=%d action=%s",
@@ -2361,12 +2394,6 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id) {
            calibration_codes_reason_to_string(s_last_failure_reason),
            (int)s_last_failure_action,
            calibration_codes_action_to_string(s_last_failure_action));
-
-  s_candidate_config.calibrated = false;
-
-  s_candidate_profile_id[0] = '\0';
-  s_candidate_profile_version = 0;
-  s_candidate_profile_hash[0] = '\0';
 
   publish_calibration_progress(
       s_last_failure_reason, RESQ_STATE_CALIBRATION_FAIL, s_last_failure_action,
@@ -2377,17 +2404,21 @@ static void calibration_manager_fail(calibration_reason_id_t reason_id) {
  * @brief Mark calibration as successful, save config, and update indicator.
  */
 static esp_err_t calibration_manager_save_success(void) {
+  calibration_reason_id_t fail_reason = CAL_REASON_NONE;
   LOCK_MGR();
-  if (!calibration_config_is_valid(&s_candidate_config)) {
-    calibration_manager_fail(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE);
+  if (s_attempt_result != CALIBRATION_ATTEMPT_RUNNING) {
     UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (!calibration_config_is_valid(&s_candidate_config)) {
+    UNLOCK_MGR();
+    calibration_manager_fail(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE);
     return ESP_ERR_INVALID_STATE;
   }
 
   calibration_store_snapshot_t snapshot;
   cal_store_outcome_t promote_outcome = config_store_promote_calibration(&s_candidate_config, &s_calibration_config, &snapshot);
   if (promote_outcome != CAL_STORE_VALID) {
-    calibration_reason_id_t fail_reason;
     switch (promote_outcome) {
       case CAL_STORE_CORRUPT:                    fail_reason = CAL_REASON_CORRUPT;                    break;
       case CAL_STORE_UNSUPPORTED_SCHEMA:         fail_reason = CAL_REASON_UNSUPPORTED_SCHEMA;         break;
@@ -2397,12 +2428,16 @@ static esp_err_t calibration_manager_save_success(void) {
       case CAL_STORE_IO_ERROR:                   // fall-through
       default:                                   fail_reason = CAL_REASON_IO_ERROR;                   break;
     }
-    calibration_manager_fail(fail_reason);
     UNLOCK_MGR();
+    calibration_manager_fail(fail_reason);
     return ESP_FAIL;
   }
 
-  s_attempt_result = CALIBRATION_ATTEMPT_PASS;
+  if (!calibration_manager_attempt_result_try_finalize(
+          &s_attempt_result, CALIBRATION_ATTEMPT_PASS)) {
+    UNLOCK_MGR();
+    return ESP_ERR_INVALID_STATE;
+  }
   s_candidate_profile_id[0] = '\0';
   s_candidate_profile_version = 0;
   s_candidate_profile_hash[0] = '\0';
@@ -2431,8 +2466,8 @@ static void calibration_finish(void) {
   esp_err_t release_err = sensor_owner_release(SENSOR_OWNER_CALIBRATION);
 
   LOCK_MGR();
-  if (s_attempt_result == CALIBRATION_ATTEMPT_RUNNING) {
-    s_attempt_result = CALIBRATION_ATTEMPT_INTERNAL_ERROR;
+  if (calibration_manager_attempt_result_try_finalize(
+          &s_attempt_result, CALIBRATION_ATTEMPT_INTERNAL_ERROR)) {
     s_last_failure_reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
     s_last_failure_action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
     s_candidate_config.calibrated = false;
@@ -3079,17 +3114,6 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   strncpy(s_candidate_profile_hash, host_params->profile_hash, sizeof(s_candidate_profile_hash) - 1);
   s_candidate_profile_hash[sizeof(s_candidate_profile_hash) - 1] = '\0';
 
-  /* Set recalibration required marker in NVS */
-  esp_err_t recal_err = config_store_mark_recalibration_required();
-  if (recal_err != ESP_OK) {
-    s_candidate_profile_id[0] = '\0';
-    s_candidate_profile_version = 0;
-    s_candidate_profile_hash[0] = '\0';
-    sensor_owner_release(SENSOR_OWNER_CALIBRATION);
-    UNLOCK_MGR();
-    return recal_err;
-  }
-
   /* Start from firmware defaults, then copy only host-controlled fields to s_candidate_config. */
   calibration_config_set_defaults(&s_candidate_config);
 
@@ -3195,15 +3219,14 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
                   &s_calibration_task_handle);
 
   if (task_result != pdPASS) {
-    s_running = false;
     s_calibration_task_handle = NULL;
     s_state_owner_task = NULL;
-    s_finalized = true;
-    s_attempt_result = CALIBRATION_ATTEMPT_INTERNAL_ERROR;
+    (void)calibration_manager_attempt_result_try_finalize(
+        &s_attempt_result, CALIBRATION_ATTEMPT_INTERNAL_ERROR);
     s_last_failure_reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
     s_last_failure_action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
-    sensor_owner_release(SENSOR_OWNER_CALIBRATION);
     UNLOCK_MGR();
+    calibration_finish();
     return ESP_FAIL;
   }
 
@@ -3213,11 +3236,19 @@ esp_err_t calibration_manager_start(const network_config_t *network_config,
   if ((bits & CAL_EVENT_TASK_RUNNING) == 0) {
     ESP_LOGE(TAG, "Calibration task did not enter running state");
     s_running = false;
-    xTaskNotifyGive(s_calibration_task_handle);
+    (void)calibration_manager_attempt_result_try_finalize(
+        &s_attempt_result, CALIBRATION_ATTEMPT_INTERNAL_ERROR);
+    s_last_failure_reason = CAL_REASON_SENSOR_STUCK_OR_NOISE;
+    s_last_failure_action = CAL_ACTION_CHECK_SENSOR_AND_RETRY;
+    TaskHandle_t task_handle = s_calibration_task_handle;
+    s_state_owner_task = NULL;
+    if (task_handle != NULL) {
+      xTaskNotifyGive(task_handle);
+    }
+    UNLOCK_MGR();
     (void)xEventGroupWaitBits(s_calibration_events, CAL_EVENT_TASK_DONE,
                               pdFALSE, pdFALSE,
                               pdMS_TO_TICKS(CALIBRATION_CANCEL_WAIT_MS));
-    UNLOCK_MGR();
     return ESP_ERR_TIMEOUT;
   }
 
@@ -3242,16 +3273,24 @@ esp_err_t calibration_manager_cancel(void) {
   if (s_calibration_events != NULL) {
     xEventGroupSetBits(s_calibration_events, CAL_EVENT_CANCEL_REQ);
   }
-  s_running = false;
-  s_attempt_result = CALIBRATION_ATTEMPT_CANCELLED;
+  bool cancel_committed = calibration_manager_attempt_result_try_finalize(
+      &s_attempt_result, CALIBRATION_ATTEMPT_CANCELLED);
+  if (cancel_committed) {
+    s_running = false;
+  }
   if (s_calibration_task_handle != NULL) {
     xTaskNotifyGive(s_calibration_task_handle);
   }
 
-  s_candidate_config.calibrated = false;
-  s_candidate_profile_id[0] = '\0';
-  s_candidate_profile_version = 0;
-  s_candidate_profile_hash[0] = '\0';
+  if (cancel_committed) {
+    s_candidate_config.calibrated = false;
+    s_candidate_profile_id[0] = '\0';
+    s_candidate_profile_version = 0;
+    s_candidate_profile_hash[0] = '\0';
+  } else {
+    ESP_LOGI(TAG, "Cancel did not replace committed calibration result=%d",
+             (int)s_attempt_result);
+  }
   UNLOCK_MGR();
 
   if (s_calibration_events != NULL) {

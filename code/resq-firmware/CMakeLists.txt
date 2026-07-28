@@ -12,4 +12,8 @@ endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
+# Production builds include only main and its declared transitive
+# dependencies. This keeps ESP-IDF test frameworks out of the firmware image.
+idf_build_set_property(MINIMAL_BUILD ON)
+
 project(resq-firmware)

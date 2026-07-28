@@ -72,7 +72,6 @@ static calibration_config_t promote_profile(
     const calibration_config_t *candidate) {
   TEST_ASSERT_EQUAL(ESP_OK, config_store_init());
   TEST_ASSERT_EQUAL(ESP_OK, config_store_clear_calibration());
-  TEST_ASSERT_EQUAL(ESP_OK, config_store_mark_recalibration_required());
 
   calibration_config_t committed = {0};
   calibration_store_snapshot_t snapshot = {0};
@@ -81,6 +80,26 @@ static calibration_config_t promote_profile(
                         candidate, &committed, &snapshot));
   TEST_ASSERT_EQUAL_UINT32(2, snapshot.schema_version);
   return committed;
+}
+
+TEST_CASE("Failed candidate preserves the previous trusted calibration",
+          "[config][calibration]") {
+  calibration_config_t original = valid_profile();
+  calibration_config_t committed = promote_profile(&original);
+  calibration_config_t invalid = original;
+  invalid.hall_range_raw = 0;
+  calibration_store_snapshot_t snapshot = {0};
+
+  TEST_ASSERT_EQUAL(
+      CAL_STORE_CORRUPT,
+      config_store_promote_calibration(&invalid, &committed, &snapshot));
+
+  calibration_config_t loaded = {0};
+  TEST_ASSERT_EQUAL(ESP_OK, config_store_load_calibration(&loaded));
+  TEST_ASSERT_TRUE(loaded.calibrated);
+  TEST_ASSERT_FALSE(loaded.recalibration_required);
+  TEST_ASSERT_EQUAL_STRING(original.profile_hash, loaded.profile_hash);
+  TEST_ASSERT_EQUAL_INT32(original.hall_range_raw, loaded.hall_range_raw);
 }
 
 static void store_i32(uint8_t *slot, size_t offset, int32_t value) {

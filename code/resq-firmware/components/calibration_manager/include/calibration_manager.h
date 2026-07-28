@@ -46,6 +46,15 @@ typedef enum {
     CALIBRATION_ATTEMPT_INTERNAL_ERROR
 } calibration_attempt_result_t;
 
+/**
+ * Commit the first terminal result for an attempt.
+ *
+ * The caller owns synchronization for shared state.
+ */
+bool calibration_manager_attempt_result_try_finalize(
+    calibration_attempt_result_t *current,
+    calibration_attempt_result_t terminal_result);
+
 typedef struct {
     int32_t value;
     bool read_ok;
