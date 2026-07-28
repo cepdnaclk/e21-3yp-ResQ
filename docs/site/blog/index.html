@@ -22,7 +22,7 @@
                       class="brand-logo"
                       data-logo
                       data-logo-light="../assets/img/logo/resq-logo-256.png"
-                      data-logo-dark="../assets/img/logo/resq-logo-dark-256.png"
+                      data-logo-dark="../assets/img/logo/resq-logo-light-256.jpg"
                       src="../assets/img/logo/resq-logo-256.png"
                       alt="ResQ logo"
                     />
@@ -245,13 +245,15 @@
                             </figure>
                         </div>-->
 
-                        <div style="display: flex; flex-direction: column; gap: 4px; flex: 0 0 250px; max-width: 200px; width: 100%;">
-                            <figure class="post-figure" style="margin: 0;">
-                                <img src="../assets/img/blog/img2.jpg" alt="Prototype Overlay Jacket Development" style="width: 100%; height: auto; border-radius: 6px; object-fit: cover;" />
+                        
+
+                        <div style="display: flex !important; flex-direction: column !important; gap: 0px !important; flex: 0 0 250px; max-width: 200px; width: 100%;">
+                            <figure class="post-figure" style="margin: 0px !important; padding: 0px !important; line-height: 0 !important;">
+                                <img src="../assets/img/blog/img2.jpg" alt="Prototype Overlay Jacket Development" style="width: 100%; height: auto; margin: 0px !important; padding: 0px !important; display: block !important; border-top-left-radius: 6px; border-top-right-radius: 6px; object-fit: cover;" />
                             </figure>
-                            
-                            <figure class="post-figure" style="margin: 0;">
-                                <img src="../assets/img/blog/img3.png" alt="Testing Sensors" style="width: 100%; height: auto; border-radius: 6px; object-fit: cover;" />
+    
+                             <figure class="post-figure" style="margin: 0px !important; padding: 0px !important; line-height: 0 !important;">
+                                <img src="../assets/img/blog/img3.png" alt="Testing Sensors" style="width: 100%; height: auto; margin: 0px !important; padding: 0px !important; display: block !important; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; object-fit: cover;" />
                             </figure>
                         </div>
 
@@ -507,12 +509,9 @@
                                 </figure>
                             </div>
                         </div>
-
-                    </div>
-                </div>
             </article>
-            
-            <!-- Blog 7 : Core Infrastructure -->
+
+            <!-- Blog 7 : Core insfrastructure -->
             <article class="post card">
                 <header class="post-header">
                     <div class="post-meta">
@@ -529,7 +528,7 @@
 
                 <div class="post-body">
                     <div class="post-content-row">
-                        <div class="post-text" style="flex: 1; min-width: 0;"
+                        <div class="post-text" style="flex: 1; min-width: 0;">
                             <p>
                                 The firmware was enhanced with a state machine architecture, session management, communication workflows,
                                 and interrupt-based handling for button presses and error conditions.
@@ -539,13 +538,11 @@
                                 We have achieved a major technical milestone by finalizing the core software infrastructure of the ResQ system. This development bridges our embedded hardware layer and localized control systems, bringing us to a fully functional working version of the platform.
                             </p>
 
-                            <p>The software architecture was advanced across two parallel tracks:
-                                <ul>
-                                    <li> Firmware State Machine Architecture: The ESP32-C3 firmware was upgraded to a reliable state machine architecture. This includes dedicated session management protocols, standardized communication workflows, and interrupt-based handling for immediate responses to physical button presses and unexpected error conditions.</li>
-                                    <li> Local Hub & MQTT Framework: The Local Hub backend is now seamlessly unified with our MQTT communication framework. This layer effectively handles device discovery and management, asynchronous data processing, session logging, and instantaneous dashboard state updates.</li>
-                                </ul>
-                            </p>            
-
+                            <p>The software architecture was advanced across two parallel tracks:</p>
+                            <ul>
+                                <li><strong>Firmware State Machine Architecture:</strong> The ESP32-C3 firmware was upgraded to a reliable state machine architecture. This includes dedicated session management protocols, standardized communication workflows, and interrupt-based handling for immediate responses to physical button presses and unexpected error conditions.</li>
+                                <li><strong>Local Hub & MQTT Framework:</strong> The Local Hub backend is now seamlessly unified with our MQTT communication framework. This layer effectively handles device discovery and management, asynchronous data processing, session logging, and instantaneous dashboard state updates.</li>
+                            </ul>           
 
                             <p>
                                 With these core software modules fully integrated, ResQ is now capable of running continuous, live-monitored CPR training sessions from start to finish. Having established a stable end-to-end data pipeline, our next phase will shift toward rigorous system testing, real-world data validation, and performance optimization under continuous operation.
@@ -559,7 +556,6 @@
                                     <source src="../assets/img/blog/vid3.mp4" type="video/mp4" />
                                     Your browser does not support the video tag.
                                 </video>
-                                <!--<p class="post-video-note">Optional note: duration, context, or recording date.</p>-->
                             </div>
                             <figcaption class="muted">24.05.2026</figcaption>
                         </figure>
@@ -567,7 +563,6 @@
                 </div>
             </article>
 
-            <!-- Blog 8 : PCB design -->
             <article class="post card">
                 <header class="post-header">
                     <div class="post-meta">
@@ -589,14 +584,12 @@
                                 The ResQ project has taken a major leap forward in physical development, focusing heavily on structural design, hardware consolidation, and rigorous full-system testing to transition our prototype into a refined, reliable product.
                             </p>
 
-                            <p>
-                                This phase achieved key milestones across three main areas:
-                                <ul>
-                                    <li><strong>Custom CAD & Physical Design:</strong> We finalized the comprehensive CAD modeling for the ResQ device casing and the protective PCB enclosure, optimizing them for 3D printing fabrication. Concurrently, we advanced the design of the chest overlay, evaluating specialized manufacturing solutions and materials to ensure structural durability and realistic physical resistance during compressions.</li>
-                                    <li><strong>PCB Integration:</strong> Our custom PCB was finalized and mounted into the prototype. This allowed us to clean up the physical hardware footprint, eliminate loose wiring, and execute full-system testing that unifies the firmware, physical sensors, MQTT communication pipeline, and desktop dashboard.</li>
-                                    <li><strong>System Diagnostics & Calibration:</strong> Putting the fully integrated system through its paces under real-world conditions revealed critical calibration challenges. Our team thoroughly analyzed these data offsets and implemented firmware-level fixes, significantly increasing measurement accuracy and long-term system reliability.</li>
-                                </ul>
-                            </p>
+                            <p>This phase achieved key milestones across three main areas:</p>
+                            <ul>
+                                <li><strong>Custom CAD & Physical Design:</strong> We finalized the comprehensive CAD modeling for the ResQ device casing and the protective PCB enclosure, optimizing them for 3D printing fabrication. Concurrently, we advanced the design of the chest overlay, evaluating specialized manufacturing solutions and materials to ensure structural durability and realistic physical resistance during compressions.</li>
+                                <li><strong>PCB Integration:</strong> Our custom PCB was finalized and mounted into the prototype. This allowed us to clean up the physical hardware footprint, eliminate loose wiring, and execute full-system testing that unifies the firmware, physical sensors, MQTT communication pipeline, and desktop dashboard.</li>
+                                <li><strong>System Diagnostics & Calibration:</strong> Putting the fully integrated system through its paces under real-world conditions revealed critical calibration challenges. Our team thoroughly analyzed these data offsets and implemented firmware-level fixes, significantly increasing measurement accuracy and long-term system reliability.</li>
+                            </ul>
 
                             <p>
                                 With the physical architecture locked in and the end-to-end data pipeline thoroughly validated, ResQ is closer than ever to a dependable, deployment-ready CPR training solution.
@@ -605,7 +598,7 @@
                     </div>
                     <div style="display: flex; flex-direction: row; gap: 4px; width: 100%; margin-top: 16px;">
                         <figure class="post-figure" style="margin: 0; flex: 1;">
-                                <img src="../assets/img/blog/img11.jpg" alt="CAD Design" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
+                            <img src="../assets/img/blog/img11.jpg" alt="CAD Design" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
                         </figure>
                         
                         <figure class="post-figure" style="margin: 0; flex: 1;">
@@ -619,6 +612,226 @@
                         <figure class="post-figure" style="margin: 0; flex: 1;">
                             <img src="../assets/img/blog/img14.jpg" alt="Calibration" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
                         </figure>   
+                    </div>
+                </div>
+            </article>
+            
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Achievement</span>
+                        <span class="badge badge-soft">Competition</span>
+                        <span class="post-date">07.07.2026</span>
+                    </div>
+
+                    <h2 class="post-title">ResQ Claims 1st Place at EXITO 2026 Inter-University Innovation Challenge</h2>
+                    <p class="post-subtitle">
+                        Representing the Department of Computer Engineering, University of Peradeniya, our team secured 1st place at EXITO 2026 with our low-cost smart CPR evaluation solution.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text" style="flex: 1; min-width: 0;">
+                            <p>
+                                We are thrilled to announce that the ResQ project achieved 1st place at the EXITO 2026 Inter-University Robotics & Innovation Challenge, organized by ICBT Campus in collaboration with Cardiff Metropolitan University and the University of Sunderland.
+                            </p>
+
+                            <p>Key highlights from our competition entry and presentation include:</p>
+                            <ul>
+                                <li><strong>Institutional Representation:</strong> Proudly representing the Department of Computer Engineering, Faculty of Engineering, University of Peradeniya, alongside #PeraCom and ACES (Association of Computer Engineering Students).</li>
+                                <li><strong>Core Project Vision:</strong> Showcased ResQ—a low-cost, smart CPR evaluation system engineered to make life-saving CPR training and real-time performance assessment accessible, practical, and cost-effective.</li>
+                                <li><strong>Recognition & Feedback:</strong> Presenting ResQ in front of a distinguished judging panel—including foreign delegates and academic leaders from partnering international universities—provided invaluable validation for our system's clinical and practical potential.</li>
+                            </ul>
+
+                            <p>
+                                Securing top honors at EXITO 2026 validates the real-world impact and technical execution of ResQ as we continue refining the platform toward practical deployment.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: row; gap: 4px; width: 100%; margin-top: 16px;">
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/img19.jpg" alt="Award Ceremony" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+                        
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/img20.jpg" alt="Team Presentation" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/img21.jpg" alt="ResQ Prototype Demo" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                        <!-- <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/exito4.jpg" alt="1st Place Trophy" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure> -->   
+                    </div>
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Achievement</span>
+                        <span class="badge badge-soft">Business Pitch</span>
+                        <span class="post-date">22.07.2026</span>
+                    </div>
+
+                    <h2 class="post-title">ResQ Secures 3rd Place at INNOVEXA 2026 Business Pitching Competition</h2>
+                    <p class="post-subtitle">
+                        ResQ demonstrated its commercial potential and real-world viability by placing among the top innovations at the business pitching summit organized by the Faculty of Management.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text" style="flex: 1; min-width: 0;">
+                            <p>
+                                The ResQ project achieved 3rd Place at INNOVEXA 2026, an open business idea summit and pitching competition organized by the Business Incubation and Innovation Ecosystem Services (BIIES) Centre, Faculty of Management, University of Peradeniya.
+                            </p>
+
+                            <p>Key highlights from the competition include:</p>
+                            <ul>
+                                <li><strong>Business Viability & Impact:</strong> Beyond technical execution, ResQ was evaluated on market feasibility, cost-effectiveness, and business scalability, proving its potential to transition from an academic prototype into a deployment-ready product.</li>
+                                <li><strong>Inter-Faculty Recognition:</strong> Presenting a technical healthcare solution to a panel of business and management evaluators highlighted the practical entrepreneurship value embedded in our engineering development process.</li>
+                                <li><strong>Department Clean Sweep:</strong> Highlighting the strength of the Department of Computer Engineering (#PeraCom) curriculum, all top three positions at the competition were awarded to third-year engineering projects.</li>
+                            </ul>
+
+                            <p>
+                                This recognition reinforces our commitment to balancing rigorous hardware and software engineering with sustainable commercial deployment strategies for healthcare technology.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: row; gap: 4px; width: 100%; margin-top: 16px;">
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/img15.jpg" alt="Pitch Presentation" style="height: 100%;  border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+                        
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/img16.jpg" alt="Award Presentation" style="height: 90%;  border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                        <!--<figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/innovexa3.jpg" alt="Judging Session" style="width: 100%; height: 200px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>-->
+                    </div>
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Selection</span>
+                        <span class="badge badge-soft">Research-Conference</span>
+                        <span class="post-date">July-August 2026</span>
+                    </div>
+
+                    <h2 class="post-title">ResQ Accepted for Oral Presentation at iPURSE 2026 International Research Symposium</h2>
+                    <p class="post-subtitle">
+                        Our research on an affordable smart CPR training system was accepted for oral presentation at the Peradeniya University International Research Symposium and Exposition (iPURSE) 2026.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text" style="flex: 1; min-width: 0;">
+
+                            <p>
+                                We are pleased to announce that our research abstract on <strong>ResQ</strong> has been accepted for <strong>Oral Presentation</strong> at the Peradeniya University International Research Symposium and Exposition (iPURSE) 2026. Following the peer-review process, our submission received an <strong>"Accept with Minor Corrections"</strong> decision, and the revised manuscript was successfully resubmitted after addressing the reviewers' comments.
+                            </p>
+
+                            <p>Highlights of our research contribution include:</p>
+
+                            <ul>
+                                <li><strong>Research Innovation:</strong> Presented a low-cost IoT-enabled retrofit CPR training system that transforms conventional CPR manikins into intelligent training platforms with objective real-time performance assessment.</li>
+
+                                <li><strong>Engineering Contribution:</strong> Developed an embedded sensing solution integrating pressure sensors, Hall-effect sensors, wireless communication, and a web-based dashboard to measure CPR performance metrics such as compression depth, chest recoil, compression rate, and hand placement.</li>
+
+                                <li><strong>Research Recognition:</strong> Successfully completed the peer-review process, with the work being accepted for oral presentation after incorporating the reviewers' suggested improvements regarding methodology and technical validation.</li>
+                            </ul>
+
+                            <p>
+                                The oral presentation is scheduled to be held during <strong>iPURSE 2026 on 20–21 August 2026</strong>, where we will present our ongoing research and demonstrate how affordable embedded IoT technologies can enhance simulation-based medical education and CPR skills assessment.
+                            </p>
+
+                        </div>
+                    </div>
+
+                    <!-- 
+                    <div style="display: flex; flex-direction: row; gap: 4px; width: 100%; margin-top: 16px;">
+
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/ipurse1.jpg" alt="iPURSE 2026 Acceptance" style="width: 100%; height: 260px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/ipurse2.jpg" alt="Research Abstract Presentation" style="width: 100%; height: 260px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/ipurse3.jpg" alt="ResQ Research Prototype" style="width: 100%; height: 260px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                    </div>
+                -->
+                </div>
+            </article>
+
+            <article class="post card">
+                <header class="post-header">
+                    <div class="post-meta">
+                        <span class="badge">Selection</span>
+                        <span class="badge badge-soft">IoT Competition</span>
+                        <span class="post-date">July-August 2026</span>
+                    </div>
+
+                    <h2 class="post-title">ResQ Advances to the Semi-Finals of the NetX IoT Challenge 2026</h2>
+                    <p class="post-subtitle">
+                        ResQ was selected among the Top 42 teams in the first round and successfully advanced to the Top 22 Semi-Finalists in the NetX IoT Challenge 2026.
+                    </p>
+                </header>
+
+                <div class="post-body">
+                    <div class="post-content-row">
+                        <div class="post-text" style="flex: 1; min-width: 0;">
+
+                            <p>
+                                We are delighted to announce that the ResQ project successfully progressed through the first two stages of the NetX IoT Challenge 2026, an inter-university IoT innovation competition organized by the IEEE Communications Society (ComSoc) Student Branch Chapter in collaboration with the E Club of the University of Sri Jayewardenepura.
+                            </p>
+
+                            <p>Highlights of our journey include:</p>
+
+                            <ul>
+                                <li><strong>Stage 1 Selection:</strong> ResQ was selected among the <strong>Top 42 teams</strong> nationwide based on our proposal, which introduced an IoT-enabled retrofit CPR training system providing objective real-time performance evaluation.</li>
+
+                                <li><strong>Semi-Final Qualification:</strong> Following the Stage 2 progress review, our team advanced to the <strong>Top 22 Semi-Finalists</strong> by demonstrating significant hardware and software implementation progress, including embedded sensing, MQTT-based communication, and a real-time web dashboard.</li>
+
+                                <li><strong>Engineering Progress:</strong> The evaluation highlighted our progress in prototype development, IoT system integration, firmware implementation, and scalable architecture, reinforcing the practical feasibility of ResQ as an affordable smart CPR training solution.</li>
+                            </ul>
+
+                            <p>
+                                Reaching the semi-final stage reflects the continuous development of ResQ from an initial concept into a functional IoT healthcare platform. We look forward to further refining the system through validation, enhanced analytics, and future AI-assisted coaching capabilities as we continue our journey in the competition.
+                            </p>
+
+                        </div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: row; gap: 4px; width: 100%; margin-top: 16px;">
+
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/img17.jpg" alt="NetX Stage 1 Selection" style="height: 100%;  border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                        <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/img18.jpg" alt="NetX Proposal Presentation" style="height: 100%;  border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure>
+
+                        <!-- <figure class="post-figure" style="margin: 0; flex: 1;">
+                            <img src="../assets/img/blog/netx3.jpg" alt="ResQ Prototype Progress" style="width: 100%; height: 260px; border-radius: 6px; object-fit: cover; display: block;" />
+                        </figure> -->
+
                     </div>
                 </div>
             </article>
