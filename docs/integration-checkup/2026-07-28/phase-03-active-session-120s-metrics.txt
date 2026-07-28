@@ -1,0 +1,8 @@
+
+Topic                      Messages MessagesPerSecond MessagesPerMinute TotalBytes BytesPerSecond BytesPerMinute AveragePayloadBytes UniquePayloads
+-----                      -------- ----------------- ----------------- ---------- -------------- -------------- ------------------- --------------
+resq/M01/telemetry              403             3.358             201.5     144375        1203.12        72187.5              358.25            403
+resq/M01/heartbeat              110             0.917                55      24294         202.45          12147              220.85            110
+resq/M01/status                   3             0.025               1.5        446           3.72            223              148.67              3
+resq/M01/events                   1             0.008               0.5        170           1.42             85                 170              1
+resq/M01/cmd/session/start        1             0.008               0.5        123           1.02           61.5                 123              1

@@ -1,0 +1,6 @@
+
+Endpoint           Status Bytes
+--------           ------ -----
+/api/hub/health       200   277
+/api/manikins/live    200  1138
+/api/sessions         200     2
