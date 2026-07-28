@@ -1,0 +1,73 @@
+Executing action: size
+Running ninja in directory D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\build
+Executing "ninja all"...
+[1/4] C:\WINDOWS\system32\cmd.exe /C "cd /D D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\build && C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe C:/esp/v6.0/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/build/partition_table/partition-table.bin D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/build/resq-firmware.bin"
+
+resq-firmware.bin binary size 0x11b810 bytes. Smallest app partition is 0x1e0000 bytes. 0xc47f0 bytes (41%) free.
+
+
+[2/4] Performing build step for 'bootloader'
+
+[1/1] C:\WINDOWS\system32\cmd.exe /C "cd /D D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\build\bootloader && C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe C:/esp/v6.0/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/build/bootloader/bootloader.bin"
+
+
+Bootloader binary size 0x5250 bytes. 0x2db0 bytes (36%) free.
+
+
+
+[3/4] No install step for 'bootloader'
+
+[4/4] Completed 'bootloader'
+
+Running ninja in directory D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\build
+Executing "ninja size"...
+[0/1] C:\WINDOWS\system32\cmd.exe /C "cd /D D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\build && C:\Espressif\tools\cmake\4.0.3\bin\cmake.exe -D IDF_SIZE_TOOL=C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe;-m;esp_idf_size -D MAP_FILE=D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/build/resq-firmware.map -D OUTPUT_JSON= -P C:/esp/v6.0/esp-idf/tools/cmake/run_size_tool.cmake"
+
+                            Memory Type Usage Summary
+
+┌─────────────────────┬──────────────┬──────────┬────────────────┬───────────────┐
+
+│ Memory Type/Section │ Used [bytes] │ Used [%] │ Remain [bytes] │ Total [bytes] │
+
+├─────────────────────┼──────────────┼──────────┼────────────────┼───────────────┤
+
+│ Flash Code          │       893810 │          │                │               │
+
+│    .text            │       893810 │          │                │               │
+
+│ Flash Data          │       182240 │          │                │               │
+
+│    .rodata          │       181968 │          │                │               │
+
+│    .appdesc         │          256 │          │                │               │
+
+│    .tdata           │           16 │          │                │               │
+
+│ DRAM                │       121070 │    37.68 │         200226 │        321296 │
+
+│    .text            │        71686 │    22.31 │                │               │
+
+│    .bss             │        36048 │    11.22 │                │               │
+
+│    .data            │        13336 │     4.15 │                │               │
+
+│ RTC SLOW            │           60 │     0.73 │           8132 │          8192 │
+
+│    .force_slow      │           36 │     0.44 │                │               │
+
+│    .rtc_reserved    │           24 │     0.29 │                │               │
+
+└─────────────────────┴──────────────┴──────────┴────────────────┴───────────────┘
+
+C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe : Total image size: 1161108 bytes (.bin may be padded larger)
+At C:\Espressif\tools\Microsoft.v6.0.PowerShell_profile.ps1:96 char:5
++     C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe C:\esp\v6. ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Total image siz... padded larger):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+
+Note: The reported total sizes may be smaller than those in the technical reference manual due to reserved memory and
+application configuration. The total flash size available for the application is not included by default, as it cannot
+be reliably determined due to the presence of other data like the bootloader, partition table, and application
+partition size.

@@ -1,0 +1,3 @@
+
+> localhub-desktop@0.1.1 typecheck D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-localhub\apps\localhub-desktop
+> tsc --noEmit
