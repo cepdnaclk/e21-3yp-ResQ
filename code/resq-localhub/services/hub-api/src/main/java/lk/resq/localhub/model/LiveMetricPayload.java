@@ -19,7 +19,7 @@ public record LiveMetricPayload(
         Integer incompleteRecoilCount,
         String handPlacement,
         Object flags,
-        Double pressureBalancePct,
+        Double pressureBalanceScorePct,
         String sourceMode,
         Object debugRaw
 ) {

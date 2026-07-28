@@ -55,6 +55,7 @@ public class ActiveSessionService {
     private final ConcurrentMap<String, String> sessionIdByStartRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> sessionIdByStopRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Long> lastAcceptedSeqBySessionId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CounterSnapshot> lastCountersBySessionId = new ConcurrentHashMap<>();
     private final ManikinRegistryService manikinRegistryService;
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final LocalSessionRepository localSessionRepository;
@@ -615,6 +616,7 @@ public class ActiveSessionService {
             sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
         }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
+        lastCountersBySessionId.remove(state.sessionId);
         rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
         persistRuntimeState(state, true);
         publishLifecycleUpdate(state);
@@ -645,6 +647,7 @@ public class ActiveSessionService {
             sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
         }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
+        lastCountersBySessionId.remove(state.sessionId);
         rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
         persistRuntimeState(state, true);
         publishLifecycleUpdate(state);
@@ -1146,6 +1149,7 @@ public class ActiveSessionService {
             }
             rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
             lastAcceptedSeqBySessionId.remove(state.sessionId);
+            lastCountersBySessionId.remove(state.sessionId);
             persistRuntimeState(state, true);
             publishLifecycleUpdate(state);
             logger.warn("Marked session {} for device {} as INTERRUPTED", state.sessionId, state.deviceId);
@@ -1195,6 +1199,7 @@ public class ActiveSessionService {
                 }
                 rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
                 lastAcceptedSeqBySessionId.remove(state.sessionId);
+                lastCountersBySessionId.remove(state.sessionId);
                 persistRuntimeState(state, true);
                 publishLifecycleUpdate(state);
                 expired++;
@@ -1274,6 +1279,12 @@ public class ActiveSessionService {
             }
         }
 
+        CounterSnapshot previousCounters = lastCountersBySessionId.get(payloadSessionId);
+        CounterSnapshot incomingCounters = CounterSnapshot.from(normalization.value());
+        if (previousCounters != null && incomingCounters.decreasesFrom(previousCounters)) {
+            return TelemetryValidationResult.rejected("cumulative telemetry counter decreased within the active session");
+        }
+
         return TelemetryValidationResult.accepted(payloadSessionId, normalizedDeviceId);
     }
 
@@ -1313,6 +1324,7 @@ public class ActiveSessionService {
         if (metric.seq() != null) {
             lastAcceptedSeqBySessionId.put(state.sessionId, metric.seq());
         }
+        lastCountersBySessionId.put(state.sessionId, CounterSnapshot.from(metric));
         state.latestMetric = metric;
         state.latestMetricReceivedAt = Instant.now();
         state.updatedAt = now();
@@ -1423,7 +1435,7 @@ public class ActiveSessionService {
                         summary.lastEventType(),
                         summary.latestForce1(),
                         summary.latestForce2(),
-                        summary.pressureBalancePct(),
+                        summary.pressureBalanceScorePct(),
                         summary.pressureSkewed(),
                         summary.firmwareState(),
                         summary.calibrated(),
@@ -1485,9 +1497,9 @@ public class ActiveSessionService {
         String liveFlags = latestMetric != null ? flagsToString(latestMetric.flags()) : state.accumulator.latestFlags();
         Long liveForce1 = summary != null ? summary.latestForce1() : null;
         Long liveForce2 = summary != null ? summary.latestForce2() : null;
-        Double livePressureBalancePct = latestMetric != null
-                ? latestMetric.pressureBalancePct()
-                : (summary != null ? summary.pressureBalancePct() : null);
+        Double livePressureBalanceScorePct = latestMetric != null
+                ? latestMetric.pressureBalanceScorePct()
+                : (summary != null ? summary.pressureBalanceScorePct() : null);
         Boolean livePressureSkewed = summary != null ? summary.pressureSkewed() : null;
 
         return new SessionLiveView(
@@ -1518,7 +1530,7 @@ public class ActiveSessionService {
                 summary != null ? summary.lastEventType() : null,
                 liveForce1,
                 liveForce2,
-                livePressureBalancePct,
+                livePressureBalanceScorePct,
                 livePressureSkewed,
                 latestMetric,
                 latestMetric != null ? latestMetric.seq() : null,
@@ -1793,6 +1805,7 @@ public class ActiveSessionService {
             logger.warn("Saved completed session {} locally but failed to queue it for cloud sync", state.sessionId, error);
         }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
+        lastCountersBySessionId.remove(state.sessionId);
         persistRuntimeState(state, true);
         liveStreamService.publishSessionLive(state.sessionId, null);
         publishInstructorLiveSnapshot();
@@ -1894,6 +1907,33 @@ public class ActiveSessionService {
             return trimmed.isEmpty() ? null : trimmed;
         }
         return flags.toString();
+    }
+
+    private record CounterSnapshot(
+            Integer compressionCount,
+            Integer validCompressionCount,
+            Integer recoilOkCount,
+            Integer incompleteRecoilCount
+    ) {
+        private static CounterSnapshot from(LiveMetricPayload metric) {
+            return new CounterSnapshot(
+                    metric.compressionCount(),
+                    metric.validCompressionCount(),
+                    metric.recoilOkCount(),
+                    metric.incompleteRecoilCount()
+            );
+        }
+
+        private boolean decreasesFrom(CounterSnapshot previous) {
+            return decreased(compressionCount, previous.compressionCount)
+                    || decreased(validCompressionCount, previous.validCompressionCount)
+                    || decreased(recoilOkCount, previous.recoilOkCount)
+                    || decreased(incompleteRecoilCount, previous.incompleteRecoilCount);
+        }
+
+        private static boolean decreased(Integer current, Integer previous) {
+            return current != null && previous != null && current < previous;
+        }
     }
 
     private static final class ActiveSessionState {

@@ -124,13 +124,13 @@ public class ManikinRegistryService {
             if (state.latestForce1 != null && state.latestForce2 != null) {
                 long sum = state.latestForce1 + state.latestForce2;
                 long absDiff = Math.abs(state.latestForce1 - state.latestForce2);
-                state.pressureBalancePct = sum > 0 ? 100.0 - ((absDiff * 100.0) / sum) : null;
-                state.pressureSkewed = state.pressureBalancePct != null && state.pressureBalancePct < 88.0;
+                state.pressureBalanceScorePct = sum > 0 ? 100.0 - ((absDiff * 100.0) / sum) : null;
+                state.pressureSkewed = state.pressureBalanceScorePct != null && state.pressureBalanceScorePct < 88.0;
             }
-            Double payloadPressureBalancePct = firstDouble(payload, null, "pressureBalancePct", "pressure_balance_pct");
-            if (payloadPressureBalancePct != null) {
-                state.pressureBalancePct = payloadPressureBalancePct;
-                state.pressureSkewed = payloadPressureBalancePct < 88.0;
+            Double payloadPressureBalanceScorePct = firstDouble(payload, null, "pressureBalanceScorePct", "pressure_balance_pct");
+            if (payloadPressureBalanceScorePct != null) {
+                state.pressureBalanceScorePct = payloadPressureBalanceScorePct;
+                state.pressureSkewed = payloadPressureBalanceScorePct < 88.0;
             }
             updatePressureModeFields(state, payload);
             state.depthSource = firstTextWithFallback(payload, state.depthSource, "depthSource", "depth_source", "sourceMode", "source_mode");
@@ -165,7 +165,7 @@ public class ManikinRegistryService {
                             : firstInt(payload, "incomplete_recoil_count", null),
                     firstText(payload, "handPlacement", "hand_placement", null),
                     jsonValue(payload.get("flags")),
-                    state.pressureBalancePct,
+                    state.pressureBalanceScorePct,
                     firstTextWithFallback(payload, state.depthSource, "sourceMode", "source_mode", "depthSource", "depth_source"),
                     debugRaw
             );
@@ -409,7 +409,7 @@ public class ManikinRegistryService {
                 state.lastEventType,
                 state.latestForce1,
                 state.latestForce2,
-                state.pressureBalancePct,
+                state.pressureBalanceScorePct,
                 state.pressureSkewed,
                 state.firmwareState,
                 state.calibrated,
@@ -473,7 +473,7 @@ public class ManikinRegistryService {
                 state.lastEventType,
                 state.latestForce1,
                 state.latestForce2,
-                state.pressureBalancePct,
+                state.pressureBalanceScorePct,
                 state.pressureSkewed,
                 state.latestMetric,
                 state.seq,
@@ -510,7 +510,7 @@ public class ManikinRegistryService {
         copy.lastEventType = source.lastEventType;
         copy.latestForce1 = source.latestForce1;
         copy.latestForce2 = source.latestForce2;
-        copy.pressureBalancePct = source.pressureBalancePct;
+        copy.pressureBalanceScorePct = source.pressureBalanceScorePct;
         copy.pressureSkewed = source.pressureSkewed;
         copy.firmwareState = source.firmwareState;
         copy.calibrated = source.calibrated;
@@ -851,7 +851,7 @@ public class ManikinRegistryService {
         private String lastEventType;
         private Long latestForce1;
         private Long latestForce2;
-        private Double pressureBalancePct;
+        private Double pressureBalanceScorePct;
         private Boolean pressureSkewed;
         private String firmwareState;
         private Boolean calibrated;

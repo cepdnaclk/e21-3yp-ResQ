@@ -325,8 +325,8 @@ class MqttSubscriberServiceTest {
         assertThat(liveView.latestMetric().recoilOkCount()).isZero();
         assertThat(liveView.latestMetric().incompleteRecoilCount()).isZero();
         assertThat(liveView.latestMetric().handPlacement()).isEqualTo("CENTER");
-        assertThat(liveView.latestMetric().pressureBalancePct()).isEqualTo(92.9);
-        assertThat(liveView.pressureBalancePct()).isEqualTo(92.9);
+        assertThat(liveView.latestMetric().pressureBalanceScorePct()).isEqualTo(92.9);
+        assertThat(liveView.pressureBalanceScorePct()).isEqualTo(92.9);
         assertThat(liveView.latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
     }
     @Test
@@ -473,15 +473,26 @@ class MqttSubscriberServiceTest {
                   "telemetry_mode":"SESSION_ACTIVE",
                   "seq":1,
                   "depth_mm":50,
-                  "depth_ok":true
+                  "depth_ok":true,
+                  "compression_count":5
                 }
                 """.formatted(session.sessionId());
         fixture.subscriber().handleMessage("resq/M01/telemetry", message(valid));
         fixture.subscriber().handleMessage("resq/M01/telemetry", message(valid));
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+                {
+                  "session_id":"%s",
+                  "state":"SESSION_ACTIVE",
+                  "seq":2,
+                  "depth_mm":51,
+                  "depth_ok":true,
+                  "compression_count":4
+                }
+                """.formatted(session.sessionId())));
 
         assertThat(repository.findRecentEvents("M01", 10)).hasSize(1);
-        assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow().latestMetric())
-                .isNotNull();
+        assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow()
+                .latestMetric().compressionCount()).isEqualTo(5);
     }
     @Test
     void tracksDeviceReadinessFromMqttEvents() throws Exception {
@@ -709,7 +720,7 @@ class MqttSubscriberServiceTest {
             """.formatted(session.sessionId())));
         // Check active session live view
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
-        assertThat(liveView.pressureBalancePct()).isEqualTo(91.5);
+        assertThat(liveView.pressureBalanceScorePct()).isEqualTo(91.5);
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.25);
         assertThat(liveView.latestRateCpm()).isEqualTo(120.0);
         // Check captured trainee SSE outputs
@@ -718,7 +729,7 @@ class MqttSubscriberServiceTest {
         var lastView = capturedViews.get(capturedViews.size() - 1);
         assertThat(lastView.sessionId()).isEqualTo(session.sessionId());
         assertThat(lastView.traineeId()).isEqualTo("trainee-1");
-        assertThat(lastView.pressureBalancePct()).isEqualTo(91.5);
+        assertThat(lastView.pressureBalanceScorePct()).isEqualTo(91.5);
         assertThat(lastView.latestRateCpm()).isEqualTo(120.0);
     }
     private MqttSubscriberService newService(FirmwarePersistenceRepository repository) throws Exception {

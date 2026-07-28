@@ -20,7 +20,7 @@ export type FirmwareLiveFields = {
   incompleteRecoilCount: number | null;
   pauseS: number | null;
   handPlacement: string | null;
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
   flags: string | string[] | null;
   tsMs: number | null;
   timestamp: string | number | null;
@@ -53,7 +53,12 @@ export function normalizeFirmwareLivePayload(raw: unknown): FirmwareLiveFields |
   const incompleteRecoilCount = intOrNull(rawPayload.incompleteRecoilCount ?? rawPayload.incomplete_recoil_count);
     const pauseS = numberOrNull(rawPayload.pauseS ?? rawPayload.pause_s);
   const handPlacement = text(rawPayload.handPlacement) ?? text(rawPayload.hand_placement);
-  const pressureBalancePct = numberOrNull(rawPayload.pressureBalancePct ?? rawPayload.pressure_balance_pct);
+  const pressureBalanceScorePct = numberOrNull(
+    rawPayload.pressureBalanceScorePct ??
+      rawPayload.pressure_balance_score_pct ??
+      rawPayload.pressureBalancePct ??
+      rawPayload.pressure_balance_pct,
+  );
   const flags = flagsOrNull(rawPayload.flags);
   const tsMs = intOrNull(rawPayload.tsMs ?? rawPayload.ts_ms);
   const timestamp = timestampOrNull(rawPayload.timestamp);
@@ -79,7 +84,7 @@ export function normalizeFirmwareLivePayload(raw: unknown): FirmwareLiveFields |
     incompleteRecoilCount,
       pauseS,
     handPlacement,
-    pressureBalancePct,
+    pressureBalanceScorePct,
     flags,
     tsMs,
     timestamp,

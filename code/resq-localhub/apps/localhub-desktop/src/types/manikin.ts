@@ -43,7 +43,7 @@ export type ManikinLiveSummary = {
   /** @diagnostic — Raw force sensor readings */
   latestForce2: number | null;
 
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
   pressureSkewed: boolean | null;
   firmwareState?: string | null;
   calibrated?: boolean | null;

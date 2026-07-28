@@ -68,7 +68,7 @@ const baseManikin: ManikinLiveSummary = {
   lastEventType: null,
   latestForce1: null,
   latestForce2: null,
-  pressureBalancePct: null,
+  pressureBalanceScorePct: null,
   pressureSkewed: null,
   readyForSession: true,
   activeSessionId: null,

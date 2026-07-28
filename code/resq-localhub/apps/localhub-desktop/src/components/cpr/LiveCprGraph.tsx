@@ -161,7 +161,7 @@ export function LiveCprGraph({ session }: { session: SessionLiveView | null }) {
               if (normalized.handPlacement === "LEFT") return "Left Leaning";
               if (normalized.handPlacement === "RIGHT") return "Right Leaning";
               if (normalized.handPlacement === "NO_CONTACT") return "No Contact";
-              if (session && session.pressureBalancePct !== null) {
+              if (session && session.pressureBalanceScorePct !== null) {
                 return session.pressureSkewed ? "Leaning" : "Centered";
               }
               return "—";

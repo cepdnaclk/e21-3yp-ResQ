@@ -63,7 +63,7 @@ export type LiveMetricPayload = {
   compressionCount: number | null;
   validCompressionCount?: number | null;
   handPlacement: string | null;
-  pressureBalancePct?: number | null;
+  pressureBalanceScorePct?: number | null;
   flags: string | string[] | null;
   sessionActive?: boolean | null;
   firmwareState?: string | null;

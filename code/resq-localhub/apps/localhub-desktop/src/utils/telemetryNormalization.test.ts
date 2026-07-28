@@ -144,6 +144,6 @@ describe("telemetryNormalization", () => {
     expect(res.flags).toBe("DEPTH_OK,RATE_OK");
     expect(res.isDerivedDepth).toBe(true);
     expect(res.handPlacement).toBe("LEFT");
-    expect(res.pressureBalancePct).toBe(51);
+    expect(res.pressureBalanceScorePct).toBe(51);
   });
 });

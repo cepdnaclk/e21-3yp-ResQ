@@ -13,7 +13,7 @@ export interface NormalizedTelemetry {
   handPlacement: string | null;
   hasRecoilCounts: boolean;
   recoilTotal: number;
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
 }
 
 export function normalizeTelemetry(session: SessionLiveView | null): NormalizedTelemetry {
@@ -29,7 +29,7 @@ export function normalizeTelemetry(session: SessionLiveView | null): NormalizedT
       handPlacement: null,
       hasRecoilCounts: false,
       recoilTotal: 0,
-      pressureBalancePct: null,
+      pressureBalanceScorePct: null,
     };
   }
 
@@ -109,8 +109,14 @@ export function normalizeTelemetry(session: SessionLiveView | null): NormalizedT
   // 7. handPlacement
   const handPlacement = latestMetric?.handPlacement ?? latestMetric?.hand_placement ?? null;
 
-  // 8. pressureBalancePct
-  const pressureBalancePct = latestMetric?.pressureBalancePct ?? latestMetric?.pressure_balance_pct ?? session.pressureBalancePct ?? null;
+  // 8. pressureBalanceScorePct
+  const pressureBalanceScorePct =
+    latestMetric?.pressureBalanceScorePct ??
+    latestMetric?.pressure_balance_score_pct ??
+    latestMetric?.pressureBalancePct ??
+    latestMetric?.pressure_balance_pct ??
+    session.pressureBalanceScorePct ??
+    null;
 
   return {
     depthMm,
@@ -123,6 +129,6 @@ export function normalizeTelemetry(session: SessionLiveView | null): NormalizedT
     handPlacement,
     hasRecoilCounts,
     recoilTotal,
-    pressureBalancePct,
+    pressureBalanceScorePct,
   };
 }

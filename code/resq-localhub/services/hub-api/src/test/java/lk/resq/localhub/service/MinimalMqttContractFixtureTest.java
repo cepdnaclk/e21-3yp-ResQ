@@ -111,7 +111,7 @@ class MinimalMqttContractFixtureTest {
 
         var result = TelemetryPayloadNormalizer.normalize(invalid, "M-CONTRACT");
         assertThat(result.ok()).isFalse();
-        assertThat(result.reason()).contains("pressureBalancePct");
+        assertThat(result.reason()).contains("pressureBalanceScorePct");
     }
 
     @Test

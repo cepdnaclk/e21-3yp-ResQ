@@ -176,7 +176,13 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
       validCompressionCount: numberOrNull(raw.validCompressionCount ?? raw.valid_compression_count ?? firmware?.validCompressionCount),
       recoilOkCount: numberOrNull(raw.recoilOkCount ?? raw.recoil_ok_count ?? firmware?.recoilOkCount),
       incompleteRecoilCount: numberOrNull(raw.incompleteRecoilCount ?? raw.incomplete_recoil_count ?? firmware?.incompleteRecoilCount),
-      pressureBalancePct: numberOrNull(raw.pressureBalancePct ?? raw.pressure_balance_pct ?? firmware?.pressureBalancePct),
+      pressureBalanceScorePct: numberOrNull(
+        raw.pressureBalanceScorePct ??
+          raw.pressure_balance_score_pct ??
+          raw.pressureBalancePct ??
+          raw.pressure_balance_pct ??
+          firmware?.pressureBalanceScorePct,
+      ),
       rawPayload: raw,
       debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
     },

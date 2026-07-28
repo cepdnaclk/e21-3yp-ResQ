@@ -28,7 +28,7 @@ public record SessionLiveView(
         String lastEventType,
         Long latestForce1,
         Long latestForce2,
-        Double pressureBalancePct,
+        Double pressureBalanceScorePct,
         Boolean pressureSkewed,
         LiveMetricPayload latestMetric,
         Long seq,
@@ -65,7 +65,7 @@ public record SessionLiveView(
             String lastEventType,
             Long latestForce1,
             Long latestForce2,
-            Double pressureBalancePct,
+            Double pressureBalanceScorePct,
             Boolean pressureSkewed,
             LiveMetricPayload latestMetric,
             Long seq,
@@ -75,7 +75,7 @@ public record SessionLiveView(
     ) {
         this(sessionId, deviceId, manikinId, traineeId, active, startedAt, null, scenario, notes, lastSeen, state, online,
                 ip, fw, rssi, battery, sessionActive, latestDepthMm, latestRateCpm, latestRecoilOk, latestPauseS,
-                latestFlags, lastEventType, latestForce1, latestForce2, pressureBalancePct, pressureSkewed,
+                latestFlags, lastEventType, latestForce1, latestForce2, pressureBalanceScorePct, pressureSkewed,
                 latestMetric, seq, connectionState, stale, offline, active ? "ACTIVE" : null, null, "NONE", null);
     }
 }

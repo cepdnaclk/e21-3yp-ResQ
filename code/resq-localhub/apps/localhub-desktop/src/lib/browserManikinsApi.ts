@@ -40,7 +40,7 @@ export type ManikinLiveSummary = {
   lastEventType: string | null;
   latestForce1: number | null;
   latestForce2: number | null;
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
   pressureSkewed: boolean | null;
   activeSessionId: string | null;
   activeTraineeId: string | null;
@@ -149,7 +149,7 @@ function normalizeLiveSummary(value: unknown): ManikinLiveSummary | null {
     lastEventType: asString(record.lastEventType),
     latestForce1: asNumber(record.latestForce1),
     latestForce2: asNumber(record.latestForce2),
-    pressureBalancePct: asNumber(record.pressureBalancePct),
+    pressureBalanceScorePct: asNumber(record.pressureBalanceScorePct),
     pressureSkewed: asBoolean(record.pressureSkewed),
     activeSessionId: asString(record.activeSessionId),
     activeTraineeId: asString(record.activeTraineeId),

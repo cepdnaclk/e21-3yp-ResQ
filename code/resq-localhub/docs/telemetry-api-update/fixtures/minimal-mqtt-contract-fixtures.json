@@ -354,7 +354,7 @@
       "latestRateCpm",
       "latestRecoilOk",
       "latestPauseS",
-      "pressureBalancePct",
+      "pressureBalanceScorePct",
       "pressureSkewed",
       "connectionState",
       "stale",
@@ -376,7 +376,7 @@
       "incompleteRecoilCount",
       "handPlacement",
       "flags",
-      "pressureBalancePct"
+      "pressureBalanceScorePct"
     ],
     "pendingRemoval": [
       "debugRaw"

@@ -373,11 +373,11 @@ export function TraineeLiveSessionPage({
       handsTone = "neutral";
     }
 
-    if (session.pressureBalancePct !== null) {
-      handsUnit = `(${Math.round(session.pressureBalancePct)}% balance)`;
+    if (session.pressureBalanceScorePct !== null) {
+      handsUnit = `(${Math.round(session.pressureBalanceScorePct)}% balance)`;
     }
-  } else if (session.pressureBalancePct !== null) {
-    handsUnit = `(${Math.round(session.pressureBalancePct)}% balance)`;
+  } else if (session.pressureBalanceScorePct !== null) {
+    handsUnit = `(${Math.round(session.pressureBalanceScorePct)}% balance)`;
     handsTone = session.pressureSkewed ? "danger" : "good";
     handsVal = session.pressureSkewed ? "Left leaning" : "Centered";
     handsStatus = session.pressureSkewed ? "Check Position" : "Good";

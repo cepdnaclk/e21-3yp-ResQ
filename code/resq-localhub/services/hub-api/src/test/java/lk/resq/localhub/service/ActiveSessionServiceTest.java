@@ -210,8 +210,8 @@ class ActiveSessionServiceTest {
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(1.0);
         assertThat(liveView.latestMetric().rateCpm()).isEqualTo(137.0);
         assertThat(liveView.latestMetric().compressionCount()).isEqualTo(11);
-        assertThat(liveView.latestMetric().pressureBalancePct()).isEqualTo(73.5);
-        assertThat(liveView.pressureBalancePct()).isEqualTo(73.5);
+        assertThat(liveView.latestMetric().pressureBalanceScorePct()).isEqualTo(73.5);
+        assertThat(liveView.pressureBalanceScorePct()).isEqualTo(73.5);
     }
     @Test
     void countsDepthMillimetersAndDepthProgressIndependently() throws Exception {

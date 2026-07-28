@@ -239,11 +239,11 @@ export function InstructorLiveSessionPage({
       placementTone = "neutral";
     }
 
-    if (normalized.pressureBalancePct !== null) {
-      handsUnit = `(${Math.round(normalized.pressureBalancePct)}% balance)`;
+    if (normalized.pressureBalanceScorePct !== null) {
+      handsUnit = `(${Math.round(normalized.pressureBalanceScorePct)}% balance)`;
     }
-  } else if (normalized.pressureBalancePct !== null) {
-    handsUnit = `(${Math.round(normalized.pressureBalancePct)}% balance)`;
+  } else if (normalized.pressureBalanceScorePct !== null) {
+    handsUnit = `(${Math.round(normalized.pressureBalanceScorePct)}% balance)`;
     placementTone = session.pressureSkewed ? "danger" : "good";
     handsVal = session.pressureSkewed ? "Left leaning" : "Centered";
     handsStatus = session.pressureSkewed ? "Check Position" : "Good";

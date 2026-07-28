@@ -22,7 +22,7 @@ public record ManikinLiveSummary(
         String lastEventType,
         Long latestForce1,
         Long latestForce2,
-        Double pressureBalancePct,
+        Double pressureBalanceScorePct,
         Boolean pressureSkewed,
         String firmwareState,
         Boolean calibrated,
