@@ -129,8 +129,10 @@ class FirmwareSimulator {
     this.client.on("error", (error) => this.log(`mqtt error: ${error.message || error}`));
     this.client.on("close", () => this.log("mqtt connection closed"));
 
-    process.on("SIGINT", () => this.stop(0));
-    process.on("SIGTERM", () => this.stop(0));
+    if (this.options.manageProcessLifecycle !== false) {
+      process.on("SIGINT", () => this.stop(0));
+      process.on("SIGTERM", () => this.stop(0));
+    }
 
     if (this.options.exitAfterMs > 0) {
       setTimeout(() => this.stop(0), this.options.exitAfterMs);
@@ -752,11 +754,21 @@ class FirmwareSimulator {
     this.stopManualTelemetry();
     clearInterval(this.heartbeatTimer);
     if (this.client) {
-      this.client.end(true, () => process.exit(code));
-      setTimeout(() => process.exit(code), 500);
+      const client = this.client;
+      this.client = null;
+      client.end(true, () => {
+        if (this.options.manageProcessLifecycle !== false) {
+          process.exit(code);
+        }
+      });
+      if (this.options.manageProcessLifecycle !== false) {
+        setTimeout(() => process.exit(code), 500);
+      }
       return;
     }
-    process.exit(code);
+    if (this.options.manageProcessLifecycle !== false) {
+      process.exit(code);
+    }
   }
 
   log(message) {
@@ -780,6 +792,7 @@ function parseArgs(args) {
     ...DEFAULTS,
     simulateError: false,
     simulateInterrupted: false,
+    manageProcessLifecycle: true,
     quiet: false,
     help: false,
   };
