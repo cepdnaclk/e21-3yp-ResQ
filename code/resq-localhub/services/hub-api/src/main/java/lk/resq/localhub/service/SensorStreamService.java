@@ -209,6 +209,12 @@ public class SensorStreamService {
         return emittersByDeviceId.getOrDefault(deviceId, new CopyOnWriteArrayList<>()).size();
     }
 
+    public int totalSubscriberCount() {
+        return emittersByDeviceId.values().stream()
+                .mapToInt(List::size)
+                .sum();
+    }
+
     public static void validateIntervalMs(Integer intervalMs) {
         if (intervalMs == null) {
             throw new IllegalArgumentException("interval_ms is required");
@@ -238,7 +244,6 @@ public class SensorStreamService {
                     .data(snapshot));
             return true;
         } catch (IOException | IllegalStateException error) {
-            emitter.completeWithError(error);
             return false;
         }
     }
@@ -264,7 +269,6 @@ public class SensorStreamService {
                     .data(update));
             return true;
         } catch (IOException | IllegalStateException error) {
-            emitter.completeWithError(error);
             return false;
         }
     }

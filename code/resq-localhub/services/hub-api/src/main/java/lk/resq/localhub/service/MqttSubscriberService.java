@@ -433,7 +433,14 @@ public class MqttSubscriberService {
                 case "heartbeat" -> {
                     RuntimeMessageApplyResult applyResult = deviceReadinessService.handleHeartbeatResult(parsedTopic.deviceId, payload);
                     if (!applyResult.domainMutationAllowed()) {
-                        logger.debug("Ignored MQTT heartbeat for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
+                        deviceReadinessService.findRuntimeState(parsedTopic.deviceId)
+                                .ifPresent(manikinRegistryService::applyRuntimeState);
+                        publishInstructorLiveSnapshot();
+                        logger.debug(
+                                "Refreshed MQTT heartbeat liveness for device {} without domain mutation due to {}",
+                                parsedTopic.deviceId,
+                                applyResult.disposition()
+                        );
                         return;
                     }
                     persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, payload);

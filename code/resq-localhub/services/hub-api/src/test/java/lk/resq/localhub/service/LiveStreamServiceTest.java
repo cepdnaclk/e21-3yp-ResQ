@@ -5,6 +5,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import lk.resq.localhub.model.ManikinLiveSummary;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,7 +23,7 @@ class LiveStreamServiceTest {
     }
 
     @Test
-    void reconnectGetsOneInitialSnapshotAndFailedEmitterIsRemoved() {
+    void reconnectGetsOneInitialSnapshotAndFailedEmitterIsRemoved() throws Exception {
         CapturingLiveStreamService service = new CapturingLiveStreamService();
 
         service.subscribeInstructor(List.of());
@@ -28,6 +31,7 @@ class LiveStreamServiceTest {
         assertThat(service.instructorEmitterCount()).isEqualTo(1);
 
         service.publishInstructorLive(List.of());
+        assertThat(service.awaitFanoutIdle(1_000)).isTrue();
         service.lastFailure.run();
         assertThat(service.instructorEmitterCount()).isZero();
 
@@ -35,6 +39,20 @@ class LiveStreamServiceTest {
         service.subscribeInstructor(List.of());
         assertThat(service.events).containsExactly("manikins-live");
         assertThat(service.instructorEmitterCount()).isEqualTo(1);
+    }
+
+    @Test
+    void slowFanoutQueueIsBoundedAndCoalescesOldestWork() throws Exception {
+        SlowLiveStreamService service = new SlowLiveStreamService();
+        service.subscribeInstructor(List.of());
+
+        for (int index = 0; index < 250; index++) {
+            service.publishInstructorLive(List.of(org.mockito.Mockito.mock(ManikinLiveSummary.class)));
+        }
+
+        assertThat(service.queuedFanoutTaskCount()).isLessThanOrEqualTo(LiveStreamService.FANOUT_QUEUE_CAPACITY);
+        assertThat(service.droppedFanoutTaskCount()).isGreaterThan(0);
+        service.stopHeartbeat();
     }
 
     @Test
@@ -65,6 +83,20 @@ class LiveStreamServiceTest {
             events.add(eventName);
             payloads.add(payload);
             lastFailure = onFailure;
+        }
+    }
+
+    private static final class SlowLiveStreamService extends LiveStreamService {
+        private final AtomicInteger sends = new AtomicInteger();
+
+        @Override
+        protected void sendEvent(SseEmitter emitter, String eventName, Object payload, Runnable onFailure) {
+            sends.incrementAndGet();
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }

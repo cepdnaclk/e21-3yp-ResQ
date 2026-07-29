@@ -2,8 +2,13 @@ package lk.resq.localhub.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.time.Instant;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -80,5 +85,38 @@ class SensorStreamServiceTest {
             assertThat(update.streamState()).isEqualTo("CALIBRATION_OWNED");
             assertThat(update.reasonId()).isEqualTo("manual_stream_stopped_for_calibration");
         });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void removesFailedEmitterWithoutCompletingItAgainAfterContainerWriteError() {
+        var failedEmitter = new FailingEmitter();
+        ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>> emitters =
+                (ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>>) ReflectionTestUtils.getField(
+                        service,
+                        "emittersByDeviceId"
+                );
+        assertThat(emitters).isNotNull();
+        emitters.put("M01", new CopyOnWriteArrayList<>());
+        emitters.get("M01").add(failedEmitter);
+
+        assertThat(service.beginStart("M01")).isTrue();
+
+        assertThat(service.subscriberCount("M01")).isZero();
+        assertThat(failedEmitter.completeWithErrorCalls).isZero();
+    }
+
+    private static final class FailingEmitter extends SseEmitter {
+        private int completeWithErrorCalls;
+
+        @Override
+        public void send(SseEventBuilder builder) throws IOException {
+            throw new IOException("client disconnected");
+        }
+
+        @Override
+        public void completeWithError(Throwable ex) {
+            completeWithErrorCalls++;
+        }
     }
 }

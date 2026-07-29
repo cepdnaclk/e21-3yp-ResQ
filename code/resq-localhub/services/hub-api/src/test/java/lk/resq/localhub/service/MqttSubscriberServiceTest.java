@@ -170,6 +170,46 @@ class MqttSubscriberServiceTest {
                 .extracting(ManikinLiveSummary::deviceId)
                 .contains("M-DEV");
     }
+
+    @Test
+    void legacyHeartbeatAfterSequencedStatusRefreshesLivenessWithoutOverwritingDomainState() throws Exception {
+        LiveRegistryFixture fixture = newLiveRegistryFixture();
+        fixture.subscriber().handleMessage("resq/M-DEV/status", message("""
+            {
+              "event_id": 1001,
+              "device_id": "M-DEV",
+              "state": "PAIRED_IDLE",
+              "session_active": false,
+              "calibrated": false,
+              "ts_ms": 9000,
+              "boot_id": "4312a8ab05649136",
+              "state_seq": 3
+            }
+            """));
+        ManikinLiveSummary afterStatus = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
+        int snapshotCount = fixture.liveStreamService().getInstructorLiveSnapshots().size();
+        Thread.sleep(2L);
+
+        fixture.subscriber().handleMessage("resq/M-DEV/heartbeat", message("""
+            {
+              "device_id": "M-DEV",
+              "state": "SESSION_RUNNING",
+              "session_active": true,
+              "calibrated": true,
+              "uptime_ms": 10000,
+              "ts_ms": 10000
+            }
+            """));
+
+        ManikinLiveSummary afterHeartbeat = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
+        assertThat(afterHeartbeat.lastSeen()).isAfter(afterStatus.lastSeen());
+        assertThat(afterHeartbeat.online()).isTrue();
+        assertThat(afterHeartbeat.state()).isEqualTo("PAIRED_IDLE");
+        assertThat(afterHeartbeat.sessionActive()).isFalse();
+        assertThat(afterHeartbeat.calibrated()).isFalse();
+        assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).hasSize(snapshotCount + 1);
+    }
+
     @Test
     void persistsEventReplyAndCalibrationSnapshots() throws Exception {
         FirmwarePersistenceRepository repository = newRepository();
