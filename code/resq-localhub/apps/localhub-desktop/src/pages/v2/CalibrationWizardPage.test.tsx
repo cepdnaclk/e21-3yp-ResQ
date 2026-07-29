@@ -6,6 +6,32 @@ import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalib
 import { connectCalibrationStream } from "../../api/liveEventsClient";
 import type { SensorStreamClientCallbacks } from "../../lib/sensorStreamClient";
 
+const { defaultCalibrationProfile } = vi.hoisted(() => ({
+  defaultCalibrationProfile: {
+    profileId: "adult-basic",
+    name: "Adult Basic",
+    hallDelta: 240,
+    refPressure: 1320000,
+    bladder1Pressure: 4150000,
+    bladder2Pressure: 4150000,
+    description: "Default adult CPR calibration profile",
+    active: true,
+    defaultProfile: true,
+    createdAt: "2026-07-28T00:00:00Z",
+    updatedAt: "2026-07-28T00:00:00Z",
+  },
+}));
+
+vi.mock("../../hooks/useCalibrationProfiles", () => ({
+  useCalibrationProfiles: () => ({
+    profiles: [],
+    defaultProfile: defaultCalibrationProfile,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("../../api/manikinsApi", () => ({
   getDeviceReadiness: vi.fn(),
   startCalibration: vi.fn(),
@@ -103,13 +129,27 @@ describe("CalibrationWizardPage", () => {
     // Verify default form fields are loaded
     expect(screen.getByText("Advanced Calibration Configuration")).toBeInTheDocument();
     await openAdvancedConfiguration();
-    expect(screen.getByLabelText(/Hall Delta/i)).toHaveValue("13500");
-    expect(screen.getByLabelText("Reference Pressure Raw HX710 Counts")).toHaveValue("20100");
-    expect(screen.getByLabelText("Bladder 1 Pressure Raw HX710 Counts")).toHaveValue("15000");
-    expect(screen.getByLabelText("Bladder 2 Pressure Raw HX710 Counts")).toHaveValue("15000");
+    expect(screen.getByLabelText(/Hall Delta/i)).toHaveValue("240");
+    expect(screen.getByLabelText("Reference Pressure Raw HX710 Counts")).toHaveValue("1320000");
+    expect(screen.getByLabelText("Bladder 1 Pressure Raw HX710 Counts")).toHaveValue("4150000");
+    expect(screen.getByLabelText("Bladder 2 Pressure Raw HX710 Counts")).toHaveValue("4150000");
     expect(screen.getByLabelText(/Profile ID/i)).toHaveValue("adult-basic");
     expect(screen.getByLabelText(/Sample Interval/i)).toHaveValue("20");
     expect(screen.getByLabelText(/Calibration Window/i)).toHaveValue("3000");
+  });
+
+  it("does not treat a historical pass as the current result after reset", async () => {
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "NOT_READY",
+      readyForSession: false,
+      lastResult: "PASS_WITH_WARNINGS",
+    });
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "Start Calibration" })).toBeInTheDocument();
+    expect(screen.queryByText("Calibration Complete")).not.toBeInTheDocument();
   });
 
   it("blocks calibration start and shows inline messages on invalid values", async () => {
@@ -125,6 +165,20 @@ describe("CalibrationWizardPage", () => {
     await userEvent.click(startBtn);
 
     expect(screen.getByText("Hall Delta must be greater than 0")).toBeInTheDocument();
+    expect(startCalibration).not.toHaveBeenCalled();
+  });
+
+  it("blocks targets that diverge from the selected server profile", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await openAdvancedConfiguration();
+
+    const bladder1Input = screen.getByLabelText("Bladder 1 Pressure Raw HX710 Counts");
+    await userEvent.clear(bladder1Input);
+    await userEvent.type(bladder1Input, "4149999");
+    await userEvent.click(screen.getByRole("button", { name: "Start Calibration" }));
+
+    expect(await screen.findByText(/targets must match the selected server profile/i)).toBeInTheDocument();
     expect(startCalibration).not.toHaveBeenCalled();
   });
 
@@ -145,10 +199,10 @@ describe("CalibrationWizardPage", () => {
 
     await waitFor(() => {
       expect(startCalibration).toHaveBeenCalledWith("MAN-01", {
-        hall_delta: 13500,
-        ref_pressure: 20100,
-        bladder_1_pressure: 15000,
-        bladder_2_pressure: 15000,
+        hall_delta: 240,
+        ref_pressure: 1320000,
+        bladder_1_pressure: 4150000,
+        bladder_2_pressure: 4150000,
         profile_id: "adult-basic",
         sample_interval_ms: 20,
         calibration_window_ms: 3000,
@@ -251,7 +305,7 @@ describe("CalibrationWizardPage", () => {
     expect(screen.getByText("Press and hold full compression until the firmware captures the full press.")).toBeInTheDocument();
   });
 
-  it("renders raw 4001 values against the active target configuration", async () => {
+  it("renders raw 4001 values against the current target configuration", async () => {
     vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(MOCK_EVIDENCE as any);
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
     await screen.findByText("Calibration / Pre-Check");
@@ -265,9 +319,9 @@ describe("CalibrationWizardPage", () => {
         progressId: 4,
         calibrationState: "CALIBRATING",
         readyForSession: false,
-        pressure0Raw: 20100,
+        pressure0Raw: 1320000,
         pressure0RawValid: true,
-        pressure1Raw: 14250,
+        pressure1Raw: 4149250,
         pressure1RawValid: true,
         pressure2Raw: -999999,
         pressure2RawValid: false,
@@ -279,8 +333,8 @@ describe("CalibrationWizardPage", () => {
       });
     });
 
-    expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getAllByText("20,100 counts")).toHaveLength(2);
-    expect(within(screen.getByRole("region", { name: "Bladder 1 Pressure target status" })).getByText("14,250 counts")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getAllByText("1,320,000 counts")).toHaveLength(2);
+    expect(within(screen.getByRole("region", { name: "Bladder 1 Pressure target status" })).getByText("4,149,250 counts")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Bladder 1 Pressure target status" })).getByText("-750 counts")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Bladder 2 Pressure target status" })).getByText("Unavailable")).toBeInTheDocument();
   });
@@ -447,6 +501,48 @@ describe("CalibrationWizardPage", () => {
     expect(screen.getByText("Save / Result")).toHaveClass("text-slate-400");
   });
 
+  it("preserves the last real stage when a terminal failure event arrives", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    act(() => {
+      sseHandlers.onUpdate({
+        type: "calibration_update",
+        deviceId: "MAN-01",
+        eventId: 4001,
+        progressId: 3,
+        calibrationState: "CALIBRATING",
+        readyForSession: false,
+      });
+      sseHandlers.onUpdate({
+        type: "calibration_update",
+        deviceId: "MAN-01",
+        eventId: 4001,
+        progressId: 4,
+        calibrationState: "CALIBRATING",
+        readyForSession: false,
+      });
+      sseHandlers.onFinal({
+        type: "calibration_final",
+        deviceId: "MAN-01",
+        eventId: 4002,
+        progressId: 12,
+        result: "FAIL",
+        reasonId: "08402",
+        calibrationState: "FAILED",
+        readyForSession: false,
+      });
+    });
+
+    const reference = await screen.findByRole("region", { name: "Reference Pressure target status" });
+    const bladder1 = screen.getByRole("region", { name: "Bladder 1 Pressure target status" });
+    const bladder2 = screen.getByRole("region", { name: "Bladder 2 Pressure target status" });
+    expect(within(reference).getByText("COMPLETED")).toBeInTheDocument();
+    expect(within(bladder1).getByText("FAILED")).toBeInTheDocument();
+    expect(within(bladder2).getByText("PENDING")).toBeInTheDocument();
+  });
+
   it("handles final PASS and navigates back on Start Session click", async () => {
     const onBackMock = vi.fn();
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={onBackMock} />);
@@ -470,6 +566,27 @@ describe("CalibrationWizardPage", () => {
     const startSessionBtn = screen.getByRole("button", { name: "Start Session" });
     await userEvent.click(startSessionBtn);
     expect(onBackMock).toHaveBeenCalled();
+  });
+
+  it("does not expose Start Session until strict readiness is true", async () => {
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(sseHandlers).not.toBeNull());
+
+    act(() => {
+      sseHandlers.onFinal({
+        type: "calibration_final",
+        deviceId: "MAN-01",
+        eventId: 4002,
+        result: "PASS",
+        readyForSession: false,
+        calibrationState: "READY",
+      });
+    });
+
+    expect(await screen.findByText("Calibration Complete")).toBeInTheDocument();
+    expect(screen.getByText(/waiting for the profile identity and readiness gate/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start Session" })).not.toBeInTheDocument();
   });
 
   it("handles final FAIL and shows a Retry button", async () => {
@@ -560,6 +677,17 @@ describe("CalibrationWizardPage", () => {
     expect(
       screen.getByText(/fresh calibration must succeed before a session can start/i)
     ).toBeInTheDocument();
+  });
+
+  it("keeps live target guidance on the current profile when historical evidence used different targets", async () => {
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(MOCK_EVIDENCE);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Historical Calibration Evidence");
+
+    expect(await screen.findByText("1,320,000 counts")).toBeInTheDocument();
+    expect(screen.getAllByText("4,150,000 counts")).toHaveLength(2);
+    expect(screen.queryByText("20,100 counts")).not.toBeInTheDocument();
   });
 
   it("shows empty state text when no evidence exists", async () => {

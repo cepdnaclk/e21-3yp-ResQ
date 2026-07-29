@@ -32,6 +32,19 @@ export type SessionLiveSubscription = {
   stop: () => void;
 };
 
+export function isEndedSessionPayload(
+  value: unknown,
+): value is null | undefined | Record<string, never> {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  return (
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value as Record<string, unknown>).length === 0
+  );
+}
+
 // ─────────────────────────────────────────────
 // Manikins live stream
 // ─────────────────────────────────────────────
@@ -114,7 +127,9 @@ export function subscribeToSessionLive(
     if (stopped) return;
     try {
       const parsed: unknown = JSON.parse(event.data);
-      if (parsed === null || parsed === undefined) {
+      if (isEndedSessionPayload(parsed)) {
+        stopped = true;
+        eventSource.close();
         onEnded();
         return;
       }

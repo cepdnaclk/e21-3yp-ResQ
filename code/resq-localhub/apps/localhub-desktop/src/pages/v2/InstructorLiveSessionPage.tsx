@@ -165,23 +165,25 @@ export function InstructorLiveSessionPage({
 
   const profile = session.scenario && session.scenario.toLowerCase().includes("pediatric") ? "pediatric" : "adult";
   const depthTargetStr = profile === "pediatric" ? "40–50 mm" : "50–60 mm";
+  const minDepthMm = profile === "pediatric" ? 40 : 50;
+  const maxDepthMm = profile === "pediatric" ? 50 : 60;
 
   // Depth card parameters
   const depthVal = normalized.depthMm !== null ? `${normalized.depthMm.toFixed(1)} mm` : "—";
   const depthTone: "good" | "warning" | "danger" | "neutral" =
     normalized.depthMm === null
       ? "neutral"
-      : normalized.depthMm >= 50 && normalized.depthMm <= 60
+      : normalized.depthMm >= minDepthMm && normalized.depthMm <= maxDepthMm
       ? "good"
-      : normalized.depthMm < 50
+      : normalized.depthMm < minDepthMm
       ? "danger"
       : "warning";
   const depthStatus =
     normalized.depthMm === null
       ? "Waiting"
-      : normalized.depthMm >= 50 && normalized.depthMm <= 60
-      ? "Good"
-      : normalized.depthMm < 50
+      : normalized.depthMm >= minDepthMm && normalized.depthMm <= maxDepthMm
+      ? "Correct depth"
+      : normalized.depthMm < minDepthMm
       ? "Too shallow"
       : "Too deep";
 
@@ -317,11 +319,19 @@ export function InstructorLiveSessionPage({
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full">
           <MetricCard
-            label="Compression Depth"
+            label={
+              normalized.usesCompletedCompressionDepth
+                ? "Avg Completed Peak Depth"
+                : "Compression Depth"
+            }
             value={depthVal}
             status={depthStatus}
             tone={depthTone}
-            target={depthTargetStr}
+            target={
+              normalized.usesCompletedCompressionDepth
+                ? `${depthTargetStr} average of completed peaks`
+                : `${depthTargetStr} legacy live depth`
+            }
             large
             subtitle={
               normalized.isDerivedDepth

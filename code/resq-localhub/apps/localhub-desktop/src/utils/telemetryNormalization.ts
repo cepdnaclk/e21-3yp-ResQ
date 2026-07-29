@@ -3,6 +3,7 @@ import type { SessionLiveView } from "../types/live";
 export const DEFAULT_TARGET_DEPTH_MM = 50;
 
 export interface NormalizedTelemetry {
+  instantaneousDepthMm: number | null;
   depthMm: number | null;
   depthPercent: number | null;
   rateCpm: number | null;
@@ -14,11 +15,15 @@ export interface NormalizedTelemetry {
   hasRecoilCounts: boolean;
   recoilTotal: number;
   pressureBalanceScorePct: number | null;
+  completedCompressionCount: number;
+  lastCompressionPeakDepthMm: number | null;
+  usesCompletedCompressionDepth: boolean;
 }
 
 export function normalizeTelemetry(session: SessionLiveView | null): NormalizedTelemetry {
   if (!session) {
     return {
+      instantaneousDepthMm: null,
       depthMm: null,
       depthPercent: null,
       rateCpm: null,
@@ -30,27 +35,58 @@ export function normalizeTelemetry(session: SessionLiveView | null): NormalizedT
       hasRecoilCounts: false,
       recoilTotal: 0,
       pressureBalanceScorePct: null,
+      completedCompressionCount: 0,
+      lastCompressionPeakDepthMm: null,
+      usesCompletedCompressionDepth: false,
     };
   }
 
   const latestMetric = session.latestMetric as any;
 
   // 1. depthMm derivation
-  let depthMm: number | null = session.latestDepthMm ?? null;
+  let instantaneousDepthMm: number | null = session.latestDepthMm ?? null;
   let isDerivedDepth = false;
 
-  if (depthMm === null && latestMetric) {
+  if (instantaneousDepthMm === null && latestMetric) {
     const rawDepthMm = latestMetric.depthMm ?? latestMetric.depth_mm;
     if (rawDepthMm !== null && rawDepthMm !== undefined) {
-      depthMm = rawDepthMm;
+      instantaneousDepthMm = rawDepthMm;
     } else {
       const depthProgress = latestMetric.depthProgress ?? latestMetric.depth_progress;
       if (depthProgress !== null && depthProgress !== undefined) {
-        depthMm = depthProgress * DEFAULT_TARGET_DEPTH_MM;
+        instantaneousDepthMm = depthProgress * DEFAULT_TARGET_DEPTH_MM;
         isDerivedDepth = true;
       }
     }
   }
+
+  const completedCompressionCount =
+    latestMetric?.completedCompressionCount ??
+    latestMetric?.completed_compression_count ??
+    0;
+  const lastCompressionPeakDepthMm =
+    latestMetric?.lastCompressionPeakDepthMm ??
+    latestMetric?.last_compression_peak_depth_mm ??
+    latestMetric?.lastCompressionDepthMm ??
+    latestMetric?.last_compression_depth_mm ??
+    null;
+  const averageCompletedCompressionPeakDepthMm =
+    latestMetric?.averageCompletedCompressionPeakDepthMm ??
+    latestMetric?.average_completed_compression_peak_depth_mm ??
+    latestMetric?.averageCompressionDepthMm ??
+    latestMetric?.average_compression_depth_mm ??
+    null;
+  const usesCompletedCompressionDepth =
+    completedCompressionCount > 0 &&
+    averageCompletedCompressionPeakDepthMm !== null;
+  /*
+   * New firmware cards use the stable average of one peak per completed
+   * compression. Legacy payloads do not have completion counters, so retain
+   * their instantaneous depth rather than leaving the card blank.
+   */
+  const depthMm = usesCompletedCompressionDepth
+    ? averageCompletedCompressionPeakDepthMm
+    : instantaneousDepthMm;
 
   // 2. depthPercent
   let depthPercent: number | null = null;
@@ -119,6 +155,7 @@ export function normalizeTelemetry(session: SessionLiveView | null): NormalizedT
     null;
 
   return {
+    instantaneousDepthMm,
     depthMm,
     depthPercent,
     rateCpm,
@@ -130,5 +167,8 @@ export function normalizeTelemetry(session: SessionLiveView | null): NormalizedT
     hasRecoilCounts,
     recoilTotal,
     pressureBalanceScorePct,
+    completedCompressionCount,
+    lastCompressionPeakDepthMm,
+    usesCompletedCompressionDepth,
   };
 }

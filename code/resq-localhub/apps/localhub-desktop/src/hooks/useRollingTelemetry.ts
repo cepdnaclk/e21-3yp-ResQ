@@ -48,7 +48,9 @@ export function useRollingTelemetry(session: SessionLiveView | null) {
         ...prev,
         {
           time: timeLabel,
-          depthMm: normalized.depthMm !== null ? Number(normalized.depthMm.toFixed(1)) : null,
+          depthMm: normalized.instantaneousDepthMm !== null
+            ? Number(normalized.instantaneousDepthMm.toFixed(1))
+            : null,
           rateCpm: normalized.rateCpm !== null ? Number(normalized.rateCpm.toFixed(1)) : null,
           recoilPct: normalized.recoilPct !== null ? Number(normalized.recoilPct.toFixed(0)) : null,
         },
