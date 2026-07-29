@@ -773,6 +773,84 @@ class ActiveSessionServiceTest {
     }
 
     @Test
+    void firmwareBootChangeRejectsPendingStartAndInterruptsActiveSession() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+
+        SessionStartResponse pending = fixture.service.startSession(startRequest("M01"));
+        SessionStartResponse active = fixture.service.startSession(new SessionStartRequest(
+                "M02",
+                null,
+                null,
+                null,
+                null,
+                "Guest",
+                "child-basic",
+                "Lifecycle",
+                null
+        ));
+        activate(fixture.service, active);
+
+        fixture.service.handleFirmwareBootChanged("M01", "boot-old", "boot-new", null);
+        fixture.service.handleFirmwareBootChanged("M02", "boot-old", "boot-new", null);
+
+        assertThat(fixture.service.findSessionStart(pending.sessionId()).orElseThrow().state())
+                .isEqualTo(SessionLifecycleState.START_REJECTED);
+        assertThat(fixture.service.findSessionStart(active.sessionId()).orElseThrow().state())
+                .isEqualTo(SessionLifecycleState.INTERRUPTED);
+        assertThat(fixture.service.findActiveSessionForDevice("M01")).isEmpty();
+        assertThat(fixture.service.findActiveSessionForDevice("M02")).isEmpty();
+    }
+
+    @Test
+    void firmwareBootChangeTimesOutPendingStopAndInterruptsRejectedStop() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+
+        SessionStartResponse stopPendingSession = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, stopPendingSession);
+        fixture.service.endSession(new SessionEndRequest(stopPendingSession.sessionId()));
+
+        SessionStartResponse stopRejectedSession = fixture.service.startSession(new SessionStartRequest(
+                "M02",
+                null,
+                null,
+                null,
+                null,
+                "Guest",
+                "child-basic",
+                "Lifecycle",
+                null
+        ));
+        activate(fixture.service, stopRejectedSession);
+        fixture.commandPublisher.failSessionStopPublish = true;
+        fixture.service.endSession(new SessionEndRequest(stopRejectedSession.sessionId()));
+
+        fixture.service.handleFirmwareBootChanged("M01", "boot-old", "boot-new", null);
+        fixture.service.handleFirmwareBootChanged("M02", "boot-old", "boot-new", null);
+
+        assertThat(fixture.service.findSessionStart(stopPendingSession.sessionId()).orElseThrow().state())
+                .isEqualTo(SessionLifecycleState.STOP_TIMEOUT);
+        assertThat(fixture.service.findSessionStart(stopRejectedSession.sessionId()).orElseThrow().state())
+                .isEqualTo(SessionLifecycleState.INTERRUPTED);
+    }
+
+    @Test
+    void firmwareBootChangeIgnoresCompletedAndNullReplyIds() throws Exception {
+        ServiceFixture fixture = newServiceFixture();
+
+        SessionStartResponse session = fixture.service.startSession(startRequest("M01"));
+        activate(fixture.service, session);
+        SessionEndResponse completed = completeStop(fixture.service, session.sessionId());
+
+        fixture.service.handleFirmwareBootChanged("M01", "boot-old", "boot-new", null);
+
+        assertThat(fixture.service.findCompletedSession(session.sessionId())).isPresent();
+        assertThat(fixture.service.handleSessionStartFirmwareReply("M01", 2000, null, "ACK", session.sessionId(), null, null, null))
+                .isFalse();
+        assertThat(fixture.service.handleSessionStopFirmwareReply("M01", 2001, null, "ACK", completed.sessionId(), null, null, null))
+                .isFalse();
+    }
+
+    @Test
     void noMqttSessionStartPublishedWhenCalibrationNotReady() throws Exception {
         CapturingMqttCommandPublisherService commandPublisher = new CapturingMqttCommandPublisherService();
         InMemoryLocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
