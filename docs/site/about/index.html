@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="About ResQ: Project purpose and design approach for smart CPR training">
+    <meta name="description" content="About ResQ: Project purpose, engineering approach, and team details for the smart CPR training platform">
     <title>About — ResQ CPR Training Platform</title>
     <link rel="stylesheet" href="../assets/style.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap">
-        <link rel="icon" href="../assets/img/logo/favicon.ico" />
-        <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/logo/favicon-32.png" />
-        <link rel="apple-touch-icon" sizes="180x180" href="../assets/img/logo/apple-touch-icon.png" />
-        <meta name="theme-color" content="#12264C" />
+    <link rel="icon" href="../assets/img/logo/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/logo/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="../assets/img/logo/apple-touch-icon.png" />
+    <meta name="theme-color" content="#12264C" />
 </head>
 
 <body>
@@ -51,155 +51,205 @@
     <section class="page-header">
         <div class="container">
             <h1>About ResQ</h1>
-            <p>Understanding the project, its scope, and our engineering approach</p>
+            <p>Project purpose, system architecture, engineering approach, and development status</p>
         </div>
     </section>
 
+    <!-- Notice Banner
+    <section class="content-section" style="padding-bottom: 0;">
+        <div class="container">
+            <blockquote style="border-left: 4px solid #12264C; padding: 1rem; margin: 0; background: rgba(18, 38, 76, 0.05); border-radius: 4px;">
+                <strong>Important:</strong> ResQ is an educational tool for CPR practice on training manikins. It is not a clinical or patient-care device.
+            </blockquote>
+        </div>
+    </section>-->
+
     <section class="content-section">
         <div class="container">
-            <h2>The Problem: CPR Training Needs Better Feedback</h2>
+            <h2>Project Overview</h2>
             <p>
-                CPR (Cardiopulmonary Resuscitation) is a critical life-saving skill, but traditional training on manikins 
-                has significant limitations:
-            </p>
-            <ul class="problem-list">
-                <li>
-                    <strong>Limited Feedback:</strong> Students train on passive manikins with minimal or no real-time feedback on 
-                    compression quality (depth, rate, recoil, hand placement).
-                </li>
-                <li>
-                    <strong>Subjective Assessment:</strong> Instructor evaluation depends on observation and varies between trainers, 
-                    leading to inconsistent standards.
-                </li>
-                <li>
-                    <strong>No Measurable Progress:</strong> Students don't have objective records of improvement across multiple 
-                    training sessions.
-                </li>
-                <li>
-                    <strong>Scaling Challenge:</strong> Instructors struggle to monitor multiple students simultaneously, limiting 
-                    class size and training throughput.
-                </li>
-                <li>
-                    <strong>Evidence Gap:</strong> Training outcomes are not documented in a standardized, measurable way for 
-                    certification or compliance.
-                </li>
-            </ul>
-
-            <p>
-                <strong>Core challenge:</strong> CPR training lacks real-time, objective, scalable measurement and feedback to 
-                ensure consistent learning and competency validation.
+                ResQ is a smart CPR training system developed to make manikin-based practice more objective, measurable, and accessible. 
+                The project combines mechanical design, embedded sensing, firmware, local networking, backend software, data storage, and web-based dashboards into one integrated training platform. Its purpose is to support instructors and trainees with immediate CPR performance feedback while keeping the system affordable and usable without internet access.
             </p>
         </div>
     </section>
 
     <section class="content-section alt">
         <div class="container">
-            <h2>Our Solution: ResQ Instrumented Manikin System</h2>
+            <h2>Why We Developed ResQ</h2>
             <p>
-                ResQ adds intelligent sensing and live analytics to CPR manikins, transforming training into a data-driven, 
-                measurable learning experience.
+                CPR is a technique-sensitive skill. Trainees need to maintain suitable compression depth and rate, allow full recoil, minimize interruptions, and use correct hand placement.
             </p>
+            <p>
+                In conventional training, these qualities may be judged mainly through observation, creating several limitations:
+            </p>
+            <ul class="problem-list">
+                <li><strong>Unidentified Errors:</strong> Some compression errors are difficult to identify visually.</li>
+                <li><strong>Limited Immediate Feedback:</strong> Trainees receive minimal real-time guidance for self-correction.</li>
+                <li><strong>Inconsistent Assessment:</strong> Evaluation varies between individual instructors.</li>
+                <li><strong>Monitoring Challenges:</strong> Supervising several trainees simultaneously is difficult for a single instructor.</li>
+                <li><strong>No Session Retention:</strong> Session performance is often not stored for later review or progress tracking.</li>
+                <li><strong>High Cost Barrier:</strong> Feedback-enabled commercial manikins may be unaffordable for many institutions.</li>
+            </ul>
+            <p>
+                ResQ was developed to address these limitations using a <strong>retrofit approach</strong> rather than requiring a complete replacement manikin.
+            </p>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>The Developed System</h2>
+            <p>ResQ consists of five closely connected parts working together as an integrated platform:</p>
 
             <div class="proposal-grid">
                 <div class="proposal-card">
-                    <h3>1. Sensor Array Hardware</h3>
+                    <h3>1. Sensor-Equipped Manikin Overlay</h3>
                     <p>
-                        Two TPU bladders mounted under the sternum plate detects compression force and distribution. 
-                        Pressure sensors quantify chest compression, while a Hall-effect sensor + magnet arrangement measures 
-                        compression depth. All data flows through an ADC for precise analog-to-digital conversion.
+                        A soft chest overlay containing a TPU air-bladder structure and pressure-sensing zones. A Hall-effect sensor and magnet arrangement measures chest displacement. It fits over existing manikins to measure compression pressure, balance, depth, and chest return over repeated training sessions.
                     </p>
                 </div>
                 <div class="proposal-card">
-                    <h3>2. Smart Firmware Processing</h3>
+                    <h3>2. ESP32-C3 Controller and Firmware</h3>
                     <p>
-                        Embedded firmware reads sensors in real-time and computes: compression count (event detection), 
-                        rate in compressions per minute (cpm), depth estimate (mm), pause time, and placement drift 
-                        (left/right/up/down). Data is processed locally and sent to the dashboard.
+                        The embedded controller reads sensors, manages calibration, detects device and session states, calculates CPR metrics, and communicates with LocalHub. Includes status LEDs, control buttons, a cadence buzzer, Wi-Fi connectivity, and dual operational modes (SENSOR / USB).
                     </p>
                 </div>
                 <div class="proposal-card">
-                    <h3>3. Live Instructor Dashboard and Reporting</h3>
+                    <h3>3. Windows ResQ LocalHub</h3>
                     <p>
-                        A web-based dashboard displays live graphs and performance indicators. Instructors see real-time feedback 
-                        on student performance, can monitor multiple students simultaneously. Sessions are automatically saved with performance summaries and scores.
+                        A Tauri-based desktop application providing a one-click local training environment. It supervises the local MQTT broker, Spring Boot backend, dashboard services, and network health while offering QR-assisted workflows to minimize setup friction.
                     </p>
                 </div>
-                <!--<div class="proposal-card">
-                    <h3>4. Session Logging & Reporting</h3>
+                <div class="proposal-card">
+                    <h3>4. Instructor and Trainee Dashboards</h3>
                     <p>
-                        Sessions are automatically saved with performance summaries and scores. Instructors can add comments and 
-                        coaching notes. Reports export to CSV/PDF for documentation, student feedback, and certification records.
+                        Web-based dashboards providing real-time telemetry. Instructors can pair manikins, manage sessions, and monitor trainees concurrently. Trainees receive live feedback on depth, rate, recoil, pauses, and hand placement alongside personal session summaries.
                     </p>
-                </div>-->
+                </div>
+                <div class="proposal-card">
+                    <h3>5. Local Data & Optional Cloud Support</h3>
+                    <p>
+                        Core training data is saved locally on the instructor's computer, enabling offline deployment in outreach locations or skills labs. Optional cloud synchronization can be enabled for long-term analytics without blocking offline operations.
+                    </p>
+                </div>
             </div>
+        </div>
+    </section>
 
-            <p style="margin-top: 2rem;">
-                <strong>Result:</strong> CPR training becomes objective, data-driven, scalable, and measurable. Students get 
-                immediate feedback for faster learning. Instructors gain insight into performance patterns and can make targeted 
-                improvements to their training programs.
-            </p>
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Engineering Approach</h2>
+            <div class="outcomes-list">
+                <div class="outcome-item">
+                    <h3>Local-First Architecture</h3>
+                    <p>All time-sensitive communication takes place over a local Wi-Fi network (MQTT to backend). This provides low communication delay, zero dependence on internet connectivity, easier remote deployment, and full local data control.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>Explainable Feedback Logic</h3>
+                    <p>ResQ uses configurable, rule-based evaluations rather than an unexplained black-box score. Metrics explicitly break down depth range, rate cpm, recoil completion, pause durations, and pressure distribution.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>Modular Design</h3>
+                    <p>Decoupled design across overlay, firmware, communication, backend, desktop host, dashboards, and storage layers allows individual components to be updated, tested, or replaced independently.</p>
+                </div>
+            </div>
         </div>
     </section>
 
     <section class="content-section">
         <div class="container">
+            <h2>Main Project Objectives</h2>
+            <ol style="line-height: 1.8; padding-left: 1.2rem;">
+                <li>Measure key chest-compression characteristics objectively.</li>
+                <li>Give trainees immediate and understandable feedback.</li>
+                <li>Help instructors supervise multiple training stations.</li>
+                <li>Store session results for review and progress tracking.</li>
+                <li>Operate without dependence on internet connectivity.</li>
+                <li>Retrofit existing manikins to reduce deployment cost.</li>
+                <li>Provide a foundation for future manufacturing and product development.</li>
+            </ol>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
+            <h2>Intended Users</h2>
+            <div class="users-grid">
+                <div class="user-card">
+                    <h3>Instructors & Medical Educators</h3>
+                    <p>Manage devices, start sessions, monitor several trainees simultaneously, identify error patterns, and review historical results.</p>
+                </div>
+                <div class="user-card">
+                    <h3>Trainees</h3>
+                    <p>Receive immediate visual feedback during practice and review completed session summaries to target specific technical improvements.</p>
+                </div>
+                <div class="user-card">
+                    <h3>Administrators</h3>
+                    <p>Manage users, system roles, system settings, connected devices, and audit-related training records.</p>
+                </div>
+                <div class="user-card">
+                    <h3>Technicians</h3>
+                    <p>Perform calibration, hardware diagnostics, network setup, firmware updates, and ongoing device maintenance.</p>
+                </div>
+                <div class="user-card">
+                    <h3>Training Institutions</h3>
+                    <p>Deploy multi-station CPR setups in skills labs, university medical faculties, first-aid programs, and community camps.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section">
+        <div class="container">
+            <h2>Current Development Outcomes</h2>
+            <div class="outcomes-grid grid-4-items">
+                <div class="outcome-item">
+                    <h3>Hardware & Firmware Prototyping</h3>
+                    <p>Wearable overlay prototype completed with TPU air-bladder, pressure sensors, Hall-effect sensing, and defined ESP32-C3 firmware state machine.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>Networking & Infrastructure</h3>
+                    <p>Implemented local MQTT telemetry, command handling, device provisioning, backend registration, auto-calibration, and readiness checks.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>Software & Dashboards</h3>
+                    <p>Developed Tauri Windows LocalHub, local Spring Boot backend, session persistence, role-based access, and real-time instructor/trainee web dashboards.</p>
+                </div>
+                <div class="outcome-item">
+                    <h3>Analytics & Security</h3>
+                    <p>Implemented live CPR metric calculation, fault/interruption recovery, CSV/JSON data exports, and comprehensive technical documentation.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="content-section alt">
+        <div class="container">
             <h2>Project Scope</h2>
-            
             <div class="scope-grid">
                 <div class="scope-card included">
-                    <h3>In Scope (MVP)</h3>
+                    <h3>Included in Current Platform</h3>
                     <ul>
-                        <li>Two TPU bladder & sensor array + pressure sensor(s)</li>
-                        <li>Hall-effect depth sensor with magnet alignment</li>
-                        <li>Firmware: compression count, rate, depth, pauses, placement drift</li>
-                        <li>Live dashboard with graphs and indicators</li>
-                        <li>Session save + score summary</li>
-                        <li>Instructor comments box</li>
-                        <li>Calibration system (zero, depth, pressure tuning)</li>
-                        <li>CSV/PDF export for reports</li>
+                        <li>Chest-compression training and objective assessment</li>
+                        <li>Metrics: depth, rate, recoil, pauses, balance, scoring</li>
+                        <li>Local device pairing and auto-calibration</li>
+                        <li>Real-time instructor and trainee dashboard feedback</li>
+                        <li>Local data persistence and offline-capable operation</li>
+                        <li>Diagnostics, device state monitoring, and CSV/JSON exports</li>
                     </ul>
                 </div>
                 <div class="scope-card excluded">
-                    <h3>Out of Scope (Future)</h3>
+                    <h3>Future Development</h3>
                     <ul>
-                        <li>Mobile app (web-only for now)</li>
-                        <li>Cloud integration (local deployment in MVP)</li>
-                        <li>AI/ML pattern analysis</li>
-                        <li>Hospital EHR integration</li>
-                        <li>Wearable integration</li>
-                        <li>Multi-language support</li>
-                        <li>Wireless manikin connectivity (tethered USB/serial in MVP)</li>
+                        <li>Mouth-to-mouth ventilation assessment</li>
+                        <li>Heartbeat/pulse replication using transducers</li>
+                        <li>Manufactured University of Peradeniya-branded manikin enclosure</li>
+                        <li>Expanded cloud analytics and multi-site history</li>
+                        <li>Optimized tablet/mobile native experiences</li>
+                        <li>Medical educator validated training profiles</li>
+                        <li>Production moulding, durability testing, and scaling</li>
                     </ul>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="content-section alt">
-        <div class="container">
-            <h2>Target Users</h2>
-            
-            <div class="users-grid">
-                <div class="user-card">
-                    <h3>Instructors & Trainers</h3>
-                    <p>
-                        Medical educators and CPR training coordinators who need to assess multiple students objectively, 
-                        track performance over time, and provide evidence-based coaching.
-                    </p>
-                </div>
-                <div class="user-card">
-                    <h3>Students & Trainees</h3>
-                    <p>
-                        Healthcare professionals, first responders, and anyone pursuing CPR certification. They benefit from 
-                        immediate feedback and measurable progress tracking.
-                    </p>
-                </div>
-                <div class="user-card">
-                    <h3>Training Centers</h3>
-                    <p>
-                        Hospitals, medical schools, fire departments, and certification programs seeking to improve training 
-                        consistency and maintain compliance documentation.
-                    </p>
                 </div>
             </div>
         </div>
@@ -207,79 +257,20 @@
 
     <section class="content-section">
         <div class="container">
-            <h2>Expected Outcomes</h2>
-            
-            <div class="outcomes-list">
-                <div class="outcome-item">
-                    <h3>Faster Skill Acquisition</h3>
-                    <p>Real-time feedback allows students to self-correct immediately, accelerating the learning curve compared to subjective feedback alone.</p>
-                </div>
-                <div class="outcome-item">
-                    <h3>Objective Assessment</h3>
-                    <p>CPR quality measured by quantitative metrics (depth in mm, rate in cpm) eliminates bias and ensures consistent evaluation standards.</p>
-                </div>
-                <div class="outcome-item">
-                    <h3>Compliance & Documentation</h3>
-                    <p>Automatic session logging and exportable reports provide auditable evidence of training and competency for certification.</p>
-                </div>
-                <div class="outcome-item">
-                    <h3>Instructor Efficiency</h3>
-                    <p>Instructors can monitor multiple students simultaneously, increasing class capacity and reducing one-on-one coaching time per student.</p>
-                </div>
-                <div class="outcome-item">
-                    <h3>Data-Driven Program Improvement</h3>
-                    <p>Historical performance data reveals common error patterns and supports targeted program improvements.</p>
-                </div>
-                <div class="outcome-item">
-                    <h3>Student Confidence</h3>
-                    <p>Objective measurement against evidence-based standards (AHA CPR guidelines) builds confidence in learned skills.</p>
-                </div>
-            </div>
+            <h2>Recognitions</h2>
+            <ul style="line-height: 2;">
+                <li><strong>First Place:</strong> EXITO 2026 Inter-University Robotics and Innovation Challenge</li>
+                <li><strong>Third Place:</strong> INNOVEXA 2026 Business Pitching Competition</li>
+            </ul>
         </div>
     </section>
 
-    <section class="content-section alt">
-        <div class="container">
-            <h2>Development Status</h2>
-            
-            <div class="status-timeline">
-                <div class="status-item completed">
-                    <h3>Design & Requirements</h3>
-                    <p>Completed: Hardware design, firmware architecture, dashboard mockups, calibration strategy defined.</p>
-                </div>
-                <div class="status-item completed">
-                    <h3>Hardware Prototyping</h3>
-                    <p>Completed: TPU bladder array fabrication, pressure sensor integration, Hall-effect depth sensor setup, mechanical mounting.</p>
-                </div>
-                <div class="status-item completed">
-                    <h3>Firmware Development</h3>
-                    <p>Completed: Sensor reading, event detection, compression calculations, and payload formatting.</p>
-                </div>
-                <div class="status-item completed">
-                    <h3>Dashboard UI</h3>
-                    <p>Completed: Web dashboard development, real-time graph rendering, session management UI.</p>
-                </div>
-                <div class="status-item in-progress">
-                    <h3>Validation & Testing</h3>
-                    <p>In Progress: Calibration validation, bench testing, real manikin trials, instructor feedback incorporation.</p>
-                </div>
-                <div class="status-item planned">
-                    <h3>Demonstration & Handover</h3>
-                    <p>In Progress: Final demo preparation, documentation, and project handover.</p>
-                </div>
-            </div>
-
-            <p style="margin-top: 2rem;">
-                <strong>Next Steps:</strong> Develop advanced training capabilities: Mouth-to-mouth ventilation assesment, Realistic heartbeat replication using transducers.
-            </p>
-        </div>
-    </section>
-
+    <!-- Developer Team -->
     <section class="section" id="team">
         <div class="container">
             <h2>Developer Team</h2>
             <p class="muted">
-                Meet the ResQ development team. Click a card to view the official profile.
+                Meet the ResQ student development team.
             </p>
 
             <div class="team-grid">
@@ -322,11 +313,12 @@
         </div>
     </section>
 
+    <!-- Mentors Section -->
     <section class="section" id="team">
         <div class="container">
-            <h2>Mentors</h2>
+            <h2>Academic & Technical Mentors</h2>
             <p class="muted">
-                Meet the ResQ mentors who guide our technical direction to refine our architecture and ensure alignment with CPR training standards. Click a card to view their profile. 
+                Meet the mentors guiding our team.
             </p>
 
             <div class="team-grid">
@@ -347,7 +339,7 @@
                 </a>
 
                 <a class="team-card" href="https://people.ce.pdn.ac.lk/students/e19/275/" target="_blank" rel="noopener">
-                    <img class="team-avatar" src="https://people.ce.pdn.ac.lk/images/staff/temporary-academic-staff/sanka-p.jpg" alt="K. Kartheepan" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                    <img class="team-avatar" src="https://people.ce.pdn.ac.lk/images/staff/temporary-academic-staff/sanka-p.jpg" alt="Mr. Sanka Peeris" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                     <div class="team-info">
                         <h3>Mr. Sanka Peeris</h3>
                     </div>
@@ -355,7 +347,7 @@
                 </a>
 
                 <a class="team-card" href="https://people.ce.pdn.ac.lk/students/e19/249/" target="_blank" rel="noopener">
-                    <img class="team-avatar" src="https://people.ce.pdn.ac.lk/images/staff/temporary-academic-staff/sayumi.jpeg" alt="S. Kavishanthan" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                    <img class="team-avatar" src="https://people.ce.pdn.ac.lk/images/staff/temporary-academic-staff/sayumi.jpeg" alt="Ms. Sayumi Muthukumarana" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                     <div class="team-info">
                         <h3>Ms. Sayumi Muthukumarana</h3>
                     </div>
@@ -370,13 +362,13 @@
             <div class="footer-content">
                 <div class="footer-section">
                     <h3>ResQ Project</h3>
-                    <p>University of Peradeniya,<br>Faculty of Engineering,<br>Computer Engineering Department<br>3rd Year Project (e21-3yp)</p>
+                    <p>Department of Computer Engineering,<br>Faculty of Engineering,<br>University of Peradeniya<br>3rd Year Project (e21-3yp)</p>
                 </div>
                 <div class="footer-section">
                     <h3>Quick Links</h3>
                     <ul>
                         <li><a href="../">Home</a></li>
-                        <li><a href="../about/">About</a></li>
+                        <li><a href="./">About</a></li>
                         <li><a href="../specs/">Specifications</a></li>
                         <li><a href="../how-to-use/">How to Use</a></li>
                     </ul>
@@ -384,14 +376,14 @@
                 <div class="footer-section">
                     <h3>Resources</h3>
                     <ul>
-                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ">GitHub Repository</a></li>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ" target="_blank" rel="noopener">GitHub Repository</a></li>
                         <li><a href="#" title="Project documentation">Documentation</a></li>
                         <li><a href="#" title="Download latest build">Latest Release</a></li>
                     </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; University of Peradeniya, Faculty of Engineering, Computer Engineering Department</p>
+                <p>&copy; Department of Computer Engineering, Faculty of Engineering, University of Peradeniya</p>
                 <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
             </div>
         </div>
