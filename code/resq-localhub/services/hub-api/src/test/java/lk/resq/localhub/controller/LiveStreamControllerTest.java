@@ -3,6 +3,7 @@ package lk.resq.localhub.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lk.resq.localhub.model.AuthUser;
+import lk.resq.localhub.model.SessionLiveView;
 import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.AuthService;
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -36,6 +38,7 @@ class LiveStreamControllerTest {
     private CalibrationStreamService calibrationStreamService;
     private SensorStreamService sensorStreamService;
     private AllowingAuthService authService;
+    private DummyActiveSessionService sessionService;
     private LiveStreamController controller;
 
     @BeforeEach
@@ -44,7 +47,7 @@ class LiveStreamControllerTest {
         
         LiveStreamService liveStreamService = new DummyLiveStreamService();
         ManikinRegistryService registryService = new DummyManikinRegistryService();
-        ActiveSessionService sessionService = new DummyActiveSessionService();
+        sessionService = new DummyActiveSessionService();
         TestIdentityValidator identityValidator = new TestIdentityValidator();
         DeviceReadinessService readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
         calibrationStreamService = new CalibrationStreamService(readinessService);
@@ -103,7 +106,7 @@ class LiveStreamControllerTest {
         LiveStreamController liveController = new LiveStreamController(
                 liveStreamService,
                 registryService,
-                new DummyActiveSessionService(),
+                sessionService,
                 authService,
                 calibrationStreamService,
                 sensorStreamService
@@ -117,6 +120,102 @@ class LiveStreamControllerTest {
         assertThat(liveStreamService.initialInstructorSnapshots.get(0))
                 .extracting(ManikinLiveSummary::deviceId)
                 .containsExactly("M-DEV");
+    }
+
+    @Test
+    void streamManikinsLiveReturnsForbiddenForTraineeAndAuditsDeniedAccess() {
+        authService.setAllowedRole(UserRole.TRAINEE);
+
+        ResponseEntity<SseEmitter> response = controller.streamManikinsLive(null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(authService.auditEvents).contains("ACCESS_DENIED:stream:manikins_live");
+    }
+
+    @Test
+    void streamSessionLiveReturnsForbiddenForNonOwningTrainee() {
+        authService.setCurrentUser(new AuthUser("trainee-2", "trainee-2", "Trainee Two", UserRole.TRAINEE, null));
+        sessionService.setLiveView(new SessionLiveView(
+                "session-1",
+                "M01",
+                "M01",
+                "trainee-1",
+                true,
+                Instant.now(),
+                "scenario",
+                "notes",
+                Instant.now(),
+                "ACTIVE",
+                true,
+                null,
+                null,
+                null,
+                null,
+                true,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                1L,
+                "CONNECTED",
+                false,
+                false
+        ));
+
+        ResponseEntity<SseEmitter> response = controller.streamSessionLive(null, "session-1");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(authService.auditEvents).contains("ACCESS_DENIED:stream:session_live");
+    }
+
+    @Test
+    void streamSessionLiveReturnsOkForAdmin() {
+        authService.setAllowedRole(UserRole.ADMIN);
+        sessionService.setLiveView(new SessionLiveView(
+                "session-2",
+                "M01",
+                "M01",
+                "trainee-1",
+                true,
+                Instant.now(),
+                "scenario",
+                "notes",
+                Instant.now(),
+                "ACTIVE",
+                true,
+                null,
+                null,
+                null,
+                null,
+                true,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                1L,
+                "CONNECTED",
+                false,
+                false
+        ));
+
+        ResponseEntity<SseEmitter> response = controller.streamSessionLive(null, "session-2");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
     }
 
     private static final class DummyLiveStreamService extends LiveStreamService {
@@ -140,6 +239,8 @@ class LiveStreamControllerTest {
     }
 
     private static final class DummyActiveSessionService extends ActiveSessionService {
+        private SessionLiveView liveView;
+
         private DummyActiveSessionService() {
             super(null, null, null, null, null, null, null, null, null, null);
         }
@@ -148,10 +249,21 @@ class LiveStreamControllerTest {
         public ManikinLiveSummary decorateLiveSummary(ManikinLiveSummary summary) {
             return summary;
         }
+
+        @Override
+        public java.util.Optional<SessionLiveView> getSessionLiveView(String sessionId) {
+            return java.util.Optional.ofNullable(liveView);
+        }
+
+        public void setLiveView(SessionLiveView liveView) {
+            this.liveView = liveView;
+        }
     }
 
     private static final class AllowingAuthService extends AuthService {
         private UserRole role = UserRole.INSTRUCTOR;
+        private AuthUser currentUser = new AuthUser("user-1", "user-1", "Instructor/Admin", UserRole.INSTRUCTOR, null);
+        private final List<String> auditEvents = new ArrayList<>();
 
         private AllowingAuthService(ObjectMapper objectMapper) {
             super(
@@ -163,6 +275,11 @@ class LiveStreamControllerTest {
 
         public void setAllowedRole(UserRole role) {
             this.role = role;
+            this.currentUser = new AuthUser("user-1", "user-1", "Instructor/Admin", role, null);
+        }
+
+        public void setCurrentUser(AuthUser currentUser) {
+            this.currentUser = currentUser;
         }
 
         @Override
@@ -177,11 +294,22 @@ class LiveStreamControllerTest {
             if (!allowed) {
                 throw new ForbiddenException("Access Denied");
             }
-            return new AuthUser("user-1", "user-1", "Instructor/Admin", this.role, null);
+            return currentUser;
+        }
+
+        @Override
+        public AuthUser requireAuth(HttpServletRequest request) {
+            return currentUser;
+        }
+
+        @Override
+        public java.util.Optional<AuthUser> maybeAuth(HttpServletRequest request) {
+            return java.util.Optional.ofNullable(currentUser);
         }
 
         @Override
         public void audit(String actorUserId, String action, String targetType, String targetId, Map<String, Object> metadata) {
+            auditEvents.add(action + ":" + targetType + ":" + targetId);
         }
     }
 }

@@ -1,11 +1,14 @@
 package lk.resq.localhub.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
+import lk.resq.localhub.model.ApiErrorResponse;
 import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
+import lk.resq.localhub.model.SessionLifecycleState;
+import lk.resq.localhub.model.SessionStopResponse;
 import lk.resq.localhub.model.firmware.CalibrationMqttEvent;
 import lk.resq.localhub.service.DeviceRuntimeStateService;
 import lk.resq.localhub.service.CalibrationProfileIdentityValidator;
@@ -18,6 +21,7 @@ import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.CalibrationProfileFingerprintService;
+import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.LiveStreamService;
 import lk.resq.localhub.service.LocalAuthRepository;
@@ -27,7 +31,9 @@ import lk.resq.localhub.service.MqttCommandPublisherService;
 import lk.resq.localhub.service.SyncQueueRepository;
 import lk.resq.localhub.service.SyncQueueService;
 import lk.resq.localhub.service.TraineeRecordsRepository;
+import lk.resq.localhub.service.UnauthorizedException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import java.nio.file.Path;
@@ -151,6 +157,130 @@ class SessionControllerTest {
         assertThat(body.get("message")).isEqualTo("Run calibration before starting a CPR session.");
         assertThat(body.get("deviceId")).isEqualTo("M03");
     }
+
+    @Test
+    void endSessionReturnsPendingStopResponse() throws Exception {
+        Fixture fixture = newFixture();
+        SessionStartResponse started = fixture.service.startSession(new SessionStartRequest(
+                "M01",
+                null,
+                null,
+                null,
+                null,
+                "Guest",
+                "adult-basic",
+                "Stop smoke",
+                null
+        ));
+        activate(fixture.service, started);
+
+        ResponseEntity<?> response = fixture.controller.endSession(new MockHttpServletRequest(), new SessionEndRequest(started.sessionId()));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        SessionStopResponse body = (SessionStopResponse) response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.sessionId()).isEqualTo(started.sessionId());
+        assertThat(body.deviceId()).isEqualTo("M01");
+        assertThat(body.state()).isEqualTo(SessionLifecycleState.STOP_PENDING);
+        assertThat(body.active()).isTrue();
+    }
+
+    @Test
+    void endSessionReturnsNotFoundWhenSessionIsMissing() throws Exception {
+        Fixture fixture = newFixture();
+
+        ResponseEntity<?> response = fixture.controller.endSession(new MockHttpServletRequest(), new SessionEndRequest("missing-session"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.error()).contains("missing-session");
+    }
+
+    @Test
+    void listSessionsReturnsForbiddenForTrainee() throws Exception {
+        Fixture fixture = newFixture();
+        fixture.authService.setCurrentUser(new AuthUser("Guest", "guest@example.com", "Guest", UserRole.TRAINEE, null));
+
+        ResponseEntity<?> response = fixture.controller.listSessions(new MockHttpServletRequest());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.error()).contains("Access denied");
+    }
+
+    @Test
+    void getMyActiveSessionReturnsNotFoundForTraineeWithoutActiveSession() throws Exception {
+        Fixture fixture = newFixture();
+        fixture.authService.setCurrentUser(new AuthUser("Guest", "guest@example.com", "Guest", UserRole.TRAINEE, null));
+
+        ResponseEntity<?> response = fixture.controller.getMyActiveSession(new MockHttpServletRequest());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        java.util.Map<String, Object> body = requireBody(response.getBody());
+        assertThat(body.get("active")).isEqualTo(false);
+    }
+
+    @Test
+    void getMyActiveSessionReturnsForbiddenForInstructor() throws Exception {
+        Fixture fixture = newFixture();
+        fixture.authService.setCurrentUser(new AuthUser("u-inst-1", "inst1@example.com", "Instructor 1", UserRole.INSTRUCTOR, null));
+
+        ResponseEntity<?> response = fixture.controller.getMyActiveSession(new MockHttpServletRequest());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.error()).contains("Only trainees can access their active session");
+    }
+
+    @Test
+    void getMyHistoryReturnsCompletedSessionsForTrainee() throws Exception {
+        Fixture fixture = newFixture();
+        seedCompletedSession(fixture.service, "M01");
+        fixture.authService.setCurrentUser(new AuthUser("Guest", "guest@example.com", "Guest", UserRole.TRAINEE, null));
+
+        ResponseEntity<?> response = fixture.controller.getMyHistory(new MockHttpServletRequest());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<SessionEndResponse> sessions = requireBody(response.getBody());
+        assertThat(sessions).hasSize(1);
+    }
+
+    @Test
+    void getSessionReturnsForbiddenForOtherTrainee() throws Exception {
+        Fixture fixture = newFixture();
+        SessionEndResponse completed = seedCompletedSession(fixture.service, "M01");
+        fixture.authService.setCurrentUser(new AuthUser("other-trainee", "other@example.com", "Other Trainee", UserRole.TRAINEE, null));
+
+        ResponseEntity<?> response = fixture.controller.getSession(new MockHttpServletRequest(), completed.sessionId());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.error()).contains("own session results");
+    }
+
+    @Test
+    void getSessionReturnsNotFoundForMissingSession() throws Exception {
+        Fixture fixture = newFixture();
+
+        ResponseEntity<?> response = fixture.controller.getSession(new MockHttpServletRequest(), "missing-session");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.error()).contains("missing-session");
+    }
+
+    @Test
+    void exportSessionReturnsForbiddenForTrainee() throws Exception {
+        Fixture fixture = newFixture();
+        SessionEndResponse completed = seedCompletedSession(fixture.service, "M01");
+        fixture.authService.setCurrentUser(new AuthUser("other-trainee", "other@example.com", "Other Trainee", UserRole.TRAINEE, null));
+
+        ResponseEntity<?> response = fixture.controller.exportSession(new MockHttpServletRequest(), completed.sessionId(), "json");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.error()).contains("Access denied");
+    }
     private static SessionEndResponse seedCompletedSession(ActiveSessionService service, String deviceId) throws Exception {
         SessionStartResponse started = service.startSession(new SessionStartRequest(
                 deviceId,
@@ -265,11 +395,11 @@ class SessionControllerTest {
                 fingerprintService,
                 identityValidator
         );
-        AuthService authService = new AllowingAuthService(objectMapper);
+        AllowingAuthService authService = new AllowingAuthService(objectMapper);
         SessionController controller = new SessionController(service, authService, registry);
-        return new Fixture(service, controller, syncQueueRepository, syncQueueService);
+        return new Fixture(service, controller, syncQueueRepository, syncQueueService, authService);
     }
-        private record Fixture(ActiveSessionService service, SessionController controller, SyncQueueRepository syncQueueRepository, SyncQueueService syncQueueService) {
+    private record Fixture(ActiveSessionService service, SessionController controller, SyncQueueRepository syncQueueRepository, SyncQueueService syncQueueService, AllowingAuthService authService) {
     }
     private static final class NoopMqttCommandPublisherService extends MqttCommandPublisherService {
         private NoopMqttCommandPublisherService() {
@@ -289,20 +419,35 @@ class SessionControllerTest {
     }
     private static final class AllowingAuthService extends AuthService {
         private static final AuthUser INSTRUCTOR = new AuthUser("user-1", "instructor", "Instructor", UserRole.INSTRUCTOR, null);
+        private AuthUser currentUser = INSTRUCTOR;
         private AllowingAuthService(ObjectMapper objectMapper) {
             super(new LocalAuthRepository(Path.of("target", "session-controller-auth-" + UUID.randomUUID() + ".sqlite").toString()), objectMapper, 8);
         }
+        public void setCurrentUser(AuthUser currentUser) {
+            this.currentUser = currentUser;
+        }
         @Override
         public AuthUser requireAuth(HttpServletRequest request) {
-            return INSTRUCTOR;
+            if (currentUser == null) {
+                throw new UnauthorizedException("Unauthenticated");
+            }
+            return currentUser;
         }
         @Override
         public AuthUser requireRole(HttpServletRequest request, UserRole... allowedRoles) {
-            return INSTRUCTOR;
+            if (currentUser == null) {
+                throw new UnauthorizedException("Unauthenticated");
+            }
+            for (UserRole allowedRole : allowedRoles) {
+                if (currentUser.role() == allowedRole) {
+                    return currentUser;
+                }
+            }
+            throw new ForbiddenException("Access denied");
         }
         @Override
         public Optional<AuthUser> maybeAuth(HttpServletRequest request) {
-            return Optional.of(INSTRUCTOR);
+            return Optional.ofNullable(currentUser);
         }
         @Override
         public void audit(String actorUserId, String action, String targetType, String targetId, java.util.Map<String, Object> metadata) {
