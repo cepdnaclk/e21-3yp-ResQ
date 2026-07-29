@@ -14,6 +14,14 @@ esp_err_t resq_mqtt_contract_build_status(
       !fixed_text_valid(status->last_error_id,
                         RESQ_STATUS_LAST_ERROR_ID_LEN) ||
       !fixed_text_valid(status->boot_id, RESQ_STATUS_BOOT_ID_LEN) ||
+      (status->calibrated &&
+       (status->calibration_schema_version == 0 ||
+        status->calibration_generation == 0 ||
+        strcmp(status->calibration_storage_status, "VALID") != 0 ||
+        status->recalibration_required || status->profile_id[0] == '\0' ||
+        status->profile_version == 0 ||
+        !fixed_text_valid(status->profile_hash,
+                          RESQ_STATUS_CALIBRATION_PROFILE_HASH_LEN))) ||
       status->state_seq == 0) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -30,6 +38,20 @@ esp_err_t resq_mqtt_contract_build_status(
     cJSON_AddStringToObject(root, "session_id", status->session_id);
   }
   cJSON_AddBoolToObject(root, "calibrated", status->calibrated);
+  if (status->calibrated) {
+    cJSON_AddNumberToObject(root, "calibration_schema_version",
+                            status->calibration_schema_version);
+    cJSON_AddNumberToObject(root, "calibration_generation",
+                            status->calibration_generation);
+    cJSON_AddStringToObject(root, "calibration_storage_status",
+                            status->calibration_storage_status);
+    cJSON_AddBoolToObject(root, "recalibration_required",
+                          status->recalibration_required);
+    cJSON_AddStringToObject(root, "profile_id", status->profile_id);
+    cJSON_AddNumberToObject(root, "profile_version",
+                            status->profile_version);
+    cJSON_AddStringToObject(root, "profile_hash", status->profile_hash);
+  }
   cJSON_AddStringToObject(root, "last_error_id", status->last_error_id);
   cJSON_AddStringToObject(root, "boot_id", status->boot_id);
   cJSON_AddNumberToObject(root, "state_seq", status->state_seq);
@@ -50,6 +72,15 @@ bool resq_mqtt_contract_status_equivalent(
          left->session_active == right->session_active &&
          strcmp(left->session_id, right->session_id) == 0 &&
          left->calibrated == right->calibrated &&
+         left->calibration_schema_version ==
+             right->calibration_schema_version &&
+         left->calibration_generation == right->calibration_generation &&
+         strcmp(left->calibration_storage_status,
+                right->calibration_storage_status) == 0 &&
+         left->recalibration_required == right->recalibration_required &&
+         strcmp(left->profile_id, right->profile_id) == 0 &&
+         left->profile_version == right->profile_version &&
+         strcmp(left->profile_hash, right->profile_hash) == 0 &&
          strcmp(left->last_error_id, right->last_error_id) == 0 &&
          strcmp(left->boot_id, right->boot_id) == 0 &&
          left->state_seq == right->state_seq;

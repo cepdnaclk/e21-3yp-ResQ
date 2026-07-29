@@ -46,13 +46,17 @@
 #define CALIBRATION_MAX_STATS_SAMPLES 64
 #define CALIBRATION_NOISE_TRIM_PERCENT 10
 #define CALIBRATION_HALL_AVERAGE_SAMPLE_COUNT 20
-#define CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT 20
+/*
+ * The pressure-quality filter already requires a stable three-frame window
+ * and the target tracker requires a further three consecutive matches held
+ * for 250 ms. Do not stack another 20-frame (~2 s at 10 SPS) average on the
+ * operator-facing target loop; it makes live guidance lag the physical input.
+ */
+#define CALIBRATION_PRESSURE_AVERAGE_SAMPLE_COUNT 1
 #define CALIBRATION_FULL_PRESS_HOLD_SAMPLES 5
 #define CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES 20
 #define CALIBRATION_CAPTURE_SAMPLE_DELAY_MS 20
 #define CALIBRATION_CANCEL_WAIT_MS 5000
-#define CALIBRATION_OPTIONAL_PRESSURE_MAX_READ_FAILURES \
-  CALIBRATION_PRESSURE_MAX_CONSECUTIVE_INVALID
 #define CALIBRATION_PRESSURE_MAX_CONSECUTIVE_INVALID 5
 #define CALIBRATION_PRESSURE_STABILITY_WINDOW_SAMPLES 3
 /* Raw HX710 ADC counts, used only before calibration noise is available. */
@@ -416,6 +420,69 @@ bool calibration_manager_pressure_stage_masks_valid(
 bool calibration_manager_pressure_targets_required(
     calibration_pressure_mode_t mode) {
   return mode != CALIBRATION_HALL_ONLY;
+}
+
+int calibration_manager_full_press_attempt_budget(
+    int required_samples, int filter_window_samples) {
+  if (required_samples <= 0 || filter_window_samples <= 0) {
+    return 0;
+  }
+
+  int64_t percentage_budget =
+      ((int64_t)required_samples * 100 +
+       (100 - CALIBRATION_MAX_INVALID_PERCENT) - 1) /
+      (100 - CALIBRATION_MAX_INVALID_PERCENT);
+  int64_t filter_warmup = filter_window_samples - 1;
+  /*
+   * A held bladder load takes longer to settle than the released baseline.
+   * Keep two additional capture windows as retry headroom. This changes only
+   * the bounded wait: every accepted frame still has to pass the existing
+   * synchronized-read, range, saturation, stuck-sensor, and stability checks.
+   */
+  int64_t settling_budget = (int64_t)required_samples * 2;
+  int64_t total =
+      percentage_budget + filter_warmup + settling_budget;
+  return total > INT_MAX ? INT_MAX : (int)total;
+}
+
+bool calibration_manager_pressure_crossover_transition_valid(
+    int32_t saturated_hall_delta, int32_t hall_start_delta,
+    int32_t last_valid_hall_delta, int32_t pressure_1_range_raw,
+    int32_t pressure_2_range_raw, int32_t pressure_1_noise_raw,
+    int32_t pressure_2_noise_raw, uint8_t saturation_mask) {
+  const int32_t minimum_pressure_range = 300;
+  if ((saturation_mask & 0x06u) == 0 ||
+      hall_start_delta <= 0 ||
+      last_valid_hall_delta <= hall_start_delta ||
+      saturated_hall_delta < last_valid_hall_delta ||
+      pressure_1_range_raw <= minimum_pressure_range ||
+      pressure_2_range_raw <= minimum_pressure_range) {
+    return false;
+  }
+
+  int64_t p1_noise_magnitude = pressure_1_noise_raw;
+  int64_t p2_noise_magnitude = pressure_2_noise_raw;
+  if (p1_noise_magnitude < 0) {
+    p1_noise_magnitude = -p1_noise_magnitude;
+  }
+  if (p2_noise_magnitude < 0) {
+    p2_noise_magnitude = -p2_noise_magnitude;
+  }
+  int64_t p1_noise_floor =
+      p1_noise_magnitude *
+      CALIBRATION_PRESSURE_MIN_SNR_MULTIPLIER;
+  int64_t p2_noise_floor =
+      p2_noise_magnitude *
+      CALIBRATION_PRESSURE_MIN_SNR_MULTIPLIER;
+  return (int64_t)pressure_1_range_raw > p1_noise_floor &&
+         (int64_t)pressure_2_range_raw > p2_noise_floor;
+}
+
+bool calibration_manager_pressure_result_warning_required(
+    bool pressure_temporarily_degraded,
+    int32_t pressure_saturation_hall_delta) {
+  return pressure_temporarily_degraded &&
+         pressure_saturation_hall_delta <= 0;
 }
 
 bool calibration_manager_attempt_result_try_finalize(
@@ -902,8 +969,23 @@ typedef struct calibration_sample_t {
   int32_t p0;
   int32_t p1;
   int32_t p2;
+  int32_t raw_p0;
+  int32_t raw_p1;
+  int32_t raw_p2;
+  uint8_t pressure_raw_valid_mask;
+  uint8_t pressure_saturation_mask;
   bool pressure_valid;
 } calibration_sample_t;
+
+typedef struct {
+  bool seen;
+  bool has_pre_saturation_pair;
+  int32_t last_valid_hall_delta;
+  int32_t last_valid_p1;
+  int32_t last_valid_p2;
+  int32_t best_min_pressure_range;
+  uint8_t saturation_mask;
+} calibration_pressure_crossover_t;
 
 /* Forward prototypes for static helpers defined later */
 static void calibration_stats_init(calibration_signal_stats_t *s);
@@ -934,9 +1016,14 @@ static calibration_reason_id_t calibration_validate_pressure_rest_health(
     const calibration_signal_stats_t *p2_stats);
 static esp_err_t calibration_capture_full_press_batch(int hall_direction,
                                                       int32_t hold_boundary,
+                                                      int32_t crossover_start_threshold,
                                                       int32_t *out_hall,
                                                       int32_t *out_p1,
-                                                      int32_t *out_p2);
+                                                      int32_t *out_p2,
+                                                      calibration_pressure_crossover_t
+                                                          *crossover,
+                                                      calibration_reason_id_t
+                                                          *out_failure_reason);
 static bool calibration_is_saturated_24bit(int32_t value);
 static calibration_reason_id_t
 calibration_validate_pressure_rest_health(const calibration_signal_stats_t *p0,
@@ -1194,14 +1281,84 @@ calibration_collect_rest_stats(calibration_signal_stats_t *hall_stats,
   return ESP_OK;
 }
 
+static void calibration_pressure_crossover_observe(
+    calibration_pressure_crossover_t *crossover,
+    const calibration_sample_t *sample,
+    int32_t hall_delta,
+    int32_t hall_start_delta) {
+  if (crossover == NULL || sample == NULL || crossover->seen) {
+    return;
+  }
+
+  if ((sample->pressure_raw_valid_mask & 0x06u) == 0x06u &&
+      hall_delta > hall_start_delta) {
+    int32_t range_1 = calibration_abs_diff(
+        sample->raw_p1, s_candidate_config.pressure_1_baseline);
+    int32_t range_2 = calibration_abs_diff(
+        sample->raw_p2, s_candidate_config.pressure_2_baseline);
+    int32_t min_range = calibration_min_i32(range_1, range_2);
+    /*
+     * Keep the deepest trustworthy pair, but never replace stronger evidence
+     * with a lower-pressure rebound sample.
+     */
+    if (!crossover->has_pre_saturation_pair ||
+        (hall_delta >= crossover->last_valid_hall_delta &&
+         min_range >= crossover->best_min_pressure_range)) {
+      crossover->has_pre_saturation_pair = true;
+      crossover->last_valid_hall_delta = hall_delta;
+      crossover->last_valid_p1 = sample->raw_p1;
+      crossover->last_valid_p2 = sample->raw_p2;
+      crossover->best_min_pressure_range = min_range;
+    }
+  }
+
+  if ((sample->pressure_saturation_mask & 0x06u) == 0 ||
+      !crossover->has_pre_saturation_pair) {
+    return;
+  }
+
+  int32_t range_1 = calibration_abs_diff(
+      crossover->last_valid_p1, s_candidate_config.pressure_1_baseline);
+  int32_t range_2 = calibration_abs_diff(
+      crossover->last_valid_p2, s_candidate_config.pressure_2_baseline);
+  if (!calibration_manager_pressure_crossover_transition_valid(
+          hall_delta, hall_start_delta,
+          crossover->last_valid_hall_delta, range_1, range_2,
+          s_candidate_config.pressure_1_noise_raw,
+          s_candidate_config.pressure_2_noise_raw,
+          sample->pressure_saturation_mask)) {
+    return;
+  }
+
+  crossover->seen = true;
+  crossover->saturation_mask =
+      sample->pressure_saturation_mask & 0x06u;
+  ESP_LOGI(
+      TAG,
+      "CALIBRATION_PRESSURE_CROSSOVER hall_delta=%ld p1=%ld p2=%ld "
+      "p1_range=%ld p2_range=%ld saturation=0x%02x",
+      (long)crossover->last_valid_hall_delta,
+      (long)crossover->last_valid_p1,
+      (long)crossover->last_valid_p2,
+      (long)range_1, (long)range_2, crossover->saturation_mask);
+}
+
 static esp_err_t calibration_capture_full_press_batch(int hall_direction,
                                                       int32_t hold_boundary,
+                                                      int32_t crossover_start_threshold,
                                                       int32_t *out_hall,
                                                       int32_t *out_p1,
-                                                      int32_t *out_p2) {
+                                                      int32_t *out_p2,
+                                                      calibration_pressure_crossover_t
+                                                          *crossover,
+                                                      calibration_reason_id_t
+                                                          *out_failure_reason) {
   if ((hall_direction != 1 && hall_direction != -1) || out_hall == NULL ||
       out_p1 == NULL || out_p2 == NULL) {
     return ESP_ERR_INVALID_ARG;
+  }
+  if (out_failure_reason != NULL) {
+    *out_failure_reason = CAL_REASON_NONE;
   }
 
   calibration_signal_stats_t hall_stats;
@@ -1219,11 +1376,14 @@ static esp_err_t calibration_capture_full_press_batch(int hall_direction,
     return filter_err;
   }
 
-  const int max_attempts = (CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES * 100 +
-                            (100 - CALIBRATION_MAX_INVALID_PERCENT) - 1) /
-                           (100 - CALIBRATION_MAX_INVALID_PERCENT);
+  const int max_attempts = calibration_manager_full_press_attempt_budget(
+      CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES,
+      CALIBRATION_PRESSURE_STABILITY_WINDOW_SAMPLES);
   int attempts = 0;
   int valid = 0;
+  bool saw_pressure_saturation = false;
+  bool pressure_required = calibration_manager_pressure_targets_required(
+      s_candidate_config.pressure_mode);
 
   while (valid < CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES &&
          attempts < max_attempts && s_running) {
@@ -1231,6 +1391,9 @@ static esp_err_t calibration_capture_full_press_batch(int hall_direction,
     attempts++;
 
     esp_err_t err = calibration_read_hall_pressure_sample(&sample);
+    saw_pressure_saturation =
+        saw_pressure_saturation ||
+        s_last_calibration_raw_sample.pressure_saturation_mask != 0u;
     if (err != ESP_OK) {
       ESP_LOGW(TAG, "Discarding invalid full-press observation %d/%d: %s",
                attempts, max_attempts, esp_err_to_name(err));
@@ -1249,6 +1412,27 @@ static esp_err_t calibration_capture_full_press_batch(int hall_direction,
           "Full press released during capture: delta=%ld boundary=%ld valid=%d",
           (long)directional_delta, (long)hold_boundary, valid);
       return ESP_ERR_INVALID_STATE;
+    }
+
+    calibration_pressure_crossover_observe(
+        crossover, &sample, directional_delta,
+        crossover_start_threshold);
+
+    /*
+     * Every policy except explicit HALL_ONLY requires physical pressure
+     * calibration. Hall remains usable for detecting and holding the press,
+     * but a Hall-only frame cannot become a persisted OPTIONAL/REQUIRED
+     * full-press sample.
+     */
+    bool pressure_crossover_seen =
+        crossover != NULL && crossover->seen;
+    if (pressure_required && !pressure_crossover_seen &&
+        !sample.pressure_valid) {
+      if (calibration_delay_or_cancel(CALIBRATION_CAPTURE_SAMPLE_DELAY_MS) !=
+          ESP_OK) {
+        return ESP_ERR_INVALID_STATE;
+      }
+      continue;
     }
 
     calibration_stats_update(&hall_stats, sample.hall);
@@ -1272,22 +1456,34 @@ static esp_err_t calibration_capture_full_press_batch(int hall_direction,
   if (valid < CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES) {
     ESP_LOGW(TAG,
              "Insufficient valid full-press observations: valid=%d required=%d "
-             "attempts=%d",
-             valid, CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES, attempts);
+             "attempts=%d pressure_required=%d saturated=%d",
+             valid, CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES, attempts,
+             pressure_required, saw_pressure_saturation);
+    if (out_failure_reason != NULL && pressure_required) {
+      *out_failure_reason =
+          saw_pressure_saturation ? CAL_REASON_PRESSURE_SENSOR_SATURATED
+                                  : CAL_REASON_FULL_PRESS_PRESSURE_READ_FAILED;
+    }
     return ESP_ERR_INVALID_RESPONSE;
   }
 
   calibration_stats_finalize(&hall_stats);
-  if (p1_stats.valid_count > 0 && p2_stats.valid_count > 0) {
+  bool pressure_crossover_seen =
+      crossover != NULL && crossover->seen;
+  if (pressure_required && !pressure_crossover_seen) {
     calibration_stats_finalize(&p0_stats);
     calibration_stats_finalize(&p1_stats);
     calibration_stats_finalize(&p2_stats);
+  } else if (pressure_crossover_seen) {
+    p1_stats.mean = crossover->last_valid_p1;
+    p2_stats.mean = crossover->last_valid_p2;
+    p1_stats.noise_pp = s_candidate_config.pressure_1_noise_raw;
+    p2_stats.noise_pp = s_candidate_config.pressure_2_noise_raw;
   } else {
     p1_stats.mean = s_candidate_config.pressure_1_baseline;
     p2_stats.mean = s_candidate_config.pressure_2_baseline;
     p1_stats.noise_pp = s_candidate_config.pressure_1_noise_raw;
     p2_stats.noise_pp = s_candidate_config.pressure_2_noise_raw;
-    calibration_mark_pressure_degraded(s_pressure_snapshot.has_stable_pressure);
   }
 
   *out_hall = hall_stats.mean;
@@ -1363,6 +1559,7 @@ static esp_err_t calibration_collect_full_press_stats(
   int last_log_ms = -500; /* throttle live logs to every 500ms */
   int last_progress_publish_ms = -200;
   int32_t hold_boundary = calibration_max_i32(1, full_thresh - hall_hysteresis);
+  calibration_pressure_crossover_t pressure_crossover = {0};
 
   esp_err_t filter_err =
       calibration_pressure_filter_begin(PRESSURE_CHANNEL_MASK_ALL);
@@ -1392,6 +1589,10 @@ static esp_err_t calibration_collect_full_press_stats(
     int32_t delta =
         calibration_abs_diff(hv, s_candidate_config.hall_baseline);
     int sample_dir = hv >= s_candidate_config.hall_baseline ? 1 : -1;
+    int32_t directional_delta =
+        (hv - s_candidate_config.hall_baseline) * sample_dir;
+    calibration_pressure_crossover_observe(
+        &pressure_crossover, &sample, directional_delta, start_thresh);
     if (delta > peak_delta) {
       peak_delta = delta;
       peak_hall_value = hv;
@@ -1443,7 +1644,8 @@ static esp_err_t calibration_collect_full_press_stats(
                CALIBRATION_FULL_PRESS_CAPTURE_SAMPLES, (long)hold_boundary);
 
       err = calibration_capture_full_press_batch(
-          hold_dir, hold_boundary, out_hall_match, out_b1_full, out_b2_full);
+          hold_dir, hold_boundary, start_thresh, out_hall_match, out_b1_full,
+          out_b2_full, &pressure_crossover, out_failure_reason);
       if (err == ESP_OK) {
         int32_t captured_delta =
             (*out_hall_match - s_candidate_config.hall_baseline) * hold_dir;
@@ -1481,6 +1683,10 @@ static esp_err_t calibration_collect_full_press_stats(
           return ESP_ERR_INVALID_RESPONSE;
         }
         s_candidate_config.hall_direction = hold_dir;
+        s_candidate_config.pressure_saturation_hall_delta =
+            pressure_crossover.seen
+                ? pressure_crossover.last_valid_hall_delta
+                : 0;
         return ESP_OK;
       }
 
@@ -1597,10 +1803,10 @@ static void calibration_derive_adaptive_thresholds(
       calibration_abs_diff(s_candidate_config.bladder_2_full_press,
                            s_candidate_config.pressure_2_baseline);
 
-  sensor_runtime_health_t health = calibration_runtime_health_snapshot();
-  if (!health.pressure_current_valid) {
+  if (s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY) {
     s_candidate_config.pressure_1_range_raw = 0;
     s_candidate_config.pressure_2_range_raw = 0;
+    s_candidate_config.pressure_saturation_hall_delta = 0;
     s_candidate_config.pressure_contact_threshold = 0;
     s_candidate_config.pressure_valid_threshold = 0;
     s_candidate_config.calibrated_at_ms =
@@ -1640,7 +1846,8 @@ static void calibration_derive_adaptive_thresholds(
 
   ESP_LOGI(TAG,
            "Derived adaptive thresholds: hall_range=%ld start=%ld full=%ld "
-           "recoil=%ld p1_range=%ld p2_range=%ld p_valid=%ld p_contact=%ld",
+           "recoil=%ld p1_range=%ld p2_range=%ld p_valid=%ld p_contact=%ld "
+           "pressure_crossover_hall_delta=%ld",
            (long)s_candidate_config.hall_range_raw,
            (long)s_candidate_config.hall_start_delta,
            (long)s_candidate_config.hall_full_delta_threshold,
@@ -1648,7 +1855,8 @@ static void calibration_derive_adaptive_thresholds(
            (long)s_candidate_config.pressure_1_range_raw,
            (long)s_candidate_config.pressure_2_range_raw,
            (long)s_candidate_config.pressure_valid_threshold,
-           (long)s_candidate_config.pressure_contact_threshold);
+           (long)s_candidate_config.pressure_contact_threshold,
+           (long)s_candidate_config.pressure_saturation_hall_delta);
 }
 
 /* Validate derived adaptive thresholds and return a calibration reason id on
@@ -1680,11 +1888,17 @@ static calibration_reason_id_t calibration_validate_derived_thresholds(void) {
       s_candidate_config.hall_start_delta)
     return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
 
-  bool pressure_required =
-      s_candidate_config.pressure_mode == CALIBRATION_PRESSURE_REQUIRED;
-  sensor_runtime_health_t health = calibration_runtime_health_snapshot();
-  if (!health.pressure_current_valid && !pressure_required) {
+  if (s_candidate_config.pressure_mode == CALIBRATION_HALL_ONLY) {
     return CAL_REASON_NONE;
+  }
+
+  if (s_candidate_config.pressure_saturation_hall_delta < 0 ||
+      s_candidate_config.pressure_saturation_hall_delta >
+          s_candidate_config.hall_range_raw ||
+      (s_candidate_config.pressure_saturation_hall_delta != 0 &&
+       s_candidate_config.pressure_saturation_hall_delta <=
+           s_candidate_config.hall_start_delta)) {
+    return CAL_REASON_ADAPTIVE_THRESHOLD_INVALID;
   }
 
   if (s_candidate_config.pressure_1_range_raw < MIN_PRESSURE_RANGE)
@@ -2022,10 +2236,29 @@ calibration_read_hall_pressure_sample(calibration_sample_t *out_sample) {
   pressure_quality_result_t quality = {0};
   esp_err_t pressure_err = calibration_read_filtered_pressure(
       PRESSURE_CHANNEL_MASK_ALL, pressure, &quality);
+  out_sample->raw_p0 = s_last_hx710_raw[0];
+  out_sample->raw_p1 = s_last_hx710_raw[1];
+  out_sample->raw_p2 = s_last_hx710_raw[2];
+  out_sample->pressure_saturation_mask = quality.saturation_mask;
+  out_sample->pressure_raw_valid_mask =
+      quality.channel_valid_mask &
+      quality.within_range_mask &
+      (uint8_t)~quality.saturation_mask &
+      PRESSURE_CHANNEL_MASK_ALL;
   if (pressure_err != ESP_OK) {
     out_sample->pressure_valid = false;
     calibration_record_progress_sample(out_sample->hall, 0, 0, 0, 0, true);
-    return pressure_err;
+    /*
+     * Hall is authoritative for full-compression detection. A deep press can
+     * legitimately saturate an optional bladder-pressure channel; discarding
+     * the whole combined sample also discards the valid Hall movement and
+     * makes calibration miss presses that the standalone Hall stream sees.
+     * Preserve pressure validity separately and let the capture/validation
+     * stages decide whether pressure evidence is sufficient.
+     */
+    s_last_calibration_raw_sample.pressure_saturation_mask =
+        quality.saturation_mask;
+    return ESP_OK;
   }
 
   out_sample->p0 = pressure[0];
@@ -2249,11 +2482,12 @@ static esp_err_t calibration_wait_for_pressure_target(
       ESP_LOGW(TAG, "%s read failed: %s consecutive=%d", label,
                esp_err_to_name(err), consecutive_read_failures);
 
-      if (consecutive_read_failures >=
-          CALIBRATION_OPTIONAL_PRESSURE_MAX_READ_FAILURES) {
-        return err;
-      }
-
+      /*
+       * A shared-clock HX710 can remain not-ready for several polls after the
+       * preceding channel's averaged read. Keep transient acquisition
+       * failures inside the stage's bounded deadline instead of terminating
+       * the stage before the operator has a chance to reach the target.
+       */
       if (calibration_delay_or_cancel(CALIBRATION_POLL_DELAY_MS) != ESP_OK) {
         return ESP_ERR_INVALID_STATE;
       }
@@ -3797,8 +4031,12 @@ esp_err_t calibration_manager_publish_calibration_result(
   const char *result_to_publish = result != NULL ? result : "";
   calibration_reason_id_t reason_to_publish = reason_id;
   sensor_runtime_health_t health = calibration_runtime_health_snapshot();
+  bool pressure_warning_required =
+      calibration_manager_pressure_result_warning_required(
+          health.pressure_temporarily_degraded,
+          s_calibration_config.pressure_saturation_hall_delta);
   if (strcmp(result_to_publish, "PASS") == 0 &&
-      health.pressure_temporarily_degraded) {
+      pressure_warning_required) {
     result_to_publish = "PASS_WITH_WARNINGS";
     reason_to_publish = CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE;
   }
@@ -3935,7 +4173,7 @@ esp_err_t calibration_manager_publish_calibration_result(
         calibration_reason_contract_id(reason_to_publish),
         resq_state_to_string(state), (int)action_id,
         calibration_pressure_mode_to_string(cfg->pressure_mode),
-        health.pressure_temporarily_degraded ? "true" : "false",
+        pressure_warning_required ? "true" : "false",
         health.using_last_stable_pressure ? "true" : "false",
         health.pressure_current_valid ? "true" : "false",
         health.hall_current_valid ? "true" : "false",

@@ -198,6 +198,38 @@ bool calibration_manager_pressure_stage_masks_valid(
 bool calibration_manager_pressure_targets_required(
     calibration_pressure_mode_t mode);
 
+/**
+ * Return the bounded full-press retry budget, including rolling-filter
+ * warm-up and pressure-settling headroom. This does not change any pressure
+ * acceptance threshold.
+ */
+int calibration_manager_full_press_attempt_budget(
+    int required_samples,
+    int filter_window_samples);
+
+/**
+ * Validate the transition from trustworthy pressure to the expected
+ * deep-compression saturation tail. The last valid pressure pair must have
+ * meaningful signal-to-noise and must precede the saturated Hall sample.
+ */
+bool calibration_manager_pressure_crossover_transition_valid(
+    int32_t saturated_hall_delta,
+    int32_t hall_start_delta,
+    int32_t last_valid_hall_delta,
+    int32_t pressure_1_range_raw,
+    int32_t pressure_2_range_raw,
+    int32_t pressure_1_noise_raw,
+    int32_t pressure_2_noise_raw,
+    uint8_t saturation_mask);
+
+/**
+ * A transient pressure-degraded state is warning-worthy unless calibration
+ * captured and persisted an explicit deep-compression crossover.
+ */
+bool calibration_manager_pressure_result_warning_required(
+    bool pressure_temporarily_degraded,
+    int32_t pressure_saturation_hall_delta);
+
 /** Strict, overflow-safe target window used by target and baseline stages. */
 int32_t calibration_manager_pressure_target_tolerance(int32_t target);
 bool calibration_manager_value_within_target(

@@ -340,6 +340,49 @@ TEST_CASE("Calibration pressure stages validate only requested channels",
       0x03u, 0x00u, 0x04u));
 }
 
+TEST_CASE("Full press capture budget includes filter warmup and settling",
+          "[calibration][pressure]") {
+  TEST_ASSERT_EQUAL(
+      67, calibration_manager_full_press_attempt_budget(20, 3));
+  TEST_ASSERT_GREATER_THAN(
+      25, calibration_manager_full_press_attempt_budget(20, 3));
+  TEST_ASSERT_EQUAL(
+      0, calibration_manager_full_press_attempt_budget(0, 3));
+  TEST_ASSERT_EQUAL(
+      0, calibration_manager_full_press_attempt_budget(20, 0));
+}
+
+TEST_CASE("Calibration accepts only a deep valid pressure saturation crossover",
+          "[calibration][pressure]") {
+  TEST_ASSERT_TRUE(calibration_manager_pressure_crossover_transition_valid(
+      180, 40, 160, 24000, 22000, 100, 120, 0x06u));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_crossover_transition_valid(
+      180, 40, 160, 24000, 22000, 100, 120, 0x02u));
+
+  TEST_ASSERT_FALSE(calibration_manager_pressure_crossover_transition_valid(
+      35, 40, 30, 24000, 22000, 100, 120, 0x06u));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_crossover_transition_valid(
+      150, 40, 160, 24000, 22000, 100, 120, 0x06u));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_crossover_transition_valid(
+      180, 40, 160, 300, 22000, 100, 120, 0x06u));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_crossover_transition_valid(
+      180, 40, 160, 24000, 22000, 5000, 120, 0x06u));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_crossover_transition_valid(
+      180, 40, 160, 24000, 22000, 100, 120, 0x01u));
+}
+
+TEST_CASE("Expected deep crossover does not downgrade calibration result",
+          "[calibration][pressure]") {
+  TEST_ASSERT_FALSE(calibration_manager_pressure_result_warning_required(
+      true, 151));
+  TEST_ASSERT_FALSE(calibration_manager_pressure_result_warning_required(
+      false, 0));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_result_warning_required(
+      true, 0));
+  TEST_ASSERT_TRUE(calibration_manager_pressure_result_warning_required(
+      true, -1));
+}
+
 TEST_CASE("Calibration target windows are strict and overflow safe",
           "[calibration][pressure]") {
   const int32_t target = 3500000;

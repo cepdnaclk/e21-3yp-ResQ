@@ -17,7 +17,8 @@ extern "C" {
  * - pressure_kpa = abs(pressure_raw - pressure_baseline_raw) * pressure_kpa_per_count
  * - hall_delta_raw = (hall_raw - hall_baseline_raw) * hall_direction
  * - hall_progress = clamp(hall_delta_raw / hall_range_raw, 0.0, 1.0)
- * - hall_mm = hall_progress * full_depth_mm
+ * - hall_mm = clamp(hall_delta_raw / hall_range_raw, 0.0, 2.4) * full_depth_mm
+ *   (physical depth remains measurable beyond the normalized full-depth point)
  *
  * The module owns conversion and validity only. It does not read hardware, use
  * NVS, publish MQTT, allocate memory, create RTOS objects, or inspect runtime

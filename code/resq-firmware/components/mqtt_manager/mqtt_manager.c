@@ -917,6 +917,31 @@ static esp_err_t mqtt_manager_publish_minimal_status(
                     calibration_config->calibrated,
       .ts_ms = esp_timer_get_time() / 1000,
   };
+  if (candidate.calibrated) {
+    calibration_store_snapshot_t snapshot = {0};
+    if (config_store_get_snapshot(&snapshot) == CAL_STORE_VALID &&
+        snapshot.committed_record_valid == 1 &&
+        snapshot.recalibration_required == 0) {
+      candidate.calibration_schema_version = snapshot.schema_version;
+      candidate.calibration_generation = snapshot.generation;
+      snprintf(candidate.calibration_storage_status,
+               sizeof(candidate.calibration_storage_status), "%s",
+               snapshot.calibration_storage_status);
+      candidate.recalibration_required =
+          snapshot.recalibration_required == 1;
+      snprintf(candidate.profile_id, sizeof(candidate.profile_id), "%s",
+               snapshot.profile_id);
+      candidate.profile_version = snapshot.profile_version;
+      snprintf(candidate.profile_hash, sizeof(candidate.profile_hash), "%s",
+               snapshot.profile_hash);
+    } else {
+      /*
+       * A retained READY status must never claim calibration without the
+       * committed identity needed to validate it after a LocalHub restart.
+       */
+      candidate.calibrated = false;
+    }
+  }
   if (session_id != NULL && session_id[0] != '\0') {
     snprintf(candidate.session_id, sizeof(candidate.session_id), "%s",
              session_id);

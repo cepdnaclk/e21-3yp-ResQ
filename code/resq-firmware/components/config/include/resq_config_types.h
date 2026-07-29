@@ -120,6 +120,13 @@ typedef struct {
   int32_t pressure_1_range_raw;
   int32_t pressure_2_range_raw;
 
+  /*
+   * Directional Hall delta of the last trustworthy pressure sample before
+   * the bladder channels enter their calibrated deep-compression saturation
+   * region. Zero means that no saturation crossover was calibrated.
+   */
+  int32_t pressure_saturation_hall_delta;
+
   int32_t pressure_contact_threshold;
   int32_t pressure_valid_threshold;
   int32_t pressure_balance_allowed_pct;

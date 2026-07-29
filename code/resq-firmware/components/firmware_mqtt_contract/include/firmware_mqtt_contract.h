@@ -17,6 +17,9 @@ extern "C" {
 #define RESQ_STATUS_LAST_ERROR_ID_LEN 5
 #define RESQ_STATUS_BOOT_ID_LEN 16
 #define RESQ_STATUS_SESSION_ID_MAX_LEN 64
+#define RESQ_STATUS_CALIBRATION_STORAGE_STATUS_MAX_LEN 32
+#define RESQ_STATUS_CALIBRATION_PROFILE_ID_MAX_LEN 31
+#define RESQ_STATUS_CALIBRATION_PROFILE_HASH_LEN 64
 #ifndef RESQ_HEARTBEAT_INTERVAL_MS
 #define RESQ_HEARTBEAT_INTERVAL_MS 5000
 #endif
@@ -26,6 +29,14 @@ typedef struct {
   bool session_active;
   char session_id[RESQ_STATUS_SESSION_ID_MAX_LEN];
   bool calibrated;
+  uint32_t calibration_schema_version;
+  uint32_t calibration_generation;
+  char calibration_storage_status
+      [RESQ_STATUS_CALIBRATION_STORAGE_STATUS_MAX_LEN];
+  bool recalibration_required;
+  char profile_id[RESQ_STATUS_CALIBRATION_PROFILE_ID_MAX_LEN + 1];
+  uint32_t profile_version;
+  char profile_hash[RESQ_STATUS_CALIBRATION_PROFILE_HASH_LEN + 1];
   char last_error_id[RESQ_STATUS_LAST_ERROR_ID_LEN + 1];
   char boot_id[RESQ_STATUS_BOOT_ID_LEN + 1];
   uint32_t state_seq;

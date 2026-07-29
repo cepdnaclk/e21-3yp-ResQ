@@ -87,13 +87,21 @@ static bool convert_hall(const sensor_raw_sample_t *raw,
         return false;
     }
 
-    float progress = (float)((double)delta / (double)profile->hall_range_raw);
-    if (!isfinite(progress)) {
+    float raw_progress =
+        (float)((double)delta / (double)profile->hall_range_raw);
+    if (!isfinite(raw_progress)) {
         return false;
     }
 
-    progress = clamp_float(progress, 0.0f, 1.0f);
-    float hall_mm = progress * profile->full_depth_mm;
+    /*
+     * Keep the protocol's normalized progress bounded, but do not use that
+     * bounded value for physical depth. A compression beyond the calibrated
+     * full-depth point must remain measurable (for example 1.2 * 50 mm =
+     * 60 mm) so it can be classified as too deep.
+     */
+    float progress = clamp_float(raw_progress, 0.0f, 1.0f);
+    float hall_mm =
+        clamp_float(raw_progress, 0.0f, 2.4f) * profile->full_depth_mm;
     if (!isfinite(hall_mm)) {
         return false;
     }

@@ -21,6 +21,7 @@ static calibration_config_t metrics_calibration(void)
         .pressure_2_kpa_per_count = 0.01f,
         .pressure_1_range_raw = 1000,
         .pressure_2_range_raw = 1000,
+        .pressure_saturation_hall_delta = 700,
         .bladder_1_full_press = 2000,
         .bladder_2_full_press = 2000,
         .pressure_contact_threshold = 100,
@@ -180,7 +181,8 @@ TEST_CASE("CPR metrics tracks valid compression recoil depth and rate", "[metric
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, snapshot.pressure_balance_pct);
 }
 
-TEST_CASE("CPR metrics classifies contact imbalance and clamps depth", "[metrics]")
+TEST_CASE("CPR metrics classifies contact imbalance without clipping depth",
+          "[metrics]")
 {
     calibration_config_t calibration = metrics_calibration();
     cpr_metrics_snapshot_t snapshot;
@@ -190,7 +192,7 @@ TEST_CASE("CPR metrics classifies contact imbalance and clamps depth", "[metrics
     start_with_stable_pressure(2500, 2000, 1100, 1000);
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, snapshot.depth_progress);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 75.0f, snapshot.depth_mm);
     TEST_ASSERT_NOT_EQUAL(0, strcmp("CENTER", snapshot.hand_placement));
     TEST_ASSERT_TRUE(snapshot.pressure_balance_pct < 50.0f);
 
@@ -219,7 +221,7 @@ TEST_CASE("CPR metrics normalizes pressure channels by calibrated range", "[metr
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, snapshot.pressure_balance_pct);
 }
 
-TEST_CASE("CPR metrics keeps Hall depth when pressure balance saturates", "[metrics]")
+TEST_CASE("CPR metrics uses calibrated Hall tail after pressure crossover", "[metrics]")
 {
     calibration_config_t calibration = metrics_calibration();
     cpr_metrics_snapshot_t snapshot;
@@ -234,11 +236,12 @@ TEST_CASE("CPR metrics keeps Hall depth when pressure balance saturates", "[metr
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.9f, snapshot.depth_progress);
     TEST_ASSERT_FALSE(snapshot.pressure_balance_reliable);
     TEST_ASSERT_EQUAL(0x06, snapshot.pressure_saturation_mask);
-    TEST_ASSERT_TRUE((snapshot.sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_SATURATED) != 0);
+    TEST_ASSERT_FALSE((snapshot.sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_SATURATED) != 0);
+    TEST_ASSERT_TRUE((snapshot.sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_CROSSOVER) != 0);
     TEST_ASSERT_TRUE((snapshot.sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD) != 0);
     TEST_ASSERT_TRUE(snapshot.hand_placement_locked);
     TEST_ASSERT_TRUE(snapshot.pressure_became_unusable);
-    TEST_ASSERT_EQUAL(CPR_PRESSURE_LOCK_SATURATION,
+    TEST_ASSERT_EQUAL(CPR_PRESSURE_LOCK_CALIBRATED_CROSSOVER,
                       snapshot.pressure_lock_reason);
     TEST_ASSERT_TRUE(snapshot.pressure_evidence_sufficient);
     TEST_ASSERT_TRUE(snapshot.pressure_last_stable_available);
@@ -246,7 +249,8 @@ TEST_CASE("CPR metrics keeps Hall depth when pressure balance saturates", "[metr
     TEST_ASSERT_EQUAL_STRING("CENTER", snapshot.hand_placement);
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 100.0f, snapshot.pressure_balance_pct);
     TEST_ASSERT_EQUAL(1, snapshot.valid_compressions);
-    TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "PRESSURE_SATURATED"));
+    TEST_ASSERT_NULL(strstr(snapshot.flags, "PRESSURE_SATURATED"));
+    TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "PRESSURE_CROSSOVER"));
     TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "PRESSURE_BALANCE_HELD"));
 }
 
@@ -370,10 +374,57 @@ TEST_CASE("CPR metrics reports unavailable placement without early evidence",
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.9f, snapshot.depth_progress);
 }
 
+TEST_CASE("pressure saturation before calibrated crossover remains a fault",
+          "[metrics][pressure]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1600, 1000);
+    update(1600, 8400001, 8400001, 1020);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(CPR_PRESSURE_LOCK_SATURATION,
+                      snapshot.pressure_lock_reason);
+    TEST_ASSERT_TRUE((snapshot.sensor_quality_flags &
+                      CPR_SENSOR_QUALITY_PRESSURE_SATURATED) != 0);
+    TEST_ASSERT_FALSE((snapshot.sensor_quality_flags &
+                       CPR_SENSOR_QUALITY_PRESSURE_CROSSOVER) != 0);
+}
+
+TEST_CASE("pressure must recover after calibrated saturation crossover",
+          "[metrics][pressure]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    start_with_stable_pressure(1400, 1600, 1600, 1000);
+    update(1900, 8400001, 8400001, 1100);
+    update(1200, 1200, 1200, 1200);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FALSE((snapshot.sensor_quality_flags &
+                       CPR_SENSOR_QUALITY_PRESSURE_SATURATED) != 0);
+    TEST_ASSERT_FALSE((snapshot.sensor_quality_flags &
+                       CPR_SENSOR_QUALITY_PRESSURE_CROSSOVER) != 0);
+
+    update(1000, 8400001, 8400001, 1300);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_TRUE((snapshot.sensor_quality_flags &
+                      CPR_SENSOR_QUALITY_PRESSURE_SATURATED) != 0);
+    TEST_ASSERT_FALSE((snapshot.sensor_quality_flags &
+                       CPR_SENSOR_QUALITY_PRESSURE_CROSSOVER) != 0);
+}
+
 TEST_CASE("CPR metrics distinguishes out of range from saturation",
           "[metrics]")
 {
     calibration_config_t calibration = metrics_calibration();
+    calibration.pressure_saturation_hall_delta = 0;
     cpr_metrics_snapshot_t snapshot;
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
@@ -479,6 +530,7 @@ TEST_CASE("upper limit before minimum evidence locks unavailable",
           "[metrics]")
 {
     calibration_config_t calibration = metrics_calibration();
+    calibration.pressure_saturation_hall_delta = 0;
     cpr_metrics_snapshot_t snapshot;
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
@@ -537,8 +589,8 @@ TEST_CASE("locked pressure result ignores later valid frames",
                             snapshot.pressure_current_valid_mask);
 }
 
-TEST_CASE("partial recoil does not reset pressure context",
-          "[metrics]")
+TEST_CASE("recompression completes prior compression as incomplete recoil",
+          "[metrics][recoil]")
 {
     calibration_config_t calibration = metrics_calibration();
     cpr_metrics_snapshot_t snapshot;
@@ -551,9 +603,89 @@ TEST_CASE("partial recoil does not reset pressure context",
     update(1400, 1600, 1600, 1300);
 
     TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
-    TEST_ASSERT_EQUAL(1, snapshot.total_compressions);
-    TEST_ASSERT_TRUE(snapshot.pressure_evidence_sufficient);
+    TEST_ASSERT_EQUAL(2, snapshot.total_compressions);
+    TEST_ASSERT_EQUAL(1, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(1, snapshot.incomplete_recoil_count);
+    TEST_ASSERT_FALSE(snapshot.last_compression_recoil_ok);
+    TEST_ASSERT_TRUE(snapshot.last_compression_incomplete_recoil);
+    TEST_ASSERT_NOT_NULL(strstr(snapshot.flags, "INCOMPLETE_RECOIL"));
+    TEST_ASSERT_FALSE(snapshot.pressure_evidence_sufficient);
     TEST_ASSERT_FALSE(snapshot.hand_placement_locked);
+}
+
+TEST_CASE("completed compression depth averages one peak from each event",
+           "[metrics][depth]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1600, 1000);
+    update(2200, 1700, 1700, 1100);
+    update(1200, 1200, 1200, 1200);
+    update(1000, 1000, 1000, 1300);
+    update(1000, 1000, 1000, 1360);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(1, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(1, snapshot.depth_ok_compressions);
+    TEST_ASSERT_FLOAT_WITHIN(
+        0.01f, 60.0f, snapshot.last_compression_peak_depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(
+        0.01f, 60.0f,
+        snapshot.average_completed_compression_peak_depth_mm);
+
+    update(1400, 1600, 1600, 1500);
+    update(1800, 1700, 1700, 1600);
+    update(1000, 1000, 1000, 1700);
+    update(1000, 1000, 1000, 1760);
+    update(1000, 1000, 1000, 1820);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(2, snapshot.completed_compressions);
+    TEST_ASSERT_FLOAT_WITHIN(
+        0.01f, 40.0f, snapshot.last_compression_peak_depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(
+        0.01f, 50.0f,
+        snapshot.average_completed_compression_peak_depth_mm);
+
+    /* Idle/recoil frames cannot complete or score the same event twice. */
+    update(1000, 1000, 1000, 1900);
+    update(1050, 1000, 1000, 2000);
+    update(1000, 1000, 1000, 2100);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(2, snapshot.total_compressions);
+    TEST_ASSERT_EQUAL(2, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(2, snapshot.recoil_ok_count);
+    TEST_ASSERT_EQUAL(0, snapshot.incomplete_recoil_count);
+    TEST_ASSERT_FLOAT_WITHIN(
+        0.01f, 50.0f,
+        snapshot.average_completed_compression_peak_depth_mm);
+}
+
+TEST_CASE("compression rate responds to the newest rhythm interval",
+          "[metrics][rate]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1600, 1000);
+    update(1900, 1700, 1700, 1100);
+    update(1000, 1000, 1000, 1300);
+    update(1000, 1000, 1000, 1360);
+
+    update(1400, 1600, 1600, 1500);
+    update(1900, 1700, 1700, 1600);
+    update(1000, 1000, 1000, 1800);
+    update(1000, 1000, 1000, 1860);
+
+    update(1400, 1600, 1600, 2500);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.2f, 81.0f, snapshot.rate_cpm);
 }
 
 TEST_CASE("CPR metrics invalidates stale rate and tracks release pause",

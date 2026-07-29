@@ -128,6 +128,22 @@ bool calibration_config_is_valid(const calibration_config_t *config) {
   bool pressure_usable =
       config->pressure_policy != CALIBRATION_HALL_ONLY;
 
+  if (config->pressure_saturation_hall_delta < 0) {
+    valid = false;
+  }
+
+  if (config->pressure_policy == CALIBRATION_HALL_ONLY &&
+      config->pressure_saturation_hall_delta != 0) {
+    valid = false;
+  }
+
+  if (pressure_usable && config->pressure_saturation_hall_delta != 0 &&
+      (config->pressure_saturation_hall_delta <= config->hall_start_delta ||
+       config->pressure_saturation_hall_delta >
+           config->hall_range_raw)) {
+    valid = false;
+  }
+
   if (pressure_required &&
       (config->ref_pressure <= 0 || config->bladder_1_pressure <= 0 ||
        config->bladder_2_pressure <= 0)) {

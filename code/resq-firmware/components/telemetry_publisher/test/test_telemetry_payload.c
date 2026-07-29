@@ -20,6 +20,10 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .depth_progress = 0.92f,
         .depth_mm = 46.0f,
         .rate_cpm = 108.0f,
+        .completed_compressions = 11,
+        .depth_ok_compressions = 9,
+        .last_compression_peak_depth_mm = 56.5f,
+        .average_completed_compression_peak_depth_mm = 54.25f,
         .pause_s = 0.25f,
         .total_compressions = 18,
         .valid_compressions = 15,
@@ -134,7 +138,15 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_contains(payload, "\"depth_ok\":true");
     assert_contains(payload, "\"rate_cpm\":108.0");
     assert_contains(payload, "\"compression_count\":18");
+    assert_contains(payload, "\"completed_compression_count\":11");
+    assert_contains(payload, "\"depth_ok_compression_count\":9");
     assert_contains(payload, "\"valid_compression_count\":15");
+    assert_contains(payload, "\"last_compression_peak_depth_mm\":56.500");
+    assert_contains(
+        payload,
+        "\"average_completed_compression_peak_depth_mm\":54.250");
+    assert_contains(payload, "\"last_compression_depth_mm\":56.500");
+    assert_contains(payload, "\"average_compression_depth_mm\":54.250");
     assert_contains(payload, "\"recoil_ok\":true");
     assert_contains(payload, "\"recoil_ok_count\":14");
     assert_contains(payload, "\"incomplete_recoil_count\":3");

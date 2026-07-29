@@ -145,7 +145,8 @@ TEST_CASE("required pressure mask controls aggregate validity", "[sensor_convers
     TEST_ASSERT_EQUAL(0x07u, sensor_conversion_normalize_pressure_mask(0u));
 }
 
-TEST_CASE("hall conversion handles direction and clamping", "[sensor_conversion]")
+TEST_CASE("hall conversion clamps progress but preserves over-depth millimetres",
+          "[sensor_conversion]")
 {
     sensor_raw_sample_t raw = make_raw_sample();
     sensor_conversion_profile_t profile = make_profile();
@@ -174,7 +175,13 @@ TEST_CASE("hall conversion handles direction and clamping", "[sensor_conversion]
     out = convert_ok(&raw, &profile);
     TEST_ASSERT_TRUE(out.hall_mm_valid);
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, out.hall_progress);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, out.hall_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 100.0f, out.hall_mm);
+
+    raw.hall_raw = 1600;
+    out = convert_ok(&raw, &profile);
+    TEST_ASSERT_TRUE(out.hall_mm_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, out.hall_progress);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 60.0f, out.hall_mm);
 }
 
 TEST_CASE("invalid hall input or profile clears hall outputs", "[sensor_conversion]")

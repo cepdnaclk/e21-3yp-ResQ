@@ -658,7 +658,14 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         "\"depth_ok\":%s,"
         "\"rate_cpm\":%.1f,"
         "\"compression_count\":%d,"
+        "\"completed_compression_count\":%d,"
+        "\"depth_ok_compression_count\":%d,"
         "\"valid_compression_count\":%d,"
+        "\"last_compression_peak_depth_mm\":%.3f,"
+        "\"average_completed_compression_peak_depth_mm\":%.3f,"
+        /* Backward-compatible aliases for pre-correction LocalHub builds. */
+        "\"last_compression_depth_mm\":%.3f,"
+        "\"average_compression_depth_mm\":%.3f,"
         "\"recoil_ok\":%s,"
         "\"recoil_ok_count\":%d,"
         "\"incomplete_recoil_count\":%d,"
@@ -676,7 +683,13 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         normalized.depth_ok ? "true" : "false",
         normalized.rate_cpm,
         normalized.total_compressions,
+        normalized.completed_compressions,
+        normalized.depth_ok_compressions,
         normalized.valid_compressions,
+        normalized.last_compression_peak_depth_mm,
+        normalized.average_completed_compression_peak_depth_mm,
+        normalized.last_compression_peak_depth_mm,
+        normalized.average_completed_compression_peak_depth_mm,
         normalized.recoil_ok ? "true" : "false",
         normalized.recoil_ok_count,
         normalized.incomplete_recoil_count,
