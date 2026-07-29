@@ -1773,3 +1773,344 @@ button:focus-visible,
 .mb-4 {
     margin-bottom: 2rem;
 }
+
+
+/* Desktop Layout: 6-column grid */
+.proposal-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2rem; /* Adjust this gap to match your current design */
+}
+
+/* Make every card take up 2 columns by default (so 3 fit on the top row) */
+.proposal-card {
+    grid-column: span 2;
+}
+
+/* Force the 4th card to start at column line 2 */
+.proposal-grid .proposal-card:nth-child(4) {
+    grid-column: 2 / span 2;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 1024px) {
+    /* Switch to a 2-column layout for tablets */
+    .proposal-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .proposal-card {
+        grid-column: span 1;
+    }
+    
+    /* Center the 5th card on the bottom row */
+    .proposal-grid .proposal-card:nth-child(4) {
+        grid-column: span 1; /* Reset the offset */
+    }
+    .proposal-grid .proposal-card:nth-child(5) {
+        grid-column: 1 / -1; /* Stretch across both columns or center it */
+        /* If you want it centered without stretching, use: 
+           grid-column: span 2; justify-self: center; width: 50%; */
+    }
+}
+
+@media (max-width: 768px) {
+    /* Switch to a 1-column layout for mobile */
+    .proposal-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .proposal-card, 
+    .proposal-grid .proposal-card:nth-child(4),
+    .proposal-grid .proposal-card:nth-child(5) {
+        grid-column: span 1; /* Reset all spans */
+        justify-self: stretch;
+        width: 100%;
+    }
+}
+
+/* ==========================================
+   Intended Users Grid (5 cards)
+   Layout: 3 on top row, 2 centered below
+   ========================================== */
+.users-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2rem;
+}
+
+/* Base card layout (each takes 2 columns) */
+.users-grid .user-card {
+    grid-column: span 2;
+}
+
+/* Offset card 4 to start at column 2 (centers cards 4 & 5) */
+.users-grid .user-card:nth-child(4) {
+    grid-column: 2 / span 2;
+}
+
+
+/* ==========================================
+   Current Development Outcomes Grid (4 cards)
+   Layout: 3 on top row, 1 centered below
+   ========================================== */
+.outcomes-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2rem;
+}
+
+/* Base card layout */
+.outcomes-grid .outcome-item,
+.outcomes-grid .outcomes-card {
+    grid-column: span 2;
+}
+
+/* Center card 4 directly in the middle (starts at column 4) */
+.outcomes-grid .outcome-item:nth-child(4),
+.outcomes-grid .outcomes-card:nth-child(4) {
+    grid-column: 4 / span 2;
+}
+
+
+/* ==========================================
+   Responsive Breakpoints
+   ========================================== */
+@media (max-width: 1024px) {
+    .users-grid,
+    .outcomes-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .users-grid .user-card,
+    .outcomes-grid .outcome-item,
+    .outcomes-grid .outcomes-card {
+        grid-column: span 1;
+    }
+
+    /* Reset desktop column offsets */
+    .users-grid .user-card:nth-child(4),
+    .outcomes-grid .outcome-item:nth-child(4),
+    .outcomes-grid .outcomes-card:nth-child(4) {
+        grid-column: span 1;
+    }
+
+    /* On 2-column screens, center the single remaining odd card */
+    .users-grid .user-card:nth-child(5) {
+        grid-column: 1 / -1;
+        max-width: 80%;
+        justify-self: center;
+    }
+}
+
+@media (max-width: 768px) {
+    .users-grid,
+    .outcomes-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .users-grid .user-card,
+    .outcomes-grid .outcome-item,
+    .outcomes-grid .outcomes-card,
+    .users-grid .user-card:nth-child(5) {
+        grid-column: span 1;
+        max-width: 100%;
+    }
+}
+
+/* Outcomes Grid Setup (6-column base) */
+.outcomes-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2rem;
+}
+
+/* Cards 1, 2, and 3 take 2 columns each (Row 1) */
+.outcomes-card {
+    grid-column: span 2;
+}
+
+/* Card 4 starts at column 3 and spans 2 columns (Row 2 Center) */
+.outcomes-grid .outcomes-card:nth-child(4) {
+    grid-column: 4 / span 2;
+}
+
+/* Tablet & Mobile Responsiveness */
+@media (max-width: 1024px) {
+    .outcomes-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .outcomes-card,
+    .outcomes-grid .outcomes-card:nth-child(4) {
+        grid-column: span 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .outcomes-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+/* For 6-column grids where cards span 2 columns */
+.users-grid > :nth-child(4),
+.user-card:nth-child(4) {
+    grid-column: 3 / span 2 !important;
+}
+/* Base 6-column grid for both sections */
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2rem;
+}
+
+/* Default card width: 2 columns out of 6 (so 3 cards fit per row) */
+.grid-container > * {
+    grid-column: span 2;
+}
+
+
+/* =========================================================
+   LAYOUT 1: 4 Boxes (1, 2, 3 top row | 4 centered below 2)
+   ========================================================= */
+.grid-container > *:nth-child(4):nth-last-child(1) {
+    grid-column: 3 / span 2 !important; /* Starts at column 3 -> directly under Box 2 */
+}
+
+
+/* =========================================================
+   LAYOUT 2: 5 Boxes (1, 2, 3 top row | 4 below 1&2 | 5 below 2&3)
+   ========================================================= */
+/* Target Card 4 ONLY when there are 5 total children */
+.grid-container > *:nth-child(4):nth-last-child(2) {
+    grid-column: 2 / span 2 !important; /* Starts at column 2 -> straddles 1 & 2 */
+}
+
+/* Card 5 automatically falls into columns 4-5 (straddles 2 & 3) */
+.grid-container > *:nth-child(5) {
+    grid-column: 4 / span 2 !important;
+}
+
+
+/* =========================================================
+   Responsive Breakpoints
+   ========================================================= */
+@media (max-width: 1024px) {
+    .grid-container {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .grid-container > *,
+    .grid-container > *:nth-child(4):nth-last-child(1),
+    .grid-container > *:nth-child(4):nth-last-child(2),
+    .grid-container > *:nth-child(5) {
+        grid-column: span 1 !important;
+    }
+
+    /* On 2-column screens, center the trailing odd box at the bottom */
+    .grid-container > *:nth-child(5),
+    .grid-container > *:nth-child(4):nth-last-child(1) {
+        grid-column: 1 / -1 !important;
+        justify-self: center;
+        width: 80%;
+    }
+}
+
+@media (max-width: 768px) {
+    .grid-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .grid-container > *:nth-child(5),
+    .grid-container > *:nth-child(4):nth-last-child(1) {
+        width: 100%;
+    }
+}
+/* Shared Base Setup: 6-column grid system */
+.grid-6-col,
+.users-grid,
+.proposal-grid,
+.outcomes-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2rem;
+}
+
+/* Base card spanning 2 columns out of 6 (3 per row) */
+.grid-6-col > *,
+.users-grid > *,
+.proposal-grid > *,
+.outcomes-grid > * {
+    grid-column: span 2;
+}
+
+/* =========================================================
+   CASE 1: 5 Boxes Grid
+   Row 1: [ Box 1 ] [ Box 2 ] [ Box 3 ]
+   Row 2:    [ Box 4 ] [ Box 5 ]   (straddle below 1&2 and 2&3)
+   ========================================================= */
+.grid-5-items > *:nth-child(4),
+.users-grid > *:nth-child(4),
+.proposal-grid > *:nth-child(4) {
+    grid-column: 2 / span 2 !important; /* Starts at line 2 -> straddles 1 & 2 */
+}
+
+.grid-5-items > *:nth-child(5),
+.users-grid > *:nth-child(5),
+.proposal-grid > *:nth-child(5) {
+    grid-column: 4 / span 2 !important; /* Starts at line 4 -> straddles 2 & 3 */
+}
+
+
+/* =========================================================
+   CASE 2: 4 Boxes Grid
+   Row 1: [ Box 1 ] [ Box 2 ] [ Box 3 ]
+   Row 2:          [ Box 4 ]       (directly centered below Box 2)
+   ========================================================= */
+.grid-4-items > *:nth-child(4),
+.outcomes-grid > *:nth-child(4) {
+    grid-column: 3 / span 2 !important; /* Starts at line 3 -> directly under Box 2 */
+}
+
+
+/* =========================================================
+   Responsive Fallbacks for Tablets & Mobile
+   ========================================================= */
+@media (max-width: 1024px) {
+    .grid-6-col,
+    .users-grid,
+    .proposal-grid,
+    .outcomes-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .grid-6-col > *,
+    .users-grid > *,
+    .proposal-grid > *,
+    .outcomes-grid > * {
+        grid-column: span 1 !important;
+    }
+
+    /* Center remaining odd items on 2-column view */
+    .grid-5-items > *:nth-child(5),
+    .users-grid > *:nth-child(5) {
+        grid-column: 1 / -1 !important;
+        justify-self: center;
+        max-width: 80%;
+    }
+}
+
+@media (max-width: 768px) {
+    .grid-6-col,
+    .users-grid,
+    .proposal-grid,
+    .outcomes-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .grid-5-items > *:nth-child(5),
+    .users-grid > *:nth-child(5) {
+        max-width: 100%;
+    }
+}
