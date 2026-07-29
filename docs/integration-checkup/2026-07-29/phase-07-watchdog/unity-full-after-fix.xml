@@ -1,0 +1,1 @@
+<testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="48.720" timestamp="2026-07-29T08:44:43.198346+05:30" hostname="GanaLap"><testcase classname="pytest_resq_unity" name="test_resq_firmware_unity" time="48.656" /></testsuite></testsuites>
