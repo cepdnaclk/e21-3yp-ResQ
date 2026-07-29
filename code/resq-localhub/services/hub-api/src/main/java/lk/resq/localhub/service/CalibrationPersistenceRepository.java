@@ -419,7 +419,7 @@ public class CalibrationPersistenceRepository {
     }
 
     private Connection openConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl);
+        return SqliteConnectionSupport.open(jdbcUrl);
     }
 
     private static void setNullableInteger(PreparedStatement statement, int index, Integer value) throws SQLException {
