@@ -129,6 +129,51 @@ class CalibrationCommandServiceTest {
     }
 
     @Test
+    void calibratedIdleDeviceCanStartRecalibration() {
+        registerDevice("M01", "READY_FOR_SESSION", true, false);
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        CalibrationCommandResponse response = service.startCalibration("M01", request);
+
+        assertThat(response.status()).isEqualTo("PUBLISHED");
+        assertThat(publisher.startPublishCount).isEqualTo(1);
+    }
+
+    @Test
+    void activeSessionBlocksCalibrationBeforeMqttPublish() {
+        registerDevice("M01", "SESSION_ACTIVE", true, true);
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("active session");
+        assertThat(publisher.startPublishCount).isZero();
+    }
+
+    @Test
+    void duplicatePendingStartReturnsOriginalRequestWithoutRepublishing() {
+        registerDevice("M01");
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        CalibrationCommandResponse first = service.startCalibration("M01", request);
+        CalibrationCommandResponse duplicate = service.startCalibration("M01", request);
+
+        assertThat(first.status()).isEqualTo("PUBLISHED");
+        assertThat(duplicate.status()).isEqualTo("ALREADY_PENDING");
+        assertThat(duplicate.requestId()).isEqualTo(first.requestId());
+        assertThat(publisher.startPublishCount).isEqualTo(1);
+    }
+
+    @Test
     void mqttPublishFailureDoesNotTransitionReadinessState() {
         registerDevice("M01");
 
@@ -172,8 +217,17 @@ class CalibrationCommandServiceTest {
     }
 
     private void registerDevice(String deviceId) {
+        registerDevice(deviceId, "paired_idle", false, false);
+    }
+
+    private void registerDevice(String deviceId, String state, boolean calibrated, boolean sessionActive) {
         com.fasterxml.jackson.databind.node.ObjectNode payload = new ObjectMapper().createObjectNode();
-        payload.put("state", "paired_idle");
+        payload.put("state", state);
+        payload.put("calibrated", calibrated);
+        payload.put("session_active", sessionActive);
+        if (sessionActive) {
+            payload.put("session_id", "S-01");
+        }
         registryService.updateFromStatus(deviceId, payload);
     }
 
@@ -197,6 +251,7 @@ class CalibrationCommandServiceTest {
         private String lastRequestId;
         private CalibrationStartRequest lastStartRequest;
         private boolean shouldThrowOnPublish = false;
+        private int startPublishCount;
 
         private CapturingPublisher(ObjectMapper objectMapper, FirmwarePersistenceRepository repository) {
             super(objectMapper, repository, "tcp://127.0.0.1:1", "test-publisher");
@@ -222,6 +277,7 @@ class CalibrationCommandServiceTest {
             this.lastDeviceId = deviceId;
             this.lastRequestId = requestId;
             this.lastStartRequest = request;
+            this.startPublishCount++;
             return new FirmwareCommandPublishResult("topic", requestId, Map.of());
         }
 

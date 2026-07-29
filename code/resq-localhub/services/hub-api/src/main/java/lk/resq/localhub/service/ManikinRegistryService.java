@@ -166,6 +166,7 @@ public class ManikinRegistryService {
                     firstBoolean(payload, null, "depthOk", "depth_ok"),
                     state.latestRateCpm,
                     state.latestRecoilOk,
+                    firstDouble(payload, null, "recoilPct", "recoil_pct"),
                     state.latestPauseS,
                     compressionCount,
                     firstInt(payload, "completedCompressionCount", null) != null
@@ -223,6 +224,12 @@ public class ManikinRegistryService {
 
     public void updateFromCalibrationEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
+            boolean hadTrustedCalibration =
+                    Boolean.TRUE.equals(state.calibrated)
+                            && state.profileId != null
+                            && !state.profileId.isBlank();
+            String trustedProfileId = state.profileId;
+            boolean calibrationSucceeded = false;
             state.lastSeen = clock.instant();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
@@ -244,13 +251,14 @@ public class ManikinRegistryService {
                 String normalized = result.toLowerCase(Locale.ROOT);
                 state.state = switch (normalized) {
                     case "pass", "passed", "pass_with_warnings", "ready", "ok" -> {
+                        calibrationSucceeded = true;
                         state.calibrated = true;
                         state.readyForSession = true;
                         state.calibrationState = "READY";
                         yield "READY_FOR_SESSION";
                     }
                     case "fail", "failed", "error" -> {
-                        state.calibrated = false;
+                        state.calibrated = hadTrustedCalibration;
                         state.readyForSession = false;
                         state.calibrationState = "FAILED";
                         yield "CALIBRATION_FAIL";
@@ -266,9 +274,12 @@ public class ManikinRegistryService {
                 state.readyForSession = false;
             }
             if ("CALIBRATION_CANCELLED".equals(state.state)) {
-                state.calibrated = false;
+                state.calibrated = hadTrustedCalibration;
                 state.readyForSession = false;
                 state.calibrationState = "CANCELLED";
+            }
+            if (hadTrustedCalibration && !calibrationSucceeded) {
+                state.profileId = trustedProfileId;
             }
             state.sessionActive = false;
             indexSession(state);

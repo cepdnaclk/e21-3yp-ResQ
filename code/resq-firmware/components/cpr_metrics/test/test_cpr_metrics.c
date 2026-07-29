@@ -1,3 +1,4 @@
+#include <math.h>
 #include <string.h>
 
 #include "cpr_metrics.h"
@@ -716,4 +717,81 @@ TEST_CASE("CPR metrics invalidates stale rate and tracks release pause",
     TEST_ASSERT_FALSE(snapshot.last_compression_incomplete_recoil);
     TEST_ASSERT_FALSE(snapshot.current_depth_in_range);
     TEST_ASSERT_TRUE(snapshot.depth_ok);
+}
+
+TEST_CASE("live depth EMA uses fresh valid Hall samples and resets",
+          "[metrics][ema][depth]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1800, 1000, 1000, 1000);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_TRUE(snapshot.depth_mm_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, snapshot.depth_mm);
+
+    update(2000, 1000, 1000, 1100);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 46.0f, snapshot.depth_mm);
+
+    update_with_quality(1000, 1000, 1000, 1200,
+                        CPR_SAMPLE_HALL_READ_FAILED);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 46.0f, snapshot.depth_mm);
+
+    update(2200, 1000, 1000, 1100);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 46.0f, snapshot.depth_mm);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_clear_live_filters());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FALSE(snapshot.depth_mm_valid);
+    TEST_ASSERT_FALSE(snapshot.recoil_pct_valid);
+    TEST_ASSERT_TRUE(isfinite(snapshot.depth_mm));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, snapshot.depth_mm);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+    update(2000, 1000, 1000, 2000);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 50.0f, snapshot.depth_mm);
+}
+
+TEST_CASE("live recoil EMA is independent from depth and preserves classifications",
+          "[metrics][ema][recoil]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1600, 1000);
+    update(1900, 1700, 1700, 1100);
+    update(1200, 1200, 1200, 1200);
+    update(1000, 1000, 1000, 1300);
+    update(1000, 1000, 1000, 1360);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_TRUE(snapshot.recoil_pct_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, snapshot.recoil_pct);
+    float depth_before = snapshot.depth_mm;
+
+    update(1400, 1600, 1600, 1500);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(1, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(1, snapshot.recoil_ok_count);
+    TEST_ASSERT_EQUAL(0, snapshot.incomplete_recoil_count);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, snapshot.recoil_pct);
+    TEST_ASSERT_TRUE(fabsf(depth_before - snapshot.depth_mm) > 0.01f);
+
+    update(1900, 1700, 1700, 1600);
+    update(1200, 1500, 1500, 1700);
+    update(1400, 1600, 1600, 1800);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(2, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(1, snapshot.recoil_ok_count);
+    TEST_ASSERT_EQUAL(1, snapshot.incomplete_recoil_count);
+    TEST_ASSERT_FALSE(snapshot.last_compression_recoil_ok);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, snapshot.recoil_pct);
+    TEST_ASSERT_TRUE(isfinite(snapshot.recoil_pct));
 }

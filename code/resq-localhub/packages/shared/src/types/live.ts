@@ -57,6 +57,7 @@ export type LiveMetricPayload = {
   depthOk?: boolean | null;
   rateCpm: number | null;
   recoilOk: boolean | null;
+  recoilPct?: number | null;
   recoilOkCount?: number | null;
   incompleteRecoilCount?: number | null;
   pauseS: number | null;

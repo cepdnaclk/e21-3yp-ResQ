@@ -47,6 +47,15 @@ export function DeviceCard({
   }
 
   const isCalibrationReady = readiness?.readyForSession === true;
+  const isCalibrated =
+    manikin.calibrated === true ||
+    (readiness?.calibrationStorageStatus === "VALID" &&
+      readiness?.recalibrationRequired === false);
+  const calibrationPending =
+    readiness?.calibrationState === "STARTING" ||
+    readiness?.calibrationState === "CALIBRATING" ||
+    readiness?.calibrationState === "RUNNING";
+  const calibrationDisabled = !isOnline || isActive || calibrationPending;
 
   return (
     <Card className="flex flex-col justify-between hover:border-slate-300 hover:shadow-[0_12px_24px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 transition-all duration-300">
@@ -90,8 +99,13 @@ export function DeviceCard({
             variant="secondary"
             size="sm"
             onClick={() => onRunCalibration(manikin.deviceId)}
+            disabled={calibrationDisabled}
           >
-            {isCalibrationReady ? "Recalibrate" : "Start Calibration"}
+            {calibrationPending
+              ? "Calibration in progress"
+              : isCalibrated
+              ? "Recalibrate"
+              : "Calibrate"}
           </Button>
           {isReadyDevice && (
             <Button
@@ -115,6 +129,12 @@ export function DeviceCard({
             </Button>
           )}
         </div>
+
+        {isActive && (
+          <p className="text-[10px] text-slate-500 font-semibold mt-2 text-right">
+            Calibration is unavailable during an active session.
+          </p>
+        )}
 
         {isReadyDevice && !isCalibrationReady && (
           <p className="text-[10px] text-amber-600 font-bold mt-2 text-right">

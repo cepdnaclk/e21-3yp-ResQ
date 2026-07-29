@@ -615,6 +615,11 @@ static esp_err_t stop_runtime_components(cpr_metrics_snapshot_t *out_snapshot) {
     }
   }
 
+  err = cpr_metrics_clear_live_filters();
+  if (err != ESP_OK && first_error == ESP_OK) {
+    first_error = err;
+  }
+
   return first_error;
 }
 

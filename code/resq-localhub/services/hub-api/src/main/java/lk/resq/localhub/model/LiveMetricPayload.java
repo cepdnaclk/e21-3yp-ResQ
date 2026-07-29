@@ -12,6 +12,7 @@ public record LiveMetricPayload(
         Boolean depthOk,
         Double rateCpm,
         Boolean recoilOk,
+        Double recoilPct,
         Double pauseS,
         Integer compressionCount,
         Integer completedCompressionCount,

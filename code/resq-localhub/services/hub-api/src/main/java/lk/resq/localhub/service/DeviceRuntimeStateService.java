@@ -127,6 +127,11 @@ public class DeviceRuntimeStateService {
 
             String status = clean(event.status());
             String result = clean(event.result());
+            boolean calibrationSucceeded =
+                    Integer.valueOf(4002).equals(event.eventId())
+                            && ("PASS".equals(result) || "PASS_WITH_WARNINGS".equals(result));
+            boolean preserveTrustedCalibration =
+                    hasTrustedCalibration(base) && !calibrationSucceeded;
 
             if (Integer.valueOf(4000).equals(event.eventId())) {
                 if ("ACK".equals(status)) {
@@ -189,11 +194,23 @@ public class DeviceRuntimeStateService {
                 }
             }
 
+            if (preserveTrustedCalibration) {
+                calibrated = true;
+                calibrationStorageStatus = base.calibrationStorageStatus();
+                recalibrationRequired = base.recalibrationRequired();
+                profileVersion = base.profileVersion();
+                profileHash = base.profileHash();
+                calibrationSchemaVersion = base.calibrationSchemaVersion();
+                calibrationGeneration = base.calibrationGeneration();
+            }
+
             if (firmwareState == null) {
                 firmwareState = base.firmwareState();
             }
 
-            String profileId = firstNonBlank(event.profileId(), base.calibrationProfileId());
+            String profileId = preserveTrustedCalibration
+                    ? base.calibrationProfileId()
+                    : firstNonBlank(event.profileId(), base.calibrationProfileId());
 
             boolean sessionActive = deriveSessionActive(firmwareState, base.sessionActive(), null);
             boolean readyForSession = deriveReadyForSessionStrict(
@@ -323,7 +340,7 @@ public class DeviceRuntimeStateService {
             if ("READY_FOR_SESSION".equals(firmwareState) && explicitCalibrated == null) {
                 calibrated = true;
             } else if ("CALIBRATION_FAIL".equals(firmwareState) || "SESSION_INTERRUPTED".equals(firmwareState)) {
-                calibrated = false;
+                calibrated = hasTrustedCalibration(base);
             }
 
             String calibrationState = deriveCalibrationState(firmwareState, base.calibrationState(), calibrated);
@@ -541,6 +558,18 @@ public class DeviceRuntimeStateService {
                 state.profileVersion(),
                 state.profileHash()
         );
+    }
+
+    private static boolean hasTrustedCalibration(DeviceRuntimeState state) {
+        return state != null
+                && state.calibrated()
+                && "VALID".equalsIgnoreCase(state.calibrationStorageStatus())
+                && !Boolean.TRUE.equals(state.recalibrationRequired())
+                && state.calibrationProfileId() != null
+                && !state.calibrationProfileId().isBlank()
+                && state.profileVersion() != null
+                && state.profileHash() != null
+                && !state.profileHash().isBlank();
     }
 
     private DeviceRuntimeState withOrdering(

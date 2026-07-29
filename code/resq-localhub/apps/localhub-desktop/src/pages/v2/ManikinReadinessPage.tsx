@@ -11,12 +11,13 @@ import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
 import type { ChestPressureProfile } from "../../types/chestPressureProfile";
 import { useCalibrationProfiles } from "../../hooks/useCalibrationProfiles";
-import { DeviceReadinessPanel } from "../../components/cpr/DeviceReadinessPanel";
+import { ReadinessChecklist } from "../../components/cpr/ReadinessChecklist";
 import { ErrorBoundary, LoadingState } from "../../components/ui";
 
 type ManikinReadinessPageProps = {
   deviceId: string;
   onBack: () => void;
+  onRunCalibration: (deviceId: string) => void;
 };
 
 const RAW_MIN_SAFE = 100;
@@ -31,7 +32,7 @@ function isInvalidPressureReading(value: number | null | undefined): boolean {
   );
 }
 
-function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageProps) {
+function ManikinReadinessPageContent({ deviceId, onBack, onRunCalibration }: ManikinReadinessPageProps) {
   // Tabs State
   const [activeTab, setActiveTab] = useState<"setup" | "readiness">("setup");
 
@@ -698,13 +699,45 @@ function ManikinReadinessPageContent({ deviceId, onBack }: ManikinReadinessPageP
         </div>
       ) : (
         // TAB 2: Device Readiness
-        <DeviceReadinessPanel
-          deviceId={deviceId}
-          liveSummary={liveSummary}
-          onContinue={onBack}
-          continueLabel="Start Training Session"
-          showBack={false}
-        />
+        <Card className="p-6">
+          <CardHeader
+            title="Device Readiness"
+            subtitle="Connection, calibration, and sensor state required before training."
+          />
+          <div className="mt-5">
+            <ReadinessChecklist
+              readiness={readiness}
+              liveSummary={liveSummary}
+              loading={loading}
+            />
+          </div>
+          <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => onRunCalibration(deviceId)}
+              disabled={
+                !liveSummary?.online ||
+                liveSummary?.offline === true ||
+                liveSummary?.stale === true ||
+                liveSummary?.sessionActive === true ||
+                readiness?.calibrationState === "STARTING" ||
+                readiness?.calibrationState === "CALIBRATING" ||
+                readiness?.calibrationState === "RUNNING"
+              }
+            >
+              {readiness?.calibrationState === "STARTING" ||
+              readiness?.calibrationState === "CALIBRATING" ||
+              readiness?.calibrationState === "RUNNING"
+                ? "Calibration in progress"
+                : liveSummary?.calibrated === true ||
+                  (readiness?.calibrationStorageStatus === "VALID" &&
+                    readiness?.recalibrationRequired === false)
+                ? "Recalibrate"
+                : "Calibrate"}
+            </Button>
+          </div>
+        </Card>
       )}
     </div>
   );

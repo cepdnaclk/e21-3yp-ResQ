@@ -649,12 +649,24 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         return normalize_err;
     }
 
+    char depth_mm_json[32] = "null";
+    if (normalized.depth_mm_valid && isfinite(normalized.depth_mm)) {
+        snprintf(depth_mm_json, sizeof(depth_mm_json), "%.3f",
+                 normalized.depth_mm);
+    }
+    char recoil_pct_json[32] = "null";
+    if (normalized.recoil_pct_valid && isfinite(normalized.recoil_pct)) {
+        snprintf(recoil_pct_json, sizeof(recoil_pct_json), "%.2f",
+                 normalized.recoil_pct);
+    }
+
     int written = snprintf(out_payload, out_payload_len,
         "{"
         "\"session_id\":\"%s\","
         "\"state\":\"SESSION_ACTIVE\","
         "\"depth_progress\":%.3f,"
-        "\"depth_mm\":%.3f,"
+        "\"depth_mm\":%s,"
+        "\"depth_mm_valid\":%s,"
         "\"depth_ok\":%s,"
         "\"rate_cpm\":%.1f,"
         "\"compression_count\":%d,"
@@ -667,6 +679,7 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         "\"last_compression_depth_mm\":%.3f,"
         "\"average_compression_depth_mm\":%.3f,"
         "\"recoil_ok\":%s,"
+        "\"recoil_pct\":%s,"
         "\"recoil_ok_count\":%d,"
         "\"incomplete_recoil_count\":%d,"
         "\"pause_s\":%.3f,"
@@ -679,7 +692,8 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         "}",
         session_id ? session_id : "",
         normalized.depth_progress,
-        normalized.hall_mm_valid ? normalized.depth_mm : 0.0f,
+        depth_mm_json,
+        normalized.depth_mm_valid ? "true" : "false",
         normalized.depth_ok ? "true" : "false",
         normalized.rate_cpm,
         normalized.total_compressions,
@@ -691,6 +705,7 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         normalized.last_compression_peak_depth_mm,
         normalized.average_completed_compression_peak_depth_mm,
         normalized.recoil_ok ? "true" : "false",
+        recoil_pct_json,
         normalized.recoil_ok_count,
         normalized.incomplete_recoil_count,
         normalized.pause_s,

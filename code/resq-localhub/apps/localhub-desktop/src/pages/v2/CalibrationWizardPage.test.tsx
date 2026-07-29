@@ -2,7 +2,7 @@ import { render, screen, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import CalibrationWizardPage from "./CalibrationWizardPage";
-import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
+import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence, fetchLiveManikin } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
 import type { SensorStreamClientCallbacks } from "../../lib/sensorStreamClient";
 
@@ -37,6 +37,7 @@ vi.mock("../../api/manikinsApi", () => ({
   startCalibration: vi.fn(),
   cancelCalibration: vi.fn(),
   getLatestCalibrationEvidence: vi.fn(),
+  fetchLiveManikin: vi.fn(),
 }));
 
 vi.mock("../../api/liveEventsClient", () => ({
@@ -111,6 +112,15 @@ describe("CalibrationWizardPage", () => {
     });
 
     vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(null);
+    vi.mocked(fetchLiveManikin).mockResolvedValue({
+      deviceId: "MAN-01",
+      online: true,
+      offline: false,
+      stale: false,
+      sessionActive: false,
+      activeSessionId: null,
+      calibrated: false,
+    } as any);
 
     vi.mocked(connectCalibrationStream).mockImplementation((deviceId, handlers) => {
       sseHandlers = handlers;
@@ -150,6 +160,98 @@ describe("CalibrationWizardPage", () => {
 
     expect(await screen.findByRole("button", { name: "Start Calibration" })).toBeInTheDocument();
     expect(screen.queryByText("Calibration Complete")).not.toBeInTheDocument();
+  });
+
+  it("shows Recalibrate for a connected calibrated idle device", async () => {
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "READY",
+      readyForSession: true,
+      calibrationStorageStatus: "VALID",
+      recalibrationRequired: false,
+    });
+    vi.mocked(fetchLiveManikin).mockResolvedValue({
+      deviceId: "MAN-01",
+      online: true,
+      offline: false,
+      stale: false,
+      sessionActive: false,
+      activeSessionId: null,
+      calibrated: true,
+    } as any);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "Recalibrate" })).toBeEnabled();
+  });
+
+  it("keeps calibration usable when live-summary refresh fails but readiness is available", async () => {
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "NOT_READY",
+      firmwareState: "PAIRED_IDLE",
+      readyForSession: false,
+    });
+    vi.mocked(fetchLiveManikin).mockRejectedValue(new Error("temporary live-summary failure"));
+    vi.mocked(startCalibration).mockResolvedValue({
+      deviceId: "MAN-01",
+      requestId: "req-live-fallback",
+      command: "start",
+      status: "PUBLISHED",
+    });
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Start Calibration" });
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(startCalibration).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("blocks calibration while a session is active", async () => {
+    vi.mocked(fetchLiveManikin).mockResolvedValue({
+      deviceId: "MAN-01",
+      online: true,
+      offline: false,
+      stale: false,
+      sessionActive: true,
+      activeSessionId: "S-01",
+      calibrated: true,
+    } as any);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Recalibrate" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/unavailable while this manikin has an active session/i)).toBeInTheDocument();
+  });
+
+  it("keeps the start action disabled while its command is pending", async () => {
+    let resolveStart: ((value: any) => void) | null = null;
+    vi.mocked(startCalibration).mockImplementation(() => new Promise((resolve) => {
+      resolveStart = resolve;
+    }));
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    const button = await screen.findByRole("button", { name: "Start Calibration" });
+    await userEvent.click(button);
+
+    expect(screen.queryByRole("button", { name: "Start Calibration" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel Calibration" })).toBeInTheDocument();
+    expect(startCalibration).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveStart?.({
+        deviceId: "MAN-01",
+        requestId: "req-1",
+        command: "start",
+        status: "PUBLISHED",
+      });
+      await Promise.resolve();
+    });
   });
 
   it("blocks calibration start and shows inline messages on invalid values", async () => {

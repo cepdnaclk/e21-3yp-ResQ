@@ -19,6 +19,7 @@ static cpr_metrics_snapshot_t base_snapshot(void)
     cpr_metrics_snapshot_t snap = {
         .depth_progress = 0.92f,
         .depth_mm = 46.0f,
+        .depth_mm_valid = true,
         .rate_cpm = 108.0f,
         .completed_compressions = 11,
         .depth_ok_compressions = 9,
@@ -29,6 +30,8 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .valid_compressions = 15,
         .recoil_ok_count = 14,
         .incomplete_recoil_count = 3,
+        .recoil_pct = 94.0f,
+        .recoil_pct_valid = true,
         .depth_ok = true,
         .recoil_ok = true,
         .last_compression_recoil_ok = true,
@@ -134,6 +137,7 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_contains(payload, "\"session_id\":\"S-001\"");
     assert_contains(payload, "\"state\":\"SESSION_ACTIVE\"");
     assert_contains(payload, "\"depth_mm\":46.000");
+    assert_contains(payload, "\"depth_mm_valid\":true");
     assert_contains(payload, "\"depth_progress\":0.920");
     assert_contains(payload, "\"depth_ok\":true");
     assert_contains(payload, "\"rate_cpm\":108.0");
@@ -148,6 +152,7 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_contains(payload, "\"last_compression_depth_mm\":56.500");
     assert_contains(payload, "\"average_compression_depth_mm\":54.250");
     assert_contains(payload, "\"recoil_ok\":true");
+    assert_contains(payload, "\"recoil_pct\":94.00");
     assert_contains(payload, "\"recoil_ok_count\":14");
     assert_contains(payload, "\"incomplete_recoil_count\":3");
     assert_contains(payload, "\"pause_s\":0.250");
@@ -164,6 +169,24 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_not_contains(payload, "\"accepted_pressure_samples\"");
     assert_not_contains(payload, "\"sensor_quality_flags\"");
     assert_not_contains(payload, "\"pressure_balance_reliable\"");
+}
+
+TEST_CASE("Session telemetry never substitutes zero for unavailable live filters",
+          "[telemetry][ema]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    snap.depth_mm = 0.0f;
+    snap.depth_mm_valid = false;
+    snap.recoil_pct = 0.0f;
+    snap.recoil_pct_valid = false;
+    char payload[768];
+
+    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+                                  &snap, "S-001", payload, sizeof(payload)));
+
+    assert_contains(payload, "\"depth_mm\":null");
+    assert_contains(payload, "\"depth_mm_valid\":false");
+    assert_contains(payload, "\"recoil_pct\":null");
 }
 
 TEST_CASE("Session payload derives flags and clamps pressure score", "[telemetry]")

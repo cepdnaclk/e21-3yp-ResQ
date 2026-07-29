@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
+import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence, fetchLiveManikin } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
-import type { DeviceReadinessState, CalibrationState, CalibrationStreamEvent, CalibrationEvidence } from "../../types/manikin";
+import type { DeviceReadinessState, CalibrationState, CalibrationStreamEvent, CalibrationEvidence, ManikinLiveSummary } from "../../types/manikin";
 import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import StatusBadge from "../../components/ui/StatusBadge";
@@ -204,6 +204,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   
   // Calibration execution states
   const [readiness, setReadiness] = useState<DeviceReadinessState | null>(null);
+  const [liveSummary, setLiveSummary] = useState<ManikinLiveSummary | null>(null);
   const [loadingReadiness, setLoadingReadiness] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -416,6 +417,19 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
         if (active) {
           setReadiness(res);
         }
+
+        try {
+          const live = await fetchLiveManikin(deviceId);
+          if (active) {
+            setLiveSummary(live);
+          }
+        } catch {
+          // Readiness is sufficient to render the workflow. The start endpoint
+          // remains authoritative for online/session validation.
+          if (active) {
+            setLiveSummary(null);
+          }
+        }
       } catch (err) {
         if (active) {
           setApiError(err instanceof Error ? err.message : "Failed to load device readiness.");
@@ -455,6 +469,12 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
           setLastCompletedProgressId((prev) => Math.max(prev, LAST_COMPLETED_PROGRESS[event.progressId ?? 0] ?? prev));
         }
         fetchEvidence();
+        void fetchLiveManikin(deviceId).then((nextLiveSummary) => {
+          if (!active) return;
+          setLiveSummary(nextLiveSummary);
+        }).catch(() => {
+          // SSE terminal state remains authoritative until the next refresh.
+        });
       }
     };
 
@@ -653,6 +673,25 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
     || currentTerminalResult === "CANCELED"
     || calState === "CANCELLED";
   const canStartSession = readiness?.readyForSession === true;
+  const sessionActive =
+    liveSummary?.sessionActive === true ||
+    liveSummary?.activeSessionId != null ||
+    readiness?.firmwareState === "SESSION_ACTIVE";
+  const deviceUnavailable =
+    liveSummary != null
+      ? !liveSummary.online || liveSummary.offline || liveSummary.stale
+      : readiness?.firmwareState == null;
+  const hasTrustedCalibration =
+    liveSummary?.calibrated === true ||
+    (readiness?.calibrationStorageStatus === "VALID" &&
+      readiness?.recalibrationRequired === false);
+  const calibrationStartDisabled =
+    loadingProfile ||
+    !defaultProfile ||
+    Boolean(profileError) ||
+    isSubmitting ||
+    deviceUnavailable ||
+    sessionActive;
 
   useEffect(() => {
     if (isSuccess || isFailure || isInterrupted || isCancelled) {
@@ -1002,6 +1041,15 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                     : "Calibration values were saved. Waiting for the profile identity and readiness gate to be confirmed."}
                 </p>
                 <div className="flex gap-3 justify-center pt-4">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleStartCalibration}
+                    loading={isSubmitting}
+                    disabled={calibrationStartDisabled}
+                  >
+                    Recalibrate
+                  </Button>
                   {canStartSession && (
                     <Button type="button" variant="primary" onClick={() => void handleBack()}>
                       Start Session
@@ -1174,6 +1222,8 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                       type="button"
                       variant="danger"
                       onClick={handleCancelCalibration}
+                      loading={isCancelling}
+                      disabled={isCancelling}
                     >
                       Cancel Calibration
                     </Button>
@@ -1185,7 +1235,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                       variant="secondary"
                       onClick={handleStartCalibration}
                       loading={isSubmitting}
-                      disabled={loadingProfile || !defaultProfile || Boolean(profileError)}
+                      disabled={calibrationStartDisabled}
                     >
                       Retry Calibration
                         </Button>
@@ -1196,14 +1246,24 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                           variant="primary"
                           onClick={handleStartCalibration}
                           loading={isSubmitting}
-                          disabled={loadingProfile || !defaultProfile || Boolean(profileError)}
+                          disabled={calibrationStartDisabled}
                         >
-                          Start Calibration
+                          {hasTrustedCalibration ? "Recalibrate" : "Start Calibration"}
                         </Button>
                       )}
                     </>
                   )}
                 </div>
+                {sessionActive && (
+                  <p className="text-xs text-amber-700 font-semibold text-right">
+                    Calibration is unavailable while this manikin has an active session.
+                  </p>
+                )}
+                {deviceUnavailable && !sessionActive && (
+                  <p className="text-xs text-slate-500 font-semibold text-right">
+                    Connect the manikin before starting calibration.
+                  </p>
+                )}
               </div>
             )}
           </Card>

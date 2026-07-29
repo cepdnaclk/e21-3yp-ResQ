@@ -133,6 +133,12 @@ static float s_last_compression_peak_depth_mm = 0.0f;
 static double s_completed_compression_peak_sum_mm = 0.0;
 static float s_depth_progress = 0.0f;
 static float s_depth_mm = 0.0f;
+static float s_raw_depth_mm = 0.0f;
+static bool s_depth_ema_initialized = false;
+static int64_t s_depth_ema_timestamp_ms = 0;
+static float s_recoil_pct = 0.0f;
+static bool s_recoil_ema_initialized = false;
+static int64_t s_recoil_ema_timestamp_ms = 0;
 static float s_pressure_0_kpa = 0.0f;
 static float s_pressure_1_kpa = 0.0f;
 static float s_pressure_2_kpa = 0.0f;
@@ -166,6 +172,38 @@ static int s_missed_pressure_samples = 0;
 static int s_missed_hall_samples = 0;
 static int64_t s_release_candidate_since_ms = 0;
 static int32_t s_release_min_delta = INT32_MAX;
+
+static bool live_ema_update(float sample,
+                            int64_t timestamp_ms,
+                            float *value,
+                            bool *initialized,
+                            int64_t *last_timestamp_ms)
+{
+    if (value == NULL || initialized == NULL || last_timestamp_ms == NULL ||
+        !isfinite(sample) || timestamp_ms <= 0 ||
+        (*initialized && timestamp_ms <= *last_timestamp_ms)) {
+        return false;
+    }
+
+    *value = *initialized
+        ? (CPR_LIVE_METRIC_EMA_ALPHA * sample) +
+              ((1.0f - CPR_LIVE_METRIC_EMA_ALPHA) * *value)
+        : sample;
+    *initialized = true;
+    *last_timestamp_ms = timestamp_ms;
+    return true;
+}
+
+static void live_filters_clear_locked(void)
+{
+    s_depth_mm = 0.0f;
+    s_raw_depth_mm = 0.0f;
+    s_depth_ema_initialized = false;
+    s_depth_ema_timestamp_ms = 0;
+    s_recoil_pct = 0.0f;
+    s_recoil_ema_initialized = false;
+    s_recoil_ema_timestamp_ms = 0;
+}
 
 typedef struct {
     bool compression_active;
@@ -436,7 +474,7 @@ static void compression_runtime_begin(int64_t now_ms)
     }
     s_current_compression_depth_ok = false;
     s_current_compression_peak_depth_mm =
-        s_depth_mm > 0.0f ? s_depth_mm : 0.0f;
+        s_raw_depth_mm > 0.0f ? s_raw_depth_mm : 0.0f;
     s_release_candidate_since_ms = 0;
     s_release_min_delta = INT32_MAX;
 
@@ -475,6 +513,11 @@ static void compression_runtime_complete(bool recoil_ok, int64_t now_ms)
     s_last_compression_depth_ok = s_current_compression_depth_ok;
     s_last_compression_recoil_ok = recoil_ok;
     s_last_compression_incomplete_recoil = !recoil_ok;
+    (void)live_ema_update(recoil_ok ? 100.0f : 0.0f,
+                          now_ms,
+                          &s_recoil_pct,
+                          &s_recoil_ema_initialized,
+                          &s_recoil_ema_timestamp_ms);
     if (recoil_ok) {
         s_recoil_ok_count++;
     } else {
@@ -516,7 +559,7 @@ esp_err_t cpr_metrics_init(void)
     s_last_compression_peak_depth_mm = 0.0f;
     s_completed_compression_peak_sum_mm = 0.0;
     s_depth_progress = 0.0f;
-    s_depth_mm = 0.0f;
+    live_filters_clear_locked();
     s_pressure_0_kpa = 0.0f;
     s_pressure_1_kpa = 0.0f;
     s_pressure_2_kpa = 0.0f;
@@ -584,7 +627,7 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
     s_last_compression_peak_depth_mm = 0.0f;
     s_completed_compression_peak_sum_mm = 0.0;
     s_depth_progress = 0.0f;
-    s_depth_mm = 0.0f;
+    live_filters_clear_locked();
     s_pressure_0_kpa = 0.0f;
     s_pressure_1_kpa = 0.0f;
     s_pressure_2_kpa = 0.0f;
@@ -1041,7 +1084,12 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         hall_delta_now = converted.hall_delta_raw;
         progress = converted.hall_progress;
         s_depth_progress = progress;
-        s_depth_mm = converted.hall_mm;
+        s_raw_depth_mm = converted.hall_mm;
+        (void)live_ema_update(converted.hall_mm,
+                              sample->ts_ms,
+                              &s_depth_mm,
+                              &s_depth_ema_initialized,
+                              &s_depth_ema_timestamp_ms);
     }
     bool calibrated_pressure_crossover =
         hall_sample_usable &&
@@ -1293,8 +1341,8 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
     }
     if (hall_sample_usable) {
         if (s_state != WAITING_FOR_COMPRESSION &&
-            s_depth_mm > s_current_compression_peak_depth_mm) {
-            s_current_compression_peak_depth_mm = s_depth_mm;
+            s_raw_depth_mm > s_current_compression_peak_depth_mm) {
+            s_current_compression_peak_depth_mm = s_raw_depth_mm;
         }
 
         switch (s_state) {
@@ -1395,6 +1443,7 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
 
     out_snapshot->depth_progress = s_depth_progress;
     out_snapshot->depth_mm = s_depth_mm;
+    out_snapshot->depth_mm_valid = s_depth_ema_initialized;
     out_snapshot->rate_cpm = s_rate_cpm;
     out_snapshot->pause_s = s_last_pause_s;
     if (s_state == WAITING_FOR_COMPRESSION && s_last_compression_end_ms > 0 &&
@@ -1408,6 +1457,8 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->valid_compressions = s_valid_compressions;
     out_snapshot->recoil_ok_count = s_recoil_ok_count;
     out_snapshot->incomplete_recoil_count = s_incomplete_recoil_count;
+    out_snapshot->recoil_pct = s_recoil_pct;
+    out_snapshot->recoil_pct_valid = s_recoil_ema_initialized;
     out_snapshot->last_compression_peak_depth_mm =
         s_last_compression_peak_depth_mm;
     out_snapshot->average_completed_compression_peak_depth_mm =
@@ -1505,6 +1556,18 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
 
     xSemaphoreGive(s_mutex);
 
+    return ESP_OK;
+}
+
+esp_err_t cpr_metrics_clear_live_filters(void)
+{
+    if (s_mutex == NULL) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    live_filters_clear_locked();
+    xSemaphoreGive(s_mutex);
     return ESP_OK;
 }
 

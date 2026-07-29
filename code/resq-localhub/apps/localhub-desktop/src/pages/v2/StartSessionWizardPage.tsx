@@ -14,7 +14,11 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import { subscribeToManikinsLive } from "../../api/liveEventsClient";
 import { DeviceReadinessPanel } from "../../components/cpr/DeviceReadinessPanel";
 
-export function StartSessionWizardPage() {
+type StartSessionWizardPageProps = {
+  onRunCalibration: (deviceId: string) => void;
+};
+
+export function StartSessionWizardPage({ onRunCalibration }: StartSessionWizardPageProps) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -440,6 +444,7 @@ export function StartSessionWizardPage() {
             continueLabel="Continue to Launch"
             showBack={true}
             onBack={() => setStep(3)}
+            onRunCalibration={onRunCalibration}
           />
         </div>
       )}
