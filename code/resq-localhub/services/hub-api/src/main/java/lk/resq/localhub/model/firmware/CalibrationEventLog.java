@@ -15,6 +15,6 @@ public record CalibrationEventLog(
         String firmwareState,
         Long tsMs,
         Instant receivedAt,
-        String rawPayloadJson
+        @com.fasterxml.jackson.annotation.JsonIgnore String rawPayloadJson
 ) {
 }

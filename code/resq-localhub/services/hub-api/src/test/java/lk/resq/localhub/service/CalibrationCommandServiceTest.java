@@ -67,7 +67,7 @@ class CalibrationCommandServiceTest {
 
     @Test
     void startCalibrationThrowsIfDeviceNotRegistered() {
-        CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, null, null, null);
+        CalibrationStartRequest request = new CalibrationStartRequest(240, 1_320_000, 4_150_000, 4_150_000, null, null, null);
 
         assertThatThrownBy(() -> service.startCalibration("M01", request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -80,12 +80,12 @@ class CalibrationCommandServiceTest {
     void startCalibrationThrowsIfRequiredFieldMissing() {
         registerDevice("M01");
 
-        CalibrationStartRequest request1 = new CalibrationStartRequest(null, 20100, 15000, 15000, null, null, null);
+        CalibrationStartRequest request1 = new CalibrationStartRequest(null, 1_320_000, 4_150_000, 4_150_000, null, null, null);
         assertThatThrownBy(() -> service.startCalibration("M01", request1))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("hall_delta is required");
 
-        CalibrationStartRequest request2 = new CalibrationStartRequest(13500, -5, 15000, 15000, null, null, null);
+        CalibrationStartRequest request2 = new CalibrationStartRequest(240, -5, 4_150_000, 4_150_000, null, null, null);
         assertThatThrownBy(() -> service.startCalibration("M01", request2))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ref_pressure must be positive");
@@ -104,7 +104,7 @@ class CalibrationCommandServiceTest {
     void successfulStartPublishTransitionsReadinessImmediatelyToStarting() {
         registerDevice("M01");
 
-        CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, "adult-basic", 20, 3000);
+        CalibrationStartRequest request = new CalibrationStartRequest(240, 1_320_000, 4_150_000, 4_150_000, "adult-basic", 20, 3000);
 
         CalibrationCommandResponse response = service.startCalibration("M01", request);
 
@@ -116,9 +116,9 @@ class CalibrationCommandServiceTest {
         assertThat(publisher.lastTelemetryAction).isEqualTo("START");
         assertThat(publisher.lastTelemetryRequestId).isNotBlank();
         CalibrationStartRequest expectedRequest = new CalibrationStartRequest(
-                13500, 20100, 15000, 15000, "adult-basic", 20, 3000,
+                240, 1_320_000, 4_150_000, 4_150_000, "adult-basic", 20, 3000,
                 null, null, null, null,
-                1, "d9c9747c1ede10bf156a16e33f67f39bc21694d42fc91a35be50df7d7e24ca4a"
+                1, "a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f"
         );
         assertThat(publisher.lastStartRequest).isEqualTo(expectedRequest);
 
@@ -138,7 +138,7 @@ class CalibrationCommandServiceTest {
     void mqttPublishFailureDoesNotTransitionReadinessState() {
         registerDevice("M01");
 
-        CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, null, null, null);
+        CalibrationStartRequest request = new CalibrationStartRequest(240, 1_320_000, 4_150_000, 4_150_000, null, null, null);
         publisher.shouldThrowOnPublish = true;
 
         assertThatThrownBy(() -> service.startCalibration("M01", request))
@@ -154,7 +154,10 @@ class CalibrationCommandServiceTest {
         registerDevice("M01");
         sensorStreamService.rejectStart = true;
 
-        CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, "adult-basic", 20, 3000);
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
 
         assertThatThrownBy(() -> service.startCalibration("M01", request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -178,6 +181,21 @@ class CalibrationCommandServiceTest {
 
         assertThat(publisher.lastDeviceId).isEqualTo("M01");
         assertThat(publisher.lastRequestId).isEqualTo(response.requestId());
+    }
+
+    @Test
+    void rejectsTargetsThatDoNotMatchTheSelectedProfile() {
+        registerDevice("M01");
+
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                241, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must exactly match profile adult-basic");
+        assertThat(publisher.lastDeviceId).isNull();
     }
 
     private void registerDevice(String deviceId) {

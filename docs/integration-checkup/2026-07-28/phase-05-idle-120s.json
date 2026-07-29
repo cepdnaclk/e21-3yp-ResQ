@@ -1,0 +1,37 @@
+{
+  "mode": "idle",
+  "seconds": 120,
+  "heartbeatIntervalMs": 5000,
+  "telemetryIntervalMs": 200,
+  "deviceId": "M01",
+  "topics": [
+    {
+      "topic": "resq/M01/heartbeat",
+      "messages": 24,
+      "messagesPerSecond": 0.2,
+      "averagePayloadBytes": 120,
+      "bytesPerSecond": 24,
+      "bytesPerMinute": 1440,
+      "uniquePayloadCount": 24
+    },
+    {
+      "topic": "resq/M01/status",
+      "messages": 1,
+      "messagesPerSecond": 0.008,
+      "averagePayloadBytes": 143,
+      "bytesPerSecond": 1.192,
+      "bytesPerMinute": 71.5,
+      "uniquePayloadCount": 1
+    }
+  ],
+  "total": {
+    "messages": 25,
+    "messagesPerSecond": 0.208,
+    "averagePayloadBytes": 120.92,
+    "bytesPerSecond": 25.192,
+    "bytesPerMinute": 1511.5,
+    "uniquePayloadCount": 25
+  },
+  "duplicateStatusCount": 0,
+  "capturedAt": "2026-07-28T07:51:31.210Z"
+}

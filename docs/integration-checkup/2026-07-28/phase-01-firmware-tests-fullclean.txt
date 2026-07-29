@@ -1,0 +1,3 @@
+Executing action: fullclean
+Executing action: remove_managed_components
+Done

@@ -12,6 +12,6 @@ public record FirmwareDebugSnapshotRecord(
         Integer hallRaw,
         Long tsMs,
         Instant receivedAt,
-        String payloadJson
+        @com.fasterxml.jackson.annotation.JsonIgnore String payloadJson
 ) {
 }

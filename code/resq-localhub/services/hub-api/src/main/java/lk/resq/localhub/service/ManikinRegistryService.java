@@ -7,8 +7,10 @@ import lk.resq.localhub.model.SessionLiveView;
 import lk.resq.localhub.model.firmware.DeviceRuntimeState;
 import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -24,16 +26,32 @@ import java.util.function.Consumer;
 public class ManikinRegistryService {
 
     private final Duration staleAfter;
+    private final Duration offlineAfter;
+    private final Clock clock;
     private final ConcurrentMap<String, MutableManikinState> registry = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, MutableManikinState> registryBySessionId = new ConcurrentHashMap<>();
 
-    public ManikinRegistryService(@Value("${resq.live.stale-after-seconds:12}") long staleAfterSeconds) {
+    @Autowired
+    public ManikinRegistryService(
+            @Value("${resq.live.stale-after-seconds:12}") long staleAfterSeconds,
+            @Value("${resq.live.offline-after-seconds:22}") long offlineAfterSeconds
+    ) {
+        this(staleAfterSeconds, offlineAfterSeconds, Clock.systemUTC());
+    }
+
+    public ManikinRegistryService(long staleAfterSeconds) {
+        this(staleAfterSeconds, staleAfterSeconds, Clock.systemUTC());
+    }
+
+    ManikinRegistryService(long staleAfterSeconds, long offlineAfterSeconds, Clock clock) {
         this.staleAfter = Duration.ofSeconds(Math.max(1L, staleAfterSeconds));
+        this.offlineAfter = Duration.ofSeconds(Math.max(this.staleAfter.toSeconds(), offlineAfterSeconds));
+        this.clock = clock;
     }
 
     public void updateFromStatus(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id", "deviceId", "device_id");
             state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
@@ -51,7 +69,7 @@ public class ManikinRegistryService {
 
     public void seedFromRegistration(String deviceId, lk.resq.localhub.model.DeviceRegistrationRequest request) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.state = "ONLINE";
             state.fw = firstText(request == null ? null : request.firmwareVersion(), state.fw);
@@ -60,7 +78,7 @@ public class ManikinRegistryService {
 
     public void updateFromHeartbeat(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
             state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
@@ -79,7 +97,7 @@ public class ManikinRegistryService {
 
     public void updateFromDebug(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstTextWithFallback(payload, state.manikinId, "manikinId", "manikin_id");
             state.sessionId = firstTextWithFallback(payload, state.sessionId, "sessionId", "session_id");
@@ -95,7 +113,7 @@ public class ManikinRegistryService {
 
     public void updateFromTelemetry(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.manikinId = firstText(payload, "manikinId", "manikin_id", state.manikinId);
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
@@ -124,22 +142,18 @@ public class ManikinRegistryService {
             if (state.latestForce1 != null && state.latestForce2 != null) {
                 long sum = state.latestForce1 + state.latestForce2;
                 long absDiff = Math.abs(state.latestForce1 - state.latestForce2);
-                state.pressureBalancePct = sum > 0 ? 100.0 - ((absDiff * 100.0) / sum) : null;
-                state.pressureSkewed = state.pressureBalancePct != null && state.pressureBalancePct < 88.0;
+                state.pressureBalanceScorePct = sum > 0 ? 100.0 - ((absDiff * 100.0) / sum) : null;
+                state.pressureSkewed = state.pressureBalanceScorePct != null && state.pressureBalanceScorePct < 88.0;
             }
-            Double payloadPressureBalancePct = firstDouble(payload, null, "pressureBalancePct", "pressure_balance_pct");
-            if (payloadPressureBalancePct != null) {
-                state.pressureBalancePct = payloadPressureBalancePct;
-                state.pressureSkewed = payloadPressureBalancePct < 88.0;
+            Double payloadPressureBalanceScorePct = firstDouble(payload, null, "pressureBalanceScorePct", "pressure_balance_pct");
+            if (payloadPressureBalanceScorePct != null) {
+                state.pressureBalanceScorePct = payloadPressureBalanceScorePct;
+                state.pressureSkewed = payloadPressureBalanceScorePct < 88.0;
             }
             updatePressureModeFields(state, payload);
             state.depthSource = firstTextWithFallback(payload, state.depthSource, "depthSource", "depth_source", "sourceMode", "source_mode");
 
             state.latestFlags = firstFlags(payload, "flags", state.latestFlags);
-            Object debugRaw = jsonValue(payload.get("debugRaw"));
-            if (debugRaw == null && isSensorStreamTelemetry(payload)) {
-                debugRaw = jsonValue(payload);
-            }
             state.latestMetric = new LiveMetricPayload(
                     firstText(payload, "deviceId", "device_id", state.deviceId),
                     state.manikinId,
@@ -154,9 +168,25 @@ public class ManikinRegistryService {
                     state.latestRecoilOk,
                     state.latestPauseS,
                     compressionCount,
+                    firstInt(payload, "completedCompressionCount", null) != null
+                            ? firstInt(payload, "completedCompressionCount", null)
+                            : firstInt(payload, "completed_compression_count", null),
+                    firstInt(payload, "depthOkCompressionCount", null) != null
+                            ? firstInt(payload, "depthOkCompressionCount", null)
+                            : firstInt(payload, "depth_ok_compression_count", null),
                     firstInt(payload, "validCompressionCount", null) != null
                             ? firstInt(payload, "validCompressionCount", null)
                             : firstInt(payload, "valid_compression_count", null),
+                    firstDouble(payload, null,
+                            "lastCompressionPeakDepthMm",
+                            "last_compression_peak_depth_mm",
+                            "lastCompressionDepthMm",
+                            "last_compression_depth_mm"),
+                    firstDouble(payload, null,
+                            "averageCompletedCompressionPeakDepthMm",
+                            "average_completed_compression_peak_depth_mm",
+                            "averageCompressionDepthMm",
+                            "average_compression_depth_mm"),
                     firstInt(payload, "recoilOkCount", null) != null
                             ? firstInt(payload, "recoilOkCount", null)
                             : firstInt(payload, "recoil_ok_count", null),
@@ -165,9 +195,8 @@ public class ManikinRegistryService {
                             : firstInt(payload, "incomplete_recoil_count", null),
                     firstText(payload, "handPlacement", "hand_placement", null),
                     jsonValue(payload.get("flags")),
-                    state.pressureBalancePct,
-                    firstTextWithFallback(payload, state.depthSource, "sourceMode", "source_mode", "depthSource", "depth_source"),
-                    debugRaw
+                    state.pressureBalanceScorePct,
+                    firstTextWithFallback(payload, state.depthSource, "sourceMode", "source_mode", "depthSource", "depth_source")
             );
             indexSession(state);
         });
@@ -184,7 +213,7 @@ public class ManikinRegistryService {
 
     public void updateFromEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type", "type");
@@ -194,7 +223,7 @@ public class ManikinRegistryService {
 
     public void updateFromCalibrationEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type");
@@ -248,7 +277,7 @@ public class ManikinRegistryService {
 
     public void updateFromErrorEvent(String deviceId, JsonNode payload) {
         upsert(deviceId, state -> {
-            state.lastSeen = Instant.now();
+            state.lastSeen = clock.instant();
             state.online = true;
             state.sessionId = firstText(payload, "sessionId", "session_id", state.sessionId);
             state.lastEventType = firstScalarAsText(payload, state.lastEventType, "eventId", "event_id", "eventType", "event_type");
@@ -346,7 +375,7 @@ public class ManikinRegistryService {
     }
 
     public List<String> markStaleOfflineAndGetChangedDeviceIds() {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<String> changedDeviceIds = new ArrayList<>();
 
         for (MutableManikinState state : registry.values()) {
@@ -354,7 +383,7 @@ public class ManikinRegistryService {
                 continue;
             }
 
-            if (Duration.between(state.lastSeen, now).compareTo(staleAfter) > 0 && state.online) {
+            if (Duration.between(state.lastSeen, now).compareTo(offlineAfter) > 0 && state.online) {
                 state.online = false;
                 if (state.state == null || state.state.isBlank() || "online".equalsIgnoreCase(state.state)) {
                     state.state = "offline";
@@ -375,7 +404,7 @@ public class ManikinRegistryService {
             return false;
         }
 
-        if (Duration.between(state.lastSeen, now).compareTo(staleAfter) > 0 && state.online) {
+        if (Duration.between(state.lastSeen, now).compareTo(offlineAfter) > 0 && state.online) {
             state.online = false;
             if (state.state == null || state.state.isBlank() || "online".equalsIgnoreCase(state.state)) {
                 state.state = "offline";
@@ -409,7 +438,7 @@ public class ManikinRegistryService {
                 state.lastEventType,
                 state.latestForce1,
                 state.latestForce2,
-                state.pressureBalancePct,
+                state.pressureBalanceScorePct,
                 state.pressureSkewed,
                 state.firmwareState,
                 state.calibrated,
@@ -473,7 +502,7 @@ public class ManikinRegistryService {
                 state.lastEventType,
                 state.latestForce1,
                 state.latestForce2,
-                state.pressureBalancePct,
+                state.pressureBalanceScorePct,
                 state.pressureSkewed,
                 state.latestMetric,
                 state.seq,
@@ -510,7 +539,7 @@ public class ManikinRegistryService {
         copy.lastEventType = source.lastEventType;
         copy.latestForce1 = source.latestForce1;
         copy.latestForce2 = source.latestForce2;
-        copy.pressureBalancePct = source.pressureBalancePct;
+        copy.pressureBalanceScorePct = source.pressureBalanceScorePct;
         copy.pressureSkewed = source.pressureSkewed;
         copy.firmwareState = source.firmwareState;
         copy.calibrated = source.calibrated;
@@ -534,7 +563,7 @@ public class ManikinRegistryService {
     }
 
     private boolean isStale(MutableManikinState state) {
-        return state.lastSeen != null && Duration.between(state.lastSeen, Instant.now()).compareTo(staleAfter) > 0;
+        return state.lastSeen != null && Duration.between(state.lastSeen, clock.instant()).compareTo(staleAfter) > 0;
     }
 
     private String connectionState(MutableManikinState state, boolean stale, boolean offline) {
@@ -851,7 +880,7 @@ public class ManikinRegistryService {
         private String lastEventType;
         private Long latestForce1;
         private Long latestForce2;
-        private Double pressureBalancePct;
+        private Double pressureBalanceScorePct;
         private Boolean pressureSkewed;
         private String firmwareState;
         private Boolean calibrated;

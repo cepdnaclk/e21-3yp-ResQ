@@ -1,0 +1,720 @@
+VALIDATION {"marker":"VALIDATION_BEGIN","epoch_s":1785299340.191176}
+VALIDATION {"marker":"DEVICE_CONNECTION_GRACE_COMPLETE","epoch_s":1785299348.2209947}
+VALIDATION {"marker":"SESSION_START_PUBLISHED","epoch_s":1785299348.4135406,"session_id":"phase7-wdt-long-20260729","requested_duration_s":610}
+1785299348.450 I (27340) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/start payload_len=217
+1785299348.476 I (27350) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/start payload={"request_id":"phase7-wdt-long-20260729-start","session_id":"phase7-wdt-long-20260729","profile_id":"adult-basic","profile_version":1,"profile_hash":"a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f"}
+1785299348.477
+1785299348.484 I (27370) paired_idle: Command suffix=cmd/session/start visible_state=READY_FOR_SESSION
+1785299348.492 I (27380) session_manager: Session started id=phase7-wdt-long-20260729 profile=adult-basic
+1785299348.498 I (27390) session_active_mgr: SESSION_PRESSURE_AVAILABLE valid_mask=0x07
+1785299348.504 I (27400) resq_fsm: Entering state: SESSION_ACTIVE
+1785299348.510 I (27400) status_indicator: State indicator changed to SESSION_ACTIVE
+1785299352.923 W (31810) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299352.929 I (31810) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299353.212 I (32110) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299353.219 I (32120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=1
+1785299353.320 I (32220) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=2
+1785299362.800 I (41700) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=3
+1785299363.019 I (41920) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=4
+1785299363.359 I (42260) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=5
+1785299371.519 I (50420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=6
+1785299373.599 I (52500) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=7
+1785299376.802 W (55690) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299376.808 I (55690) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299377.091 I (55990) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299378.039 I (56940) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=8
+1785299378.522 W (57410) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299378.528 I (57410) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299378.811 I (57710) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299381.520 I (60420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=9
+1785299384.900 I (63800) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=10
+1785299385.162 W (64050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299385.168 I (64050) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299385.443 I (64340) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299386.738 I (65640) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=11
+1785299389.919 I (68820) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=12
+1785299392.079 I (70980) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=13
+1785299392.918 I (71820) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=14
+1785299394.139 I (73040) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=15
+1785299394.959 I (73860) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=16
+1785299396.779 I (75680) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=17
+1785299398.758 I (77660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=18
+1785299400.038 I (78940) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=19
+1785299403.299 I (82200) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=20
+1785299404.442 W (83330) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299404.448 I (83330) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299404.723 I (83620) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299405.279 I (84180) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=21
+1785299406.118 I (85020) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=22
+1785299407.018 I (85920) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=23
+1785299410.999 I (89900) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=24
+1785299411.701 W (90590) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299411.707 I (90590) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299411.984 I (90880) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299412.138 I (91040) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=25
+1785299412.161 W (91050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299412.167 I (91050) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299412.448 I (91350) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299414.698 I (93600) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=26
+1785299426.679 I (105580) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=27
+1785299427.337 I (106240) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=28
+1785299430.879 I (109780) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=29
+1785299431.378 I (110280) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=30
+1785299434.061 W (112950) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299434.067 I (112950) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299434.342 I (113240) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299436.218 I (115120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=31
+1785299440.197 I (119100) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=32
+1785299441.117 I (120020) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=33
+1785299445.081 W (123970) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299445.087 I (123970) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299445.363 I (124260) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299446.017 I (124920) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=34
+1785299448.097 I (127000) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=35
+1785299452.517 I (131420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=36
+1785299453.381 W (132270) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299453.387 I (132270) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299453.667 I (132570) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299453.677 I (132580) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=37
+1785299457.237 I (136140) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=38
+1785299460.257 I (139160) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=39
+1785299461.060 W (139950) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299461.066 I (139950) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299461.345 I (140240) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299462.917 I (141820) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=40
+1785299463.200 W (142090) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299463.206 I (142090) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299463.482 I (142380) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299463.697 I (142600) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=41
+1785299465.757 I (144660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=42
+1785299466.691 W (145580) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299466.696 I (145580) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299466.979 I (145880) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299468.357 I (147260) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=43
+1785299473.157 I (152060) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=44
+1785299473.717 I (152620) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=45
+1785299474.370 W (153260) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299474.376 I (153260) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299474.657 I (153560) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299476.776 I (155680) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=46
+1785299476.820 W (155710) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299476.826 I (155710) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299477.108 I (156010) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299479.336 I (158240) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=47
+1785299486.530 W (165410) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_INVALID_RESPONSE initial=0x01 ready=0x07 valid=0x00 not_ready=0x00 stuck_high=0x00 stuck_low=0x01 post_invalid=0x01 next_ready_warning=0x00 pulses=25 ready_wait_ms=80 consecutive=1
+1785299486.536 I (165420) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299486.619 I (165520) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299487.817 I (166720) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=48
+1785299488.556 I (167460) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=49
+1785299494.950 W (173840) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299494.956 I (173840) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299495.240 I (174140) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299495.456 I (174360) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=50
+1785299497.456 I (176360) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=51
+1785299498.140 W (177030) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x01 ready=0x03 valid=0x00 not_ready=0x04 stuck_high=0x04 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299498.146 I (177030) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299498.402 I (177300) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299508.496 I (187400) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=52
+1785299512.076 I (190980) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=53
+1785299515.179 W (194070) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299515.185 I (194070) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299515.356 I (194260) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=54
+1785299515.460 I (194360) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299516.997 I (195900) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=55
+1785299520.376 I (199280) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=56
+1785299520.796 I (199700) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=57
+1785299525.679 W (204570) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299525.685 I (204570) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299525.962 I (204860) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299526.176 I (205080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=58
+1785299527.819 W (206710) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299527.825 I (206720) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299528.100 I (207000) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299528.415 I (207320) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=59
+1785299528.735 I (207640) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=60
+1785299531.099 W (209990) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299531.105 I (209990) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299531.388 I (210290) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299533.515 I (212420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=61
+1785299533.759 W (212650) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299533.765 I (212650) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299534.049 I (212950) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299537.935 I (216840) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=62
+1785299538.255 I (217160) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=63
+1785299539.459 W (218350) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299539.465 I (218350) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299539.740 I (218640) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299539.755 I (218660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=64
+1785299542.119 W (221010) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299542.125 I (221010) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299542.400 I (221300) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299544.235 I (223140) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=65
+1785299544.515 I (223420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=66
+1785299545.929 W (224820) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299545.935 I (224820) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299546.210 I (225110) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299549.109 W (228000) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299549.115 I (228000) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299549.121 I (228020) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=67
+1785299549.392 I (228290) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299556.335 I (235240) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=68
+1785299557.855 I (236760) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=69
+1785299562.328 W (241220) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299562.334 I (241220) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299562.612 I (241510) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299563.076 I (241980) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=70
+1785299563.975 I (242880) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=71
+1785299564.995 I (243900) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=72
+1785299565.174 I (244080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=73
+1785299567.415 I (246320) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=74
+1785299570.428 W (249320) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299570.434 I (249320) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299570.709 I (249610) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299576.594 I (255500) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=75
+1785299577.158 W (256050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299577.164 I (256050) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299577.446 I (256350) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299578.495 I (257400) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=76
+1785299580.968 W (259860) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299580.974 I (259860) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299581.255 I (260160) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299582.474 I (261380) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=77
+1785299583.174 I (262080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=78
+1785299588.654 I (267560) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=79
+1785299590.428 W (269320) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299590.434 I (269320) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299590.709 I (269610) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299591.408 W (270300) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299591.414 I (270300) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299591.694 I (270600) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=80
+1785299591.700 I (270600) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299592.954 I (271860) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=81
+1785299594.388 W (273280) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299594.394 I (273280) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299594.670 I (273570) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299598.761 W (277650) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_INVALID_RESPONSE initial=0x04 ready=0x07 valid=0x00 not_ready=0x00 stuck_high=0x00 stuck_low=0x04 post_invalid=0x04 next_ready_warning=0x00 pulses=25 ready_wait_ms=90 consecutive=1
+1785299598.767 I (277660) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299598.851 I (277750) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299600.214 I (279120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=82
+1785299604.677 W (283570) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299604.683 I (283570) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299604.961 I (283860) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299607.834 I (286740) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=83
+1785299608.797 W (287690) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299608.803 I (287690) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299609.084 I (287990) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299610.554 I (289460) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=84
+1785299611.247 W (290140) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299611.253 I (290140) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299611.260 I (290160) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=85
+1785299611.536 I (290440) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299611.854 I (290760) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=86
+1785299620.114 I (299020) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=87
+1785299620.513 I (299420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=88
+1785299621.174 I (300080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=89
+1785299621.647 W (300540) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299621.653 I (300540) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299621.934 I (300840) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299622.113 I (301020) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=90
+1785299623.133 I (302040) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=91
+1785299623.157 W (302050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299623.163 I (302050) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299623.444 I (302350) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299623.713 I (302620) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=92
+1785299630.354 I (309260) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=93
+1785299632.473 I (311380) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=94
+1785299632.793 I (311700) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=95
+1785299634.633 I (313540) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=96
+1785299635.693 I (314600) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=97
+1785299639.233 I (318140) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=98
+1785299639.793 I (318700) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=99
+1785299641.333 I (320240) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=100
+1785299650.596 W (329490) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299650.602 I (329490) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299650.877 I (329780) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299656.806 W (335700) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299656.812 I (335700) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299657.091 I (335990) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299657.432 I (336340) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=101
+1785299657.733 I (336640) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=102
+1785299660.493 I (339400) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=103
+1785299661.656 W (340550) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299661.662 I (340550) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299661.947 I (340850) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299662.473 I (341380) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=104
+1785299664.426 W (343320) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299664.432 I (343320) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299664.712 I (343610) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299668.352 I (347260) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=105
+1785299671.012 I (349920) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=106
+1785299671.872 I (350780) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=107
+1785299675.514 I (354420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=108
+1785299676.332 I (355240) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=109
+1785299677.252 I (356160) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=110
+1785299678.276 W (357170) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299678.282 I (357170) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299678.557 I (357460) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299678.993 I (357900) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=111
+1785299679.292 I (358200) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=112
+1785299679.676 W (358570) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299679.682 I (358570) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299679.962 I (358870) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299680.712 I (359620) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=113
+1785299682.772 I (361680) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=114
+1785299684.032 I (362940) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=115
+1785299684.746 W (363640) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299684.752 I (363650) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299684.758 I (363660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=116
+1785299684.932 I (363840) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=117
+1785299685.027 I (363930) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299685.526 W (364420) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299685.532 I (364430) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299685.807 I (364710) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299688.532 I (367440) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=118
+1785299689.335 W (368230) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299689.341 I (368230) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299689.616 I (368520) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299690.272 I (369180) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=119
+1785299693.346 W (372240) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299693.352 I (372250) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299693.636 I (372540) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299698.092 I (377000) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=120
+1785299700.972 I (379880) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=121
+1785299702.212 I (381120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=122
+1785299706.155 W (385050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299706.161 I (385050) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299706.437 I (385340) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299706.615 W (385510) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299706.621 I (385510) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299706.902 I (385810) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299710.031 I (388940) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=123
+1785299712.132 I (391040) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=124
+1785299712.552 I (391460) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=125
+1785299716.071 I (394980) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=126
+1785299717.513 I (396420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=127
+1785299718.231 I (397140) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=128
+1785299720.391 I (399300) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=129
+1785299721.511 I (400420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=130
+1785299721.925 W (400820) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299721.931 I (400830) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299722.209 I (401110) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299722.651 I (401560) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=131
+1785299723.571 I (402480) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=132
+1785299723.971 I (402880) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=133
+1785299727.271 I (406180) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=134
+1785299727.531 I (406440) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=135
+1785299727.752 I (406660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=136
+1785299729.993 I (408900) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=137
+1785299732.634 W (411530) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299732.640 I (411530) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299732.916 I (411820) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299735.211 I (414120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=138
+1785299735.411 I (414320) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=139
+1785299736.051 I (414960) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=140
+1785299737.471 I (416380) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=141
+1785299741.471 I (420380) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=142
+1785299741.774 W (420670) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299741.780 I (420670) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299742.055 I (420960) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299742.654 W (421550) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299742.660 I (421550) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299742.938 I (421840) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299743.891 I (422800) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=143
+1785299747.094 W (425990) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299747.100 I (425990) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299747.376 I (426280) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299747.450 I (426360) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=144
+1785299747.991 I (426900) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=145
+1785299748.450 I (427360) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=146
+1785299753.150 I (432060) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=147
+1785299753.934 W (432830) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x03 valid=0x00 not_ready=0x04 stuck_high=0x04 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299753.940 I (432830) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299753.951 I (432860) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299754.611 I (433520) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=148
+1785299754.871 I (433780) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=149
+1785299763.024 W (441920) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x03 valid=0x00 not_ready=0x04 stuck_high=0x04 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299763.030 I (441930) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299763.045 I (441950) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299764.850 I (443760) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=150
+1785299766.374 W (445270) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299766.379 I (445270) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299766.655 I (445560) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299776.410 I (455320) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=151
+1785299778.370 I (457280) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=152
+1785299782.170 I (461080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=153
+1785299784.393 W (463290) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299784.399 I (463290) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299784.680 I (463590) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299787.770 I (466680) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=154
+1785299790.210 I (469120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=155
+1785299791.950 I (470860) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=156
+1785299796.154 W (475050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299796.160 I (475060) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299796.169 I (475080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=157
+1785299796.434 I (475340) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299796.823 W (475720) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299796.829 I (475720) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299797.108 I (476010) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299801.169 I (480080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=158
+1785299802.413 W (481310) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299802.419 I (481310) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299802.695 I (481600) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299809.929 I (488840) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=159
+1785299810.309 I (489220) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=160
+1785299811.089 I (490000) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=161
+1785299812.803 W (491700) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299812.809 I (491700) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299813.089 I (492000) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299816.130 I (495040) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=162
+1785299817.029 I (495940) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=163
+1785299818.771 I (497680) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=164
+1785299819.542 W (498440) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299819.548 I (498440) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299819.826 I (498730) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299822.050 I (500960) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=165
+1785299824.209 I (503120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=166
+1785299824.889 I (503800) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=167
+1785299828.209 I (507120) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=168
+1785299829.388 I (508300) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=169
+1785299830.563 W (509460) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299830.569 I (509470) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299830.848 I (509750) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299832.529 I (511440) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=170
+1785299833.049 I (511960) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=171
+1785299840.070 I (518980) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=172
+1785299840.469 I (519380) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=173
+1785299842.348 I (521260) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=174
+1785299843.782 W (522680) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299843.788 I (522690) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299844.064 I (522970) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299845.428 I (524340) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=175
+1785299847.309 I (526220) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=176
+1785299849.029 I (527940) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=177
+1785299849.289 I (528200) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=178
+1785299850.628 I (529540) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=179
+1785299851.490 I (530400) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=180
+1785299851.849 I (530760) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=181
+1785299854.428 I (533340) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=182
+1785299856.509 I (535420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=183
+1785299856.608 I (535520) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=184
+1785299859.091 W (537990) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299859.097 I (537990) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299859.374 I (538280) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299861.851 W (540750) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299861.857 I (540750) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299862.139 I (541050) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299862.508 I (541420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=185
+1785299864.302 W (543200) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299864.308 I (543200) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299864.590 I (543500) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299867.381 W (546280) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299867.387 I (546280) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299867.668 I (546580) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299869.831 W (548730) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299869.837 I (548730) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299870.119 I (549030) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299870.788 I (549700) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=186
+1785299871.608 I (550520) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=187
+1785299872.967 I (551880) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=188
+1785299874.168 I (553080) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=189
+1785299877.968 I (556880) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=190
+1785299878.688 I (557600) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=191
+1785299881.667 I (560580) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=192
+1785299883.188 I (562100) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=193
+1785299883.361 W (562260) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299883.367 I (562260) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299883.651 I (562560) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299886.087 I (565000) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=194
+1785299886.368 I (565280) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=195
+1785299886.927 I (565840) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=196
+1785299888.387 I (567300) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=197
+1785299890.347 I (569260) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=198
+1785299892.907 I (571820) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=199
+1785299895.541 W (574440) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299895.547 I (574450) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299895.825 I (574730) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299896.247 I (575160) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=200
+1785299900.067 I (578980) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=201
+1785299902.627 I (581540) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=202
+1785299902.728 I (581640) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=203
+1785299903.768 I (582680) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=204
+1785299905.827 I (584740) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=205
+1785299908.907 I (587820) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=206
+1785299910.330 W (589230) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299910.336 I (589230) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299910.612 I (589520) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299912.407 I (591320) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=207
+1785299913.721 W (592620) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299913.727 I (592630) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299914.004 I (592910) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299914.046 I (592960) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=208
+1785299915.467 I (594380) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=209
+1785299915.926 I (594840) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=210
+1785299926.620 W (605520) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299926.626 I (605530) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299926.907 I (605820) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299929.390 W (608290) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299929.396 I (608290) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299929.671 I (608580) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299930.806 I (609720) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=211
+1785299933.647 I (612560) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=212
+1785299933.886 I (612800) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=213
+1785299936.866 I (615780) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=214
+1785299939.780 W (618680) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299939.786 I (618680) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299939.793 I (618700) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=215
+1785299940.066 I (618970) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299940.906 I (619820) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=216
+1785299942.540 W (621440) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299942.546 I (621440) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299942.830 I (621740) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299943.148 I (622060) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=217
+1785299943.566 I (622480) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=218
+1785299944.060 W (622960) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299944.066 I (622960) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299944.341 I (623250) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299944.926 I (623840) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=219
+1785299945.406 I (624320) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=220
+1785299949.666 I (628580) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=221
+1785299951.520 W (630420) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299951.526 I (630430) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299951.808 I (630720) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299957.546 I (636460) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=222
+1785299957.746 I (636660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=223
+1785299958.246 I (637160) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=224
+VALIDATION {"marker":"SESSION_STOP_PUBLISHED","epoch_s":1785299958.4664302,"session_id":"phase7-wdt-long-20260729"}
+1785299958.503 I (637410) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/stop payload_len=87
+1785299958.518 I (637410) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/stop payload={"request_id":"phase7-wdt-long-20260729-stop","session_id":"phase7-wdt-long-20260729"}
+1785299958.518
+1785299958.601 I (637420) session_active_mgr: Session active command=cmd/session/stop
+1785299958.607 I (637520) session_manager: Session stopped id=phase7-wdt-long-20260729
+1785299958.612 I (637520) resq_fsm: Entering state: READY_FOR_SESSION
+1785299958.618 I (637520) status_indicator: State indicator changed to READY_FOR_SESSION
+1785299958.715 I (637630) status_indicator: State indicator changed to READY_FOR_SESSION
+1785299958.722 I (637630) status_indicator: State indicator changed to READY_FOR_SESSION
+VALIDATION {"marker":"SESSION_START_PUBLISHED","epoch_s":1785299963.5124393,"session_id":"phase7-wdt-cycle-1-20260729","requested_duration_s":65}
+1785299963.596 I (642500) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/start payload_len=223
+1785299963.623 I (642510) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/start payload={"request_id":"phase7-wdt-cycle-1-20260729-start","session_id":"phase7-wdt-cycle-1-20260729","profile_id":"adult-basic","profile_version":1,"profile_hash":"a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f"}
+1785299963.623
+1785299963.631 I (642530) paired_idle: Command suffix=cmd/session/start visible_state=READY_FOR_SESSION
+1785299963.639 I (642540) session_manager: Session started id=phase7-wdt-cycle-1-20260729 profile=adult-basic
+1785299963.646 I (642550) session_active_mgr: SESSION_PRESSURE_AVAILABLE valid_mask=0x07
+1785299963.650 I (642560) resq_fsm: Entering state: SESSION_ACTIVE
+1785299963.657 I (642560) status_indicator: State indicator changed to SESSION_ACTIVE
+1785299964.676 I (643590) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=1
+1785299965.955 I (644870) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=2
+1785299965.989 W (644890) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299965.995 I (644890) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299966.279 I (645190) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299969.655 I (648570) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=3
+1785299972.655 I (651570) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=4
+1785299974.855 I (653770) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=5
+1785299976.736 I (655650) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=6
+1785299977.229 W (656130) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299977.235 I (656130) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299977.510 I (656420) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299977.875 I (656790) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=7
+1785299979.149 W (658050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299979.155 I (658060) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299979.436 I (658350) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=8
+1785299979.443 I (658350) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299984.429 W (663330) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299984.435 I (663330) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299984.441 I (663350) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=9
+1785299984.713 I (663620) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299985.135 I (664050) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=10
+1785299987.189 W (666090) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785299987.195 I (666090) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785299987.477 I (666390) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785299987.935 I (666850) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=11
+1785299994.635 I (673550) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=12
+1785299995.335 I (674250) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=13
+1785299996.835 I (675750) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=14
+1785299998.176 I (677090) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=15
+1785300000.375 I (679290) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=16
+1785300001.574 I (680490) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=17
+1785300005.855 I (684770) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=18
+1785300006.514 I (685430) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=19
+1785300008.075 I (686990) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=20
+1785300010.029 W (688930) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300010.035 I (688940) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300010.312 I (689220) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300012.315 I (691230) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=21
+1785300012.788 W (691690) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300012.794 I (691690) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300013.077 I (691990) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300016.095 I (695010) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=22
+1785300016.734 I (695650) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=23
+1785300025.515 I (704430) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=24
+1785300026.194 I (705110) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=25
+1785300027.854 I (706770) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=26
+VALIDATION {"marker":"SESSION_STOP_PUBLISHED","epoch_s":1785300028.613454,"session_id":"phase7-wdt-cycle-1-20260729"}
+1785300028.658 I (707570) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/stop payload_len=93
+1785300028.760 I (707570) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/stop payload={"request_id":"phase7-wdt-cycle-1-20260729-stop","session_id":"phase7-wdt-cycle-1-20260729"}
+1785300028.760
+1785300028.766 I (707670) session_active_mgr: Session active command=cmd/session/stop
+1785300028.774 I (707690) session_manager: Session stopped id=phase7-wdt-cycle-1-20260729
+1785300028.779 I (707690) resq_fsm: Entering state: READY_FOR_SESSION
+1785300028.786 I (707690) status_indicator: State indicator changed to READY_FOR_SESSION
+1785300028.874 I (707790) status_indicator: State indicator changed to READY_FOR_SESSION
+1785300028.880 I (707790) status_indicator: State indicator changed to READY_FOR_SESSION
+VALIDATION {"marker":"SESSION_START_PUBLISHED","epoch_s":1785300033.6536672,"session_id":"phase7-wdt-cycle-2-20260729","requested_duration_s":65}
+1785300033.666 I (712570) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/start payload_len=223
+1785300033.693 I (712580) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/start payload={"request_id":"phase7-wdt-cycle-2-20260729-start","session_id":"phase7-wdt-cycle-2-20260729","profile_id":"adult-basic","profile_version":1,"profile_hash":"a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f"}
+1785300033.693
+1785300033.701 I (712600) paired_idle: Command suffix=cmd/session/start visible_state=READY_FOR_SESSION
+1785300033.709 I (712610) session_manager: Session started id=phase7-wdt-cycle-2-20260729 profile=adult-basic
+1785300033.716 I (712620) session_active_mgr: SESSION_PRESSURE_AVAILABLE valid_mask=0x07
+1785300033.720 I (712630) resq_fsm: Entering state: SESSION_ACTIVE
+1785300033.726 I (712630) status_indicator: State indicator changed to SESSION_ACTIVE
+1785300038.967 W (717870) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300038.973 I (717870) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300039.256 I (718170) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300039.964 I (718880) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=1
+1785300042.084 I (721000) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=2
+1785300044.867 W (723770) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300044.873 I (723770) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300045.157 I (724070) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300046.544 I (725460) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=3
+1785300047.264 I (726180) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=4
+1785300051.187 W (730090) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300051.193 I (730090) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300051.477 I (730390) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300053.647 W (732550) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300053.653 I (732550) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300053.928 I (732840) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300055.624 I (734540) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=5
+1785300056.827 W (735730) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300056.833 I (735730) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300057.112 I (736020) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300057.324 I (736240) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=6
+1785300057.744 I (736660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=7
+1785300058.284 I (737200) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=8
+1785300058.684 I (737600) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=9
+1785300059.487 W (738390) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300059.493 I (738390) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300059.772 I (738680) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300060.844 I (739760) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=10
+1785300062.247 W (741150) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300062.253 I (741150) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300062.537 I (741450) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300063.404 I (742320) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=11
+1785300063.744 I (742660) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=12
+1785300065.363 I (744280) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=13
+1785300066.123 I (745040) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=14
+1785300066.623 I (745540) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=15
+1785300067.063 I (745980) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=16
+1785300068.677 W (747580) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300068.683 I (747580) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300068.960 I (747870) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300072.697 W (751600) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300072.703 I (751600) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300072.979 I (751890) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300078.443 I (757360) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=17
+1785300079.584 I (758500) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=18
+1785300079.783 I (758700) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=19
+1785300080.267 W (759170) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300080.273 I (759170) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300080.552 I (759460) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300083.446 W (762350) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300083.452 I (762350) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300083.734 I (762650) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300084.703 I (763620) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=20
+1785300091.226 W (770130) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300091.232 I (770130) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300091.516 I (770430) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300092.184 I (771100) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=21
+1785300093.786 W (772690) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300093.792 I (772690) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300094.072 I (772980) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300096.503 I (775420) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=22
+1785300097.683 I (776600) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=23
+VALIDATION {"marker":"SESSION_STOP_PUBLISHED","epoch_s":1785300098.7732582,"session_id":"phase7-wdt-cycle-2-20260729"}
+1785300098.786 I (777700) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/stop payload_len=93
+1785300098.882 I (777700) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/stop payload={"request_id":"phase7-wdt-cycle-2-20260729-stop","session_id":"phase7-wdt-cycle-2-20260729"}
+1785300098.882
+1785300098.888 I (777800) session_active_mgr: Session active command=cmd/session/stop
+1785300098.903 I (777820) session_manager: Session stopped id=phase7-wdt-cycle-2-20260729
+1785300098.908 I (777820) resq_fsm: Entering state: READY_FOR_SESSION
+1785300098.914 I (777820) status_indicator: State indicator changed to READY_FOR_SESSION
+1785300099.002 I (777920) status_indicator: State indicator changed to READY_FOR_SESSION
+1785300099.009 I (777920) status_indicator: State indicator changed to READY_FOR_SESSION
+VALIDATION {"marker":"SESSION_START_PUBLISHED","epoch_s":1785300103.7891352,"session_id":"phase7-wdt-cycle-3-20260729","requested_duration_s":65}
+1785300103.858 I (782770) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/start payload_len=223
+1785300103.885 I (782780) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/start payload={"request_id":"phase7-wdt-cycle-3-20260729-start","session_id":"phase7-wdt-cycle-3-20260729","profile_id":"adult-basic","profile_version":1,"profile_hash":"a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f"}
+1785300103.886
+1785300103.893 I (782790) paired_idle: Command suffix=cmd/session/start visible_state=READY_FOR_SESSION
+1785300103.902 I (782810) session_manager: Session started id=phase7-wdt-cycle-3-20260729 profile=adult-basic
+1785300103.908 I (782810) session_active_mgr: SESSION_PRESSURE_AVAILABLE valid_mask=0x07
+1785300104.006 I (782920) resq_fsm: Entering state: SESSION_ACTIVE
+1785300104.012 I (782920) status_indicator: State indicator changed to SESSION_ACTIVE
+1785300107.212 I (786130) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=1
+1785300110.592 I (789510) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=2
+1785300111.816 W (790720) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300111.822 I (790720) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300112.098 I (791010) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300112.432 I (791350) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=3
+1785300114.576 W (793480) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300114.582 I (793480) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300114.863 I (793780) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300115.986 W (794890) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300115.992 I (794890) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300116.269 I (795180) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300116.652 I (795570) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=4
+1785300118.112 I (797030) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=5
+1785300118.472 I (797390) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=6
+1785300120.872 I (799790) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=7
+1785300121.992 I (800910) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=8
+1785300124.952 I (803870) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=9
+1785300125.552 I (804470) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=10
+1785300127.132 I (806050) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=11
+1785300127.426 W (806330) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300127.432 I (806330) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300127.708 I (806620) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300132.012 I (810930) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=12
+1785300143.145 W (822050) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300143.151 I (822050) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300143.432 I (822350) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300144.812 I (823730) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=13
+1785300145.915 W (824820) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300145.921 I (824820) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300146.198 I (825110) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300148.293 I (827210) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=14
+1785300148.675 W (827580) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300148.681 I (827580) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300148.963 I (827880) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300149.951 I (828870) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=15
+1785300152.831 I (831750) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=16
+1785300153.325 W (832230) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300153.331 I (832230) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300153.609 I (832520) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300154.691 I (833610) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=17
+1785300156.671 I (835590) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=18
+1785300156.811 I (835730) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=19
+1785300159.225 W (838130) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300159.231 I (838130) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300159.509 I (838420) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300161.985 W (840890) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300161.991 I (840890) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300162.275 I (841190) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300162.631 I (841550) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=20
+1785300163.533 I (842450) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=21
+1785300163.951 I (842870) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=22
+1785300164.271 I (843190) cpr_metrics: SESSION_COMPRESSION_PRESSURE_RESET compression=23
+1785300164.755 W (843660) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300164.761 I (843660) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300165.039 I (843950) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+1785300166.895 W (845800) session_active_mgr: HX710_SESSION_READ: err=ESP_ERR_TIMEOUT initial=0x00 ready=0x00 valid=0x00 not_ready=0x07 stuck_high=0x07 stuck_low=0x00 post_invalid=0x00 next_ready_warning=0x00 pulses=0 ready_wait_ms=0 consecutive=1
+1785300166.901 I (845800) session_active_mgr: SESSION_PRESSURE_TEMPORARILY_INVALID
+1785300167.177 I (846090) session_active_mgr: SESSION_PRESSURE_RECOVERED valid_mask=0x07
+VALIDATION {"marker":"SESSION_STOP_PUBLISHED","epoch_s":1785300168.9071434,"session_id":"phase7-wdt-cycle-3-20260729"}
+1785300169.063 I (847980) mqtt_manager: MQTT command received topic=resq/M637/cmd/session/stop payload_len=93
+1785300169.160 I (847980) mqtt_manager: Dequeued MQTT command topic=resq/M637/cmd/session/stop payload={"request_id":"phase7-wdt-cycle-3-20260729-stop","session_id":"phase7-wdt-cycle-3-20260729"}
+1785300169.160
+1785300169.167 I (848080) session_active_mgr: Session active command=cmd/session/stop
+1785300169.173 I (848090) session_manager: Session stopped id=phase7-wdt-cycle-3-20260729
+1785300169.178 I (848090) resq_fsm: Entering state: READY_FOR_SESSION
+1785300169.185 I (848090) status_indicator: State indicator changed to READY_FOR_SESSION
+1785300169.281 I (848200) status_indicator: State indicator changed to READY_FOR_SESSION
+1785300169.287 I (848200) status_indicator: State indicator changed to READY_FOR_SESSION
+VALIDATION {"marker":"VALIDATION_COMPLETE","epoch_s":1785300173.9269989}

@@ -34,14 +34,70 @@ class MqttSubscriberServiceTest {
         assertThat(service.parseTopic("resq/M01/status")).isNotNull();
         assertThat(service.parseTopic("resq/M01/status").messageType()).isEqualTo("status");
         assertThat(service.parseTopic("resq/M01/status").canonicalFirmwareTopic()).isTrue();
+        assertThat(service.parseTopic("resq/M01/heartbeat").messageType()).isEqualTo("heartbeat");
+        assertThat(service.parseTopic("resq/M01/telemetry").messageType()).isEqualTo("telemetry");
+        assertThat(service.parseTopic("resq/M01/debug").messageType()).isEqualTo("debug");
+        assertThat(service.parseTopic("resq/M01/events").messageType()).isEqualTo("events");
         assertThat(service.parseTopic("resq/M01/events/calibration").messageType()).isEqualTo("events/calibration");
         assertThat(service.parseTopic("resq/M01/events/calibration").canonicalFirmwareTopic()).isTrue();
         assertThat(service.parseTopic("resq/M01/events/error").messageType()).isEqualTo("events/error");
+        assertThat(service.parseTopic("resq/manikins/M01/status").messageType()).isEqualTo("status");
+        assertThat(service.parseTopic("resq/manikins/M01/heartbeat").messageType()).isEqualTo("heartbeat");
+        assertThat(service.parseTopic("resq/manikins/M01/telemetry").messageType()).isEqualTo("telemetry");
+        assertThat(service.parseTopic("resq/manikins/M01/debug").messageType()).isEqualTo("debug");
         assertThat(service.parseTopic("resq/manikins/M01/live").messageType()).isEqualTo("telemetry");
         assertThat(service.parseTopic("resq/manikins/M01/live").canonicalFirmwareTopic()).isFalse();
         assertThat(service.parseTopic("resq/manikins/M01/events").messageType()).isEqualTo("events");
         assertThat(service.parseTopic("resq/manikins/M01/events/calibration").messageType()).isEqualTo("events/calibration");
+        assertThat(service.parseTopic("resq/manikins/M01/events/error").messageType()).isEqualTo("events/error");
         assertThat(service.parseTopic("other/M01/status")).isNull();
+    }
+
+    @Test
+    void identityMismatchHasNoPersistenceRegistryOrSseEffect() throws Exception {
+        FirmwarePersistenceRepository repository = newRepository();
+        ServiceFixture fixture = newFixture(repository);
+
+        fixture.subscriber().handleMessage("resq/M01/status", message("""
+                {
+                  "device_id":"M02",
+                  "state":"PAIRED_IDLE",
+                  "boot_id":"boot-a",
+                  "state_seq":1
+                }
+                """));
+
+        assertThat(repository.findRecentEvents("M01", 10)).isEmpty();
+        assertThat(fixture.registry().getLiveSummary("M01")).isEmpty();
+        assertThat(fixture.registry().getLiveSummary("M02")).isEmpty();
+        assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).isEmpty();
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().identityMismatchCount()).isEqualTo(1);
+    }
+
+    @Test
+    void staleDuplicateAndConflictingStateMessagesHaveNoSecondDomainEffect() throws Exception {
+        FirmwarePersistenceRepository repository = newRepository();
+        ServiceFixture fixture = newFixture(repository);
+        String accepted = """
+                {"device_id":"M01","state":"READY_FOR_SESSION","boot_id":"boot-a","state_seq":5}
+                """;
+
+        fixture.subscriber().handleMessage("resq/M01/status", message(accepted));
+        int snapshotCount = fixture.liveStreamService().getInstructorLiveSnapshots().size();
+        int persistedCount = repository.findRecentEvents("M01", 10).size();
+        fixture.subscriber().handleMessage("resq/M01/status", message(accepted));
+        fixture.subscriber().handleMessage("resq/M01/status", message("""
+                {"device_id":"M01","state":"PAIRED_IDLE","boot_id":"boot-a","state_seq":5}
+                """));
+        fixture.subscriber().handleMessage("resq/M01/status", message("""
+                {"device_id":"M01","state":"BOOTING","boot_id":"boot-a","state_seq":4}
+                """));
+
+        assertThat(repository.findRecentEvents("M01", 10)).hasSize(persistedCount);
+        assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).hasSize(snapshotCount);
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().duplicateSequenceCount()).isEqualTo(1);
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().conflictingSequenceCount()).isEqualTo(1);
+        assertThat(fixture.subscriber().ingestionDiagnosticCounters().staleSequenceCount()).isEqualTo(1);
     }
 
     @Test
@@ -78,7 +134,7 @@ class MqttSubscriberServiceTest {
         ManikinLiveSummary afterStatus = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
         assertThat(afterStatus.online()).isTrue();
         assertThat(afterStatus.state()).isEqualTo("PAIRED_IDLE");
-        assertThat(afterStatus.lastSeen()).isAfterOrEqualTo(beforeStatus);
+        assertThat(afterStatus.lastSeen()).isAfterOrEqualTo(beforeStatus.minusMillis(1));
         assertThat(afterStatus.lastSeen().toEpochMilli()).isGreaterThan(1_000_000_000_000L);
         assertThat(afterStatus.ip()).isEqualTo("192.168.8.161");
         assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).isNotEmpty();
@@ -114,6 +170,46 @@ class MqttSubscriberServiceTest {
                 .extracting(ManikinLiveSummary::deviceId)
                 .contains("M-DEV");
     }
+
+    @Test
+    void legacyHeartbeatAfterSequencedStatusRefreshesLivenessWithoutOverwritingDomainState() throws Exception {
+        LiveRegistryFixture fixture = newLiveRegistryFixture();
+        fixture.subscriber().handleMessage("resq/M-DEV/status", message("""
+            {
+              "event_id": 1001,
+              "device_id": "M-DEV",
+              "state": "PAIRED_IDLE",
+              "session_active": false,
+              "calibrated": false,
+              "ts_ms": 9000,
+              "boot_id": "4312a8ab05649136",
+              "state_seq": 3
+            }
+            """));
+        ManikinLiveSummary afterStatus = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
+        int snapshotCount = fixture.liveStreamService().getInstructorLiveSnapshots().size();
+        Thread.sleep(2L);
+
+        fixture.subscriber().handleMessage("resq/M-DEV/heartbeat", message("""
+            {
+              "device_id": "M-DEV",
+              "state": "SESSION_RUNNING",
+              "session_active": true,
+              "calibrated": true,
+              "uptime_ms": 10000,
+              "ts_ms": 10000
+            }
+            """));
+
+        ManikinLiveSummary afterHeartbeat = fixture.registry().getLiveSummary("M-DEV").orElseThrow();
+        assertThat(afterHeartbeat.lastSeen()).isAfter(afterStatus.lastSeen());
+        assertThat(afterHeartbeat.online()).isTrue();
+        assertThat(afterHeartbeat.state()).isEqualTo("PAIRED_IDLE");
+        assertThat(afterHeartbeat.sessionActive()).isFalse();
+        assertThat(afterHeartbeat.calibrated()).isFalse();
+        assertThat(fixture.liveStreamService().getInstructorLiveSnapshots()).hasSize(snapshotCount + 1);
+    }
+
     @Test
     void persistsEventReplyAndCalibrationSnapshots() throws Exception {
         FirmwarePersistenceRepository repository = newRepository();
@@ -269,8 +365,8 @@ class MqttSubscriberServiceTest {
         assertThat(liveView.latestMetric().recoilOkCount()).isZero();
         assertThat(liveView.latestMetric().incompleteRecoilCount()).isZero();
         assertThat(liveView.latestMetric().handPlacement()).isEqualTo("CENTER");
-        assertThat(liveView.latestMetric().pressureBalancePct()).isEqualTo(92.9);
-        assertThat(liveView.pressureBalancePct()).isEqualTo(92.9);
+        assertThat(liveView.latestMetric().pressureBalanceScorePct()).isEqualTo(92.9);
+        assertThat(liveView.pressureBalanceScorePct()).isEqualTo(92.9);
         assertThat(liveView.latestFlags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
     }
     @Test
@@ -388,6 +484,55 @@ class MqttSubscriberServiceTest {
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
         assertThat(liveView.latestDepthMm()).isNull();
         assertThat(liveView.latestRateCpm()).isNull();
+    }
+
+    @Test
+    void persistsSessionTelemetryOnlyAfterBindingAndDuplicateValidation() throws Exception {
+        FirmwarePersistenceRepository repository = newRepository();
+        ServiceFixture fixture = newFixture(repository);
+        var session = fixture.activeSessionService().startSession(new SessionStartRequest(
+                "M01", "trainee-1", null, null, null, null, "adult-basic", "binding-test", null
+        ));
+        activate(fixture, session);
+
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+                {
+                  "session_id":"wrong-session",
+                  "state":"SESSION_ACTIVE",
+                  "seq":1,
+                  "depth_mm":50,
+                  "depth_ok":true
+                }
+                """));
+        assertThat(repository.findRecentEvents("M01", 10)).isEmpty();
+        assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow().latestMetric()).isNull();
+
+        String valid = """
+                {
+                  "session_id":"%s",
+                  "telemetry_mode":"SESSION_ACTIVE",
+                  "seq":1,
+                  "depth_mm":50,
+                  "depth_ok":true,
+                  "compression_count":5
+                }
+                """.formatted(session.sessionId());
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message(valid));
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message(valid));
+        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+                {
+                  "session_id":"%s",
+                  "state":"SESSION_ACTIVE",
+                  "seq":2,
+                  "depth_mm":51,
+                  "depth_ok":true,
+                  "compression_count":4
+                }
+                """.formatted(session.sessionId())));
+
+        assertThat(repository.findRecentEvents("M01", 10)).hasSize(1);
+        assertThat(fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow()
+                .latestMetric().compressionCount()).isEqualTo(5);
     }
     @Test
     void tracksDeviceReadinessFromMqttEvents() throws Exception {
@@ -576,6 +721,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1000,
               "depth_progress": 0.05,
               "pressure_balance_pct": 91.5
@@ -585,6 +731,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1100,
               "depth_progress": 0.25,
               "pressure_balance_pct": 91.5
@@ -594,6 +741,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1300,
               "depth_progress": 0.05,
               "pressure_balance_pct": 91.5
@@ -604,6 +752,7 @@ class MqttSubscriberServiceTest {
         fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
             {
               "session_id": "%s",
+              "state": "SESSION_ACTIVE",
               "ts_ms": 1600,
               "depth_progress": 0.25,
               "pressure_balance_pct": 91.5
@@ -611,7 +760,7 @@ class MqttSubscriberServiceTest {
             """.formatted(session.sessionId())));
         // Check active session live view
         var liveView = fixture.activeSessionService().getSessionLiveView(session.sessionId()).orElseThrow();
-        assertThat(liveView.pressureBalancePct()).isEqualTo(91.5);
+        assertThat(liveView.pressureBalanceScorePct()).isEqualTo(91.5);
         assertThat(liveView.latestMetric().depthProgress()).isEqualTo(0.25);
         assertThat(liveView.latestRateCpm()).isEqualTo(120.0);
         // Check captured trainee SSE outputs
@@ -620,7 +769,7 @@ class MqttSubscriberServiceTest {
         var lastView = capturedViews.get(capturedViews.size() - 1);
         assertThat(lastView.sessionId()).isEqualTo(session.sessionId());
         assertThat(lastView.traineeId()).isEqualTo("trainee-1");
-        assertThat(lastView.pressureBalancePct()).isEqualTo(91.5);
+        assertThat(lastView.pressureBalanceScorePct()).isEqualTo(91.5);
         assertThat(lastView.latestRateCpm()).isEqualTo(120.0);
     }
     private MqttSubscriberService newService(FirmwarePersistenceRepository repository) throws Exception {

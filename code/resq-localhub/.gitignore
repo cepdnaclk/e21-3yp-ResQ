@@ -5,6 +5,8 @@ prompt_change.txt
 scripts/*
 !scripts/telemetry-e2e/
 !scripts/telemetry-e2e/validate-sensor-stream.ps1
+!scripts/phase7-scaling/
+!scripts/phase7-scaling/**
 docs/*
 !docs/telemetry-api-update/
 docs/telemetry-api-update/*
@@ -26,6 +28,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+**/__pycache__/
+*.py[cod]
 
 # Tauri / Rust
 src-tauri/target/

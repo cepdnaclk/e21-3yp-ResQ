@@ -49,12 +49,14 @@ import jakarta.annotation.PostConstruct;
 public class ActiveSessionService {
 
     private static final Logger logger = LoggerFactory.getLogger(ActiveSessionService.class);
+    private static final double CPR_PAUSE_THRESHOLD_SECONDS = 1.0;
 
     private final ConcurrentMap<String, ActiveSessionState> sessionsById = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> activeSessionIdByDeviceId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> sessionIdByStartRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, String> sessionIdByStopRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Long> lastAcceptedSeqBySessionId = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CounterSnapshot> lastCountersBySessionId = new ConcurrentHashMap<>();
     private final ManikinRegistryService manikinRegistryService;
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final LocalSessionRepository localSessionRepository;
@@ -615,6 +617,7 @@ public class ActiveSessionService {
             sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
         }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
+        lastCountersBySessionId.remove(state.sessionId);
         rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
         persistRuntimeState(state, true);
         publishLifecycleUpdate(state);
@@ -645,6 +648,7 @@ public class ActiveSessionService {
             sessionIdByStopRequestId.remove(state.stopRequestId, state.sessionId);
         }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
+        lastCountersBySessionId.remove(state.sessionId);
         rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
         persistRuntimeState(state, true);
         publishLifecycleUpdate(state);
@@ -1146,6 +1150,7 @@ public class ActiveSessionService {
             }
             rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
             lastAcceptedSeqBySessionId.remove(state.sessionId);
+            lastCountersBySessionId.remove(state.sessionId);
             persistRuntimeState(state, true);
             publishLifecycleUpdate(state);
             logger.warn("Marked session {} for device {} as INTERRUPTED", state.sessionId, state.deviceId);
@@ -1195,6 +1200,7 @@ public class ActiveSessionService {
                 }
                 rateEstimatorRegistry.clearForSession(state.deviceId, state.sessionId);
                 lastAcceptedSeqBySessionId.remove(state.sessionId);
+                lastCountersBySessionId.remove(state.sessionId);
                 persistRuntimeState(state, true);
                 publishLifecycleUpdate(state);
                 expired++;
@@ -1274,6 +1280,12 @@ public class ActiveSessionService {
             }
         }
 
+        CounterSnapshot previousCounters = lastCountersBySessionId.get(payloadSessionId);
+        CounterSnapshot incomingCounters = CounterSnapshot.from(normalization.value());
+        if (previousCounters != null && incomingCounters.decreasesFrom(previousCounters)) {
+            return TelemetryValidationResult.rejected("cumulative telemetry counter decreased within the active session");
+        }
+
         return TelemetryValidationResult.accepted(payloadSessionId, normalizedDeviceId);
     }
 
@@ -1305,7 +1317,11 @@ public class ActiveSessionService {
                 metric.recoilOk(),
                 metric.pauseS(),
                 metric.compressionCount(),
+                metric.completedCompressionCount(),
+                metric.depthOkCompressionCount(),
                 metric.validCompressionCount(),
+                metric.lastCompressionPeakDepthMm(),
+                metric.averageCompletedCompressionPeakDepthMm(),
                 metric.recoilOkCount(),
                 metric.incompleteRecoilCount(),
                 flagsToString(metric.flags())
@@ -1313,6 +1329,7 @@ public class ActiveSessionService {
         if (metric.seq() != null) {
             lastAcceptedSeqBySessionId.put(state.sessionId, metric.seq());
         }
+        lastCountersBySessionId.put(state.sessionId, CounterSnapshot.from(metric));
         state.latestMetric = metric;
         state.latestMetricReceivedAt = Instant.now();
         state.updatedAt = now();
@@ -1423,7 +1440,7 @@ public class ActiveSessionService {
                         summary.lastEventType(),
                         summary.latestForce1(),
                         summary.latestForce2(),
-                        summary.pressureBalancePct(),
+                        summary.pressureBalanceScorePct(),
                         summary.pressureSkewed(),
                         summary.firmwareState(),
                         summary.calibrated(),
@@ -1485,9 +1502,9 @@ public class ActiveSessionService {
         String liveFlags = latestMetric != null ? flagsToString(latestMetric.flags()) : state.accumulator.latestFlags();
         Long liveForce1 = summary != null ? summary.latestForce1() : null;
         Long liveForce2 = summary != null ? summary.latestForce2() : null;
-        Double livePressureBalancePct = latestMetric != null
-                ? latestMetric.pressureBalancePct()
-                : (summary != null ? summary.pressureBalancePct() : null);
+        Double livePressureBalanceScorePct = latestMetric != null
+                ? latestMetric.pressureBalanceScorePct()
+                : (summary != null ? summary.pressureBalanceScorePct() : null);
         Boolean livePressureSkewed = summary != null ? summary.pressureSkewed() : null;
 
         return new SessionLiveView(
@@ -1518,7 +1535,7 @@ public class ActiveSessionService {
                 summary != null ? summary.lastEventType() : null,
                 liveForce1,
                 liveForce2,
-                livePressureBalancePct,
+                livePressureBalanceScorePct,
                 livePressureSkewed,
                 latestMetric,
                 latestMetric != null ? latestMetric.seq() : null,
@@ -1793,6 +1810,7 @@ public class ActiveSessionService {
             logger.warn("Saved completed session {} locally but failed to queue it for cloud sync", state.sessionId, error);
         }
         lastAcceptedSeqBySessionId.remove(state.sessionId);
+        lastCountersBySessionId.remove(state.sessionId);
         persistRuntimeState(state, true);
         liveStreamService.publishSessionLive(state.sessionId, null);
         publishInstructorLiveSnapshot();
@@ -1896,6 +1914,33 @@ public class ActiveSessionService {
         return flags.toString();
     }
 
+    private record CounterSnapshot(
+            Integer compressionCount,
+            Integer validCompressionCount,
+            Integer recoilOkCount,
+            Integer incompleteRecoilCount
+    ) {
+        private static CounterSnapshot from(LiveMetricPayload metric) {
+            return new CounterSnapshot(
+                    metric.compressionCount(),
+                    metric.validCompressionCount(),
+                    metric.recoilOkCount(),
+                    metric.incompleteRecoilCount()
+            );
+        }
+
+        private boolean decreasesFrom(CounterSnapshot previous) {
+            return decreased(compressionCount, previous.compressionCount)
+                    || decreased(validCompressionCount, previous.validCompressionCount)
+                    || decreased(recoilOkCount, previous.recoilOkCount)
+                    || decreased(incompleteRecoilCount, previous.incompleteRecoilCount);
+        }
+
+        private static boolean decreased(Integer current, Integer previous) {
+            return current != null && previous != null && current < previous;
+        }
+    }
+
     private static final class ActiveSessionState {
         private final String sessionId;
         private final String deviceId;
@@ -1992,6 +2037,9 @@ public class ActiveSessionService {
     private record AccumulatorSnapshot(
             int sampleCount,
             int totalCompressions,
+            boolean hasCompletedCompressionCount,
+            int completedCompressions,
+            int depthOkCompressions,
             int validCompressions,
             int depthSampleCount,
             int depthProgressSampleCount,
@@ -1999,6 +2047,8 @@ public class ActiveSessionService {
             double depthSumMm,
             double depthProgressSum,
             double rateSumCpm,
+            Double averageCompletedCompressionPeakDepthMm,
+            Double lastCompressionPeakDepthMm,
             int recoilTrueCount,
             int recoilFalseCount,
             int pausesCount,
@@ -2014,6 +2064,9 @@ public class ActiveSessionService {
     private static final class SessionTelemetryAccumulator {
         private int sampleCount;
         private int totalCompressions;
+        private boolean hasCompletedCompressionCount;
+        private int completedCompressions;
+        private int depthOkCompressions;
         private int validCompressions;
         private int depthSampleCount;
         private int depthProgressSampleCount;
@@ -2021,6 +2074,8 @@ public class ActiveSessionService {
         private double depthSumMm;
         private double depthProgressSum;
         private double rateSumCpm;
+        private Double averageCompletedCompressionPeakDepthMm;
+        private Double lastCompressionPeakDepthMm;
         private int recoilTrueCount;
         private int recoilFalseCount;
         private int pausesCount;
@@ -2038,15 +2093,34 @@ public class ActiveSessionService {
                 Boolean recoilOk,
                 Double pauseS,
                 Integer compressionCount,
+                Integer completedCompressionCount,
+                Integer depthOkCompressionCount,
                 Integer validCompressionCount,
+                Double incomingLastCompressionPeakDepthMm,
+                Double incomingAverageCompletedCompressionPeakDepthMm,
                 Integer recoilOkCount,
                 Integer incompleteRecoilCount,
                 String flags
         ) {
             sampleCount++;
 
+            boolean compressionStarted =
+                    compressionCount != null
+                            && compressionCount > totalCompressions;
             if (compressionCount != null && compressionCount > 0) {
-                totalCompressions = Math.max(totalCompressions, compressionCount);
+                totalCompressions =
+                        Math.max(totalCompressions, compressionCount);
+            }
+            if (completedCompressionCount != null) {
+                hasCompletedCompressionCount = true;
+                completedCompressions =
+                        Math.max(completedCompressions,
+                                completedCompressionCount);
+            }
+            if (depthOkCompressionCount != null) {
+                depthOkCompressions =
+                        Math.max(depthOkCompressions,
+                                depthOkCompressionCount);
             }
             if (validCompressionCount != null) {
                 validCompressions = Math.max(validCompressions, validCompressionCount);
@@ -2066,10 +2140,21 @@ public class ActiveSessionService {
                 lastDepthProgress = depthProgress;
             }
 
-            if (rateCpm != null) {
+            if (rateCpm != null && rateCpm > 0.0 &&
+                    (compressionStarted || compressionCount == null)) {
                 rateSampleCount++;
                 rateSumCpm += rateCpm;
                 lastRateCpm = rateCpm;
+            }
+
+            if (incomingLastCompressionPeakDepthMm != null) {
+                lastCompressionPeakDepthMm =
+                        incomingLastCompressionPeakDepthMm;
+            }
+            if (incomingAverageCompletedCompressionPeakDepthMm != null
+                    && completedCompressions > 0) {
+                averageCompletedCompressionPeakDepthMm =
+                        incomingAverageCompletedCompressionPeakDepthMm;
             }
 
             if (recoilOk != null) {
@@ -2087,7 +2172,8 @@ public class ActiveSessionService {
                 recoilFalseCount = Math.max(recoilFalseCount, incompleteRecoilCount);
             }
 
-            if (pauseS != null && pauseS > 0.5) {
+            if (compressionStarted && pauseS != null
+                    && pauseS > CPR_PAUSE_THRESHOLD_SECONDS) {
                 pausesCount++;
                 lastPauseS = pauseS;
             }
@@ -2129,6 +2215,9 @@ public class ActiveSessionService {
             return new AccumulatorSnapshot(
                     sampleCount,
                     totalCompressions,
+                    hasCompletedCompressionCount,
+                    completedCompressions,
+                    depthOkCompressions,
                     validCompressions,
                     depthSampleCount,
                     depthProgressSampleCount,
@@ -2136,6 +2225,8 @@ public class ActiveSessionService {
                     depthSumMm,
                     depthProgressSum,
                     rateSumCpm,
+                    averageCompletedCompressionPeakDepthMm,
+                    lastCompressionPeakDepthMm,
                     recoilTrueCount,
                     recoilFalseCount,
                     pausesCount,
@@ -2154,6 +2245,10 @@ public class ActiveSessionService {
             }
             sampleCount = snapshot.sampleCount();
             totalCompressions = snapshot.totalCompressions();
+            hasCompletedCompressionCount =
+                    snapshot.hasCompletedCompressionCount();
+            completedCompressions = snapshot.completedCompressions();
+            depthOkCompressions = snapshot.depthOkCompressions();
             validCompressions = snapshot.validCompressions();
             depthSampleCount = snapshot.depthSampleCount();
             depthProgressSampleCount = snapshot.depthProgressSampleCount();
@@ -2161,6 +2256,10 @@ public class ActiveSessionService {
             depthSumMm = snapshot.depthSumMm();
             depthProgressSum = snapshot.depthProgressSum();
             rateSumCpm = snapshot.rateSumCpm();
+            averageCompletedCompressionPeakDepthMm =
+                    snapshot.averageCompletedCompressionPeakDepthMm();
+            lastCompressionPeakDepthMm =
+                    snapshot.lastCompressionPeakDepthMm();
             recoilTrueCount = snapshot.recoilTrueCount();
             recoilFalseCount = snapshot.recoilFalseCount();
             pausesCount = snapshot.pausesCount();
@@ -2176,8 +2275,27 @@ public class ActiveSessionService {
             long durationSeconds = Math.max(0L, Duration.between(startedAt, endedAt).getSeconds());
             int totalSamples = sampleCount;
             int totalRecoilSamples = recoilTrueCount + recoilFalseCount;
-            double avgDepthMm = depthSampleCount == 0 ? 0.0 : depthSumMm / depthSampleCount;
-            Double avgDepthProgress = depthProgressSampleCount == 0 ? null : depthProgressSum / depthProgressSampleCount;
+            int scoredCompressions = hasCompletedCompressionCount
+                    ? completedCompressions
+                    : totalCompressions;
+            double avgDepthMm =
+                    hasCompletedCompressionCount
+                        ? completedCompressions > 0
+                                && averageCompletedCompressionPeakDepthMm != null
+                            ? averageCompletedCompressionPeakDepthMm
+                            : 0.0
+                        : depthSampleCount == 0
+                                ? 0.0
+                                : depthSumMm / depthSampleCount;
+            Double avgDepthProgress = null;
+            if (completedCompressions > 0
+                    && averageCompletedCompressionPeakDepthMm != null) {
+                avgDepthProgress = Math.min(
+                        1.0, averageCompletedCompressionPeakDepthMm / 50.0);
+            } else if (depthProgressSampleCount > 0) {
+                avgDepthProgress =
+                        depthProgressSum / depthProgressSampleCount;
+            }
             double avgRateCpm = rateSampleCount == 0 ? 0.0 : rateSumCpm / rateSampleCount;
             double recoilPct = totalRecoilSamples == 0 ? 0.0 : (recoilTrueCount * 100.0) / totalRecoilSamples;
 
@@ -2200,7 +2318,7 @@ public class ActiveSessionService {
                     endedAt,
                     durationSeconds,
                         totalSamples,
-                        totalCompressions,
+                        scoredCompressions,
                         validCompressions,
                     avgDepthMm,
                         avgDepthProgress,
@@ -2236,11 +2354,45 @@ public class ActiveSessionService {
         }
 
         private int calculateScore(SessionSummary summary) {
-            double depthTargetScore = Math.max(0.0, 40.0 - Math.abs(summary.avgDepthMm() - 50.0) * 0.8);
-            double rateTargetScore = Math.max(0.0, 30.0 - Math.abs(summary.avgRateCpm() - 110.0) * 0.3);
-            double recoilScore = Math.max(0.0, summary.recoilPct() * 0.2);
-            double pausePenalty = summary.pausesCount() * 4.0;
-            double rawScore = depthTargetScore + rateTargetScore + recoilScore - pausePenalty;
+            if (summary.totalCompressions() <= 0) {
+                return 0;
+            }
+
+            double depthDistance =
+                    summary.avgDepthMm() < 50.0
+                            ? 50.0 - summary.avgDepthMm()
+                            : summary.avgDepthMm() > 60.0
+                                ? summary.avgDepthMm() - 60.0
+                                : 0.0;
+            double depthTargetScore =
+                    Math.max(0.0, 40.0 - depthDistance * 2.0);
+
+            double rateDistance =
+                    summary.avgRateCpm() < 100.0
+                            ? 100.0 - summary.avgRateCpm()
+                            : summary.avgRateCpm() > 120.0
+                                ? summary.avgRateCpm() - 120.0
+                                : 0.0;
+            double rateTargetScore =
+                    Math.max(0.0, 30.0 - rateDistance);
+            double recoilScore =
+                    Math.max(0.0,
+                             Math.min(20.0,
+                                      summary.recoilPct() * 0.2));
+            double validCompressionScore =
+                    Math.min(10.0,
+                             10.0 * summary.validCompressions()
+                                     / Math.max(1.0,
+                                                summary.totalCompressions()));
+            double pausePenalty =
+                    Math.min(10.0,
+                             summary.pausesCount()
+                                     * (10.0
+                                        / Math.max(1.0,
+                                                   summary.totalCompressions())));
+            double rawScore =
+                    depthTargetScore + rateTargetScore + recoilScore
+                            + validCompressionScore - pausePenalty;
             return (int) Math.round(Math.max(0.0, Math.min(100.0, rawScore)));
         }
     }

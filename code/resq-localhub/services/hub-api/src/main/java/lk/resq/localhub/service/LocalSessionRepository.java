@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -355,7 +354,7 @@ public class LocalSessionRepository {
     }
 
     private Connection openConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl);
+        return SqliteConnectionSupport.open(jdbcUrl);
     }
 
     private static Instant parseInstant(String value) {

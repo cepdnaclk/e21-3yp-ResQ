@@ -14,6 +14,7 @@ import {
   isUsableRaw,
   type CalibrationRawSample,
 } from "../../utils/calibrationTargetTracking";
+import { useCalibrationProfiles } from "../../hooks/useCalibrationProfiles";
 
 type CalibrationWizardPageProps = {
   deviceId: string;
@@ -54,8 +55,6 @@ const LAST_COMPLETED_PROGRESS: Record<number, number> = {
   9: 8,
   10: 10,
   11: 11,
-  12: 10,
-  13: 10,
 };
 
 const REASON_DETAILS: Record<string, { title: string; action: string }> = {
@@ -187,13 +186,20 @@ function mergeEventIntoReadiness(
 }
 
 export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationWizardPageProps) {
-  // Form states with defaults
+  const {
+    defaultProfile,
+    loading: loadingProfile,
+    error: profileError,
+  } = useCalibrationProfiles();
+
+  // Timing defaults are local workflow controls. Sensor targets come from the
+  // authenticated server profile before submission.
   const [form, setForm] = useState<FormValues>({
-    hall_delta: "13500",
-    ref_pressure: "20100",
-    bladder_1_pressure: "15000",
-    bladder_2_pressure: "15000",
-    profile_id: "adult-basic",
+    hall_delta: "",
+    ref_pressure: "",
+    bladder_1_pressure: "",
+    bladder_2_pressure: "",
+    profile_id: "",
     sample_interval_ms: "20",
     calibration_window_ms: "3000",
   });
@@ -235,6 +241,18 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const streamStartedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const announcementRef = useRef({ text: "", at: 0 });
+
+  useEffect(() => {
+    if (!defaultProfile) return;
+    setForm((previous) => ({
+      ...previous,
+      hall_delta: String(defaultProfile.hallDelta),
+      ref_pressure: String(defaultProfile.refPressure),
+      bladder_1_pressure: String(defaultProfile.bladder1Pressure),
+      bladder_2_pressure: String(defaultProfile.bladder2Pressure),
+      profile_id: defaultProfile.profileId,
+    }));
+  }, [defaultProfile]);
 
   const stopManualStream = useCallback(async () => {
     if (!streamStartedRef.current || stopRequestedRef.current) return;
@@ -529,7 +547,21 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
   // Start calibration triggering
   const handleStartCalibration = async () => {
+    if (loadingProfile || !defaultProfile || profileError) {
+      setApiError(profileError ?? "The default calibration profile is not available yet.");
+      return;
+    }
     if (!validateForm()) return;
+    if (
+      Number(form.hall_delta) !== defaultProfile.hallDelta
+      || Number(form.ref_pressure) !== defaultProfile.refPressure
+      || Number(form.bladder_1_pressure) !== defaultProfile.bladder1Pressure
+      || Number(form.bladder_2_pressure) !== defaultProfile.bladder2Pressure
+      || form.profile_id !== defaultProfile.profileId
+    ) {
+      setApiError("Calibration targets must match the selected server profile. Update the profile before starting calibration.");
+      return;
+    }
 
     setIsSubmitting(true);
     setApiError(null);
@@ -604,14 +636,27 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
   const calState: CalibrationState = readiness?.calibrationState ?? "UNKNOWN";
   const progressId = readiness?.currentProgressId ?? 0;
-  const terminalResult = finalEvent?.result?.toUpperCase() ?? readiness?.lastResult?.toUpperCase() ?? null;
+  const currentTerminalResult = finalEvent?.result?.toUpperCase() ?? null;
+  const terminalResult = currentTerminalResult ?? readiness?.lastResult?.toUpperCase() ?? null;
   
   // Status check variables
   const isRunning = calState === "STARTING" || calState === "RUNNING" || calState === "CALIBRATING";
-  const isSuccess = terminalResult === "PASS" || terminalResult === "PASS_WITH_WARNINGS" || calState === "PASSED" || calState === "READY";
-  const isFailure = terminalResult === "FAIL" || calState === "FAILED" || progressId === 12;
+  const isSuccess =
+    currentTerminalResult === "PASS"
+    || currentTerminalResult === "PASS_WITH_WARNINGS"
+    || calState === "PASSED"
+    || calState === "READY"
+    || (
+      readiness?.readyForSession === true
+      && (terminalResult === "PASS" || terminalResult === "PASS_WITH_WARNINGS")
+    );
+  const isFailure = currentTerminalResult === "FAIL" || calState === "FAILED" || progressId === 12;
   const isInterrupted = calState === "INTERRUPTED" || progressId === 13;
-  const isCancelled = terminalResult === "CANCELLED" || terminalResult === "CANCELED" || calState === "CANCELLED";
+  const isCancelled =
+    currentTerminalResult === "CANCELLED"
+    || currentTerminalResult === "CANCELED"
+    || calState === "CANCELLED";
+  const canStartSession = readiness?.readyForSession === true;
 
   useEffect(() => {
     if (isSuccess || isFailure || isInterrupted || isCancelled) {
@@ -782,20 +827,23 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const resultEvent = finalEvent ?? commandEvent;
   const resolvedConfig = useMemo(() => {
     if (activeConfig) return activeConfig;
-    if (!latestEvidence) return null;
-    if ([latestEvidence.hallDelta, latestEvidence.refPressure, latestEvidence.bladder1Pressure, latestEvidence.bladder2Pressure].some((value) => typeof value !== "number")) {
+    const hallDelta = Number(form.hall_delta);
+    const refPressure = Number(form.ref_pressure);
+    const bladder1Pressure = Number(form.bladder_1_pressure);
+    const bladder2Pressure = Number(form.bladder_2_pressure);
+    if ([hallDelta, refPressure, bladder1Pressure, bladder2Pressure].some((value) => !Number.isFinite(value) || value <= 0)) {
       return null;
     }
     return {
-      hall_delta: latestEvidence.hallDelta as number,
-      ref_pressure: latestEvidence.refPressure as number,
-      bladder_1_pressure: latestEvidence.bladder1Pressure as number,
-      bladder_2_pressure: latestEvidence.bladder2Pressure as number,
-      profile_id: latestEvidence.profileId ?? undefined,
-      sample_interval_ms: latestEvidence.sampleIntervalMs ?? undefined,
-      calibration_window_ms: latestEvidence.calibrationWindowMs ?? undefined,
+      hall_delta: hallDelta,
+      ref_pressure: refPressure,
+      bladder_1_pressure: bladder1Pressure,
+      bladder_2_pressure: bladder2Pressure,
+      profile_id: form.profile_id || undefined,
+      sample_interval_ms: form.sample_interval_ms ? Number(form.sample_interval_ms) : undefined,
+      calibration_window_ms: form.calibration_window_ms ? Number(form.calibration_window_ms) : undefined,
     };
-  }, [activeConfig, latestEvidence]);
+  }, [activeConfig, form]);
   const targets = useMemo(() => buildCalibrationTargets({
     config: resolvedConfig,
     sample: rawSample,
@@ -829,6 +877,12 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       {apiError && (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-xl font-semibold shadow-sm">
           {apiError}
+        </div>
+      )}
+
+      {profileError && !apiError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs px-4 py-3 rounded-xl font-semibold shadow-sm">
+          {profileError}
         </div>
       )}
 
@@ -947,12 +1001,16 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                 </div>
                 <h3 className="text-lg font-bold text-slate-800">Calibration Complete</h3>
                 <p className="text-sm text-slate-500 max-w-sm mx-auto">
-                  Calibration complete. Device is ready for session.
+                  {canStartSession
+                    ? "Calibration complete. Device is ready for session."
+                    : "Calibration values were saved. Waiting for the profile identity and readiness gate to be confirmed."}
                 </p>
                 <div className="flex gap-3 justify-center pt-4">
-                  <Button type="button" variant="primary" onClick={() => void handleBack()}>
-                    Start Session
-                  </Button>
+                  {canStartSession && (
+                    <Button type="button" variant="primary" onClick={() => void handleBack()}>
+                      Start Session
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : isCancelling ? (
@@ -1127,12 +1185,13 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                     <>
                       {(isFailure || isInterrupted || isCancelled) && (
                         <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={handleStartCalibration}
-                          loading={isSubmitting}
-                        >
-                          Retry Calibration
+                      type="button"
+                      variant="secondary"
+                      onClick={handleStartCalibration}
+                      loading={isSubmitting}
+                      disabled={loadingProfile || !defaultProfile || Boolean(profileError)}
+                    >
+                      Retry Calibration
                         </Button>
                       )}
                       {!isFailure && !isInterrupted && !isCancelled && (
@@ -1141,6 +1200,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                           variant="primary"
                           onClick={handleStartCalibration}
                           loading={isSubmitting}
+                          disabled={loadingProfile || !defaultProfile || Boolean(profileError)}
                         >
                           Start Calibration
                         </Button>

@@ -2,6 +2,7 @@
 "use strict";
 
 const path = require("path");
+const crypto = require("crypto");
 const { createRequire } = require("module");
 
 const EVENT_IDS = {
@@ -41,6 +42,12 @@ const ACTION_IDS = {
   DEVICE_IN_ERROR_USE_SYSTEM_RECOVERY: 13,
 };
 
+const PRESSURE_CENTER_SCORE_THRESHOLD_PCT = 88;
+const PAUSE_CONDITION_THRESHOLD_S = 1;
+const COMMAND_CACHE_MAX_ENTRIES = 32;
+const COMMAND_CACHE_TTL_MS = 5 * 60 * 1000;
+const CALIBRATION_SCHEMA_VERSION = 3;
+
 const DEFAULTS = {
   deviceId: process.env.DEVICE_ID || "M01",
   mqttUrl: process.env.MQTT_URL || "mqtt://127.0.0.1:1883",
@@ -48,7 +55,7 @@ const DEFAULTS = {
   profileId: process.env.PROFILE_ID || "adult-basic",
   calibrationMode: process.env.CALIBRATION_MODE || "pass",
   telemetryIntervalMs: numberFromEnv("TELEMETRY_INTERVAL_MS", 200),
-  heartbeatIntervalMs: numberFromEnv("HEARTBEAT_INTERVAL_MS", 1000),
+  heartbeatIntervalMs: numberFromEnv("HEARTBEAT_INTERVAL_MS", 5000),
   exitAfterMs: numberFromEnv("EXIT_AFTER_MS", 0),
 };
 
@@ -71,10 +78,12 @@ class FirmwareSimulator {
     this.client = null;
     this.state = options.simulateError ? "ERROR" : "PAIRED_IDLE";
     this.calibrated = false;
+    this.calibrationIdentity = null;
     this.sessionActive = false;
     this.currentSessionId = options.sessionId;
     this.lastErrorId = options.simulateError ? "06201" : "00000";
     this.telemetryCount = 0;
+    this.latestSessionMetric = null;
     this.manualTelemetryCount = 0;
     this.heartbeatTimer = null;
     this.telemetryTimer = null;
@@ -82,6 +91,12 @@ class FirmwareSimulator {
     this.manualTelemetryIntervalMs = 200;
     this.calibrationTimers = [];
     this.startedAt = Date.now();
+    this.bootId = options.bootId || crypto.randomBytes(8).toString("hex");
+    this.statusStateSeq = 0;
+    this.lastStatusEffective = null;
+    this.commandCache = new Map();
+    this.commandExecutionCounts = new Map();
+    this.activeCommandCapture = null;
   }
 
   start() {
@@ -114,8 +129,10 @@ class FirmwareSimulator {
     this.client.on("error", (error) => this.log(`mqtt error: ${error.message || error}`));
     this.client.on("close", () => this.log("mqtt connection closed"));
 
-    process.on("SIGINT", () => this.stop(0));
-    process.on("SIGTERM", () => this.stop(0));
+    if (this.options.manageProcessLifecycle !== false) {
+      process.on("SIGINT", () => this.stop(0));
+      process.on("SIGTERM", () => this.stop(0));
+    }
 
     if (this.options.exitAfterMs > 0) {
       setTimeout(() => this.stop(0), this.options.exitAfterMs);
@@ -130,45 +147,135 @@ class FirmwareSimulator {
 
     const command = topic.slice(prefix.length);
     const payload = parseJson(payloadBuffer.toString("utf8"));
+    const requestId = stringOr(payload.request_id, stringOr(payload.command_id, ""));
     this.log(`command ${command} ${JSON.stringify(payload)}`);
 
-    switch (command) {
-      case "calibration/start":
-        this.handleCalibrationStart(payload);
-        break;
-      case "calibration/cancel":
-        this.handleCalibrationCancel(payload);
-        break;
-      case "session/start":
-        this.handleSessionStart(payload);
-        break;
-      case "session/stop":
-        this.handleSessionStop(payload);
-        break;
-      case "telemetry":
-        this.handleTelemetryControl(payload);
-        break;
-      case "debug":
-        this.handleDebug(payload);
-        break;
-      case "system/retry":
-      case "system/reset":
-        this.state = "PAIRED_IDLE";
-        this.lastErrorId = "00000";
-        this.publishEvent("events", {
-          event_id: EVENT_IDS.DEBUG_COMMAND_RESULT,
-          reply_id: payload.request_id,
-          status: "ACK",
-          state: this.state,
-          reason_id: "00000",
-          action_id: ACTION_IDS.NO_ACTION_REQUIRED,
-          ts_ms: this.tsMs(),
-        });
-        this.publishStatus(true);
-        break;
-      default:
-        this.log(`ignored unsupported command: ${command}`);
+    if (!requestId) {
+      this.publishCommandNack("", "REQUEST_ID_REQUIRED");
+      this.log(`rejected command without request_id: ${command}`);
+      return;
     }
+
+    payload.request_id = requestId;
+    this.expireCommandCache();
+    const cacheKey = `${command}\u0000${requestId}`;
+    const cached = this.commandCache.get(cacheKey);
+    if (cached?.state === "COMPLETE") {
+      cached.lastAccessedAt = Date.now();
+      cached.responses.forEach((response) => {
+        this.publish(response.suffix, response.payload, response.options);
+      });
+      this.log(`replayed command response ${command} request_id=${requestId}`);
+      return;
+    }
+    if (cached?.state === "PENDING") {
+      this.log(`suppressed in-flight duplicate ${command} request_id=${requestId}`);
+      return;
+    }
+    if (!this.reserveCommandCacheEntry(cacheKey, command, requestId)) {
+      this.publishCommandNack(requestId, "COMMAND_DEDUP_BUSY");
+      return;
+    }
+
+    this.commandExecutionCounts.set(
+      command,
+      (this.commandExecutionCounts.get(command) || 0) + 1,
+    );
+    this.activeCommandCapture = { requestId, responses: [] };
+    try {
+      switch (command) {
+        case "calibration/start":
+          this.handleCalibrationStart(payload);
+          break;
+        case "calibration/cancel":
+          this.handleCalibrationCancel(payload);
+          break;
+        case "session/start":
+          this.handleSessionStart(payload);
+          break;
+        case "session/stop":
+          this.handleSessionStop(payload);
+          break;
+        case "telemetry":
+          this.handleTelemetryControl(payload);
+          break;
+        case "debug":
+          this.handleDebug(payload);
+          break;
+        case "system/retry":
+        case "system/reset":
+        case "system/flush-config":
+          this.state = "PAIRED_IDLE";
+          this.lastErrorId = "00000";
+          this.publishEvent("events", {
+            event_id: EVENT_IDS.DEBUG_COMMAND_RESULT,
+            reply_id: requestId,
+            status: "ACK",
+            state: this.state,
+            reason_id: "00000",
+            action_id: ACTION_IDS.NO_ACTION_REQUIRED,
+            ts_ms: this.tsMs(),
+          });
+          this.publishStatus();
+          break;
+        default:
+          this.publishCommandNack(requestId, "UNKNOWN_COMMAND");
+          this.log(`rejected unsupported command: ${command}`);
+      }
+    } finally {
+      const completedAt = Date.now();
+      const entry = this.commandCache.get(cacheKey);
+      if (entry) {
+        entry.state = "COMPLETE";
+        entry.completedAt = completedAt;
+        entry.lastAccessedAt = completedAt;
+        entry.responses = this.activeCommandCapture.responses;
+      }
+      this.activeCommandCapture = null;
+    }
+  }
+
+  reserveCommandCacheEntry(cacheKey, command, requestId) {
+    if (this.commandCache.size >= COMMAND_CACHE_MAX_ENTRIES) {
+      const oldestComplete = [...this.commandCache.entries()]
+        .filter(([, entry]) => entry.state === "COMPLETE")
+        .sort((left, right) => left[1].completedAt - right[1].completedAt)[0];
+      if (!oldestComplete) {
+        return false;
+      }
+      this.commandCache.delete(oldestComplete[0]);
+    }
+    const now = Date.now();
+    this.commandCache.set(cacheKey, {
+      command,
+      requestId,
+      state: "PENDING",
+      createdAt: now,
+      lastAccessedAt: now,
+      responses: [],
+    });
+    return true;
+  }
+
+  expireCommandCache() {
+    const now = Date.now();
+    for (const [key, entry] of this.commandCache.entries()) {
+      if (entry.state === "COMPLETE" && now - entry.completedAt >= COMMAND_CACHE_TTL_MS) {
+        this.commandCache.delete(key);
+      }
+    }
+  }
+
+  publishCommandNack(replyId, reasonId) {
+    this.publishEvent("events", {
+      event_id: 1000,
+      reply_id: replyId,
+      status: "NACK",
+      state: this.state,
+      reason_id: reasonId,
+      action_id: ACTION_IDS.CHECK_SENSOR_AND_RETRY,
+      ts_ms: this.tsMs(),
+    });
   }
 
   handleCalibrationStart(payload) {
@@ -178,8 +285,9 @@ class FirmwareSimulator {
     this.sessionActive = false;
     this.state = "CALIBRATING";
     this.calibrated = false;
+    this.calibrationIdentity = null;
     this.lastErrorId = "00000";
-    this.publishStatus(true);
+    this.publishStatus();
     this.publishCalibrationEvent({
       event_id: EVENT_IDS.CALIBRATION_COMMAND_RESULT,
       reply_id: payload.request_id,
@@ -231,14 +339,30 @@ class FirmwareSimulator {
           state: this.state,
           reason_id: "06401",
           action_id: ACTION_IDS.CHECK_SENSOR_AND_RETRY,
+          calibration_schema_version: CALIBRATION_SCHEMA_VERSION,
+          calibration_generation: 1,
+          calibration_storage_status: "INVALID",
+          recalibration_required: true,
+          profile_id: stringOr(payload.profile_id, this.options.profileId),
+          profile_version: payload.profile_version,
+          profile_hash: payload.profile_hash,
           ts_ms: this.tsMs(),
         });
-        this.publishStatus(true);
+        this.publishStatus();
         return;
       }
 
       this.state = "READY_FOR_SESSION";
       this.calibrated = true;
+      this.calibrationIdentity = {
+        calibration_schema_version: CALIBRATION_SCHEMA_VERSION,
+        calibration_generation: 1,
+        calibration_storage_status: "VALID",
+        recalibration_required: false,
+        profile_id: stringOr(payload.profile_id, this.options.profileId),
+        profile_version: payload.profile_version,
+        profile_hash: payload.profile_hash,
+      };
       this.publishCalibrationEvent({
         event_id: EVENT_IDS.CALIBRATION_FINAL_RESULT,
         reply_id: payload.request_id,
@@ -248,9 +372,10 @@ class FirmwareSimulator {
         state: this.state,
         reason_id: "00000",
         action_id: ACTION_IDS.NO_ACTION_REQUIRED,
+        ...this.calibrationIdentity,
         ts_ms: this.tsMs(),
       });
-      this.publishStatus(true);
+      this.publishStatus();
     }, 150 + progressIds.length * 120));
   }
 
@@ -258,6 +383,7 @@ class FirmwareSimulator {
     this.clearCalibrationTimers();
     this.state = "PAIRED_IDLE";
     this.calibrated = false;
+    this.calibrationIdentity = null;
     this.sessionActive = false;
     this.publishCalibrationEvent({
       event_id: EVENT_IDS.CALIBRATION_FINAL_RESULT,
@@ -270,12 +396,14 @@ class FirmwareSimulator {
       action_id: ACTION_IDS.MOVE_TO_PAIRED_IDLE,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
   handleSessionStart(payload) {
     this.stopManualTelemetry();
     this.currentSessionId = stringOr(payload.session_id, this.options.sessionId);
+    this.telemetryCount = 0;
+    this.latestSessionMetric = null;
     this.sessionActive = true;
     this.state = "SESSION_ACTIVE";
     this.publishEvent("events", {
@@ -288,7 +416,7 @@ class FirmwareSimulator {
       action_id: ACTION_IDS.NO_ACTION_REQUIRED,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
     this.startTelemetry();
     if (this.options.simulateInterrupted) {
       setTimeout(() => this.interruptSession(payload.request_id), 3000);
@@ -297,6 +425,12 @@ class FirmwareSimulator {
 
   handleSessionStop(payload) {
     this.stopTelemetry();
+    const finalMetric = this.latestSessionMetric || {
+      compression_count: 0,
+      valid_compression_count: 0,
+      recoil_ok_count: 0,
+      incomplete_recoil_count: 0,
+    };
     this.sessionActive = false;
     this.state = this.calibrated ? "READY_FOR_SESSION" : "PAIRED_IDLE";
     this.publishEvent("events", {
@@ -306,15 +440,15 @@ class FirmwareSimulator {
       result: "STOPPED",
       state: this.state,
       session_id: this.currentSessionId,
-      total_compressions: this.telemetryCount,
-      valid_compressions: Math.max(0, this.telemetryCount - 2),
-      recoil_ok_count: Math.max(0, this.telemetryCount - 1),
-      incomplete_recoil_count: this.telemetryCount > 0 ? 1 : 0,
+      total_compressions: finalMetric.compression_count,
+      valid_compressions: finalMetric.valid_compression_count,
+      recoil_ok_count: finalMetric.recoil_ok_count,
+      incomplete_recoil_count: finalMetric.incomplete_recoil_count,
       reason_id: "00000",
       action_id: ACTION_IDS.STOP_SESSION_AND_RETURN_READY,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
   handleDebug(payload) {
@@ -387,33 +521,56 @@ class FirmwareSimulator {
       action_id: ACTION_IDS.STOP_SESSION_AND_RETURN_READY,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
-  publishStatus(retain) {
-    this.publish("status", {
+  publishStatus(force = false) {
+    const hasValidCalibrationIdentity = this.calibrated
+      && this.calibrationIdentity
+      && Number.isInteger(this.calibrationIdentity.calibration_schema_version)
+      && Number.isInteger(this.calibrationIdentity.calibration_generation)
+      && this.calibrationIdentity.calibration_storage_status === "VALID"
+      && this.calibrationIdentity.recalibration_required === false
+      && typeof this.calibrationIdentity.profile_id === "string"
+      && Number.isInteger(this.calibrationIdentity.profile_version)
+      && typeof this.calibrationIdentity.profile_hash === "string";
+    const effective = {
       state: this.state,
       session_active: this.sessionActive,
-      session_id: this.sessionActive ? this.currentSessionId : "",
-      calibrated: this.calibrated,
+      calibrated: Boolean(hasValidCalibrationIdentity),
       last_error_id: this.lastErrorId,
-      ip: "192.168.8.120",
+      boot_id: this.bootId,
+    };
+    if (hasValidCalibrationIdentity) {
+      Object.assign(effective, this.calibrationIdentity);
+    }
+    if (this.sessionActive || this.state === "SESSION_INTERRUPTED") {
+      effective.session_id = this.currentSessionId;
+    }
+    const fingerprint = JSON.stringify(effective);
+    if (!force && fingerprint === this.lastStatusEffective) {
+      return false;
+    }
+    this.statusStateSeq += 1;
+    this.publish("status", {
+      ...effective,
+      state_seq: this.statusStateSeq,
       ts_ms: this.tsMs(),
-    }, { retain: Boolean(retain) });
+    }, { qos: 1, retain: true });
+    this.lastStatusEffective = fingerprint;
+    return true;
   }
 
   publishHeartbeat() {
+    const nowMs = this.tsMs();
     this.publish("heartbeat", {
       state: this.state,
-      wifi_connected: true,
-      mqtt_connected: true,
-      backend_registered: true,
       session_active: this.sessionActive,
       sensor_running: this.sessionActive || Boolean(this.manualTelemetryTimer),
-      session_id: this.sessionActive ? this.currentSessionId : "",
       calibrated: this.calibrated,
-      uptime_ms: this.tsMs(),
-      ts_ms: this.tsMs(),
+      // Compatibility alias; ts_ms is the canonical monotonic timestamp.
+      uptime_ms: nowMs,
+      ts_ms: nowMs,
     });
   }
 
@@ -423,22 +580,26 @@ class FirmwareSimulator {
     }
     this.telemetryCount += 1;
     const wobble = Math.sin(this.telemetryCount / 3);
-    this.publish("telemetry", {
+    const depthProgress = clamp(0.75 + wobble * 0.12, 0, 1);
+    const metric = normalizeSessionMetric({
       session_id: this.currentSessionId,
       state: "SESSION_ACTIVE",
-      depth_progress: clamp(0.75 + wobble * 0.12, 0, 1),
+      depth_mm: depthProgress * 55,
+      depth_progress: depthProgress,
       depth_ok: Math.abs(wobble) < 0.85,
       rate_cpm: 108 + Math.round(wobble * 8),
       compression_count: this.telemetryCount,
       valid_compression_count: Math.max(0, this.telemetryCount - 1),
+      recoil_ok: this.telemetryCount % 7 !== 0,
       recoil_ok_count: Math.max(0, this.telemetryCount - 1),
       incomplete_recoil_count: this.telemetryCount > 5 ? 1 : 0,
       pause_s: this.telemetryCount % 20 === 0 ? 0.7 : 0.2,
       hand_placement: "CENTER",
-      pressure_balance_pct: 92 + wobble * 3,
-      flags: "DEPTH_OK,RATE_OK,RECOIL_OK",
+      pressure_balance_score_pct: 92 + wobble * 3,
       ts_ms: this.tsMs(),
     });
+    this.latestSessionMetric = metric;
+    this.publish("telemetry", metric);
   }
 
   publishSensorStream() {
@@ -447,17 +608,25 @@ class FirmwareSimulator {
     }
     this.manualTelemetryCount += 1;
     const wobble = Math.sin(this.manualTelemetryCount / 4);
+    const pressure1Valid = this.manualTelemetryCount % 13 !== 0;
     this.publish("telemetry", {
-      device_id: this.options.deviceId,
       telemetry_mode: "SENSOR_STREAM",
       state: this.state,
+      pressure_0_raw: 1230 + this.manualTelemetryCount,
+      pressure_0_raw_valid: true,
+      pressure_1_raw: 1650 + this.manualTelemetryCount,
+      pressure_1_raw_valid: pressure1Valid,
+      pressure_2_raw: 1640 + this.manualTelemetryCount,
+      pressure_2_raw_valid: true,
+      hall_raw: 2990 + this.manualTelemetryCount,
+      hall_raw_valid: true,
       pressure_0_kpa: Number((0.8 + wobble * 0.12).toFixed(3)),
       pressure_0_kpa_valid: true,
       pressure_1_kpa: Number((1.4 + wobble * 0.08).toFixed(3)),
-      pressure_1_kpa_valid: this.manualTelemetryCount % 13 !== 0,
+      pressure_1_kpa_valid: pressure1Valid,
       pressure_2_kpa: Number((1.35 - wobble * 0.06).toFixed(3)),
       pressure_2_kpa_valid: true,
-      pressure_kpa_valid: this.manualTelemetryCount % 13 !== 0,
+      pressure_kpa_valid: pressure1Valid,
       hall_mm: Number((12.5 + wobble * 2.5).toFixed(2)),
       hall_progress: Number(clamp(0.42 + wobble * 0.08, 0, 1).toFixed(3)),
       hall_mm_valid: true,
@@ -470,7 +639,8 @@ class FirmwareSimulator {
   publishDebugSnapshot(requestId) {
     const offset = this.telemetryCount * 3;
     this.publish("debug", {
-      request_id: requestId,
+      reply_id: requestId,
+      source: "DIRECT_SENSOR_SNAPSHOT",
       pressure_0_raw: 1230 + offset,
       pressure_1_raw: 1650 + offset,
       pressure_2_raw: 1640 + offset,
@@ -489,11 +659,13 @@ class FirmwareSimulator {
       action_id: actionId,
       ts_ms: this.tsMs(),
     });
-    this.publishStatus(true);
+    this.publishStatus();
   }
 
   publishCalibrationEvent(payload) {
-    this.publishEvent("events/calibration", payload);
+    this.publish("events/calibration", payload, {
+      qos: payload.event_id === EVENT_IDS.CALIBRATION_FINAL_RESULT ? 1 : 0,
+    });
   }
 
   publishEvent(suffix, payload) {
@@ -505,8 +677,33 @@ class FirmwareSimulator {
       return;
     }
     const topic = this.topic(suffix);
-    const json = JSON.stringify(payload);
-    this.client.publish(topic, json, { qos: 0, retain: Boolean(options.retain) });
+    const stateBearing = suffix === "status"
+      || suffix === "heartbeat"
+      || suffix === "events"
+      || suffix === "events/calibration"
+      || suffix === "events/error";
+    const orderedPayload = stateBearing && (!payload.boot_id || !Number.isInteger(payload.state_seq))
+      ? {
+        ...payload,
+        boot_id: this.bootId,
+        state_seq: ++this.statusStateSeq,
+      }
+      : payload;
+    const json = JSON.stringify(orderedPayload);
+    if (
+      this.activeCommandCapture
+      && orderedPayload.reply_id === this.activeCommandCapture.requestId
+    ) {
+      this.activeCommandCapture.responses.push({
+        suffix,
+        payload: JSON.parse(json),
+        options: { ...options },
+      });
+    }
+    this.client.publish(topic, json, {
+      qos: Number.isInteger(options.qos) ? options.qos : 0,
+      retain: Boolean(options.retain),
+    });
     this.log(`publish ${topic} ${json}`);
   }
 
@@ -531,13 +728,11 @@ class FirmwareSimulator {
     this.state = this.calibrated ? "READY_FOR_SESSION" : "PAIRED_IDLE";
     this.manualTelemetryTimer = setInterval(() => this.publishSensorStream(), this.manualTelemetryIntervalMs);
     this.publishSensorStream();
-    this.publishStatus(false);
   }
 
   stopManualTelemetry() {
     clearInterval(this.manualTelemetryTimer);
     this.manualTelemetryTimer = null;
-    this.publishStatus(false);
   }
 
   clearCalibrationTimers() {
@@ -559,11 +754,21 @@ class FirmwareSimulator {
     this.stopManualTelemetry();
     clearInterval(this.heartbeatTimer);
     if (this.client) {
-      this.client.end(true, () => process.exit(code));
-      setTimeout(() => process.exit(code), 500);
+      const client = this.client;
+      this.client = null;
+      client.end(true, () => {
+        if (this.options.manageProcessLifecycle !== false) {
+          process.exit(code);
+        }
+      });
+      if (this.options.manageProcessLifecycle !== false) {
+        setTimeout(() => process.exit(code), 500);
+      }
       return;
     }
-    process.exit(code);
+    if (this.options.manageProcessLifecycle !== false) {
+      process.exit(code);
+    }
   }
 
   log(message) {
@@ -587,6 +792,7 @@ function parseArgs(args) {
     ...DEFAULTS,
     simulateError: false,
     simulateInterrupted: false,
+    manageProcessLifecycle: true,
     quiet: false,
     help: false,
   };
@@ -705,9 +911,74 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+function deriveSessionFlags(metric) {
+  const flags = [];
+  if (metric.depth_ok) {
+    flags.push("DEPTH_OK");
+  }
+  if (metric.rate_cpm > 0.1) {
+    flags.push(metric.rate_cpm < 100 ? "RATE_SLOW" : metric.rate_cpm <= 120 ? "RATE_OK" : "RATE_FAST");
+  }
+  if (metric.recoil_ok) {
+    flags.push("RECOIL_OK");
+  }
+  if (metric.pause_s > PAUSE_CONDITION_THRESHOLD_S) {
+    flags.push("PAUSE_DETECTED");
+  }
+  if (metric.hand_placement === "LEFT") {
+    flags.push("HAND_LEFT");
+  } else if (metric.hand_placement === "RIGHT") {
+    flags.push("HAND_RIGHT");
+  } else if (metric.hand_placement === "SKEWED") {
+    flags.push("HAND_SKEWED");
+  }
+  return flags.join(",");
+}
+
+function normalizeSessionMetric(metric) {
+  const normalized = { ...metric };
+  const score = Number.isFinite(normalized.pressure_balance_score_pct)
+    ? clamp(normalized.pressure_balance_score_pct, 0, 100)
+    : 0;
+  normalized.depth_mm = roundTo(normalized.depth_mm, 3);
+  normalized.depth_progress = roundTo(normalized.depth_progress, 3);
+  normalized.rate_cpm = roundTo(normalized.rate_cpm, 1);
+  normalized.pause_s = roundTo(normalized.pause_s, 3);
+  normalized.pressure_balance_score_pct = roundTo(score, 2);
+  // Deprecated compatibility alias; remove only after LocalHub Phase 6.
+  normalized.pressure_balance_pct = normalized.pressure_balance_score_pct;
+  if (score >= PRESSURE_CENTER_SCORE_THRESHOLD_PCT) {
+    normalized.hand_placement = "CENTER";
+  } else if (normalized.hand_placement === "CENTER") {
+    normalized.hand_placement = "SKEWED";
+  }
+  normalized.flags = deriveSessionFlags(normalized);
+  return normalized;
+}
+
+function roundTo(value, digits) {
+  if (!Number.isFinite(value)) return 0;
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+module.exports = {
+  COMMAND_CACHE_MAX_ENTRIES,
+  COMMAND_CACHE_TTL_MS,
+  DEFAULTS,
+  FirmwareSimulator,
+  PAUSE_CONDITION_THRESHOLD_S,
+  PRESSURE_CENTER_SCORE_THRESHOLD_PCT,
+  clamp,
+  deriveSessionFlags,
+  normalizeSessionMetric,
+};
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }

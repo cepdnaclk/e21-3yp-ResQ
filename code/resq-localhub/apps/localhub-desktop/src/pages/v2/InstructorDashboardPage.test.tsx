@@ -53,7 +53,7 @@ const mockManikin = {
   lastEventType: null,
   latestForce1: null,
   latestForce2: null,
-  pressureBalancePct: null,
+  pressureBalanceScorePct: null,
   pressureSkewed: null,
   activeSessionId: null,
   activeTraineeId: null,

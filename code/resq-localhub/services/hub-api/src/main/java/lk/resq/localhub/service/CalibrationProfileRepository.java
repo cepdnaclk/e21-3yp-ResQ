@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -27,6 +26,9 @@ public class CalibrationProfileRepository {
     private static final int LEGACY_DEFAULT_HALL_DELTA = 13500;
     private static final int LEGACY_DEFAULT_REF_PRESSURE = 20100;
     private static final int LEGACY_DEFAULT_BLADDER_PRESSURE = 15000;
+    private static final int INTERIM_DEFAULT_HALL_DELTA = 620;
+    private static final int INTERIM_DEFAULT_REF_PRESSURE = 1_405_000;
+    private static final int INTERIM_DEFAULT_BLADDER_PRESSURE = 1_500_000;
 
     private final Path databasePath;
     private final String jdbcUrl;
@@ -280,10 +282,10 @@ public class CalibrationProfileRepository {
                     bladder_2_pressure = ?,
                     updated_at = ?
                 WHERE profile_id = 'adult-basic'
-                  AND hall_delta = ?
-                  AND ref_pressure = ?
-                  AND bladder_1_pressure = ?
-                  AND bladder_2_pressure = ?
+                  AND hall_delta IN (?, ?, ?)
+                  AND ref_pressure IN (?, ?, ?)
+                  AND bladder_1_pressure IN (?, ?, ?)
+                  AND bladder_2_pressure IN (?, ?, ?)
                 """)) {
             statement.setInt(1, CalibrationConstraints.DEFAULT_HALL_DELTA);
             statement.setInt(2, CalibrationConstraints.DEFAULT_REF_PRESSURE);
@@ -291,9 +293,17 @@ public class CalibrationProfileRepository {
             statement.setInt(4, CalibrationConstraints.DEFAULT_BLADDER_2_PRESSURE);
             statement.setString(5, Instant.now().toString());
             statement.setInt(6, LEGACY_DEFAULT_HALL_DELTA);
-            statement.setInt(7, LEGACY_DEFAULT_REF_PRESSURE);
-            statement.setInt(8, LEGACY_DEFAULT_BLADDER_PRESSURE);
-            statement.setInt(9, LEGACY_DEFAULT_BLADDER_PRESSURE);
+            statement.setInt(7, INTERIM_DEFAULT_HALL_DELTA);
+            statement.setInt(8, CalibrationConstraints.DEFAULT_HALL_DELTA);
+            statement.setInt(9, LEGACY_DEFAULT_REF_PRESSURE);
+            statement.setInt(10, INTERIM_DEFAULT_REF_PRESSURE);
+            statement.setInt(11, CalibrationConstraints.DEFAULT_REF_PRESSURE);
+            statement.setInt(12, LEGACY_DEFAULT_BLADDER_PRESSURE);
+            statement.setInt(13, INTERIM_DEFAULT_BLADDER_PRESSURE);
+            statement.setInt(14, CalibrationConstraints.DEFAULT_BLADDER_1_PRESSURE);
+            statement.setInt(15, LEGACY_DEFAULT_BLADDER_PRESSURE);
+            statement.setInt(16, INTERIM_DEFAULT_BLADDER_PRESSURE);
+            statement.setInt(17, CalibrationConstraints.DEFAULT_BLADDER_2_PRESSURE);
             statement.executeUpdate();
         }
     }
@@ -379,6 +389,6 @@ public class CalibrationProfileRepository {
     }
 
     private Connection openConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl);
+        return SqliteConnectionSupport.open(jdbcUrl);
     }
 }

@@ -1,0 +1,31 @@
+Recorded: 2026-07-28 (Asia/Colombo)
+
+Paths
+-----
+Firmware: <repo>\code\resq-firmware
+LocalHub: <repo>\code\resq-localhub
+Backend: <repo>\code\resq-localhub\services\hub-api
+Desktop: <repo>\code\resq-localhub\apps\localhub-desktop
+All required paths exist: yes
+
+Tools
+-----
+Git: 2.53.0.windows.2
+ESP-IDF: v6.0-dirty
+Java: OpenJDK Temurin 17.0.18+8
+Node.js: v20.20.0
+pnpm: 10.33.2
+Mosquitto clients: 2.1.2 (libmosquitto 2.1.0)
+
+Ports
+-----
+No listeners were present on TCP ports 1883, 18080, or 1420 before the baseline builds.
+
+Environment notes
+-----------------
+The installed ESP-IDF PowerShell profile exists at:
+C:\Espressif\tools\Microsoft.v6.0.PowerShell_profile.ps1
+
+The host's default PowerShell execution policy blocks direct profile loading.
+Baseline commands therefore used a process-scoped:
+powershell.exe -NoProfile -ExecutionPolicy Bypass

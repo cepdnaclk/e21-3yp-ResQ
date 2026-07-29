@@ -116,7 +116,7 @@ const baseManikin = {
   lastEventType: "compression",
   latestForce1: 20,
   latestForce2: 20,
-  pressureBalancePct: 100,
+  pressureBalanceScorePct: 100,
   pressureSkewed: false,
   activeSessionId: null,
   activeTraineeId: null,

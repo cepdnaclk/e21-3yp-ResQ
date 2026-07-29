@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "firmware_mqtt_contract.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
@@ -20,71 +21,6 @@
 #include "runtime_identity.h"
 
 static const char *TAG = "mqtt_manager";
-
-static void add_io_mode_fields(cJSON *root)
-{
-  bool pressure_enabled = io_mode_manager_is_sensor();
-  cJSON_AddStringToObject(root, "io_mode",
-                         io_mode_to_string(io_mode_manager_get()));
-  cJSON_AddBoolToObject(root, "pressure_sensor_enabled", pressure_enabled);
-}
-
-static const char *
-calibration_pressure_mode_to_string(calibration_pressure_mode_t mode) {
-  switch (mode) {
-  case CALIBRATION_PRESSURE_REQUIRED:
-    return "REQUIRED";
-  case CALIBRATION_PRESSURE_OPTIONAL:
-    return "OPTIONAL";
-  case CALIBRATION_HALL_ONLY:
-    return "HALL_ONLY";
-  default:
-    return "OPTIONAL";
-  }
-}
-
-static bool
-calibration_pressure_kpa_ready(
-    const calibration_config_t *calibration,
-    const sensor_runtime_health_t *runtime_health) {
-  return calibration != NULL && calibration->calibrated &&
-         runtime_health != NULL && runtime_health->pressure_current_valid &&
-         !runtime_health->pressure_temporarily_degraded &&
-         calibration->pressure_policy != CALIBRATION_HALL_ONLY &&
-         calibration->pressure_0_baseline != 0 &&
-         calibration->pressure_1_baseline != 0 &&
-         calibration->pressure_2_baseline != 0 &&
-         calibration->pressure_0_kpa_per_count > 0.0f &&
-         calibration->pressure_1_kpa_per_count > 0.0f &&
-         calibration->pressure_2_kpa_per_count > 0.0f;
-}
-
-static bool calibration_hall_mm_ready(
-    const calibration_config_t *calibration,
-    const sensor_runtime_health_t *runtime_health) {
-  return calibration != NULL && calibration->calibrated &&
-         runtime_health != NULL && runtime_health->hall_current_valid &&
-         calibration->hall_baseline > 0 &&
-         calibration->hall_range_raw > 0 && calibration->full_depth_mm > 0.0f &&
-         (calibration->hall_direction == 1 ||
-          calibration->hall_direction == -1);
-}
-
-static void
-add_conversion_readiness_fields(cJSON *root,
-                                const calibration_config_t *calibration,
-                                const sensor_runtime_health_t *runtime_health) {
-  bool pressure_ready =
-      calibration_pressure_kpa_ready(calibration, runtime_health);
-  bool hall_ready = calibration_hall_mm_ready(calibration, runtime_health);
-
-  cJSON_AddNumberToObject(root, "full_depth_mm",
-                          calibration ? calibration->full_depth_mm : 0.0f);
-  cJSON_AddBoolToObject(root, "pressure_kpa_calibrated", pressure_ready);
-  cJSON_AddBoolToObject(root, "hall_mm_calibrated", hall_ready);
-  cJSON_AddBoolToObject(root, "pressure_kpa_valid", pressure_ready);
-  cJSON_AddBoolToObject(root, "hall_mm_valid", hall_ready);
-}
 
 /* Topic model centralized in mqtt_topics.h */
 #include "mqtt_topics.h"
@@ -103,6 +39,10 @@ static QueueHandle_t s_command_queue = NULL;
 static QueueHandle_t s_safety_command_queue = NULL;
 static uint32_t s_dropped_command_count = 0;
 static SemaphoreHandle_t s_command_cache_mutex = NULL;
+static SemaphoreHandle_t s_status_mutex = NULL;
+static resq_status_contract_t s_last_status;
+static bool s_last_status_valid = false;
+static _Atomic bool s_force_next_status_refresh = false;
 
 #define MQTT_COMMAND_CACHE_LEN 8
 #define MQTT_COMMAND_REQUEST_ID_MAX_LEN 128
@@ -330,30 +270,38 @@ static esp_err_t enqueue_complete_command(const char *topic,
            command.payload_len);
 
   char request_id[MQTT_COMMAND_REQUEST_ID_MAX_LEN] = {0};
-  if (extract_command_request_id(payload, request_id, sizeof(request_id))) {
-    char cached_suffix[MQTT_MANAGER_TOPIC_MAX_LEN] = {0};
-    char cached_payload[MQTT_COMMAND_RESPONSE_MAX_LEN] = {0};
-    command_cache_result_t cache_result = command_cache_check_or_mark(
-        topic, request_id, cached_suffix, sizeof(cached_suffix), cached_payload,
-        sizeof(cached_payload));
-    if (cache_result == COMMAND_CACHE_DUPLICATE_COMPLETE) {
-      ESP_LOGI(TAG, "Replaying cached response for request_id=%s", request_id);
-      return mqtt_manager_publish_topic_json(cached_suffix, cached_payload);
-    }
-    if (cache_result == COMMAND_CACHE_DUPLICATE_PENDING) {
-      ESP_LOGI(TAG, "Ignoring in-flight duplicate request_id=%s", request_id);
-      return ESP_OK;
-    }
-    if (cache_result == COMMAND_CACHE_BUSY) {
-      ESP_LOGW(TAG, "MQTT deduplication cache busy; command not queued");
-      (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_BUSY");
-      return ESP_ERR_TIMEOUT;
-    }
-    if (cache_result == COMMAND_CACHE_ERROR) {
-      ESP_LOGE(TAG, "MQTT deduplication cache unavailable; command not queued");
-      (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_ERROR");
-      return ESP_ERR_INVALID_STATE;
-    }
+  if (!extract_command_request_id(payload, request_id, sizeof(request_id))) {
+    /*
+     * A reply cannot be correlated when the command supplies no usable
+     * identifier. Reject before queueing instead of executing a side effect
+     * and emitting an uncorrelated ACK/NACK.
+     */
+    ESP_LOGW(TAG, "Rejecting MQTT command without a valid request_id");
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  char cached_suffix[MQTT_MANAGER_TOPIC_MAX_LEN] = {0};
+  char cached_payload[MQTT_COMMAND_RESPONSE_MAX_LEN] = {0};
+  command_cache_result_t cache_result = command_cache_check_or_mark(
+      topic, request_id, cached_suffix, sizeof(cached_suffix), cached_payload,
+      sizeof(cached_payload));
+  if (cache_result == COMMAND_CACHE_DUPLICATE_COMPLETE) {
+    ESP_LOGI(TAG, "Replaying cached response for request_id=%s", request_id);
+    return mqtt_manager_publish_topic_json(cached_suffix, cached_payload);
+  }
+  if (cache_result == COMMAND_CACHE_DUPLICATE_PENDING) {
+    ESP_LOGI(TAG, "Ignoring in-flight duplicate request_id=%s", request_id);
+    return ESP_OK;
+  }
+  if (cache_result == COMMAND_CACHE_BUSY) {
+    ESP_LOGW(TAG, "MQTT deduplication cache busy; command not queued");
+    (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_BUSY");
+    return ESP_ERR_TIMEOUT;
+  }
+  if (cache_result == COMMAND_CACHE_ERROR) {
+    ESP_LOGE(TAG, "MQTT deduplication cache unavailable; command not queued");
+    (void)publish_queue_overload_nack(payload, "COMMAND_DEDUP_ERROR");
+    return ESP_ERR_INVALID_STATE;
   }
 
   QueueHandle_t target_queue = command_is_safety_critical(topic)
@@ -671,6 +619,8 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base,
   }
   case MQTT_EVENT_SUBSCRIBED:
     mqtt_connected_store(true);
+    atomic_store_explicit(&s_force_next_status_refresh, true,
+                          memory_order_release);
     s_reconnect_status = MQTT_MANAGER_RECONNECT_CONNECTED;
     ESP_LOGI(TAG, "MQTT command channel ready");
     if (s_mqtt_events) {
@@ -742,10 +692,21 @@ esp_err_t mqtt_manager_init(void) {
     }
   }
 
+  if (s_status_mutex == NULL) {
+    s_status_mutex = xSemaphoreCreateMutex();
+    if (s_status_mutex == NULL) {
+      return ESP_ERR_NO_MEM;
+    }
+  }
+
   s_client = NULL;
   s_transport_connected = false;
   mqtt_connected_store(false);
   s_reconnect_status = MQTT_MANAGER_RECONNECT_IDLE;
+  s_last_status_valid = false;
+  memset(&s_last_status, 0, sizeof(s_last_status));
+  atomic_store_explicit(&s_force_next_status_refresh, false,
+                        memory_order_release);
   reset_command_rx();
 
   return ESP_OK;
@@ -778,9 +739,8 @@ esp_err_t mqtt_manager_start(const char *device_id, const char *mqtt_host,
   if (topic_err != ESP_OK) {
     return topic_err;
   }
-  int lwt_written = snprintf(s_lwt_payload, sizeof(s_lwt_payload),
-                             "{\"device_id\":\"%s\",\"state\":\"OFFLINE\"}",
-                             s_device_id);
+  int lwt_written =
+      snprintf(s_lwt_payload, sizeof(s_lwt_payload), "{\"state\":\"OFFLINE\"}");
   if (lwt_written <= 0 || lwt_written >= (int)sizeof(s_lwt_payload)) {
     return ESP_ERR_INVALID_SIZE;
   }
@@ -937,81 +897,139 @@ uint32_t mqtt_manager_get_dropped_command_count(void) {
 
 const char *mqtt_manager_get_device_id(void) { return s_device_id; }
 
+static esp_err_t mqtt_manager_publish_minimal_status(
+    resq_state_t state, const network_config_t *network_config,
+    const calibration_config_t *calibration_config, bool session_active,
+    const char *session_id, int last_error_id) {
+  if (!mqtt_connected_load() || network_config == NULL ||
+      s_status_mutex == NULL) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (xSemaphoreTake(s_status_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    return ESP_ERR_TIMEOUT;
+  }
+
+  resq_status_contract_t candidate = {
+      .state = state,
+      .session_active = session_active,
+      .calibrated = io_mode_manager_is_sensor() &&
+                    calibration_config != NULL &&
+                    calibration_config->calibrated,
+      .ts_ms = esp_timer_get_time() / 1000,
+  };
+  if (candidate.calibrated) {
+    calibration_store_snapshot_t snapshot = {0};
+    if (config_store_get_snapshot(&snapshot) == CAL_STORE_VALID &&
+        snapshot.committed_record_valid == 1 &&
+        snapshot.recalibration_required == 0) {
+      candidate.calibration_schema_version = snapshot.schema_version;
+      candidate.calibration_generation = snapshot.generation;
+      snprintf(candidate.calibration_storage_status,
+               sizeof(candidate.calibration_storage_status), "%s",
+               snapshot.calibration_storage_status);
+      candidate.recalibration_required =
+          snapshot.recalibration_required == 1;
+      snprintf(candidate.profile_id, sizeof(candidate.profile_id), "%s",
+               snapshot.profile_id);
+      candidate.profile_version = snapshot.profile_version;
+      snprintf(candidate.profile_hash, sizeof(candidate.profile_hash), "%s",
+               snapshot.profile_hash);
+    } else {
+      /*
+       * A retained READY status must never claim calibration without the
+       * committed identity needed to validate it after a LocalHub restart.
+       */
+      candidate.calibrated = false;
+    }
+  }
+  if (session_id != NULL && session_id[0] != '\0') {
+    snprintf(candidate.session_id, sizeof(candidate.session_id), "%s",
+             session_id);
+  }
+  int normalized_error_id =
+      last_error_id >= 0 && last_error_id <= 99999 ? last_error_id : 0;
+  snprintf(candidate.last_error_id, sizeof(candidate.last_error_id), "%05d",
+           normalized_error_id);
+  snprintf(candidate.boot_id, sizeof(candidate.boot_id), "%s",
+           runtime_identity_boot_id());
+
+  bool force_refresh = atomic_exchange_explicit(
+      &s_force_next_status_refresh, false, memory_order_acq_rel);
+  if (s_last_status_valid && !force_refresh) {
+    candidate.state_seq = s_last_status.state_seq;
+    if (resq_mqtt_contract_status_equivalent(&candidate, &s_last_status)) {
+      xSemaphoreGive(s_status_mutex);
+      return ESP_OK;
+    }
+  }
+  candidate.state_seq = runtime_identity_next_state_seq();
+
+  char *payload = NULL;
+  esp_err_t err = resq_mqtt_contract_build_status(&candidate, &payload);
+  if (err == ESP_OK) {
+    char topic[MQTT_MANAGER_TOPIC_MAX_LEN] = {0};
+    err = build_topic_for_suffix(select_device_id_runtime(),
+                                 RESQ_SUFFIX_STATUS, topic, sizeof(topic));
+    if (err == ESP_OK) {
+      err = publish_to_topic(topic, payload, RESQ_STATUS_QOS,
+                             RESQ_STATUS_RETAIN ? 1 : 0);
+    }
+  }
+
+  if (payload != NULL) {
+    cJSON_free(payload);
+  }
+  if (err == ESP_OK) {
+    s_last_status = candidate;
+    s_last_status_valid = true;
+  } else if (force_refresh) {
+    atomic_store_explicit(&s_force_next_status_refresh, true,
+                          memory_order_release);
+  }
+  xSemaphoreGive(s_status_mutex);
+  return err;
+}
+
+esp_err_t mqtt_manager_cache_get_response_for_test(
+    const char *topic, const char *request_id, char *out_suffix,
+    size_t out_suffix_len, char *out_payload, size_t out_payload_len) {
+  if (topic == NULL || request_id == NULL || out_suffix == NULL ||
+      out_payload == NULL || topic[0] == '\0' || request_id[0] == '\0' ||
+      out_suffix_len == 0 || out_payload_len == 0 ||
+      s_command_cache_mutex == NULL ||
+      xSemaphoreTake(s_command_cache_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    return ESP_ERR_INVALID_ARG;
+  }
+
+  mqtt_command_cache_entry_t *entry =
+      command_cache_find_locked(topic, request_id);
+  if (entry == NULL || !entry->completed) {
+    xSemaphoreGive(s_command_cache_mutex);
+    return ESP_ERR_NOT_FOUND;
+  }
+
+  int suffix_len = snprintf(out_suffix, out_suffix_len, "%s",
+                            entry->response_suffix);
+  int payload_len = snprintf(out_payload, out_payload_len, "%s",
+                             entry->response_payload);
+  xSemaphoreGive(s_command_cache_mutex);
+  if (suffix_len < 0 || payload_len < 0 ||
+      (size_t)suffix_len >= out_suffix_len ||
+      (size_t)payload_len >= out_payload_len) {
+    return ESP_ERR_INVALID_SIZE;
+  }
+  return ESP_OK;
+}
+
 esp_err_t mqtt_manager_publish_status_with_health(
     resq_state_t state, const network_config_t *network_config,
     const calibration_config_t *calibration_config,
     const sensor_runtime_health_t *runtime_health, bool session_active,
     const char *session_id, const char *ip) {
-  if (!mqtt_connected_load() || network_config == NULL) {
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-  esp_err_t topic_err = build_topic_for_suffix(
-      select_device_id_runtime(), RESQ_SUFFIX_STATUS, topic, sizeof(topic));
-  if (topic_err != ESP_OK) return topic_err;
-
-  cJSON *root = cJSON_CreateObject();
-  if (!root)
-    return ESP_ERR_NO_MEM;
-  cJSON_AddNumberToObject(root, "event_id", 1001);
-  cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
-  cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
-  add_io_mode_fields(root);
-  cJSON_AddBoolToObject(root, "session_active", session_active);
-  cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
-
-  bool calibrated = io_mode_manager_is_sensor() &&
-                    calibration_config && calibration_config->calibrated;
-  cJSON_AddBoolToObject(root, "calibrated", calibrated);
-
-  if (calibration_config) {
-    if (calibration_config->profile_id[0] != '\0') {
-      cJSON_AddStringToObject(root, "profile_id",
-                              calibration_config->profile_id);
-    }
-    cJSON_AddNumberToObject(root, "hall_range_raw",
-                            calibration_config->hall_range_raw);
-    cJSON_AddNumberToObject(root, "pressure_contact_threshold",
-                            calibration_config->pressure_contact_threshold);
-    cJSON_AddNumberToObject(root, "pressure_valid_threshold",
-                            calibration_config->pressure_valid_threshold);
-    cJSON_AddStringToObject(
-        root, "pressure_mode",
-        calibration_pressure_mode_to_string(calibration_config->pressure_mode));
-    cJSON_AddBoolToObject(root, "pressure_degraded",
-                          runtime_health != NULL &&
-                              runtime_health->pressure_temporarily_degraded);
-    cJSON_AddBoolToObject(root, "using_last_stable_pressure",
-                          runtime_health != NULL &&
-                              runtime_health->using_last_stable_pressure);
-    cJSON_AddBoolToObject(root, "pressure_valid",
-                          io_mode_manager_is_sensor() &&
-                              runtime_health != NULL &&
-                              runtime_health->pressure_current_valid);
-    cJSON_AddBoolToObject(root, "hall_valid",
-                          runtime_health != NULL &&
-                              runtime_health->hall_current_valid);
-    add_conversion_readiness_fields(root, calibration_config, runtime_health);
-    cJSON_AddBoolToObject(root, "ready_for_session",
-                          calibrated &&
-                              calibration_hall_mm_ready(calibration_config,
-                                                        runtime_health));
-  }
-
-  cJSON_AddStringToObject(root, "ip", ip ? ip : "");
-
-  int64_t ts_ms = esp_timer_get_time() / 1000;
-  cJSON_AddNumberToObject(root, "ts_ms", ts_ms);
-
-  char *payload = cJSON_PrintUnformatted(root);
-  cJSON_Delete(root);
-  if (!payload)
-    return ESP_ERR_NO_MEM;
-
-  esp_err_t ret = publish_state_json_to_topic(topic, payload, 1, 1);
-  cJSON_free(payload);
-  return ret;
+  (void)runtime_health;
+  (void)ip;
+  return mqtt_manager_publish_minimal_status(
+      state, network_config, calibration_config, session_active, session_id, 0);
 }
 
 esp_err_t mqtt_manager_publish_status(
@@ -1028,89 +1046,11 @@ esp_err_t mqtt_manager_publish_error_status_with_health(
     const calibration_config_t *calibration_config,
     const sensor_runtime_health_t *runtime_health, bool session_active,
     const char *session_id, const char *ip, int last_error_id) {
-  if (!mqtt_connected_load() || network_config == NULL) {
-    return ESP_ERR_INVALID_STATE;
-  }
-
-  char topic[MQTT_MANAGER_TOPIC_MAX_LEN];
-  esp_err_t topic_err = build_topic_for_suffix(
-      select_device_id_runtime(), RESQ_SUFFIX_STATUS, topic, sizeof(topic));
-  if (topic_err != ESP_OK) return topic_err;
-
-  cJSON *root = cJSON_CreateObject();
-  if (!root)
-    return ESP_ERR_NO_MEM;
-
-  cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
-  cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
-  add_io_mode_fields(root);
-  cJSON_AddBoolToObject(root, "session_active", session_active);
-  cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
-
-  bool calibrated = io_mode_manager_is_sensor() &&
-                    calibration_config && calibration_config->calibrated;
-  cJSON_AddBoolToObject(root, "calibrated", calibrated);
-  if (calibration_config) {
-    cJSON_AddStringToObject(
-        root, "pressure_mode",
-        calibration_pressure_mode_to_string(calibration_config->pressure_mode));
-    cJSON_AddBoolToObject(root, "pressure_degraded",
-                          runtime_health != NULL &&
-                              runtime_health->pressure_temporarily_degraded);
-    cJSON_AddBoolToObject(root, "using_last_stable_pressure",
-                          runtime_health != NULL &&
-                              runtime_health->using_last_stable_pressure);
-    cJSON_AddBoolToObject(root, "pressure_valid",
-                          io_mode_manager_is_sensor() &&
-                              runtime_health != NULL &&
-                              runtime_health->pressure_current_valid);
-    cJSON_AddBoolToObject(root, "hall_valid",
-                          runtime_health != NULL &&
-                              runtime_health->hall_current_valid);
-    add_conversion_readiness_fields(root, calibration_config, runtime_health);
-    cJSON_AddBoolToObject(root, "ready_for_session",
-                          calibrated &&
-                              calibration_hall_mm_ready(calibration_config,
-                                                        runtime_health));
-  }
-
-  if (calibration_config) {
-    cJSON_AddNumberToObject(root, "calibration_schema_version",
-                            calibration_config->calibration_schema_version);
-    cJSON_AddNumberToObject(root, "calibration_generation",
-                            calibration_config->calibration_generation);
-    cJSON_AddStringToObject(root, "calibration_storage_status",
-                            calibration_config->calibration_storage_status);
-    cJSON_AddBoolToObject(root, "recalibration_required",
-                          calibration_config->recalibration_required);
-    cJSON_AddNumberToObject(root, "profile_version",
-                            calibration_config->profile_version);
-    cJSON_AddStringToObject(root, "profile_hash",
-                            calibration_config->profile_hash);
-  } else {
-    cJSON_AddNumberToObject(root, "calibration_schema_version", 0);
-    cJSON_AddNumberToObject(root, "calibration_generation", 0);
-    cJSON_AddStringToObject(root, "calibration_storage_status", "MISSING");
-    cJSON_AddBoolToObject(root, "recalibration_required", true);
-    cJSON_AddNumberToObject(root, "profile_version", 0);
-    cJSON_AddStringToObject(root, "profile_hash", "");
-  }
-
-  cJSON_AddNumberToObject(root, "last_error_id", last_error_id);
-
-  cJSON_AddStringToObject(root, "ip", ip ? ip : "");
-
-  int64_t ts_ms = esp_timer_get_time() / 1000;
-  cJSON_AddNumberToObject(root, "ts_ms", ts_ms);
-
-  char *payload = cJSON_PrintUnformatted(root);
-  cJSON_Delete(root);
-  if (!payload)
-    return ESP_ERR_NO_MEM;
-
-  esp_err_t ret = publish_state_json_to_topic(topic, payload, 1, 1);
-  cJSON_free(payload);
-  return ret;
+  (void)runtime_health;
+  (void)ip;
+  return mqtt_manager_publish_minimal_status(
+      state, network_config, calibration_config, session_active, session_id,
+      last_error_id);
 }
 
 esp_err_t mqtt_manager_publish_error_status(
@@ -1166,6 +1106,10 @@ mqtt_manager_publish_heartbeat_with_health(
     const sensor_runtime_health_t *runtime_health, resq_state_t state,
     bool session_active, bool sensor_running, const char *session_id,
     const char *ip, int rssi) {
+  (void)runtime_health;
+  (void)session_id;
+  (void)ip;
+  (void)rssi;
   if (!mqtt_connected_load() || network_config == NULL) {
     return ESP_ERR_INVALID_STATE;
   }
@@ -1176,68 +1120,23 @@ mqtt_manager_publish_heartbeat_with_health(
       sizeof(topic));
   if (topic_err != ESP_OK) return topic_err;
 
-  cJSON *root = cJSON_CreateObject();
-  if (!root)
-    return ESP_ERR_NO_MEM;
-
-  cJSON_AddStringToObject(root, "device_id", select_device_id_runtime());
-  cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
-  add_io_mode_fields(root);
-
-  bool wifi_connected = (ip && ip[0] != '\0');
-  cJSON_AddBoolToObject(root, "wifi_connected", wifi_connected);
-  cJSON_AddBoolToObject(root, "mqtt_connected", mqtt_connected_load());
-
-  bool backend_registered = (s_device_id[0] != '\0');
-  cJSON_AddBoolToObject(root, "backend_registered", backend_registered);
-
-  cJSON_AddBoolToObject(root, "session_active", session_active);
-  cJSON_AddBoolToObject(root, "sensor_running",
-                        io_mode_manager_is_sensor() && sensor_running);
-  cJSON_AddStringToObject(root, "session_id", session_id ? session_id : "");
-
-  bool calibrated = io_mode_manager_is_sensor() &&
-                    calibration_config && calibration_config->calibrated;
-  cJSON_AddBoolToObject(root, "calibrated", calibrated);
-  if (calibration_config) {
-    cJSON_AddStringToObject(
-        root, "pressure_mode",
-        calibration_pressure_mode_to_string(calibration_config->pressure_mode));
-    cJSON_AddBoolToObject(root, "pressure_degraded",
-                          runtime_health != NULL &&
-                              runtime_health->pressure_temporarily_degraded);
-    cJSON_AddBoolToObject(root, "using_last_stable_pressure",
-                          runtime_health != NULL &&
-                              runtime_health->using_last_stable_pressure);
-    cJSON_AddBoolToObject(root, "pressure_valid",
-                          io_mode_manager_is_sensor() &&
-                              runtime_health != NULL &&
-                              runtime_health->pressure_current_valid);
-    cJSON_AddBoolToObject(root, "hall_valid",
-                          runtime_health != NULL &&
-                              runtime_health->hall_current_valid);
-    add_conversion_readiness_fields(root, calibration_config, runtime_health);
-    cJSON_AddBoolToObject(root, "ready_for_session",
-                          calibrated &&
-                              calibration_hall_mm_ready(calibration_config,
-                                                        runtime_health));
+  int64_t now_ms = esp_timer_get_time() / 1000;
+  resq_heartbeat_contract_t heartbeat = {
+      .state = state,
+      .session_active = session_active,
+      .sensor_running = io_mode_manager_is_sensor() && sensor_running,
+      .calibrated = io_mode_manager_is_sensor() &&
+                    calibration_config != NULL &&
+                    calibration_config->calibrated,
+      .uptime_ms = now_ms,
+      .ts_ms = now_ms,
+  };
+  char *payload = NULL;
+  esp_err_t ret =
+      resq_mqtt_contract_build_heartbeat(&heartbeat, &payload);
+  if (ret == ESP_OK) {
+    ret = publish_to_topic(topic, payload, 0, 0);
   }
-
-  cJSON_AddStringToObject(root, "ip", ip ? ip : "");
-  cJSON_AddNumberToObject(root, "rssi", rssi);
-
-  int64_t uptime_ms = esp_timer_get_time() / 1000;
-  cJSON_AddNumberToObject(root, "uptime_ms", uptime_ms);
-
-  int64_t ts_ms = esp_timer_get_time() / 1000;
-  cJSON_AddNumberToObject(root, "ts_ms", ts_ms);
-
-  char *payload = cJSON_PrintUnformatted(root);
-  cJSON_Delete(root);
-  if (!payload)
-    return ESP_ERR_NO_MEM;
-
-  esp_err_t ret = publish_state_json_to_topic(topic, payload, 0, 0);
   cJSON_free(payload);
   return ret;
 }

@@ -89,8 +89,9 @@ static const char *TAG = "config_store";
 #define CALIBRATION_META_SCHEMA_VERSION   1
 #define CALIBRATION_RECORD_SCHEMA_VERSION_V1 1
 #define CALIBRATION_RECORD_SCHEMA_VERSION_V2 2
+#define CALIBRATION_RECORD_SCHEMA_VERSION_V3 3
 #define CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT \
-    CALIBRATION_RECORD_SCHEMA_VERSION_V2
+    CALIBRATION_RECORD_SCHEMA_VERSION_V3
 #define CALIBRATION_SLOT_NONE             0xFF
 
 /* Struct definitions private to config_store.c */
@@ -204,9 +205,59 @@ _Static_assert(offsetof(calibration_persist_payload_v2_t, pressure_policy) == 12
 _Static_assert(offsetof(calibration_persist_payload_v2_t, reserved_runtime_flags) == 124, "v2 reserved bytes offset mismatch");
 _Static_assert(offsetof(calibration_persist_payload_v2_t, calibrated_at_ms) == 136, "v2 timestamp offset mismatch");
 
+/*
+ * Version 3 assigns the four bytes that version 2 deliberately reserved to
+ * the calibrated Hall/pressure saturation crossover. The payload and slot
+ * sizes remain unchanged, so version 1 and 2 records can still be decoded and
+ * migrated transactionally.
+ */
+typedef struct {
+    int32_t hall_baseline;
+    int32_t hall_delta;
+    int32_t hall_range_raw;
+    int32_t hall_direction;
+    int32_t hall_noise_raw;
+    int32_t hall_start_delta;
+    int32_t hall_full_delta_threshold;
+    int32_t hall_recoil_delta;
+    int32_t hall_tolerance_raw;
+    int32_t hall_full_press;
+    int32_t full_depth_mm_scaled;
+    int32_t ref_pressure;
+    int32_t bladder_1_pressure;
+    int32_t bladder_2_pressure;
+    int32_t bladder_1_full_press;
+    int32_t bladder_2_full_press;
+    int32_t pressure_0_baseline;
+    int32_t pressure_1_baseline;
+    int32_t pressure_2_baseline;
+    int32_t pressure_0_kpa_scaled;
+    int32_t pressure_1_kpa_scaled;
+    int32_t pressure_2_kpa_scaled;
+    int32_t pressure_0_noise_raw;
+    int32_t pressure_1_noise_raw;
+    int32_t pressure_2_noise_raw;
+    int32_t pressure_1_range_raw;
+    int32_t pressure_2_range_raw;
+    int32_t pressure_contact_threshold;
+    int32_t pressure_valid_threshold;
+    int32_t pressure_balance_allowed_pct;
+    int32_t pressure_policy;
+    int32_t pressure_saturation_hall_delta;
+    int32_t calibration_sample_count;
+    int32_t calibration_window_ms;
+    int64_t calibrated_at_ms;
+} calibration_persist_payload_v3_t;
+
+_Static_assert(sizeof(calibration_persist_payload_v3_t) == 144, "v3 payload size mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v3_t, pressure_policy) == 120, "v3 pressure policy offset mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v3_t, pressure_saturation_hall_delta) == 124, "v3 crossover offset mismatch");
+_Static_assert(offsetof(calibration_persist_payload_v3_t, calibrated_at_ms) == 136, "v3 timestamp offset mismatch");
+
 typedef union {
     calibration_persist_payload_v1_t v1;
     calibration_persist_payload_v2_t v2;
+    calibration_persist_payload_v3_t v3;
     uint8_t bytes[144];
 } calibration_persist_payload_u;
 
@@ -294,8 +345,8 @@ static float reconstruct_scaled_i32_to_float(int32_t val, float scale)
 }
 
 /* Internal schema-specific conversions. Runtime health is intentionally absent. */
-static bool calibration_profile_to_payload_v2(
-    const calibration_profile_t *run, calibration_persist_payload_v2_t *pers)
+static bool calibration_profile_to_payload_v3(
+    const calibration_profile_t *run, calibration_persist_payload_v3_t *pers)
 {
     memset(pers, 0, sizeof(*pers));
     pers->hall_baseline = run->hall_baseline;
@@ -342,6 +393,8 @@ static bool calibration_profile_to_payload_v2(
     pers->pressure_valid_threshold = run->pressure_valid_threshold;
     pers->pressure_balance_allowed_pct = run->pressure_balance_allowed_pct;
     pers->pressure_policy = (int32_t)run->pressure_policy;
+    pers->pressure_saturation_hall_delta =
+        run->pressure_saturation_hall_delta;
 
     pers->calibration_sample_count = run->calibration_sample_count;
     pers->calibration_window_ms = run->calibration_window_ms;
@@ -445,6 +498,23 @@ static cal_store_outcome_t calibration_payload_v2_to_profile(
     COPY_PERSISTED_PROFILE_FIELDS(pers, run);
     run->pressure_policy =
         (calibration_pressure_policy_t)pers->pressure_policy;
+    return CAL_STORE_VALID;
+}
+
+static cal_store_outcome_t calibration_payload_v3_to_profile(
+    const calibration_persist_payload_v3_t *pers,
+    calibration_profile_t *run)
+{
+    if (pers->pressure_policy < CALIBRATION_PRESSURE_REQUIRED ||
+        pers->pressure_policy > CALIBRATION_HALL_ONLY) {
+        return CAL_STORE_CORRUPT;
+    }
+
+    COPY_PERSISTED_PROFILE_FIELDS(pers, run);
+    run->pressure_policy =
+        (calibration_pressure_policy_t)pers->pressure_policy;
+    run->pressure_saturation_hall_delta =
+        pers->pressure_saturation_hall_delta;
     return CAL_STORE_VALID;
 }
 
@@ -883,7 +953,9 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
     if (active_slot_data.schema_version !=
             CALIBRATION_RECORD_SCHEMA_VERSION_V1 &&
         active_slot_data.schema_version !=
-            CALIBRATION_RECORD_SCHEMA_VERSION_V2) {
+            CALIBRATION_RECORD_SCHEMA_VERSION_V2 &&
+        active_slot_data.schema_version !=
+            CALIBRATION_RECORD_SCHEMA_VERSION_V3) {
         return CAL_STORE_UNSUPPORTED_SCHEMA;
     }
     if (active_slot_data.header_size != offsetof(calibration_slot_t, payload)) {
@@ -935,6 +1007,8 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
         &active_slot_data.payload.v1;
     const calibration_persist_payload_v2_t *payload_v2 =
         &active_slot_data.payload.v2;
+    const calibration_persist_payload_v3_t *payload_v3 =
+        &active_slot_data.payload.v3;
 
     // Validate critical numeric calibration invariants
     if (payload_v1->hall_delta == 0) {
@@ -971,13 +1045,21 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
 
     // Decode according to the stored schema. Version-1 runtime bytes are
     // deliberately discarded; version 2 requires their reserved replacements
-    // to be zero.
+    // to be zero. Version 3 assigns those bytes to the saturation crossover.
     calibration_config_set_defaults(config);
-    cal_store_outcome_t decode_outcome =
-        active_slot_data.schema_version ==
-                CALIBRATION_RECORD_SCHEMA_VERSION_V1
-            ? calibration_payload_v1_to_profile(payload_v1, config)
-            : calibration_payload_v2_to_profile(payload_v2, config);
+    cal_store_outcome_t decode_outcome = CAL_STORE_UNSUPPORTED_SCHEMA;
+    if (active_slot_data.schema_version ==
+        CALIBRATION_RECORD_SCHEMA_VERSION_V1) {
+        decode_outcome =
+            calibration_payload_v1_to_profile(payload_v1, config);
+    } else if (active_slot_data.schema_version ==
+               CALIBRATION_RECORD_SCHEMA_VERSION_V2) {
+        decode_outcome =
+            calibration_payload_v2_to_profile(payload_v2, config);
+    } else {
+        decode_outcome =
+            calibration_payload_v3_to_profile(payload_v3, config);
+    }
     if (decode_outcome != CAL_STORE_VALID) {
         return decode_outcome;
     }
@@ -998,7 +1080,7 @@ static cal_store_outcome_t load_calibration_locked(nvs_handle_t handle, calibrat
     return CAL_STORE_VALID;
 }
 
-static cal_store_outcome_t migrate_v1_record_locked(
+static cal_store_outcome_t migrate_legacy_record_locked(
     nvs_handle_t handle, const calibration_profile_t *profile,
     calibration_meta_t *meta)
 {
@@ -1021,7 +1103,7 @@ static cal_store_outcome_t migrate_v1_record_locked(
              profile->profile_id);
     snprintf(slot.profile_hash, sizeof(slot.profile_hash), "%s",
              profile->profile_hash);
-    if (!calibration_profile_to_payload_v2(profile, &slot.payload.v2)) {
+    if (!calibration_profile_to_payload_v3(profile, &slot.payload.v3)) {
         return CAL_STORE_IO_ERROR;
     }
     slot.crc32 = calculate_crc32((const uint8_t *)&slot,
@@ -1086,9 +1168,9 @@ esp_err_t config_store_load_calibration(calibration_config_t *config)
     calibration_meta_t meta;
     cal_store_outcome_t outcome = load_calibration_locked(handle, config, &meta);
     if (outcome == CAL_STORE_VALID &&
-        config->calibration_schema_version ==
-            CALIBRATION_RECORD_SCHEMA_VERSION_V1) {
-        outcome = migrate_v1_record_locked(handle, config, &meta);
+        config->calibration_schema_version <
+            CALIBRATION_RECORD_SCHEMA_VERSION_CURRENT) {
+        outcome = migrate_legacy_record_locked(handle, config, &meta);
         if (outcome == CAL_STORE_VALID) {
             outcome = load_calibration_locked(handle, config, &meta);
         }
@@ -1315,7 +1397,7 @@ cal_store_outcome_t config_store_promote_calibration(
     snprintf(slot_data.profile_id, sizeof(slot_data.profile_id), "%s", candidate->profile_id);
     snprintf(slot_data.profile_hash, sizeof(slot_data.profile_hash), "%s", candidate->profile_hash);
 
-    if (!calibration_profile_to_payload_v2(candidate, &slot_data.payload.v2)) {
+    if (!calibration_profile_to_payload_v3(candidate, &slot_data.payload.v3)) {
         nvs_close(handle);
         UNLOCK_STORE();
         return CAL_STORE_IO_ERROR;

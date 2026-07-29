@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   connectCalibrationStream,
+  isEndedSessionPayload,
   subscribeToManikinsLive,
   subscribeToSessionLive,
 } from "./liveEventsClient";
@@ -75,7 +76,7 @@ describe("liveEventsClient", () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it("subscribes to session live updates, null end events, and encoded session IDs", () => {
+  it("subscribes to session live updates, reports errors, and stops cleanly", () => {
     const onUpdate = vi.fn();
     const onEnded = vi.fn();
     const onError = vi.fn();
@@ -86,18 +87,50 @@ describe("liveEventsClient", () => {
     expect(source.url).toBe("http://localhost:18080/api/stream/sessions/live/session%2F1");
 
     source.emit("session-live", { sessionId: "session/1", live: true });
-    source.emit("session-live", null);
     source.emit("session-live", "{not-json");
     source.onerror?.();
 
     expect(onUpdate).toHaveBeenCalledWith({ sessionId: "session/1", live: true });
-    expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(onEnded).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(new Error("Session live stream connection error"));
 
     subscription.stop();
     source.emit("session-live", { sessionId: "session/1", live: false });
     expect(source.closed).toBe(true);
     expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([null, {}])("handles terminal payload %j exactly once and suppresses later callbacks", (terminalPayload) => {
+    const onUpdate = vi.fn();
+    const onEnded = vi.fn();
+    const onError = vi.fn();
+
+    const subscription = subscribeToSessionLive("session-1", "manikin-1", onUpdate, onEnded, onError);
+    const source = MockEventSource.instances[0];
+
+    source.emit("session-live", terminalPayload);
+    source.emit("session-live", terminalPayload);
+    source.emit("session-live", { sessionId: "session-1", live: false });
+    source.onerror?.();
+    subscription.stop();
+
+    expect(source.closed).toBe(true);
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("recognizes backend completion markers without treating populated updates as ended", () => {
+    expect(isEndedSessionPayload(null)).toBe(true);
+    expect(isEndedSessionPayload(undefined)).toBe(true);
+    expect(isEndedSessionPayload({})).toBe(true);
+    expect(
+      isEndedSessionPayload({
+        sessionId: "session-1",
+        active: false,
+        lifecycleState: "COMPLETED",
+      }),
+    ).toBe(false);
   });
 
   it("routes calibration stream events to snapshot, update, final, and error handlers", () => {

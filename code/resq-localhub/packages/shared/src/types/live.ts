@@ -61,9 +61,16 @@ export type LiveMetricPayload = {
   incompleteRecoilCount?: number | null;
   pauseS: number | null;
   compressionCount: number | null;
+  completedCompressionCount?: number | null;
+  depthOkCompressionCount?: number | null;
   validCompressionCount?: number | null;
+  lastCompressionPeakDepthMm?: number | null;
+  averageCompletedCompressionPeakDepthMm?: number | null;
+  /** Deprecated firmware compatibility aliases. */
+  lastCompressionDepthMm?: number | null;
+  averageCompressionDepthMm?: number | null;
   handPlacement: string | null;
-  pressureBalancePct?: number | null;
+  pressureBalanceScorePct?: number | null;
   flags: string | string[] | null;
   sessionActive?: boolean | null;
   firmwareState?: string | null;
@@ -74,8 +81,6 @@ export type LiveMetricPayload = {
   actionId?: number | null;
   progressId?: number | null;
   sourceMode?: LiveMetricSourceMode;
-  rawPayload?: unknown;
-  debugRaw?: unknown;
 };
 
 export type LiveFallbackSnapshot = {

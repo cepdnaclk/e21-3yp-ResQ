@@ -13,7 +13,7 @@
 #define TEST_CAL_SLOT_BYTES 280u
 #define TEST_CAL_SCHEMA_OFFSET 4u
 #define TEST_CAL_PAYLOAD_OFFSET 128u
-#define TEST_CAL_RESERVED_FLAGS_OFFSET (TEST_CAL_PAYLOAD_OFFSET + 124u)
+#define TEST_CAL_CROSSOVER_OFFSET (TEST_CAL_PAYLOAD_OFFSET + 124u)
 #define TEST_CAL_POLICY_OFFSET (TEST_CAL_PAYLOAD_OFFSET + 120u)
 #define TEST_CAL_PRESSURE_1_RANGE_OFFSET (TEST_CAL_PAYLOAD_OFFSET + 100u)
 #define TEST_CAL_PRESSURE_2_RANGE_OFFSET (TEST_CAL_PAYLOAD_OFFSET + 104u)
@@ -50,6 +50,7 @@ static calibration_config_t valid_profile(void) {
   profile.bladder_2_full_press = 14000;
   profile.pressure_1_range_raw = 4000;
   profile.pressure_2_range_raw = 4000;
+  profile.pressure_saturation_hall_delta = 1200;
   profile.pressure_contact_threshold = 300;
   profile.pressure_valid_threshold = 1000;
   profile.pressure_balance_allowed_pct = 25;
@@ -78,7 +79,7 @@ static calibration_config_t promote_profile(
   TEST_ASSERT_EQUAL(CAL_STORE_VALID,
                     config_store_promote_calibration(
                         candidate, &committed, &snapshot));
-  TEST_ASSERT_EQUAL_UINT32(2, snapshot.schema_version);
+  TEST_ASSERT_EQUAL_UINT32(3, snapshot.schema_version);
   return committed;
 }
 
@@ -126,10 +127,10 @@ static void rewrite_active_slot_as_v1(int32_t policy,
   uint32_t schema = 1;
   memcpy(&slot[TEST_CAL_SCHEMA_OFFSET], &schema, sizeof(schema));
   store_i32(slot, TEST_CAL_POLICY_OFFSET, policy);
-  slot[TEST_CAL_RESERVED_FLAGS_OFFSET + 0] = 1;
-  slot[TEST_CAL_RESERVED_FLAGS_OFFSET + 1] = 1;
-  slot[TEST_CAL_RESERVED_FLAGS_OFFSET + 2] = 0;
-  slot[TEST_CAL_RESERVED_FLAGS_OFFSET + 3] = 1;
+  slot[TEST_CAL_CROSSOVER_OFFSET + 0] = 1;
+  slot[TEST_CAL_CROSSOVER_OFFSET + 1] = 1;
+  slot[TEST_CAL_CROSSOVER_OFFSET + 2] = 0;
+  slot[TEST_CAL_CROSSOVER_OFFSET + 3] = 1;
   if (!usable_pressure) {
     store_i32(slot, TEST_CAL_PRESSURE_1_RANGE_OFFSET, 0);
     store_i32(slot, TEST_CAL_PRESSURE_2_RANGE_OFFSET, 0);
@@ -144,21 +145,23 @@ static void rewrite_active_slot_as_v1(int32_t policy,
   nvs_close(handle);
 }
 
-TEST_CASE("Version 2 calibration roundtrip excludes runtime health",
+TEST_CASE("Version 3 calibration roundtrip persists pressure crossover",
           "[config][calibration]") {
   calibration_config_t candidate = valid_profile();
   calibration_config_t committed = promote_profile(&candidate);
   calibration_config_t loaded = {0};
   TEST_ASSERT_EQUAL(ESP_OK, config_store_load_calibration(&loaded));
-  TEST_ASSERT_EQUAL_UINT32(2, loaded.calibration_schema_version);
+  TEST_ASSERT_EQUAL_UINT32(3, loaded.calibration_schema_version);
   TEST_ASSERT_EQUAL_STRING(committed.profile_id, loaded.profile_id);
   TEST_ASSERT_EQUAL(CALIBRATION_PRESSURE_OPTIONAL, loaded.pressure_policy);
   TEST_ASSERT_EQUAL_INT32(candidate.hall_baseline, loaded.hall_baseline);
   TEST_ASSERT_EQUAL_INT32(candidate.pressure_1_range_raw,
                          loaded.pressure_1_range_raw);
+  TEST_ASSERT_EQUAL_INT32(candidate.pressure_saturation_hall_delta,
+                         loaded.pressure_saturation_hall_delta);
 }
 
-TEST_CASE("Runtime pressure degradation is never persisted",
+TEST_CASE("Version 3 crossover bytes contain only calibration evidence",
           "[config][calibration]") {
   calibration_config_t candidate = valid_profile();
   (void)promote_profile(&candidate);
@@ -183,10 +186,11 @@ TEST_CASE("Runtime pressure degradation is never persisted",
   TEST_ASSERT_EQUAL_UINT(sizeof(slot), slot_len);
   uint32_t schema = 0;
   memcpy(&schema, &slot[TEST_CAL_SCHEMA_OFFSET], sizeof(schema));
-  TEST_ASSERT_EQUAL_UINT32(2, schema);
-  for (size_t i = 0; i < 4; ++i) {
-    TEST_ASSERT_EQUAL_HEX8(0, slot[TEST_CAL_RESERVED_FLAGS_OFFSET + i]);
-  }
+  TEST_ASSERT_EQUAL_UINT32(3, schema);
+  int32_t crossover = 0;
+  memcpy(&crossover, &slot[TEST_CAL_CROSSOVER_OFFSET], sizeof(crossover));
+  TEST_ASSERT_EQUAL_INT32(candidate.pressure_saturation_hall_delta,
+                         crossover);
 }
 
 TEST_CASE("New calibration promotion rejects legacy runtime mode",
@@ -212,7 +216,7 @@ TEST_CASE("Version 1 required policy migrates unchanged",
   calibration_config_t loaded = {0};
   TEST_ASSERT_EQUAL(ESP_OK, config_store_load_calibration(&loaded));
   TEST_ASSERT_EQUAL(CALIBRATION_PRESSURE_REQUIRED, loaded.pressure_policy);
-  TEST_ASSERT_EQUAL_UINT32(2, loaded.calibration_schema_version);
+  TEST_ASSERT_EQUAL_UINT32(3, loaded.calibration_schema_version);
 }
 
 TEST_CASE("Version 1 optional policy migrates unchanged",
@@ -223,7 +227,7 @@ TEST_CASE("Version 1 optional policy migrates unchanged",
   calibration_config_t loaded = {0};
   TEST_ASSERT_EQUAL(ESP_OK, config_store_load_calibration(&loaded));
   TEST_ASSERT_EQUAL(CALIBRATION_PRESSURE_OPTIONAL, loaded.pressure_policy);
-  TEST_ASSERT_EQUAL_UINT32(2, loaded.calibration_schema_version);
+  TEST_ASSERT_EQUAL_UINT32(3, loaded.calibration_schema_version);
 }
 
 TEST_CASE("Version 1 legacy fallback with pressure data migrates to optional",
@@ -235,7 +239,7 @@ TEST_CASE("Version 1 legacy fallback with pressure data migrates to optional",
   calibration_config_t loaded = {0};
   TEST_ASSERT_EQUAL(ESP_OK, config_store_load_calibration(&loaded));
   TEST_ASSERT_EQUAL(CALIBRATION_PRESSURE_OPTIONAL, loaded.pressure_policy);
-  TEST_ASSERT_EQUAL_UINT32(2, loaded.calibration_schema_version);
+  TEST_ASSERT_EQUAL_UINT32(3, loaded.calibration_schema_version);
 }
 
 TEST_CASE("Version 1 legacy fallback without pressure data migrates to Hall-only",
@@ -247,5 +251,5 @@ TEST_CASE("Version 1 legacy fallback without pressure data migrates to Hall-only
   calibration_config_t loaded = {0};
   TEST_ASSERT_EQUAL(ESP_OK, config_store_load_calibration(&loaded));
   TEST_ASSERT_EQUAL(CALIBRATION_HALL_ONLY, loaded.pressure_policy);
-  TEST_ASSERT_EQUAL_UINT32(2, loaded.calibration_schema_version);
+  TEST_ASSERT_EQUAL_UINT32(3, loaded.calibration_schema_version);
 }

@@ -127,6 +127,9 @@ void mqtt_manager_reset_command_reassembly_for_test(void);
 void mqtt_manager_reset_command_cache_for_test(void);
 command_cache_result_t mqtt_manager_cache_check_for_test(
     const char *topic, const char *request_id);
+esp_err_t mqtt_manager_cache_get_response_for_test(
+    const char *topic, const char *request_id, char *out_suffix,
+    size_t out_suffix_len, char *out_payload, size_t out_payload_len);
 esp_err_t mqtt_manager_set_cache_lock_failure_for_test(bool enabled);
 
 #ifdef __cplusplus

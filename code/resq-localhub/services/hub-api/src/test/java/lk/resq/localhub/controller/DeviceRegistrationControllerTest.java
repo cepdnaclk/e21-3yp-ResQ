@@ -8,11 +8,15 @@ import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
 import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttSubscriberService;
+import lk.resq.localhub.service.LiveStreamService;
+import lk.resq.localhub.service.CalibrationStreamService;
+import lk.resq.localhub.service.SensorStreamService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class DeviceRegistrationControllerTest {
 
@@ -143,7 +147,14 @@ class DeviceRegistrationControllerTest {
 
         return new Fixture(
                 new DeviceRegistrationController(registrationService),
-                new HubHealthController(serviceInfoService, mqttProvider, registry),
+                new HubHealthController(
+                        serviceInfoService,
+                        mqttProvider,
+                        registry,
+                        mock(LiveStreamService.class),
+                        mock(CalibrationStreamService.class),
+                        mock(SensorStreamService.class)
+                ),
                 registry
         );
     }

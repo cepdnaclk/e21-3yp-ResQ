@@ -1,0 +1,1145 @@
+﻿code/resq-localhub\packages\shared\src\types\live.ts:1:export type LiveMetricSourceMode = "real" | "simulator" | "calibration" | "debug" | "hall";
+code/resq-localhub\packages\shared\src\types\live.ts:78:  debugRaw?: unknown;
+code/resq-firmware\main\main.c:40:#include "telemetry_publisher.h"
+code/resq-firmware\main\main.c:54:static TaskHandle_t s_heartbeat_task;
+code/resq-firmware\main\main.c:55:static EventGroupHandle_t s_heartbeat_events;
+code/resq-firmware\main\main.c:56:static StaticSemaphore_t s_heartbeat_lifecycle_mutex_storage;
+code/resq-firmware\main\main.c:57:static SemaphoreHandle_t s_heartbeat_lifecycle_mutex;
+code/resq-firmware\main\main.c:62:static StaticSemaphore_t s_heartbeat_snapshot_mutex_storage;
+code/resq-firmware\main\main.c:63:static SemaphoreHandle_t s_heartbeat_snapshot_mutex;
+code/resq-firmware\main\main.c:70:} heartbeat_snapshot_t;
+code/resq-firmware\main\main.c:72:static heartbeat_snapshot_t s_heartbeat_snapshot;
+code/resq-firmware\main\main.c:126:static void cleanup_telemetry(void)
+code/resq-firmware\main\main.c:128:    (void)telemetry_publisher_stop_all();
+code/resq-firmware\main\main.c:206:static void heartbeat_snapshot_update(void)
+code/resq-firmware\main\main.c:208:    if (s_heartbeat_snapshot_mutex == NULL ||
+code/resq-firmware\main\main.c:209:        xSemaphoreTake(s_heartbeat_snapshot_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+code/resq-firmware\main\main.c:210:        ESP_LOGW(TAG, "Unable to update heartbeat state snapshot");
+code/resq-firmware\main\main.c:214:    s_heartbeat_snapshot.network_config = s_fsm.network_config;
+code/resq-firmware\main\main.c:215:    s_heartbeat_snapshot.calibration_config = s_fsm.calibration_config;
+code/resq-firmware\main\main.c:216:    s_heartbeat_snapshot.state = s_fsm.current_state;
+code/resq-firmware\main\main.c:217:    memcpy(s_heartbeat_snapshot.ip_address,
+code/resq-firmware\main\main.c:219:           sizeof(s_heartbeat_snapshot.ip_address));
+code/resq-firmware\main\main.c:220:    xSemaphoreGive(s_heartbeat_snapshot_mutex);
+code/resq-firmware\main\main.c:254:        {"telemetry_publisher", telemetry_publisher_init, cleanup_telemetry,
+code/resq-firmware\main\main.c:274:                    strcmp(result.component, "telemetry_publisher") == 0 ||
+code/resq-firmware\main\main.c:303:static void get_heartbeat_session(bool *active,
+code/resq-firmware\main\main.c:322:static void heartbeat_task(void *arg)
+code/resq-firmware\main\main.c:325:    task_diagnostics_record_stack_watermark("heartbeat");
+code/resq-firmware\main\main.c:326:    xEventGroupSetBits(s_heartbeat_events, HEARTBEAT_STARTED_BIT);
+code/resq-firmware\main\main.c:328:    while ((xEventGroupGetBits(s_heartbeat_events) &
+code/resq-firmware\main\main.c:331:            heartbeat_snapshot_t snapshot = {0};
+code/resq-firmware\main\main.c:332:            if (xSemaphoreTake(s_heartbeat_snapshot_mutex,
+code/resq-firmware\main\main.c:334:                ESP_LOGW(TAG, "Unable to read heartbeat state snapshot");
+code/resq-firmware\main\main.c:338:            snapshot = s_heartbeat_snapshot;
+code/resq-firmware\main\main.c:339:            xSemaphoreGive(s_heartbeat_snapshot_mutex);
+code/resq-firmware\main\main.c:352:            get_heartbeat_session(&session_active,
+code/resq-firmware\main\main.c:382:            esp_err_t err = mqtt_manager_publish_heartbeat_with_health(
+code/resq-firmware\main\main.c:397:        task_diagnostics_record_stack_watermark("heartbeat");
+code/resq-firmware\main\main.c:401:    task_diagnostics_record_stack_watermark("heartbeat");
+code/resq-firmware\main\main.c:402:    xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
+code/resq-firmware\main\main.c:403:    s_heartbeat_task = NULL;
+code/resq-firmware\main\main.c:404:    xSemaphoreGive(s_heartbeat_lifecycle_mutex);
+code/resq-firmware\main\main.c:405:    xEventGroupSetBits(s_heartbeat_events, HEARTBEAT_STOPPED_BIT);
+code/resq-firmware\main\main.c:409:static esp_err_t start_heartbeat_once(void)
+code/resq-firmware\main\main.c:411:    if (s_heartbeat_events == NULL) {
+code/resq-firmware\main\main.c:412:        s_heartbeat_events = xEventGroupCreate();
+code/resq-firmware\main\main.c:413:        if (s_heartbeat_events == NULL) {
+code/resq-firmware\main\main.c:417:    if (s_heartbeat_lifecycle_mutex == NULL) {
+code/resq-firmware\main\main.c:418:        s_heartbeat_lifecycle_mutex = xSemaphoreCreateMutexStatic(
+code/resq-firmware\main\main.c:419:            &s_heartbeat_lifecycle_mutex_storage);
+code/resq-firmware\main\main.c:420:        if (s_heartbeat_lifecycle_mutex == NULL) {
+code/resq-firmware\main\main.c:424:    xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
+code/resq-firmware\main\main.c:425:    if (s_heartbeat_task != NULL) {
+code/resq-firmware\main\main.c:426:        xSemaphoreGive(s_heartbeat_lifecycle_mutex);
+code/resq-firmware\main\main.c:430:    xEventGroupClearBits(s_heartbeat_events,
+code/resq-firmware\main\main.c:433:    BaseType_t result = xTaskCreate(heartbeat_task,
+code/resq-firmware\main\main.c:434:                                    "heartbeat_task",
+code/resq-firmware\main\main.c:438:                                    &s_heartbeat_task);
+code/resq-firmware\main\main.c:439:    xSemaphoreGive(s_heartbeat_lifecycle_mutex);
+code/resq-firmware\main\main.c:441:        xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
+code/resq-firmware\main\main.c:442:        s_heartbeat_task = NULL;
+code/resq-firmware\main\main.c:443:        xSemaphoreGive(s_heartbeat_lifecycle_mutex);
+code/resq-firmware\main\main.c:447:        s_heartbeat_events, HEARTBEAT_STARTED_BIT | HEARTBEAT_STOPPED_BIT,
+code/resq-firmware\main\main.c:452:static esp_err_t stop_heartbeat(void)
+code/resq-firmware\main\main.c:454:    xSemaphoreTake(s_heartbeat_lifecycle_mutex, portMAX_DELAY);
+code/resq-firmware\main\main.c:455:    TaskHandle_t task = s_heartbeat_task;
+code/resq-firmware\main\main.c:456:    xSemaphoreGive(s_heartbeat_lifecycle_mutex);
+code/resq-firmware\main\main.c:461:    xEventGroupSetBits(s_heartbeat_events, HEARTBEAT_STOP_REQUESTED_BIT);
+code/resq-firmware\main\main.c:464:        s_heartbeat_events, HEARTBEAT_STOPPED_BIT, pdFALSE, pdFALSE,
+code/resq-firmware\main\main.c:518:    .mqtt_publish_heartbeat = mqtt_manager_publish_heartbeat,
+code/resq-firmware\main\main.c:519:    .start_heartbeat = start_heartbeat_once,
+code/resq-firmware\main\main.c:520:    .stop_heartbeat = stop_heartbeat,
+code/resq-firmware\main\main.c:537:    .telemetry_stop = telemetry_publisher_stop_all,
+code/resq-firmware\main\main.c:561:    s_heartbeat_snapshot_mutex =
+code/resq-firmware\main\main.c:562:        xSemaphoreCreateMutexStatic(&s_heartbeat_snapshot_mutex_storage);
+code/resq-firmware\main\main.c:563:    ESP_ERROR_CHECK(s_heartbeat_snapshot_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM);
+code/resq-firmware\main\main.c:564:    heartbeat_snapshot_update();
+code/resq-firmware\main\main.c:568:        heartbeat_snapshot_update();
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:3:  | "heartbeat"
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:4:  | "telemetry"
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:5:  | "debug"
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:7:  | "events/calibration"
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:8:  | "events/error"
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:41:  return buildDeviceTopic(deviceId, "heartbeat");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:45:  return buildDeviceTopic(deviceId, "telemetry");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:49:  return buildDeviceTopic(deviceId, "debug");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:57:  return buildDeviceTopic(deviceId, "events/calibration");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:61:  return buildDeviceTopic(deviceId, "events/error");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:69:  return buildFirmwareCommandTopic(deviceId, "cmd/debug");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:73:  return buildFirmwareCommandTopic(deviceId, "cmd/calibration/start");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:77:  return buildFirmwareCommandTopic(deviceId, "cmd/calibration/cancel");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:81:  return buildFirmwareCommandTopic(deviceId, "cmd/session/start");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:85:  return buildFirmwareCommandTopic(deviceId, "cmd/session/stop");
+code/resq-localhub\packages\shared\src\firmware\firmwareTopics.ts:127:  if (family === "status" || family === "heartbeat" || family === "telemetry" || family === "debug" || family === "events") {
+code/resq-firmware\test\README.md:94:manual telemetry.
+code/resq-localhub\docs\local-demo-runbook.md:81:The launcher keeps every service window visible so you can watch broker, backend, desktop, simulator, watcher, and preflight logs during debugging.
+code/resq-localhub\docs\local-demo-runbook.md:93:The simulator and backend should use canonical topics under `resq/{deviceId}/...`.
+code/resq-localhub\docs\local-demo-runbook.md:97:- `resq/M01/status`
+code/resq-localhub\docs\local-demo-runbook.md:98:- `resq/M01/heartbeat`
+code/resq-localhub\docs\local-demo-runbook.md:99:- `resq/M01/telemetry`
+code/resq-localhub\docs\local-demo-runbook.md:100:- `resq/M01/debug`
+code/resq-localhub\docs\local-demo-runbook.md:101:- `resq/M01/events`
+code/resq-localhub\docs\local-demo-runbook.md:102:- `resq/M01/events/calibration`
+code/resq-localhub\docs\local-demo-runbook.md:103:- `resq/M01/events/error`
+code/resq-localhub\docs\local-demo-runbook.md:104:- `resq/M01/cmd/#`
+code/resq-localhub\docs\local-demo-runbook.md:106:Legacy `resq/manikins/{deviceId}/...` topics should still work for compatibility, but the demo flow should prefer the canonical namespace.
+code/resq-localhub\docs\local-demo-runbook.md:131:5. Confirm the simulator stops telemetry and publishes the session stop event.
+code/resq-localhub\docs\local-demo-runbook.md:143:3. Request a debug snapshot.
+code/resq-localhub\docs\local-demo-runbook.md:144:4. Confirm the recent command, event, and debug snapshot lists update after the simulator responds.
+code/resq-localhub\docs\architecture-overview.md:30:- Selected logs/telemetry intended for remote dashboards
+code/resq-firmware\README.md:37:6. Publishes device identity, retained state, and a heartbeat every five
+code/resq-firmware\README.md:39:7. Accepts calibration, session, debug, and recovery commands over MQTT.
+code/resq-firmware\README.md:43:10. Publishes live session telemetry and controls the metronome buzzer.
+code/resq-firmware\README.md:117:| `SENSOR` | Normal ResQ operation. GPIO19 is the shared HX710 clock and is held LOW while idle; GPIO18 is available to the buzzer. Calibration, pressure debug, manual sensor streaming, and CPR sessions are enabled. |
+code/resq-firmware\README.md:118:| `USB` | GPIO18/GPIO19 are reserved for native USB Serial/JTAG. HX710, pressure acquisition, calibration/session sensor services, and the buzzer are not initialized. Wi-Fi, provisioning, backend registration, MQTT, status, heartbeat, events, and logs remain active. |
+code/resq-firmware\README.md:214:| `build/resq-firmware.elf` | Executable with symbols for debugging |
+code/resq-firmware\README.md:287:publishes identity, status, and heartbeat data.
+code/resq-firmware\README.md:311:| `MQTT_CONNECTING` | Connect, publish identity/status, and start heartbeat |
+code/resq-firmware\README.md:316:| `SESSION_ACTIVE` | Sample sensors, calculate CPR metrics, and publish telemetry |
+code/resq-firmware\README.md:339:resq/{device_id}/{suffix}
+code/resq-firmware\README.md:346:| `cmd/debug` | Publish a raw pressure/hall sensor snapshot |
+code/resq-firmware\README.md:347:| `cmd/calibration/start` | Start calibration with reference parameters |
+code/resq-firmware\README.md:348:| `cmd/calibration/cancel` | Cancel active calibration |
+code/resq-firmware\README.md:349:| `cmd/session/start` | Start a calibrated CPR session |
+code/resq-firmware\README.md:350:| `cmd/session/stop` | Stop the active session |
+code/resq-firmware\README.md:363:In `USB` mode, `cmd/debug`, `cmd/calibration/start`, `cmd/session/start`, and a
+code/resq-firmware\README.md:369:`cmd/calibration/start` stores `hall_delta` internally as
+code/resq-firmware\README.md:386:`cmd/session/start` must use the same `profile_id` as the saved calibration
+code/resq-firmware\README.md:399:| `heartbeat` | I/O mode, pressure-sensor enablement, connectivity, registration, session, sensor, RSSI, and uptime |
+code/resq-firmware\README.md:400:| `telemetry` | Live CPR measurements and quality metrics |
+code/resq-firmware\README.md:401:| `debug` | Raw pressure and hall readings |
+code/resq-firmware\README.md:403:| `events/calibration` | Calibration progress and terminal result |
+code/resq-firmware\README.md:404:| `events/error` | Firmware errors and system-command results |
+code/resq-firmware\README.md:406:The heartbeat task publishes every five seconds while MQTT is connected.
+code/resq-firmware\README.md:407:Session telemetry is more frequent and is emitted only while a valid session
+code/resq-firmware\README.md:410:Both status and heartbeat payloads include `io_mode` (`SENSOR` or `USB`) and
+code/resq-firmware\README.md:430:Session telemetry now includes these additional quality fields:
+code/resq-firmware\README.md:446:count as valid, but telemetry keeps the pressure confidence warning visible.
+code/resq-firmware\README.md:452:- Extend shared firmware telemetry types to include the new optional fields.
+code/resq-firmware\README.md:565:  `telemetry_publisher`, `buzzer_manager`
+code/resq-firmware\README.md:663:- Subscribe to `resq/#` to inspect all device traffic.
+code/resq-firmware\README.md:665:- Remember that telemetry requires a valid calibration and active session.
+code/resq-firmware\README.md:667:### Sensor debug or calibration fails
+code/resq-firmware\README.md:673:- Send `cmd/debug` with a valid `request_id` and inspect all raw values.
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:47:        JsonNode valid = telemetry("M01", session.sessionId(), 1, 52, 110);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:52:        assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", "S-WRONG", 1, 52, 110)), "session is not active");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:54:        assertThat(service.validateTelemetryBinding("M01", telemetryWithoutSession("M01")).accepted()).isTrue();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:55:        assertRejected(service.validateTelemetryBinding("M02", telemetryWithoutSession("M02")), "payload sessionId is missing");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:56:        assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, -1, 110)), "depthMm is outside");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:93:                  "debugRaw": {
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:186:                  "event_type": "session_telemetry",
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:199:                  "event_type": "session_telemetry",
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:232:        JsonNode telemetry = objectMapper.readTree("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:244:        assertThat(service.validateTelemetryBinding("M01", telemetry).accepted()).isTrue();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:245:        service.recordTelemetry("M01", telemetry);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:272:        JsonNode first = telemetry("M01", session.sessionId(), 1, 52, 110);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:274:        assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 1, 53, 111)), "seq is not newer");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:277:        assertThat(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 54, 112)).accepted()).isTrue();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:288:        assertRejected(service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 54, 112)), "session is not active");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:744:    void telemetryIsAcceptedDuringStopPendingAndRejectedAfterCompleted() throws Exception {
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:749:        JsonNode finalTelemetry = telemetry("M01", session.sessionId(), 1, 51, 109);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:754:        assertRejected(fixture.service.validateTelemetryBinding("M01", telemetry("M01", session.sessionId(), 2, 52, 110)), "session is not active");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:930:    private JsonNode telemetry(String deviceId, String sessionId, long seq, double depthMm, double rateCpm) throws Exception {
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ActiveSessionServiceTest.java:946:    private JsonNode telemetryWithoutSession(String deviceId) throws Exception {
+code/resq-localhub\apps\localhub-desktop\vite.config.ts:13:      "@resq/shared": sharedSourcePath,
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\FirmwareDiagnosticsControllerTest.java:67:    void debugSnapshotsEndpointReturnsRecentSnapshots() {
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\FirmwareDiagnosticsControllerTest.java:124:    void debugEndpointPublishesCanonicalDebugCommand() {
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\FirmwareDiagnosticsControllerTest.java:131:        assertThat(body.topic()).isEqualTo(FirmwareTopics.debugCommandTopic("M01"));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\FirmwareDiagnosticsControllerTest.java:191:                "resq/" + deviceId + "/" + topicFamily,
+code/resq-localhub\docs\telemetry-api-update\phase-5-frontend-sensor-stream.md:11:- `POST /api/devices/{deviceId}/telemetry/start` with `{ "interval_ms": intervalMs }`
+code/resq-localhub\docs\telemetry-api-update\phase-5-frontend-sensor-stream.md:12:- `POST /api/devices/{deviceId}/telemetry/stop` with no body
+code/resq-localhub\docs\telemetry-api-update\phase-5-frontend-sensor-stream.md:13:- `GET /api/devices/{deviceId}/telemetry/latest`
+code/resq-localhub\docs\telemetry-api-update\phase-5-frontend-sensor-stream.md:23:Only named `sensor-stream` events are parsed. Each payload is validated before display: device id must match, `telemetry_mode` must be `SENSOR_STREAM`, numeric fields must be finite, booleans must be booleans, and the saturation mask must only contain pressure channel bits 0-2.
+code/resq-localhub\docs\telemetry-api-update\phase-5-frontend-sensor-stream.md:67:The direct MQTT fallback and shared live telemetry normalizer reject payloads carrying `telemetry_mode` before building `LiveMetricPayload`. This keeps `SENSOR_STREAM` and unknown telemetry modes out of CPR session UI state, graphs, trainee live views, and completed session summaries.
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\TelemetryPayloadNormalizerTest.java:43:        assertThat(result.value().debugRaw()).isNotNull();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\TelemetryPayloadNormalizerTest.java:87:        assertThat(result.value().debugRaw()).isNotNull();
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:20:| MQTT command topic | `resq/{device_id}/cmd/telemetry` | `FirmwareTopics.telemetryCommandTopic(deviceId)` | subscribes `resq/{deviceId}/cmd/#`, command `telemetry` | command response `topic` expected `resq/M01/cmd/telemetry` | Match | None |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:21:| MQTT telemetry topic | `resq/{device_id}/telemetry` via `mqtt_manager_publish_telemetry_json` | canonical and legacy telemetry topic parser | publishes `resq/{deviceId}/telemetry` | direct MQTT isolation rejects `telemetry_mode` payloads | Match | None |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:22:| telemetry mode discriminator | `telemetry_mode` = `SENSOR_STREAM` | `telemetry_mode` / `telemetryMode` accepted, requires `SENSOR_STREAM` | `telemetry_mode` = `SENSOR_STREAM` | `telemetry_mode` / `telemetryMode` accepted, requires `SENSOR_STREAM` | Match | None |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:25:| request id | `request_id` required for telemetry command | `request_id` generated and persisted | `request_id` echoed | `request_id` mapped to `requestId` | Match | None |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:42:| REST START path | n/a | `POST /api/devices/{deviceId}/telemetry/start` | n/a | same | Match | None |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:43:| REST STOP path | n/a | `POST /api/devices/{deviceId}/telemetry/stop` | n/a | same | Match | None |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:44:| REST latest path | n/a | `GET /api/devices/{deviceId}/telemetry/latest` | n/a | same | Match | None |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:45:| Invalid telemetry command reason | `07101` | stored/passed through from firmware replies | was `08101`/`08102` | display-only | Corrected | Simulator changed to `07101` |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:47:Canonical fixtures were added in `docs/telemetry-api-update/fixtures/sensor-stream-contract-fixtures.json`.
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:58:External end-to-end validation requires a broker, backend process, simulator or physical firmware, and authenticated LocalHub requests. A deterministic Windows helper script was added at `scripts/telemetry-e2e/validate-sensor-stream.ps1`.
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:66:- Simulator handles `cmd/telemetry` START/STOP.
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:142:| `MANUAL_STREAM` | calibration start | stop manual stream | `CALIBRATION` | Simulator stops manual telemetry before calibration; firmware path requires cooperative stop; hardware NOT RUN |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:143:| `MANUAL_STREAM` | session start | stop manual stream | `SESSION` | Simulator stops manual telemetry before session; firmware path requires cooperative stop; hardware NOT RUN |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:153:- Frontend direct MQTT/session normalizer rejects payloads that contain `telemetry_mode`.
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:157:Required explicit accumulator regression across all summary fields is partially covered, but a full accumulator-baseline test with injected `SENSOR_STREAM` followed by normal session telemetry should be added before release.
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:165:| Unknown telemetry mode | rejected | backend/frontend parsers reject |
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:185:- Backend currently logs `Processed SENSOR_STREAM telemetry for {device}` at INFO for every packet. At 100 ms this can create log noise and should be reduced to DEBUG or sampled before pilot.
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:206:.\scripts\telemetry-e2e\validate-sensor-stream.ps1 `
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:228:- active-session debug remains `SESSION_METRICS`: NOT RUN
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:271:- disable `cmd/telemetry` subscription/handler or revert the manual stream phase
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:273:- preserve existing session telemetry
+code/resq-localhub\docs\telemetry-api-update\phase-6-end-to-end-validation.md:277:- disable telemetry START/STOP routes
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:8:resq/{device_id}/cmd/telemetry
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:40:without touching CPR session telemetry, CPR metrics, heartbeat, or status
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:53:`cmd/telemetry` with `allow_start=true`.
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:90:5. Publishes one diagnostics payload to `resq/{device_id}/telemetry`.
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:101:resq/{device_id}/telemetry
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:107:"telemetry_mode": "SENSOR_STREAM"
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:113:- `telemetry_mode`
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:144:Idle direct debug snapshots do not read sensors while manual streaming owns the
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:145:hardware. In this phase they reject with the existing debug NACK path instead of
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:148:Active-session debug remains unchanged and uses `SESSION_METRICS` only.
+code/resq-firmware\docs\telemetry-api-update\phase-3-manual-sensor-stream.md:158:- reset and turn-off runtime cleanup through `telemetry_publisher_stop_all`
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\CalibrationPersistenceTest.java:218:                "resq/manikins/DEV-101/events/calibration",
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\CalibrationPersistenceTest.java:272:                "resq/manikins/DEV-101/events/calibration",
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:15:Legacy compatibility is still intentionally present. The backend still accepts legacy `resq/manikins/...` topics, and some demo utilities still default to `M01` so the local flows remain easy to run. Those are compatibility remnants, not product scope changes.
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:64:Canonical firmware topics remain under `resq/{deviceId}/...`:
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:67:- `heartbeat`
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:68:- `telemetry`
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:69:- `debug`
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:71:- `events/calibration`
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:72:- `events/error`
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:75:The backend and simulator also continue to accept legacy `resq/manikins/{deviceId}/...` topics for compatibility.
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:81:This applies to calibration, session control, debug, and maintenance-style commands in the local simulator flow. The command reply is what ties MQTT publish, persistence, diagnostics, and UI traces together.
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:89:- If telemetry contains only `depthProgress`, the session can still be recorded and reviewed.
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:109:4. The simulator returns `event_id` `2000` and begins telemetry.
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:111:6. The simulator returns `event_id` `2001` and stops telemetry.
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:121:- inspect recent debug snapshots
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:122:- request a fresh debug snapshot
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:139:The simulator publishes visible log output and should remain in its own terminal window during debugging.
+code/resq-localhub\docs\localhub-firmware-integration-handoff.md:166:6. The device publishes canonical `resq/{deviceId}/...` topics.
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:3:#include "telemetry_publisher.h"
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:96:TEST_CASE("Oversized telemetry payload fails without publishing",
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:97:          "[telemetry][serialization]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:103:        telemetry_publisher_build_session_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:107:TEST_CASE("Session telemetry payload keeps legacy fields and adds converted fields", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:112:    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:115:    assert_contains(payload, "\"event_type\":\"session_telemetry\"");
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:161:TEST_CASE("Session telemetry payload reports one saturated pressure channel", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:173:    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:186:TEST_CASE("Session telemetry distinguishes current invalid from accepted evidence",
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:187:          "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:198:    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:210:TEST_CASE("Session telemetry payload zeros invalid Hall depth without NaN", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:217:    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:227:TEST_CASE("Sensor stream command validation requires request id action and interval", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:233:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:238:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:243:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:248:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:253:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:258:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:263:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:269:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:277:                      telemetry_publisher_validate_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:284:TEST_CASE("Sensor stream payload contains diagnostics fields without session scoring", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:291:                      telemetry_publisher_build_sensor_stream_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:301:    assert_contains(payload, "\"telemetry_mode\":\"SENSOR_STREAM\"");
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:336:TEST_CASE("Sensor stream payload zeros saturated or invalid converted values", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:355:                      telemetry_publisher_build_sensor_stream_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:380:TEST_CASE("Sensor stream payload includes valid raw readings before calibration", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:399:                      telemetry_publisher_build_sensor_stream_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:432:TEST_CASE("Sensor stream payload preserves calibrated converted values", "[telemetry]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:439:                      telemetry_publisher_build_sensor_stream_payload(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:464:TEST_CASE("USB mode rejects manual SENSOR_STREAM start", "[telemetry][io_mode]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:470:    strcpy(command.topic, "resq/test/cmd/telemetry");
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:476:    esp_err_t command_err = telemetry_publisher_handle_sensor_stream_command(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:478:    esp_err_t direct_err = telemetry_publisher_start_sensor_stream(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:481:    bool running = telemetry_publisher_is_sensor_stream_running();
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:482:    esp_err_t stop_err = telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:492:          "[telemetry][io_mode]")
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:497:    esp_err_t null_config_err = telemetry_publisher_start_sensor_stream(
+code/resq-firmware\components\telemetry_publisher\test\test_telemetry_payload.c:500:    esp_err_t bad_interval_err = telemetry_publisher_start_sensor_stream(
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:21:11. ESP subscribes to `resq/{deviceId}/cmd/#`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:22:12. ESP publishes `resq/{deviceId}/status` and `resq/{deviceId}/heartbeat`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:24:14. ESP receives `resq/{deviceId}/cmd/calibration/start`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:27:17. ESP receives `resq/{deviceId}/cmd/session/start`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:28:18. ESP publishes `resq/{deviceId}/events` with `event_id: 2000` and publishes telemetry.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:30:20. ESP publishes `resq/{deviceId}/events` with `event_id: 2001`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:130:- `resq/{deviceId}/status`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:131:- `resq/{deviceId}/heartbeat`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:132:- `resq/{deviceId}/telemetry`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:133:- `resq/{deviceId}/debug`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:134:- `resq/{deviceId}/events`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:135:- `resq/{deviceId}/events/calibration`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:136:- `resq/{deviceId}/events/error`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:137:- `resq/{deviceId}/cmd/#`
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:139:Legacy `resq/manikins/{deviceId}/...` topics should still be accepted by the backend, but the real hardware workflow should use the canonical namespace above.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:147:5. Confirm the MQTT trace helper shows `resq/{deviceId}/cmd/calibration/start`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:161:3. Confirm the trace helper shows `resq/{deviceId}/cmd/session/start`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:162:4. Confirm the firmware publishes `resq/{deviceId}/events` with `event_id: 2000`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:163:5. Confirm telemetry starts on `resq/{deviceId}/telemetry`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:165:7. Confirm the firmware publishes `resq/{deviceId}/events` with `event_id: 2001`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:166:8. Confirm telemetry stops and the dashboard returns to the idle state.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:170:1. Publish a debug command to `resq/{deviceId}/cmd/debug`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:171:2. Confirm the firmware publishes a snapshot to `resq/{deviceId}/debug`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:172:3. Confirm the firmware publishes a debug ACK event to `resq/{deviceId}/events`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:173:4. Confirm the backend stores the debug snapshot and related event record.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:182:- Whether telemetry arrives immediately after `event_id: 2000`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:183:- Whether status, heartbeat, and telemetry carry the same device and session IDs as the simulator.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:184:- Whether debug packets stay on `resq/{deviceId}/debug` and never leak into telemetry.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:192:- The broker trace shows a legacy-only topic instead of `resq/{deviceId}/...`.
+code/resq-localhub\docs\real-esp32-localhub-integration-smoke-test.md:196:- Debug commands are not persisted or the debug snapshot topic is missing.
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\TelemetryPayloadNormalizer.java:100:        Object debugRaw = jsonValue(payload.get("debugRaw"));
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\TelemetryPayloadNormalizer.java:101:        if (debugRaw == null && looksLikeFirmwareTelemetry(payload)) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\TelemetryPayloadNormalizer.java:102:            debugRaw = jsonValue(payload);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\TelemetryPayloadNormalizer.java:126:                debugRaw
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\TelemetryPayloadNormalizer.java:191:            case "real", "simulator", "calibration", "debug", "hall" -> normalized;
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\TelemetryPayloadNormalizer.java:192:            default -> "debug";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\TelemetryPayloadNormalizer.java:230:                || payload.has("telemetry_mode");
+code/resq-localhub\docs\live-fallback-test-plan.md:43:Publish one metric-first telemetry packet:
+code/resq-localhub\docs\live-fallback-test-plan.md:46:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Sample metric-first -PrintPayload
+code/resq-localhub\docs\live-fallback-test-plan.md:70:Phase 6 validation rejects arbitrary `sessionId` values. Start a real backend session before publishing accepted telemetry.
+code/resq-localhub\docs\live-fallback-test-plan.md:87:   .\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Sample metric-first
+code/resq-localhub\docs\live-fallback-test-plan.md:105:4. Publish telemetry through TCP:
+code/resq-localhub\docs\live-fallback-test-plan.md:108:   .\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Seq 2 -Sample metric-first
+code/resq-localhub\docs\live-fallback-test-plan.md:116:- Backend logs show accepted telemetry and session accumulator updates.
+code/resq-localhub\docs\live-fallback-test-plan.md:138:2. Publish one telemetry packet.
+code/resq-localhub\docs\live-fallback-test-plan.md:139:3. Stop publishing telemetry.
+code/resq-localhub\docs\live-fallback-test-plan.md:148:1. Publish a heartbeat or status:
+code/resq-localhub\docs\live-fallback-test-plan.md:151:   .\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Sample heartbeat
+code/resq-localhub\docs\live-fallback-test-plan.md:154:2. Stop heartbeat/status publishing.
+code/resq-localhub\docs\live-fallback-test-plan.md:166:3. Publish healthy metric-first telemetry.
+code/resq-localhub\docs\live-fallback-test-plan.md:181:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Seq 10 -Sample wrong-session
+code/resq-localhub\docs\live-fallback-test-plan.md:182:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Seq 11 -Sample wrong-device
+code/resq-localhub\docs\live-fallback-test-plan.md:183:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ENDED_SESSION_ID> -Seq 12 -Sample ended-session
+code/resq-localhub\docs\live-fallback-test-plan.md:184:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Seq 13 -Sample malformed
+code/resq-localhub\docs\live-fallback-test-plan.md:185:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Seq 14 -Sample incomplete
+code/resq-localhub\docs\live-fallback-test-plan.md:190:- Backend logs rejected telemetry with accepted/rejected counts.
+code/resq-localhub\docs\live-fallback-test-plan.md:191:- Backend does not update scoring or active session state from invalid telemetry.
+code/resq-localhub\docs\live-fallback-test-plan.md:192:- UI does not update selected metric cards, charts, coaching cues, or compression count from invalid telemetry.
+code/resq-localhub\docs\live-fallback-test-plan.md:201:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Seq 20 -Sample raw
+code/resq-localhub\docs\live-fallback-test-plan.md:202:.\scripts\publish-sample-telemetry.ps1 -DeviceId M01 -SessionId <ACTIVE_SESSION_ID> -Seq 21 -Sample debugRaw
+code/resq-localhub\docs\live-fallback-test-plan.md:210:- `debugRaw` is preserved by the contract but ignored by normal dashboard cards.
+code/resq-localhub\docs\live-fallback-test-plan.md:221:Then publish telemetry and confirm `session-live` events arrive.
+code/resq-localhub\docs\live-fallback-test-plan.md:228:- Backend unit tests cover active session binding, ended session rejection, sequence rejection, metric-first payloads, legacy raw compatibility, `debugRaw`, and incomplete payload rejection.
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\DeviceTelemetryControllerTest.java:45:        assertThat(fixture.publisher.lastTopic).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\DeviceTelemetryControllerTest.java:74:        assertThat(fixture.publisher.lastTopic).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\DeviceTelemetryControllerTest.java:123:                Path.of("target", "device-telemetry-controller-test-" + UUID.randomUUID() + ".sqlite").toString()
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\controller\DeviceTelemetryControllerTest.java:173:                    new LocalAuthRepository(Path.of("target", "device-telemetry-auth-test-" + UUID.randomUUID() + ".sqlite").toString()),
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:11:        assertThat(FirmwareTopics.baseTopic("M01")).isEqualTo("resq/M01");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:12:        assertThat(FirmwareTopics.statusTopic("M01")).isEqualTo("resq/M01/status");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:13:        assertThat(FirmwareTopics.heartbeatTopic("M01")).isEqualTo("resq/M01/heartbeat");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:14:        assertThat(FirmwareTopics.telemetryTopic("M01")).isEqualTo("resq/M01/telemetry");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:15:        assertThat(FirmwareTopics.debugTopic("M01")).isEqualTo("resq/M01/debug");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:16:        assertThat(FirmwareTopics.eventsTopic("M01")).isEqualTo("resq/M01/events");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:17:        assertThat(FirmwareTopics.calibrationEventsTopic("M01")).isEqualTo("resq/M01/events/calibration");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:18:        assertThat(FirmwareTopics.errorEventsTopic("M01")).isEqualTo("resq/M01/events/error");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:19:        assertThat(FirmwareTopics.sessionStartCommandTopic("M01")).isEqualTo("resq/M01/cmd/session/start");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:20:        assertThat(FirmwareTopics.telemetryCommandTopic("M01")).isEqualTo("resq/M01/cmd/telemetry");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\model\firmware\FirmwareTopicsTest.java:21:        assertThat(FirmwareTopics.systemFlushConfigCommandTopic("M01")).isEqualTo("resq/M01/cmd/system/flush-config");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttCommandPublisherServiceTest.java:82:        assertThat(result.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttCommandPublisherServiceTest.java:91:        assertThat(stored.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttCommandPublisherServiceTest.java:119:        assertThat(result.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:38:        fixture.subscriber().handleMessage("resq/M01/events/calibration", message(fixture("calibration-pass-4002.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:39:        fixture.subscriber().handleMessage("resq/M01/status", message(fixture("status-paired-idle.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:57:        fixture.subscriber().handleMessage("resq/M01/status", message(fixture("status-ready-for-session.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:73:        beforeRestart.subscriber().handleMessage("resq/M01/events/calibration", message(fixture("calibration-pass-4002.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:77:        afterRestart.subscriber().handleMessage("resq/M01/status", message(fixture("status-paired-idle.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:88:        beforeRestart.subscriber().handleMessage("resq/M01/events/calibration", message(fixture("calibration-pass-4002.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:91:        afterRestart.subscriber().handleMessage("resq/M01/status", message(fixture("status-ready-for-session.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:138:        fixture.subscriber().handleMessage("resq/M01/events", message(fixture("session-start-nack.json")
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:171:        fixture.subscriber().handleMessage("resq/M01/events/calibration", message(fixture("calibration-pass-4002.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\StateConsistencyRegressionScenarios.java:172:        fixture.subscriber().handleMessage("resq/M02/status", message(fixture("status-paired-idle.json")));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\DeviceRuntimeStateServiceTest.java:128:    void heartbeatOmittingStateAndCalibratedDoesNotEraseStatusReadiness() throws Exception {
+code/resq-firmware\docs\telemetry-api-update\phase-2-converted-payload-integration.md:13:- idle debug performs one controlled direct pressure transaction and one Hall read
+code/resq-firmware\docs\telemetry-api-update\phase-2-converted-payload-integration.md:42:Active-session telemetry on `resq/{device_id}/telemetry` preserves existing
+code/resq-firmware\docs\telemetry-api-update\phase-2-converted-payload-integration.md:61:Calibration progress events remain on `resq/{device_id}/events/calibration`
+code/resq-firmware\docs\telemetry-api-update\phase-2-converted-payload-integration.md:98:Idle/non-session debug uses source `DIRECT_SENSOR_SNAPSHOT`. It performs the
+code/resq-firmware\docs\telemetry-api-update\phase-2-converted-payload-integration.md:102:Active-session debug uses source `SESSION_METRICS`. It copies the latest
+code/resq-firmware\docs\telemetry-api-update\phase-2-converted-payload-integration.md:115:Existing MQTT topics, event IDs, reply IDs, state names, telemetry cadence, QoS,
+code/resq-firmware\docs\telemetry-api-update\phase-2-converted-payload-integration.md:117:No manual telemetry command handling or `SENSOR_STREAM` behavior was added in
+code/resq-localhub\apps\localhub-desktop\src\utils\telemetryNormalization.test.ts:2:import { normalizeTelemetry } from "./telemetryNormalization";
+code/resq-localhub\apps\localhub-desktop\src\utils\telemetryNormalization.test.ts:5:describe("telemetryNormalization", () => {
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:20:`services/hub-api/src/main/java/lk/resq/localhub/service/MqttSubscriberService.java` currently subscribes to:
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:22:- `resq/manikins/+/status`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:23:- `resq/manikins/+/heartbeat`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:24:- `resq/manikins/+/telemetry`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:25:- `resq/manikins/+/events`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:26:- `resq/manikins/+/live`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:28:The parser assumes the old path shape `resq/manikins/{deviceId}/{kind}`. It does not understand the new firmware contract namespace yet.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:32:`services/hub-api/src/main/java/lk/resq/localhub/service/MqttCommandPublisherService.java` publishes session control commands to:
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:34:- `resq/manikins/{deviceId}/cmd/session/start`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:35:- `resq/manikins/{deviceId}/cmd/session/stop`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:41:`apps/localhub-desktop/src/lib/mqttLiveClient.ts` also assumes the same legacy `resq/manikins/...` topic shape for browser live subscriptions. The live client currently treats telemetry, heartbeat, status, and events as separate legacy kinds.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:45:The target contract described for the migration uses the new `resq/{deviceId}/...` namespace and expects command/result correlation through `request_id` and `reply_id`. It also introduces explicit command type IDs, event IDs, and a firmware state list that are not yet represented in code or shared types.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:58:- validates telemetry against the active session
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:61:The service currently handles legacy `status`, `heartbeat`, `telemetry`, `events`, and `live` semantics. It also accepts legacy `device_id` / `session_id` aliases and allows `debugRaw` to survive normalization.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:72:- validates telemetry binding by device and session
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:82:`services/hub-api/src/main/java/lk/resq/localhub/controller/ManikinProvisionController.java` exposes `POST /api/manikins/pair-request` and returns a pairing token tied to a deviceId.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:110:`services/hub-api/src/main/java/lk/resq/localhub/service/LocalAuthRepository.java` creates:
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:117:`services/hub-api/src/main/java/lk/resq/localhub/service/LocalSessionRepository.java` creates:
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:130:- firmware debug/raw payload capture beyond the current live payload field
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:142:`apps/localhub-desktop/src/lib/liveClientTypes.ts` and `apps/localhub-desktop/src/lib/liveClient.ts` still normalize legacy telemetry-style payloads. They accept:
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:146:- source modes including `real`, `simulator`, `calibration`, and `debug`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:195:`services/hub-api/src/main/java/lk/resq/localhub/service/LiveStreamService.java` and `MqttSubscriberService` are the backend fan-out path for live updates into SSE and registry snapshots.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:226:- Legacy namespace drift: the codebase still centers on `resq/manikins/...` instead of `resq/{deviceId}/...`.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:228:- Legacy telemetry normalization: `current_delta`, `currentDelta`, and `feedback` fallbacks can mask contract mismatches.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:229:- No firmware event model: calibration/error/debug event IDs are not represented as first-class types yet.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:245:- `services/hub-api/src/main/java/lk/resq/localhub/model/*`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:248:Goal: define the canonical `resq/{deviceId}/...` topics, command type IDs, event IDs, request/reply envelope, and state list in one shared place.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:254:- `services/hub-api/src/main/java/lk/resq/localhub/service/MqttSubscriberService.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:255:- `services/hub-api/src/main/java/lk/resq/localhub/service/MqttCommandPublisherService.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:256:- `services/hub-api/src/main/java/lk/resq/localhub/service/ActiveSessionService.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:257:- `services/hub-api/src/main/java/lk/resq/localhub/service/ManikinRegistryService.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:258:- `services/hub-api/src/main/java/lk/resq/localhub/service/TelemetryPayloadNormalizer.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:266:- `services/hub-api/src/main/java/lk/resq/localhub/controller/SessionController.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:267:- `services/hub-api/src/main/java/lk/resq/localhub/controller/SessionExportController.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:268:- `services/hub-api/src/main/java/lk/resq/localhub/service/LocalSessionRepository.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:269:- `services/hub-api/src/main/java/lk/resq/localhub/service/ActiveSessionService.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:275:Goal: make completed local sessions easy to review and export for demo and evaluation runs, while preserving compatibility with both millimeter-based and progress-based telemetry.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:281:- `services/hub-api/src/main/java/lk/resq/localhub/service/LocalAuthRepository.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:282:- `services/hub-api/src/main/java/lk/resq/localhub/service/LocalSessionRepository.java`
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:285:Goal: persist command/reply history and device events so the migration can be verified and debugged.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:337:- Files added: `packages/shared/src/firmware/*`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/*`, `apps/localhub-desktop/src/lib/firmwareContract.test.ts`, and backend firmware contract tests under `services/hub-api/src/test/java/lk/resq/localhub/model/firmware/*`.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:338:- Contract definitions added: canonical `resq/{deviceId}/...` topic builders, firmware state constants, command/event IDs, request-id helpers, and payload interfaces/records for the new firmware envelope.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:344:- Backend MQTT boundary updated additively: `MqttSubscriberService` now recognizes canonical `resq/{deviceId}/...` firmware topics while still accepting the legacy `resq/manikins/...` forms.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:346:- `TelemetryPayloadNormalizer` now accepts the firmware-style snake_case telemetry fields such as `depth_progress`, `depth_ok`, `valid_compression_count`, and `hand_placement` without removing the earlier fallbacks.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:353:- Files changed: `services/hub-api/src/main/java/lk/resq/localhub/service/FirmwarePersistenceRepository.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareCommandRequestRecord.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareEventRecord.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareCalibrationResultRecord.java`, `services/hub-api/src/main/java/lk/resq/localhub/model/firmware/FirmwareDebugSnapshotRecord.java`, plus additive wiring in `MqttCommandPublisherService` and `MqttSubscriberService` and focused backend tests.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:354:- Tables added: `firmware_command_requests`, `firmware_events`, `firmware_calibration_results`, and `firmware_debug_snapshots` using `CREATE TABLE IF NOT EXISTS` so existing local installs remain compatible.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:357:- Event persistence behavior: canonical firmware events are persisted for `events`, `events/calibration`, and `events/error`; calibration packets also land in `firmware_calibration_results`; debug packets land in `firmware_debug_snapshots`.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:364:- MQTT live client now subscribes to canonical `resq/{deviceId}/status`, `heartbeat`, `telemetry`, `debug`, `events`, `events/calibration`, and `events/error` topics while keeping legacy `resq/manikins/{deviceId}/status`, `heartbeat`, `telemetry`, `events`, and `live`.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:378:- Deferred item: calibration profile management UI, richer diagnostic command/event/debug endpoints, Tauri provisioning cleanup, and any cloud routing remain out of scope for this phase.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:392:- Final audit completed for the local firmware migration handoff. The repository still contains intentional compatibility remnants such as legacy `resq/manikins/...` support, `M01` defaults in demo tooling, and auth-related environment variables in the security docs.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:400:- Simulator publishes canonical firmware topics only: retained `status`, periodic `heartbeat`, session `telemetry`, `debug`, `events`, `events/calibration`, and `events/error`.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:401:- Simulator subscribes to `resq/{deviceId}/cmd/#` and handles calibration start/cancel, session start/stop, debug, system retry/reset, calibration failure mode, firmware ERROR mode, and optional session interruption.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:409:- Smoke testing found canonical `resq/{deviceId}/telemetry` packets were rejected because backend telemetry normalization still required `deviceId` in the JSON body.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:410:- Fix applied: `MqttSubscriberService` now passes the MQTT topic-derived device ID into `TelemetryPayloadNormalizer`, and the normalizer accepts firmware telemetry without `device_id`/`deviceId` when that topic device ID is available.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:411:- Safety behavior preserved: if a telemetry payload includes a device ID that conflicts with the topic device ID, normalization rejects it with a clear mismatch reason rather than storing data under the wrong device.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:412:- Existing legacy telemetry compatibility remains: legacy `resq/manikins/{deviceId}/telemetry` topics and older payload fields such as `current_delta`, `currentDelta`, `depthMm`, `rateCpm`, `pauseS`, and `feedback` are still supported.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:413:- Smoke test should be rerun to confirm the backend no longer logs `payload deviceId is missing` for canonical telemetry and the active session `sampleCount` increases.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:417:- Follow-up smoke testing showed accepted firmware telemetry was still logging `used firmware depth_progress/current_delta as fallback depthMm`, which made ratio values such as `0.78` appear as physical millimeters.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:419:- Legacy compatibility remains: explicit `depth_mm`/`depthMm` still populate physical depth, and legacy `current_delta`/`currentDelta` remains a fallback for older non-firmware telemetry.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:420:- Active session accumulation still counts telemetry samples with only `depthProgress`, keeps rate/recoil/pause/flag data, and avoids calculating millimeter averages from progress-only packets.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:421:- Smoke test should be rerun to confirm telemetry remains accepted, `sampleCount` increases, and no warning claims `depth_progress` is being used as `depthMm`.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:435:- Real-device smoke-test guide added: [docs/real-esp32-localhub-integration-smoke-test.md](real-esp32-localhub-integration-smoke-test.md) documents the full ESP32 provisioning, registration, calibration, session, and debug trace workflow.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:438:- Simulator comparison points: topic shape, calibration event IDs `4000`/`4001`/`4002`, session event IDs `2000`/`2001`, telemetry arrival timing, and debug snapshot handling should match the simulator unless a real mismatch is documented.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:443:- Diagnostics API added on the backend for local firmware evidence: recent command requests, recent events, recent debug snapshots, a combined device diagnostics view, and a debug command trigger that reuses the existing MQTT publisher.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:444:- Instructor dashboard now includes a minimal Firmware Diagnostics panel per live device card so readiness, calibration outcome, command history, event history, and debug snapshots can be inspected without changing the main layout.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:445:- Frontend browser firmware API now exposes diagnostics/history fetch helpers and a debug snapshot request helper for the local-only workflow.
+code/resq-localhub\docs\localhub-firmware-contract-migration-audit.md:446:- Simulator-first validation remains the active path: use the diagnostics panel and MQTT trace helper to compare simulator command/event/debug output against the persisted backend records.
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1:#include "telemetry_publisher.h"
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:325:    esp_err_t build_err = telemetry_publisher_build_sensor_stream_payload(
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:341:    return mqtt_manager_publish_telemetry_json(payload);
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:366:        ESP_LOGE("telemetry_publisher", "Manual stream Hall initialization failed");
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:383:                ESP_LOGE("telemetry_publisher",
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:389:            ESP_LOGW("telemetry_publisher",
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:498:                ESP_LOGI("telemetry_publisher",
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:509:                    ESP_LOGI("telemetry_publisher",
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:514:                ESP_LOGE("telemetry_publisher",
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:524:            ESP_LOGE("telemetry_publisher",
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:545:esp_err_t telemetry_publisher_validate_sensor_stream_command(const char *payload,
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:564:esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:599:                           "\"telemetry_mode\":\"SENSOR_STREAM\","
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:668:esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t *snap,
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:680:        "\"event_type\":\"session_telemetry\","
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:808:static void telemetry_task(void *arg)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:813:        goto telemetry_exit;
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:816:    task_diagnostics_record_stack_watermark("telemetry_task");
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:841:        if (telemetry_publisher_build_session_payload(&snap,
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:846:            mqtt_manager_publish_telemetry_json(payload);
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:849:            task_diagnostics_record_stack_watermark("telemetry_task");
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:855:telemetry_exit:
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:857:        task_diagnostics_record_stack_watermark("telemetry_task");
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:868:esp_err_t telemetry_publisher_init(void)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:892:esp_err_t telemetry_publisher_start(void)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:912:    BaseType_t ok = xTaskCreate(telemetry_task, "telemetry_task", 4096, NULL, 5, &s_task);
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:929:        telemetry_publisher_stop();
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:936:esp_err_t telemetry_publisher_stop(void)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:962:esp_err_t telemetry_publisher_stop_all(void)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:966:    esp_err_t err = telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:971:    err = telemetry_publisher_stop();
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:979:bool telemetry_publisher_is_running(void)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:991:esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1068:        telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1075:esp_err_t telemetry_publisher_stop_sensor_stream(void)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1105:bool telemetry_publisher_is_sensor_stream_running(void)
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1122:esp_err_t telemetry_publisher_handle_sensor_stream_command(const network_config_t *network_config,
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1145:        esp_err_t stop_err = telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1168:                                                            "session_active_use_session_telemetry");
+code/resq-firmware\components\telemetry_publisher\telemetry_publisher.c:1172:    esp_err_t start_err = telemetry_publisher_start_sensor_stream(stream_command.interval_ms,
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SessionRuntimeRepository.java:70:                          last_accepted_telemetry_seq INTEGER,
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SessionRuntimeRepository.java:103:                  firmware_reason_id, firmware_action_id, last_accepted_telemetry_seq, accumulator_snapshot_json,
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SessionRuntimeRepository.java:129:                  last_accepted_telemetry_seq = excluded.last_accepted_telemetry_seq,
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SessionRuntimeRepository.java:291:                getNullableLong(resultSet, "last_accepted_telemetry_seq"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SessionRuntimeRepository.java:309:                       firmware_reason_id, firmware_action_id, last_accepted_telemetry_seq, accumulator_snapshot_json,
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ManikinRegistryServiceTest.java:16:    void telemetryUpdatesLatestMetricByDeviceAndSession() throws Exception {
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ManikinRegistryServiceTest.java:18:        JsonNode telemetry = objectMapper.readTree("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ManikinRegistryServiceTest.java:34:        registry.updateFromTelemetry("M01", telemetry);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ManikinRegistryServiceTest.java:103:        JsonNode heartbeat = objectMapper.readTree("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\ManikinRegistryServiceTest.java:119:        registry.updateFromHeartbeat("M01", heartbeat);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\SensorStreamServiceTest.java:20:                  "telemetry_mode":"SENSOR_STREAM",
+code/resq-localhub\docs\mqtt-security.md:8:- Firmware and backend use MQTT-over-TCP for telemetry and command delivery.
+code/resq-localhub\docs\mqtt-security.md:31:- Backend credentials can subscribe to telemetry/status/heartbeat/events and publish command topics.
+code/resq-localhub\docs\mqtt-security.md:68:- Read `resq/manikins/+/status`
+code/resq-localhub\docs\mqtt-security.md:69:- Read `resq/manikins/+/heartbeat`
+code/resq-localhub\docs\mqtt-security.md:70:- Read `resq/manikins/+/telemetry`
+code/resq-localhub\docs\mqtt-security.md:71:- Read `resq/manikins/+/events`
+code/resq-localhub\docs\mqtt-security.md:72:- Write `resq/manikins/+/cmd/#`
+code/resq-localhub\docs\mqtt-security.md:94:- `resq/manikins/+/status`
+code/resq-localhub\docs\mqtt-security.md:95:- `resq/manikins/+/heartbeat`
+code/resq-localhub\docs\mqtt-security.md:96:- `resq/manikins/+/telemetry`
+code/resq-localhub\docs\mqtt-security.md:97:- `resq/manikins/+/events`
+code/resq-localhub\docs\mqtt-security.md:99:The `dashboard` user cannot write telemetry and cannot write command topics such as:
+code/resq-localhub\docs\mqtt-security.md:101:- `resq/manikins/+/cmd/#`
+code/resq-localhub\docs\mqtt-security.md:102:- `resq/manikins/M01/cmd/session/start`
+code/resq-localhub\docs\mqtt-security.md:103:- `resq/manikins/M01/cmd/session/stop`
+code/resq-localhub\docs\mqtt-security.md:104:- `resq/manikins/M01/cmd/device/reset`
+code/resq-localhub\docs\mqtt-security.md:105:- `resq/manikins/M01/cmd/device/unpair`
+code/resq-localhub\docs\mqtt-security.md:106:- `resq/manikins/M01/cmd/config/update`
+code/resq-localhub\docs\mqtt-security.md:115:  - `resq/manikins/+/status`
+code/resq-localhub\docs\mqtt-security.md:116:  - `resq/manikins/+/heartbeat`
+code/resq-localhub\docs\mqtt-security.md:117:  - `resq/manikins/+/telemetry`
+code/resq-localhub\docs\mqtt-security.md:118:  - `resq/manikins/+/events`
+code/resq-localhub\docs\mqtt-security.md:120:  - `resq/manikins/+/cmd/#`
+code/resq-localhub\docs\mqtt-security.md:125:pattern write resq/manikins/%u/status
+code/resq-localhub\docs\mqtt-security.md:126:pattern write resq/manikins/%u/heartbeat
+code/resq-localhub\docs\mqtt-security.md:127:pattern write resq/manikins/%u/telemetry
+code/resq-localhub\docs\mqtt-security.md:128:pattern write resq/manikins/%u/events
+code/resq-localhub\docs\mqtt-security.md:129:pattern read  resq/manikins/%u/cmd/#
+code/resq-localhub\docs\mqtt-security.md:152:Dashboard can subscribe to live telemetry:
+code/resq-localhub\docs\mqtt-security.md:155:mosquitto_sub -h 127.0.0.1 -p 1883 -u dashboard -P <dashboard-password> -t resq/manikins/+/telemetry -C 1
+code/resq-localhub\docs\mqtt-security.md:161:mosquitto_pub -h 127.0.0.1 -p 1883 -u device_demo -P <device-password> -t resq/manikins/M01/telemetry -m "{""deviceId"":""M01"",""sessionId"":""S-SECURITY-SMOKE"",""depthMm"":52,""rateCpm"":110,""recoilOk"":true}"
+code/resq-localhub\docs\mqtt-security.md:164:Dashboard cannot publish telemetry:
+code/resq-localhub\docs\mqtt-security.md:167:mosquitto_pub -h 127.0.0.1 -p 1883 -u dashboard -P <dashboard-password> -t resq/manikins/M01/telemetry -m "{}"
+code/resq-localhub\docs\mqtt-security.md:175:mosquitto_pub -h 127.0.0.1 -p 1883 -u dashboard -P <dashboard-password> -t resq/manikins/M01/cmd/session/start -m "{}"
+code/resq-localhub\docs\mqtt-security.md:183:mosquitto_pub -h 127.0.0.1 -p 1883 -u backend -P <backend-password> -t resq/manikins/M01/cmd/session/start -m "{""sessionId"":""S-SECURITY-SMOKE"",""deviceId"":""M01""}"
+code/resq-localhub\docs\mqtt-security.md:202:- Dashboard user cannot publish telemetry.
+code/resq-localhub\docs\mqtt-security.md:204:- Device role can publish telemetry.
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\SessionRestartRecoveryTest.java:62:        assertThat(fixture.service.validateTelemetryBinding("M01", telemetry("session-active", 5)).accepted()).isFalse();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\SessionRestartRecoveryTest.java:63:        assertThat(fixture.service.validateTelemetryBinding("M01", telemetry("session-active", 6)).accepted()).isTrue();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\SessionRestartRecoveryTest.java:235:                "resq/" + deviceId + "/cmd",
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\SessionRestartRecoveryTest.java:252:    private JsonNode telemetry(String sessionId, long seq) throws Exception {
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\SessionRestartRecoveryTest.java:254:                {"deviceId":"M01","sessionId":"%s","seq":%d,"eventType":"session_telemetry","state":"SESSION_ACTIVE","depthMm":52.0,"rateCpm":110.0,"recoilOk":true}
+code/resq-localhub\apps\localhub-desktop\src\utils\readinessState.ts:49:  if (actionId === null || actionId === undefined) return "Please retry or request a debug snapshot.";
+code/resq-firmware\components\calibration_state_manager\calibration_state_manager.c:18:#include "telemetry_publisher.h"
+code/resq-firmware\components\calibration_state_manager\calibration_state_manager.c:74:      if (suffix != NULL && strcmp(suffix, "cmd/calibration/cancel") == 0) {
+code/resq-firmware\components\calibration_state_manager\calibration_state_manager.c:82:              "Missing request_id for cmd/calibration/cancel; skipping cancel");
+code/resq-firmware\components\calibration_state_manager\calibration_state_manager.c:108:            "cmd/calibration/cancel", "ACK", "calibration_cancelled");
+code/resq-firmware\components\calibration_state_manager\calibration_state_manager.c:130:        telemetry_publisher_handle_sensor_stream_command(
+code/resq-firmware\components\error_manager\error_manager.c:22:#include "telemetry_publisher.h"
+code/resq-firmware\components\error_manager\error_manager.c:101:    return mqtt_manager_publish_topic_json("events/error", payload);
+code/resq-firmware\components\error_manager\error_manager.c:111:    esp_err_t stop_err = telemetry_publisher_stop_all();
+code/resq-firmware\components\error_manager\error_manager.c:114:                 "Failed to stop telemetry publishers on ERROR entry: %s",
+code/resq-firmware\components\error_manager\error_manager.c:208:                    (strcmp(suffix, "cmd/debug") == 0 ||
+code/resq-firmware\components\error_manager\error_manager.c:210:                     strcmp(suffix, "cmd/calibration/start") == 0 ||
+code/resq-firmware\components\error_manager\error_manager.c:211:                     strcmp(suffix, "cmd/session/start") == 0)) {
+code/resq-firmware\components\error_manager\error_manager.c:278:                if (strcmp(suffix, "cmd/debug") == 0) {
+code/resq-firmware\components\error_manager\error_manager.c:279:                    esp_err_t dbg_err = runtime_helpers_publish_debug_snapshot(network_config);
+code/resq-firmware\components\error_manager\error_manager.c:284:                                                                            "cmd/debug",
+code/resq-firmware\components\error_manager\error_manager.c:286:                                                                            "debug_published");
+code/resq-firmware\components\error_manager\error_manager.c:291:                                                                            "cmd/debug",
+code/resq-firmware\components\error_manager\error_manager.c:293:                                                                            "debug_not_available_in_error_state");
+code/resq-firmware\components\error_manager\error_manager.c:308:                if (strcmp(suffix, "cmd/calibration/start") == 0 || strcmp(suffix, "cmd/session/start") == 0) {
+code/resq-firmware\components\sensor_conversion\README.md:6:Later runtime, telemetry, calibration, and debug code should feed it explicit
+code/resq-firmware\deploy_test\README.md:153:4. **Protocol:** status and heartbeat schemas, registered device identity,
+code/resq-firmware\deploy_test\README.md:154:   request/reply IDs, debug sensor payload, unknown-command NACK and malformed
+code/resq-firmware\deploy_test\README.md:161:7. **Session:** start, guided compressions, telemetry, buzzer/metronome,
+code/resq-firmware\deploy_test\README.md:212:cmd/debug
+code/resq-firmware\deploy_test\README.md:213:cmd/calibration/start
+code/resq-firmware\deploy_test\README.md:214:cmd/calibration/cancel
+code/resq-firmware\deploy_test\README.md:215:cmd/session/start
+code/resq-firmware\deploy_test\README.md:216:cmd/session/stop
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:34:    esp_err_t heartbeat_result;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:63:    int heartbeat_calls;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:65:    int heartbeat_start_calls;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:66:    int heartbeat_stop_calls;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:77:    int telemetry_stop_calls;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:249:static esp_err_t fake_publish_heartbeat(const network_config_t *network,
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:266:    f.heartbeat_calls++;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:267:    return f.heartbeat_result;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:269:static esp_err_t fake_start_heartbeat(void)
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:271:    f.heartbeat_start_calls++;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:328:    f.telemetry_stop_calls++;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:349:static esp_err_t fake_stop_heartbeat(void)
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:351:    f.heartbeat_stop_calls++;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:365:static esp_err_t fake_telemetry_stop(void)
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:367:    f.telemetry_stop_calls++;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:458:    .mqtt_publish_heartbeat = fake_publish_heartbeat,
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:459:    .start_heartbeat = fake_start_heartbeat,
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:460:    .stop_heartbeat = fake_stop_heartbeat,
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:475:    .telemetry_stop = fake_telemetry_stop,
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:514:    f.heartbeat_result = ESP_OK;
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:833:        TEST_ASSERT_EQUAL(1, f.heartbeat_calls);
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:834:        TEST_ASSERT_EQUAL(1, f.heartbeat_start_calls);
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:844:    TEST_ASSERT_EQUAL(1, f.heartbeat_calls);
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:845:    TEST_ASSERT_EQUAL(1, f.heartbeat_start_calls);
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:901:    TEST_ASSERT_EQUAL(1, f.telemetry_stop_calls);
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:952:    TEST_ASSERT_EQUAL(1, f.telemetry_stop_calls);
+code/resq-firmware\components\firmware_state_machine\test\test_firmware_state_machine.c:971:    TEST_ASSERT_EQUAL(1, f.heartbeat_stop_calls);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SensorStreamService.java:43:        String telemetryMode = requiredText(payload, "telemetry_mode", "telemetryMode");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SensorStreamService.java:44:        if (!"SENSOR_STREAM".equals(telemetryMode)) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SensorStreamService.java:45:            throw new IllegalArgumentException("telemetry_mode must be SENSOR_STREAM");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\SensorStreamService.java:63:                telemetryMode,
+code/resq-firmware\components\telemetry_publisher\README.md:3:This component owns two telemetry paths:
+code/resq-firmware\components\telemetry_publisher\README.md:5:- active CPR session telemetry from `cpr_metrics_snapshot_t`
+code/resq-firmware\components\telemetry_publisher\README.md:6:- manual diagnostics streaming from `cmd/telemetry`
+code/resq-firmware\components\telemetry_publisher\README.md:9:`"telemetry_mode":"SENSOR_STREAM"` on the normal telemetry topic. It is not
+code/resq-firmware\components\telemetry_publisher\README.md:10:session telemetry and must not include session scoring fields.
+code/resq-firmware\components\telemetry_publisher\README.md:25:not stop CPR metrics, CPR session acquisition, active session telemetry,
+code/resq-firmware\components\telemetry_publisher\README.md:26:heartbeat, or status publishing.
+code/resq-localhub\apps\localhub-desktop\src\types\live.ts:10:} from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\types\live.ts:57:  latestMetric: import("@resq/shared").LiveMetricPayload | null;
+code/resq-firmware\components\calibration_manager\include\calibration_manager.h:159: * @brief Publish a calibration result event to `events/calibration`.
+code/resq-firmware\components\calibration_manager\calibration_codes.c:219:        "Send cmd/calibration/start to retry, or cmd/calibration/cancel to return to paired idle"
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:7:The simulator only uses canonical MQTT topics under `resq/{deviceId}/...`. Legacy topic support remains in the backend, but this test is intended to exercise the new firmware contract.
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:23:Real firmware should use `backend_base_url` to call `POST /api/devices/register`, then use the returned `device_id`, `mqtt_host`, and `mqtt_port` to connect to MQTT and publish `resq/{deviceId}/status` plus `resq/{deviceId}/heartbeat`.
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:72:node .\scripts\firmware-simulator\firmware-simulator.js --device-id M01 --telemetry-interval-ms 500
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:88:- `resq/M01/status` retained
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:89:- `resq/M01/heartbeat`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:90:- `resq/M01/telemetry`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:91:- `resq/M01/debug`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:92:- `resq/M01/events`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:93:- `resq/M01/events/calibration`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:94:- `resq/M01/events/error`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:98:- `resq/M01/cmd/#`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:106:- Receives `resq/M01/cmd/calibration/start`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:107:- Publishes `event_id: 4000` ACK to `resq/M01/events/calibration`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:123:- Receives `resq/M01/cmd/calibration/cancel`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:136:- Receives `resq/M01/cmd/session/start`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:137:- Publishes `event_id: 2000` to `resq/M01/events`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:139:- Starts telemetry on `resq/M01/telemetry`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:152:- Receives `resq/M01/cmd/session/stop`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:153:- Stops telemetry
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:154:- Publishes `event_id: 2001` to `resq/M01/events`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:159:Use the backend command publisher or an MQTT client to publish a debug command:
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:162:mosquitto_pub -h 127.0.0.1 -p 1883 -t resq/M01/cmd/debug -m '{\"request_id\":\"req-100-0001\",\"issued_at_ms\":123456}'
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:167:- Publishes a raw debug snapshot to `resq/M01/debug`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:168:- Publishes `event_id: 1002` ACK to `resq/M01/events`
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:172:- Debug snapshots are persisted in `firmware_debug_snapshots`.
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:177:- refresh readiness, command history, event history, and debug snapshot history
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:178:- request a debug snapshot without leaving the dashboard
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:179:- verify that the latest command, event, and debug rows show up after the simulator replies
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:207:- Interrupted session emits `event_id: 2002` and stops telemetry.
+code/resq-localhub\docs\local-firmware-simulator-smoke-test.md:223:Expected output includes a connection line, subscription line, retained status publish, and heartbeat publish.
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:34:        assertThat(service.parseTopic("resq/M01/status")).isNotNull();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:35:        assertThat(service.parseTopic("resq/M01/status").messageType()).isEqualTo("status");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:36:        assertThat(service.parseTopic("resq/M01/status").canonicalFirmwareTopic()).isTrue();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:37:        assertThat(service.parseTopic("resq/M01/events/calibration").messageType()).isEqualTo("events/calibration");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:38:        assertThat(service.parseTopic("resq/M01/events/calibration").canonicalFirmwareTopic()).isTrue();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:39:        assertThat(service.parseTopic("resq/M01/events/error").messageType()).isEqualTo("events/error");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:40:        assertThat(service.parseTopic("resq/manikins/M01/live").messageType()).isEqualTo("telemetry");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:41:        assertThat(service.parseTopic("resq/manikins/M01/live").canonicalFirmwareTopic()).isFalse();
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:42:        assertThat(service.parseTopic("resq/manikins/M01/events").messageType()).isEqualTo("events");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:43:        assertThat(service.parseTopic("resq/manikins/M01/events/calibration").messageType()).isEqualTo("events/calibration");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:55:        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.telemetryTopic("+"), policy)).isEqualTo(0);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:56:        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.heartbeatTopic("+"), policy)).isEqualTo(0);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:57:        assertThat(MqttSubscriberService.subscriptionQosForTopic(FirmwareTopics.debugTopic("+"), policy)).isEqualTo(0);
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:63:        fixture.subscriber().handleMessage("resq/M-DEV/status", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:87:        fixture.subscriber().handleMessage("resq/M-DEV/heartbeat", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:120:        seedCommand(repository, "req-400-0001", "M01", FirmwareCommandTypeId.SYSTEM_RESET.value(), "resq/M01/cmd/system/reset");
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:122:        service.handleMessage("resq/M01/events", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:143:        service.handleMessage("resq/M01/events", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:155:        service.handleMessage("resq/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:180:        service.handleMessage("resq/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:197:        service.handleMessage("resq/M01/debug", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:211:        service.handleMessage("resq/M01/events", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:237:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:292:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:296:              "telemetry_mode": "SENSOR_STREAM",
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:349:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:352:              "telemetry_mode": "MANUAL_DIAGNOSTIC",
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:379:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:398:        subscriber.handleMessage("resq/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:412:        subscriber.handleMessage("resq/manikins/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:427:        subscriber.handleMessage("resq/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:460:        fixture.subscriber().handleMessage("resq/M01/events/calibration", message(payload));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:461:        fixture.subscriber().handleMessage("resq/M01/events/calibration", message(payload));
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:476:        subscriber.handleMessage("resq/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:500:        subscriber.handleMessage("resq/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:525:        fixture.subscriber().handleMessage("resq/M01/events/calibration", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:575:        // 1. Initial telemetry sample (start state)
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:576:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:585:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:594:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-localhub\services\hub-api\src\test\java\lk\resq\localhub\service\MqttSubscriberServiceTest.java:604:        fixture.subscriber().handleMessage("resq/M01/telemetry", message("""
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:28:#include "telemetry_publisher.h"
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:35:/* debug snapshot publishing moved to runtime_helpers_publish_debug_snapshot()
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:167:      telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:173:      telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:182:      telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:188:      telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:224:      telemetry_publisher_handle_sensor_stream_command(
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:229:    if (strcmp(command_suffix, "cmd/debug") == 0) {
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:236:      esp_err_t debug_err =
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:237:          runtime_helpers_publish_debug_snapshot(network_config);
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:239:      if (debug_err != ESP_OK) {
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:242:            "debug_read_failed");
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:248:          "debug_published");
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:252:    if (strcmp(command_suffix, "cmd/calibration/cancel") == 0) {
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:278:    if (strcmp(command_suffix, "cmd/session/start") == 0) {
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:290:            "Missing request_id for cmd/session/start; skipping session start");
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:307:            network_config, visible_state, &command, "cmd/session/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:319:            network_config, visible_state, &command, "cmd/session/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:328:            network_config, visible_state, &command, "cmd/session/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:336:            network_config, visible_state, &command, "cmd/session/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:341:      esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:345:            network_config, visible_state, &command, "cmd/session/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:364:    if (strcmp(command_suffix, "cmd/calibration/start") == 0) {
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:374:        ESP_LOGW(TAG, "Missing request_id for cmd/calibration/start; skipping "
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:389:            network_config, visible_state, &command, "cmd/calibration/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:405:              network_config, visible_state, &command, "cmd/calibration/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:411:            network_config, visible_state, &command, "cmd/calibration/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:420:      esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:423:            network_config, visible_state, &command, "cmd/calibration/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:438:            network_config, visible_state, &command, "cmd/calibration/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:448:          network_config, visible_state, &command, "cmd/calibration/start",
+code/resq-firmware\components\paired_idle_manager\paired_idle_manager.c:452:                 "Failed to publish command result for cmd/calibration/start "
+code/resq-localhub\apps\localhub-desktop\src\types\firmware.ts:58:  debugSnapshots: FirmwareDebugSnapshotRecord[];
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:18:esp_err_t telemetry_publisher_init(void);
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:20:esp_err_t telemetry_publisher_start(void);
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:22:esp_err_t telemetry_publisher_stop(void);
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:24:esp_err_t telemetry_publisher_stop_all(void);
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:26:bool telemetry_publisher_is_running(void);
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:28:esp_err_t telemetry_publisher_start_sensor_stream(uint32_t interval_ms,
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:32:esp_err_t telemetry_publisher_stop_sensor_stream(void);
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:34:bool telemetry_publisher_is_sensor_stream_running(void);
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:40:esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t *snap,
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:46:esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:54:esp_err_t telemetry_publisher_validate_sensor_stream_command(const char *payload,
+code/resq-firmware\components\telemetry_publisher\include\telemetry_publisher.h:58:esp_err_t telemetry_publisher_handle_sensor_stream_command(const network_config_t *network_config,
+code/resq-firmware\components\paired_idle_manager\include\paired_idle_manager.h:25: * - cmd/debug success         -> stay PAIRED_IDLE
+code/resq-firmware\components\paired_idle_manager\include\paired_idle_manager.h:26: * - cmd/calibration/start OK  -> CALIBRATING
+code/resq-firmware\components\runtime_helpers\test\test_runtime_helpers.c:42:TEST_CASE("Idle debug payload contains raw and converted direct snapshot fields", "[debug]")
+code/resq-firmware\components\runtime_helpers\test\test_runtime_helpers.c:65:    TEST_ASSERT_EQUAL(ESP_OK, runtime_helpers_build_direct_debug_payload(
+code/resq-firmware\components\runtime_helpers\test\test_runtime_helpers.c:94:TEST_CASE("Idle debug payload emits finite zero for invalid converted values", "[debug]")
+code/resq-firmware\components\runtime_helpers\test\test_runtime_helpers.c:113:    TEST_ASSERT_EQUAL(ESP_OK, runtime_helpers_build_direct_debug_payload(
+code/resq-firmware\components\firmware_state_machine\include\firmware_state_machine.h:68:    esp_err_t (*mqtt_publish_heartbeat)(const network_config_t *network_config,
+code/resq-firmware\components\firmware_state_machine\include\firmware_state_machine.h:76:    esp_err_t (*start_heartbeat)(void);
+code/resq-firmware\components\firmware_state_machine\include\firmware_state_machine.h:77:    esp_err_t (*stop_heartbeat)(void);
+code/resq-firmware\components\firmware_state_machine\include\firmware_state_machine.h:110:    esp_err_t (*telemetry_stop)(void);
+code/resq-firmware\components\calibration_manager\calibration_manager.c:1419:    /* Throttled live logging for debugging during full-press wait */
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:56:            new SubscriptionSpec(FirmwareTopics.heartbeatTopic("+"), "heartbeat"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:57:            new SubscriptionSpec(FirmwareTopics.telemetryTopic("+"), "telemetry"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:58:            new SubscriptionSpec(FirmwareTopics.debugTopic("+"), "debug"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:60:            new SubscriptionSpec(FirmwareTopics.calibrationEventsTopic("+"), "events/calibration"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:61:            new SubscriptionSpec(FirmwareTopics.errorEventsTopic("+"), "events/error"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:62:            new SubscriptionSpec("resq/manikins/+/status", "status"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:63:            new SubscriptionSpec("resq/manikins/+/heartbeat", "heartbeat"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:64:            new SubscriptionSpec("resq/manikins/+/telemetry", "telemetry"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:65:            new SubscriptionSpec("resq/manikins/+/debug", "debug"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:66:            new SubscriptionSpec("resq/manikins/+/events", "events"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:67:            new SubscriptionSpec("resq/manikins/+/events/calibration", "events/calibration"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:68:            new SubscriptionSpec("resq/manikins/+/events/error", "events/error"),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:69:            new SubscriptionSpec("resq/manikins/+/live", "debug")
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:290:                logger.debug("Failed to close previous MQTT client before reconnect", error);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:372:            logger.debug("Ignored MQTT topic outside the firmware contract: {}", topic);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:394:                logger.debug("Ignored duplicate MQTT {} event for device {}", parsedTopic.messageType, parsedTopic.deviceId);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:406:                        logger.debug("Ignored MQTT status for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:419:                case "heartbeat" -> {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:422:                        logger.debug("Ignored MQTT heartbeat for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:433:                    logger.info("Processed MQTT heartbeat message for {}", parsedTopic.deviceId);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:435:                case "telemetry" -> {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:441:                        logger.info("Processed SENSOR_STREAM telemetry for {}", parsedTopic.deviceId);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:445:                    String telemetryMode = firstText(payload, "telemetry_mode", "telemetryMode");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:446:                    if (telemetryMode != null) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:448:                        logger.warn("Rejected unsupported telemetry_mode {} for device {}", telemetryMode, parsedTopic.deviceId);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:464:                                "Rejected session telemetry for device {} session {}: {}",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:480:                                "Rejected session telemetry for device {} session {}: {}",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:490:                                "Normalized MQTT telemetry for device {} session {} with warnings: {}",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:506:                            "Processed telemetry: deviceId={}, sessionId={}, traineeId={}, rateCpm={}, compressionCount={}, streamTargets=[instructor SSE, trainee SSE (/api/stream/sessions/live/{})]",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:515:                case "debug" -> {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:519:                    logger.info("Processed MQTT debug message for {}", parsedTopic.deviceId);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:524:                        logger.debug("Ignored MQTT event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:538:                case "events/calibration" -> {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:546:                            logger.debug("Ignored MQTT calibration event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:567:                case "events/error" -> {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:570:                        logger.debug("Ignored MQTT error event for device {} due to {}", parsedTopic.deviceId, applyResult.disposition());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:612:        if ("debug".equals(parsedTopic.messageType)) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:646:            if ("events/calibration".equals(parsedTopic.messageType)) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:857:                logger.warn("Accepted non-strict telemetry payload on topic {} after lightweight normalization", topic);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:920:            case "heartbeat" -> "heartbeat";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:921:            case "telemetry" -> "telemetry";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:922:            case "debug" -> "debug";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:927:                        yield "events/calibration";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:930:                        yield "events/error";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:935:            case "live" -> "telemetry";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:968:        String telemetryMode = firstText(payload, "telemetry_mode", "telemetryMode");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttSubscriberService.java:969:        return telemetryMode != null && "SENSOR_STREAM".equalsIgnoreCase(telemetryMode);
+code/resq-localhub\apps\localhub-desktop\src\lib\sseLiveClient.ts:195:            console.debug("[LocalHub] session-live event", {
+code/resq-firmware\components\config\include\sensor_runtime_status.h:10: * Runtime-only sensor status shared by acquisition owners and telemetry.
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:20:#include "telemetry_publisher.h"
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:136:                telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:143:                telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:146:                telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:152:            telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:161:            telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:189:            telemetry_publisher_handle_sensor_stream_command(network_config,
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:197:        if (strcmp(suffix, "cmd/calibration/cancel") == 0) {
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:200:                ESP_LOGW(TAG, "Missing request_id for cmd/calibration/cancel; skipping cancel");
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:209:                                                                                      "cmd/calibration/cancel",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:213:                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/cancel after local cleanup (err=%d)", pub_err);
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:227:        if (strcmp(suffix, "cmd/session/start") == 0) {
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:231:                                                                "cmd/session/start",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:237:        if (strcmp(suffix, "cmd/debug") == 0) {
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:238:            esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:240:            if (debug_err != ESP_OK) {
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:244:                                                                    "cmd/debug",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:246:                                                                    "debug_read_failed");
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:253:                                                                "cmd/debug",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:255:                                                                "debug_published");
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:259:        if (strcmp(suffix, "cmd/calibration/start") == 0) {
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:267:                ESP_LOGW(TAG, "Missing request_id for cmd/calibration/start; skipping calibration start");
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:281:                                                                    "cmd/calibration/start",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:297:                                                                    "cmd/calibration/start",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:313:            esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:318:                                                                    "cmd/calibration/start",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:335:                                                                    "cmd/calibration/start",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:349:                                                                                      "cmd/calibration/start",
+code/resq-firmware\components\calibration_fail_manager\calibration_fail_manager.c:353:                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/start after startup (err=%d)", pub_err);
+code/resq-firmware\components\config\include\resq_config_types.h:63:/* Compatibility name retained for existing command/telemetry APIs. */
+code/resq-localhub\apps\localhub-desktop\src\types\auth.ts:3: * Re-exports from @resq/shared to avoid duplication.
+code/resq-localhub\apps\localhub-desktop\src\types\auth.ts:14:} from "@resq/shared";
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:25:  TEST_ASSERT_EQUAL_STRING("resq/node-1/cmd/session/start", topic);
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:47:  const char *topic = "resq/node-1/cmd/calibration/start";
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:76:  const char *topic = "resq/node-1/cmd/calibration/start";
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:107:  const char *topic = "resq/node-1/cmd/calibration/start";
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:121:  const char *topic = "resq/node-1/cmd/calibration/start";
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:154:  const char *topic = "resq/node-1/cmd/calibration/start";
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:175:      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:179:      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:190:      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:205:        mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:210:      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:214:      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:224:      mqtt_manager_cache_check_for_test("resq/node/cmd/session/start",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:228:      mqtt_manager_cache_check_for_test("resq/node/cmd/session/stop",
+code/resq-firmware\components\mqtt_manager\test\test_mqtt_topics.c:234:  const char *topic = "resq/node/cmd/session/start";
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:148:          strstr(topic, "/cmd/calibration/cancel") != NULL ||
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:149:          strstr(topic, "/cmd/session/stop") != NULL);
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:769:  /* Build subscription wildcard topic: resq/{device}/cmd/# */
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:1163:mqtt_manager_publish_heartbeat_with_health(
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:1246:mqtt_manager_publish_heartbeat(const network_config_t *network_config,
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:1251:  return mqtt_manager_publish_heartbeat_with_health(
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:1267:esp_err_t mqtt_manager_publish_telemetry_json(const char *json_payload) {
+code/resq-firmware\components\mqtt_manager\mqtt_manager.c:1279:esp_err_t mqtt_manager_publish_debug_json(const char *json_payload) {
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:13:#define RESQ_SUFFIX_CMD_DEBUG                 "cmd/debug"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:14:#define RESQ_SUFFIX_CMD_CALIBRATION_START     "cmd/calibration/start"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:15:#define RESQ_SUFFIX_CMD_CALIBRATION_CANCEL    "cmd/calibration/cancel"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:16:#define RESQ_SUFFIX_CMD_SESSION_START         "cmd/session/start"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:17:#define RESQ_SUFFIX_CMD_SESSION_STOP          "cmd/session/stop"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:18:#define RESQ_SUFFIX_CMD_TELEMETRY             "cmd/telemetry"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:25:#define RESQ_SUFFIX_HEARTBEAT                 "heartbeat"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:26:#define RESQ_SUFFIX_TELEMETRY                 "telemetry"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:27:#define RESQ_SUFFIX_DEBUG                     "debug"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:29:#define RESQ_SUFFIX_EVENTS_CALIBRATION        "events/calibration"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:30:#define RESQ_SUFFIX_EVENTS_ERROR              "events/error"
+code/resq-firmware\components\mqtt_manager\include\mqtt_topics.h:32:/* Build a fully-qualified topic: resq/{device_id}/{suffix}
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:41:           ops->mqtt_publish_heartbeat != NULL &&
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:42:           ops->start_heartbeat != NULL &&
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:43:           ops->stop_heartbeat != NULL &&
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:58:           ops->telemetry_stop != NULL &&
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:482:    fsm->ops->start_heartbeat();
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:492:    fsm->ops->mqtt_publish_heartbeat(&fsm->network_config,
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:552:    result = preserve_first_error(result, fsm->ops->telemetry_stop());
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:586:    esp_err_t shutdown_err = fsm->ops->stop_heartbeat();
+code/resq-firmware\components\firmware_state_machine\firmware_state_machine.c:614:    result = preserve_first_error(result, fsm->ops->stop_heartbeat());
+code/resq-firmware\components\runtime_helpers\runtime_helpers.c:244:        if (strncmp(command_suffix, "cmd/calibration", 15) == 0) {
+code/resq-firmware\components\runtime_helpers\runtime_helpers.c:340:esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *network_config,
+code/resq-firmware\components\runtime_helpers\runtime_helpers.c:417:esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config)
+code/resq-firmware\components\runtime_helpers\runtime_helpers.c:497:    esp_err_t payload_err = runtime_helpers_build_direct_debug_payload(
+code/resq-firmware\components\runtime_helpers\runtime_helpers.c:512:    esp_err_t publish_err = mqtt_manager_publish_debug_json(payload);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:11:    private final int telemetryQos;
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:12:    private final int heartbeatQos;
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:13:    private final int debugQos;
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:19:            @Value("${resq.mqtt.telemetry-qos:0}") int telemetryQos,
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:20:            @Value("${resq.mqtt.heartbeat-qos:0}") int heartbeatQos,
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:21:            @Value("${resq.mqtt.debug-qos:0}") int debugQos
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:26:        this.telemetryQos = validate("resq.mqtt.telemetry-qos", telemetryQos);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:27:        this.heartbeatQos = validate("resq.mqtt.heartbeat-qos", heartbeatQos);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:28:        this.debugQos = validate("resq.mqtt.debug-qos", debugQos);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:42:            case "events", "events/calibration", "events/error" -> eventQos;
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:43:            case "telemetry" -> telemetryQos;
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:44:            case "heartbeat" -> heartbeatQos;
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttQosPolicy.java:45:            case "debug" -> debugQos;
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamTypes.ts:16:  telemetryMode: "SENSOR_STREAM";
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamTypes.ts:104:  const telemetryMode = text(raw.telemetryMode) ?? text(raw.telemetry_mode);
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamTypes.ts:105:  if (telemetryMode !== "SENSOR_STREAM") {
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamTypes.ts:111:    telemetryMode,
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamTypes.ts:172:  return (text(raw.telemetryMode) ?? text(raw.telemetry_mode)) === "SENSOR_STREAM";
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamTypes.ts:179:  return Boolean(text(raw.telemetryMode) ?? text(raw.telemetry_mode));
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1240:        if (eventType != null && !"session_telemetry".equalsIgnoreCase(eventType)) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1241:            return TelemetryValidationResult.rejected("payload eventType is not session_telemetry");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1273:                return TelemetryValidationResult.rejected("seq is not newer than the last accepted telemetry");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1283:            logger.info("Rejected telemetry for device {}: {}", deviceId, validation.reason());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1290:            logger.info("Rejected telemetry for device {}: {}", deviceId, normalization.reason());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1296:            logger.info("Rejected telemetry for device {}: session disappeared before recording", deviceId);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1323:        logger.debug(
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1324:            "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, depthProgress={}, rateCpm={}, recoilOk={}, pauseS={})",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1637:            throw new IllegalStateException("Failed to serialize session telemetry accumulator", error);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:1648:            logger.warn("Ignoring corrupt telemetry accumulator snapshot for recovered session {}: {}", sessionId, error.getMessage());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ActiveSessionService.java:2185:                    "Computed summary from telemetry (sessionId={}, sampleCount={}, depthSampleCount={}, depthProgressSampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
+code/resq-firmware\components\mqtt_manager\include\mqtt_manager.h:91:mqtt_manager_publish_heartbeat(const network_config_t *network_config,
+code/resq-firmware\components\mqtt_manager\include\mqtt_manager.h:97:esp_err_t mqtt_manager_publish_heartbeat_with_health(
+code/resq-firmware\components\mqtt_manager\include\mqtt_manager.h:106:esp_err_t mqtt_manager_publish_telemetry_json(const char *json_payload);
+code/resq-firmware\components\mqtt_manager\include\mqtt_manager.h:108:esp_err_t mqtt_manager_publish_debug_json(const char *json_payload);
+code/resq-firmware\components\runtime_helpers\include\runtime_helpers.h:33: * input:  resq/resq-node-01/cmd/debug
+code/resq-firmware\components\runtime_helpers\include\runtime_helpers.h:34: * output: cmd/debug
+code/resq-firmware\components\runtime_helpers\include\runtime_helpers.h:81: * @brief Publish a minimal calibration result event to MQTT events/calibration.
+code/resq-firmware\components\runtime_helpers\include\runtime_helpers.h:90: * @brief Publish a debug snapshot (raw sensor readings) to debug topic.
+code/resq-firmware\components\runtime_helpers\include\runtime_helpers.h:92:esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config);
+code/resq-firmware\components\runtime_helpers\include\runtime_helpers.h:94:esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *network_config,
+code/resq-firmware\components\session_active_manager\include\session_active_manager.h:68:/** Stop session acquisition, CPR telemetry, and buzzer; safe when idle. */
+code/resq-firmware\components\session_active_manager\session_active_manager.c:29:#include "telemetry_publisher.h"
+code/resq-firmware\components\session_active_manager\session_active_manager.c:528:  esp_err_t err = telemetry_publisher_stop_all();
+code/resq-firmware\components\session_active_manager\session_active_manager.c:558:publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:658:  err = mqtt_manager_publish_debug_json(payload);
+code/resq-firmware\components\session_active_manager\session_active_manager.c:760:          "cmd/session/start", "NACK", "missing_request_id");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:770:          "cmd/session/start", "NACK", "calibration_not_ready");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:798:          "cmd/session/start", "NACK", "profile_mismatch");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:807:          "cmd/session/start", "NACK", "connectivity_not_ready");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:818:          "cmd/session/start", "NACK", "session_already_active");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:832:          "cmd/session/start", "NACK", "metrics_reset_failed");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:847:          "cmd/session/start", "NACK", "sensor_start_failed");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:862:          "cmd/session/start", "NACK", "buzzer_start_failed");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:867:  esp_err_t telemetry_err = telemetry_publisher_start();
+code/resq-firmware\components\session_active_manager\session_active_manager.c:868:  if (telemetry_err != ESP_OK) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:869:    ESP_LOGE(TAG, "Failed to start telemetry publisher: %s",
+code/resq-firmware\components\session_active_manager\session_active_manager.c:870:             esp_err_to_name(telemetry_err));
+code/resq-firmware\components\session_active_manager\session_active_manager.c:878:          "cmd/session/start", "NACK", "telemetry_start_failed");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:959:      esp_err_t heartbeat_err = mqtt_manager_publish_heartbeat_with_health(
+code/resq-firmware\components\session_active_manager\session_active_manager.c:965:      if (status_err == ESP_OK && heartbeat_err == ESP_OK) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:974:               "heartbeat=%s",
+code/resq-firmware\components\session_active_manager\session_active_manager.c:975:               esp_err_to_name(status_err), esp_err_to_name(heartbeat_err));
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1058:      !buzzer_manager_is_running() || !telemetry_publisher_is_running()) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1120:      telemetry_publisher_handle_sensor_stream_command(
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1126:    if (strcmp(command_suffix, "cmd/session/stop") == 0) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1139:        ESP_LOGW(TAG, "No active session for cmd/session/stop; skipping");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1147:        ESP_LOGW(TAG, "Missing request_id for cmd/session/stop; skipping stop");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1176:            "cmd/session/stop", "NACK", "session_id_mismatch");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1189:            "cmd/session/stop", "NACK", "session_runtime_stop_failed");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1198:            "cmd/session/stop", "NACK", "session_stop_failed");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1224:    if (strcmp(command_suffix, "cmd/session/start") == 0) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1227:          "cmd/session/start", "NACK", "session_already_active");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1231:    if (strcmp(command_suffix, "cmd/calibration/start") == 0 ||
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1232:        strcmp(command_suffix, "cmd/calibration/cancel") == 0) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1239:    if (strcmp(command_suffix, "cmd/debug") == 0) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1240:      esp_err_t debug_err = publish_debug_snapshot_from_metrics(network_config);
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1241:      if (debug_err != ESP_OK) {
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1243:            network_config, RESQ_STATE_SESSION_ACTIVE, &command, "cmd/debug",
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1244:            "NACK", "debug_read_failed");
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1249:          network_config, RESQ_STATE_SESSION_ACTIVE, &command, "cmd/debug",
+code/resq-firmware\components\session_active_manager\session_active_manager.c:1250:          "ACK", "debug_published");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\CalibrationStreamService.java:32:    private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\CalibrationStreamService.java:42:        heartbeatExecutor.scheduleWithFixedDelay(this::sendHeartbeats, 15, 15, TimeUnit.SECONDS);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\CalibrationStreamService.java:47:        heartbeatExecutor.shutdownNow();
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\CalibrationStreamService.java:136:            logger.debug("Removed disconnected SSE emitter for calibration stream of device while sending {} event", eventName, error);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\CalibrationStreamService.java:144:            logger.debug("Ignoring SSE emitter completion failure after send error", error);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\FirmwarePersistenceRepository.java:114:                        CREATE TABLE IF NOT EXISTS firmware_debug_snapshots (
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\FirmwarePersistenceRepository.java:130:                statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_firmware_debug_device_received ON firmware_debug_snapshots(device_id, received_at DESC)");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\FirmwarePersistenceRepository.java:338:                INSERT INTO firmware_debug_snapshots (
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\FirmwarePersistenceRepository.java:345:            throw new IllegalStateException("Failed to persist firmware debug snapshot for device " + snapshot.deviceId(), error);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\FirmwarePersistenceRepository.java:352:                FROM firmware_debug_snapshots
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\FirmwarePersistenceRepository.java:367:            throw new IllegalStateException("Failed to load recent firmware debug snapshots for device " + deviceId, error);
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.ts:45:function telemetryUrl(deviceId: string, suffix: string): string {
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.ts:46:  return `${getHubApiBaseUrl()}/api/devices/${encodeURIComponent(deviceId)}/telemetry${suffix}`;
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.ts:61:  const raw = await fetch(telemetryUrl(deviceId, "/start"), {
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.ts:71:  const raw = await fetch(telemetryUrl(deviceId, "/stop"), {
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.ts:79:  const response = await fetch(telemetryUrl(deviceId, "/latest"), {
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.ts:135:    command: raw.command ?? `telemetry/${action.toLowerCase()}`,
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttCommandPublisherService.java:148:                FirmwareTopics.debugCommandTopic(deviceId),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttCommandPublisherService.java:150:                "debug",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttCommandPublisherService.java:295:                FirmwareTopics.telemetryCommandTopic(deviceId),
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttCommandPublisherService.java:297:                "telemetry control",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\MqttCommandPublisherService.java:372:                logger.debug("Failed to close previous MQTT command client before reconnect", error);
+code/resq-firmware\components\sensor_owner\README.md:21:or Hall sensors are being read, nor while telemetry/debug JSON is built or
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:32:    private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:36:        heartbeatExecutor.scheduleWithFixedDelay(this::sendHeartbeats, 15, 15, TimeUnit.SECONDS);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:41:        heartbeatExecutor.shutdownNow();
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:81:        Map<String, String> heartbeatPayload = Map.of("ts", Instant.now().toString());
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:84:            sendEvent(emitter, "heartbeat", heartbeatPayload, () -> instructorEmitters.remove(emitter));
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:90:                sendEvent(emitter, "heartbeat", heartbeatPayload, () -> removeSessionEmitter(sessionId, emitter));
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:111:            logger.debug("Removed disconnected SSE emitter while sending {} event", eventName, error);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\LiveStreamService.java:119:            logger.debug("Ignoring SSE emitter completion failure after send error", error);
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\TraineeLiveSessionPage.tsx:13:import { normalizeTelemetry } from "../../utils/telemetryNormalization";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ManikinRegistryService.java:86:            state.state = canonicalFirmwareState(firstTextWithFallback(payload, state.state, "state", "debugState", "firmwareState", "firmware_state"));
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ManikinRegistryService.java:139:            Object debugRaw = jsonValue(payload.get("debugRaw"));
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ManikinRegistryService.java:140:            if (debugRaw == null && isSensorStreamTelemetry(payload)) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ManikinRegistryService.java:141:                debugRaw = jsonValue(payload);
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ManikinRegistryService.java:170:                    debugRaw
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ManikinRegistryService.java:581:        String telemetryMode = firstTextWithFallback(payload, null, "telemetry_mode", "telemetryMode");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\service\ManikinRegistryService.java:582:        return telemetryMode != null && "SENSOR_STREAM".equalsIgnoreCase(telemetryMode);
+code/resq-localhub\apps\localhub-desktop\src\lib\browserHealthApi.ts:68:    // Network error or CORS issue - log for debugging
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:22:      command: "telemetry/start",
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:23:      topic: "resq/M01/cmd/telemetry",
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:30:    expect(fetch).toHaveBeenCalledWith("http://hub.test/api/devices/M01/telemetry/start", {
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:44:      command: "telemetry/stop",
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:45:      topic: "resq/M01/cmd/telemetry",
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:51:    expect(fetch).toHaveBeenCalledWith("http://hub.test/api/devices/M01/telemetry/stop", {
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:87:    expect(parseSensorStreamSnapshot({ ...sampleSnapshot(), telemetry_mode: "SESSION" }, "M01")).toBeNull();
+code/resq-localhub\apps\localhub-desktop\src\lib\sensorStreamClient.test.ts:100:    telemetry_mode: "SENSOR_STREAM",
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:1:import type { LiveConnectionState, LiveMetricPayload, LiveMetricSourceMode } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:10:  heartbeatSeen?: boolean;
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:24:  debugRaw?: unknown;
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:72:    heartbeatSeen: false,
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:86:    debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:105:    return { ok: false, reason: "unsupported telemetry_mode for session telemetry", warnings };
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:181:      debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:240:  if (value === "real" || value === "simulator" || value === "calibration" || value === "debug" || value === "hall") {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.ts:247:    return "debug";
+code/resq-localhub\apps\localhub-desktop\src\lib\browserFirmwareApi.ts:241:  return requestJson<FirmwareDebugSnapshotRecord[]>(`${getFirmwareDeviceUrl(deviceId)}/debug-snapshots${suffix}`);
+code/resq-localhub\apps\localhub-desktop\src\lib\browserFirmwareApi.ts:249:  return requestJson<FirmwareCommandPublishResponse>(`${getFirmwareDeviceUrl(deviceId)}/debug`, {
+code/resq-localhub\apps\localhub-desktop\src\lib\appAuthRoutes.ts:1:import type { UserRole } from "@resq/shared";
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\LiveMetricPayload.java:24:        Object debugRaw
+code/resq-localhub\apps\localhub-desktop\src\hooks\useRollingTelemetry.ts:3:import { normalizeTelemetry } from "../utils/telemetryNormalization";
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\TechnicianDiagnosticsPage.tsx:107:      setError("Failed to request debug snapshot.");
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\TechnicianDiagnosticsPage.tsx:301:                    {diagnostics.debugSnapshots.length === 0 ? (
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\TechnicianDiagnosticsPage.tsx:302:                      <p className="text-xs text-gray-500 italic">No debug snapshots recorded.</p>
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\TechnicianDiagnosticsPage.tsx:304:                      diagnostics.debugSnapshots.map((snap) => (
+code/resq-localhub\apps\localhub-desktop\src\lib\authApi.ts:9:} from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientSensorStreamIsolation.test.ts:4:  it("does not normalize SENSOR_STREAM or unknown telemetry modes as CPR session telemetry", () => {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientSensorStreamIsolation.test.ts:7:      telemetry_mode: "SENSOR_STREAM",
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientSensorStreamIsolation.test.ts:29:    expect(normalizeTelemetryPayload({ ...sensorStream, telemetry_mode: "MANUAL_DIAGNOSTIC" }).ok).toBe(false);
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientSensorStreamIsolation.test.ts:30:    expect(toLiveClientUpdate({ ...sensorStream, telemetry_mode: "MANUAL_DIAGNOSTIC" })).toBeNull();
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareLiveNormalizer.ts:1:import type { ActionId, EventId, FirmwareState, ProgressId, ReasonId } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareLiveNormalizer.ts:27:  debugRaw: unknown;
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareLiveNormalizer.ts:60:  const debugRaw = rawPayload.debugRaw ?? rawPayload.debug_raw ?? rawPayload;
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareLiveNormalizer.ts:86:    debugRaw,
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.test.ts:4:describe("live telemetry normalization", () => {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.test.ts:5:  it("normalizes metric-first telemetry into the shared live metric shape", () => {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.test.ts:20:      debugRaw: { hallRaw: 3420 },
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.test.ts:40:      debugRaw: { hallRaw: 3420 },
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.test.ts:69:  it("rejects incomplete telemetry without crashing", () => {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.test.ts:79:      throw new Error("expected incomplete telemetry to be rejected");
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClientTypes.test.ts:85:  it("maps Hall depth source from pressure-degraded firmware telemetry", () => {
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:26:  "telemetry",
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:28:  "heartbeat",
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:29:  "debug",
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:31:  "events/calibration",
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:32:  "events/error",
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:63:        `resq/${options.deviceId}/status`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:64:        `resq/${options.deviceId}/heartbeat`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:65:        `resq/${options.deviceId}/telemetry`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:66:        `resq/${options.deviceId}/debug`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:67:        `resq/${options.deviceId}/events`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:68:        `resq/${options.deviceId}/events/calibration`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:69:        `resq/${options.deviceId}/events/error`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:70:        `resq/manikins/${options.deviceId}/status`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:71:        `resq/manikins/${options.deviceId}/heartbeat`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:72:        `resq/manikins/${options.deviceId}/telemetry`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:73:        `resq/manikins/${options.deviceId}/events`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:74:        `resq/manikins/${options.deviceId}/live`,
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:143:    if (parsedTopic.kind === "telemetry") {
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:163:    if (parsedTopic.kind === "heartbeat") {
+code/resq-localhub\apps\localhub-desktop\src\lib\mqttLiveClient.ts:168:        heartbeatSeen: true,
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:6:} from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:192:          this.debug("mqtt websocket connected");
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:229:      this.debug("mqtt recovery probe failed", error);
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:236:      this.debug(`mqtt retry ${this.mqttRetryCount}/${this.options.mqttMaxRetries}`, error);
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:241:    this.debug("mqtt exhausted retries; falling back to sse", error);
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:251:    this.debug("mqtt websocket recovered and stayed stable");
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:287:            this.debug("sse auth error", msg);
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:298:          this.debug("sse failed; falling back to polling", error);
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:360:    if (update.latestMetric || update.heartbeatSeen || update.statusSeen) {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:363:    if (update.heartbeatSeen || update.statusSeen) {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:373:      lastHeartbeatAt: update.heartbeatSeen ? new Date(now).toISOString() : this.state.lastHeartbeatAt,
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:483:  private debug(message: string, detail?: unknown): void {
+code/resq-localhub\apps\localhub-desktop\src\lib\liveClient.ts:485:      console.debug(`[ResQ live] ${message}`, detail ?? "");
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:16:} from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:20:    expect(buildFirmwareStatusTopic("M01")).toBe("resq/M01/status");
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:21:    expect(buildCalibrationStartCommandTopic("M01")).toBe("resq/M01/cmd/calibration/start");
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:22:    expect(buildSessionStartCommandTopic("M01")).toBe("resq/M01/cmd/session/start");
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:23:    expect(buildSystemFlushConfigCommandTopic("M01")).toBe("resq/M01/cmd/system/flush-config");
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:27:    expect(parseFirmwareTopic("resq/M01/status")).toMatchObject({
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:34:    expect(parseFirmwareTopic("resq/M01/events/error")).toMatchObject({
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:36:      family: "events/error",
+code/resq-localhub\apps\localhub-desktop\src\lib\firmwareContract.test.ts:40:    expect(parseFirmwareTopic("resq/M01/cmd/system/reset")).toMatchObject({
+code/resq-localhub\apps\localhub-desktop\src\api\firmwareApi.ts:32:  const debugSnapshots = rawSnapshots.map((snap: any) => {
+code/resq-localhub\apps\localhub-desktop\src\api\firmwareApi.ts:58:    debugSnapshots,
+code/resq-localhub\apps\localhub-desktop\src\api\firmwareApi.ts:62:/** POST /api/devices/{deviceId}/firmware/debug — request a debug snapshot from device */
+code/resq-localhub\apps\localhub-desktop\src\api\firmwareApi.ts:64:  return postJson<FirmwareCommandPublishResponse>(firmwareDevicePath(deviceId, "/debug"));
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\AdminSyncDashboardPage.tsx:129:        subtitle="Manage cloud roster replication, synchronization logs, and telemetry upload queue."
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\AdminSyncDashboardPage.tsx:262:          subtitle="Real-time status of session telemetry transfers to ResQ Cloud."
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\controller\FirmwareDiagnosticsController.java:70:    @GetMapping("/debug-snapshots")
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\controller\FirmwareDiagnosticsController.java:95:    @PostMapping("/debug")
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\ManikinReadinessPage.tsx:125:        console.warn("Failed to request debug snapshot", err);
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\ManikinReadinessPage.tsx:133:    const debugInterval = setInterval(triggerDebug, 2000);
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\ManikinReadinessPage.tsx:138:      clearInterval(debugInterval);
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\ManikinReadinessPage.tsx:202:  // Extract raw pressure values from latest debug snapshot
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\ManikinReadinessPage.tsx:203:  const latestSnapshot = diagnostics?.debugSnapshots?.[0];
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\SensorStreamSnapshot.java:9:        @JsonProperty("telemetry_mode") String telemetryMode,
+code/resq-localhub\apps\localhub-desktop\src\pages\InstructorDashboard.tsx:1664:              No manikins publishing yet. Start publishing to resq/&lt;deviceId&gt;/status, heartbeat, telemetry, debug, or events. Legacy resq/manikins/&lt;deviceId&gt;/... topics still work.
+code/resq-localhub\apps\localhub-desktop\src\auth\RoleBasedRoute.tsx:2:import type { UserRole } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\pages\LoginPage.tsx:2:import type { CreateFirstAdminRequest, UserRole } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\DemoChecklistPage.tsx:116:                <p className="text-xs text-slate-400 mt-1">Status of the local server process and telemetry engine.</p>
+code/resq-localhub\apps\localhub-desktop\src\auth\ProtectedRoute.tsx:5:import type { UserRole } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.tsx:246:      setManualStreamReasonId(error instanceof Error ? error.message : "telemetry_stop_failed");
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.tsx:264:      setManualStreamReasonId(error instanceof Error ? error.message : "telemetry_start_failed");
+code/resq-localhub\apps\localhub-desktop\src\auth\AuthContext.tsx:2:import type { AuthStatusResponse, AuthUser, CreateFirstAdminRequest, CreateUserRequest, LoginRequest, LoginResponse, UserRole } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\auth\AuthContext.tsx:116:      // console.debug("logout request failed", err);
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:73:      deviceId: "MAN-01", requestId: "stream-start", action: "START", command: "telemetry/start",
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:74:      topic: "resq/MAN-01/cmd/telemetry", intervalMs: 200, status: "PUBLISHED", streamState: "STARTING", idempotent: false,
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:77:      deviceId: "MAN-01", requestId: "stream-stop", action: "STOP", command: "telemetry/stop",
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:78:      topic: "resq/MAN-01/cmd/telemetry", status: "PUBLISHED", streamState: "STOPPING", idempotent: false,
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:187:      status: "NACK", reasonId: "session_active_use_session_telemetry", firmwareState: "CALIBRATING",
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:191:    expect(await screen.findByText(/Sensor stream unavailable — reason session_active_use_session_telemetry/)).toBeInTheDocument();
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:192:    expect(screen.getByText("session_active_use_session_telemetry", { selector: "dd" })).toBeInTheDocument();
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:288:  it("renders current raw values received from SENSOR_STREAM telemetry", async () => {
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\CalibrationWizardPage.test.tsx:294:      deviceId: "MAN-01", telemetryMode: "SENSOR_STREAM", state: "PAIRED_IDLE",
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\controller\DeviceTelemetryController.java:26:@RequestMapping("/api/devices/{deviceId}/telemetry")
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\controller\DeviceTelemetryController.java:143:        response.put("command", "telemetry/" + String.valueOf(response.get("action")).toLowerCase());
+code/resq-localhub\apps\localhub-desktop\src\pages\v2\InstructorLiveSessionPage.tsx:9:import { normalizeTelemetry } from "../../utils/telemetryNormalization";
+code/resq-localhub\apps\localhub-desktop\src\pages\HomePage.tsx:2:import { AUTH_PERMISSION_RULES } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\components\LiveMetricsPanel.test.tsx:6:  it("waits for current-session telemetry instead of showing a stale device snapshot", () => {
+code/resq-localhub\apps\localhub-desktop\src\components\LiveMetricsPanel.test.tsx:33:    expect(screen.getByRole("status")).toHaveTextContent("Waiting for CPR telemetry...");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:8:        return String.format("resq/%s", normalize(deviceId));
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:15:    public static String heartbeatTopic(String deviceId) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:16:        return commandOrStatusTopic(deviceId, "heartbeat");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:19:    public static String telemetryTopic(String deviceId) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:20:        return commandOrStatusTopic(deviceId, "telemetry");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:23:    public static String debugTopic(String deviceId) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:24:        return commandOrStatusTopic(deviceId, "debug");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:32:        return commandOrStatusTopic(deviceId, "events/calibration");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:36:        return commandOrStatusTopic(deviceId, "events/error");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:43:    public static String debugCommandTopic(String deviceId) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:44:        return commandTopic(deviceId, "cmd/debug");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:48:        return commandTopic(deviceId, "cmd/calibration/start");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:52:        return commandTopic(deviceId, "cmd/calibration/cancel");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:56:        return commandTopic(deviceId, "cmd/session/start");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:60:        return commandTopic(deviceId, "cmd/session/stop");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:63:    public static String telemetryCommandTopic(String deviceId) {
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:64:        return commandTopic(deviceId, "cmd/telemetry");
+code/resq-localhub\services\hub-api\src\main\java\lk\resq\localhub\model\firmware\FirmwareTopics.java:80:        return String.format("resq/%s/%s", normalize(deviceId), normalizeSuffix(suffix));
+code/resq-localhub\apps\localhub-desktop\src\components\LiveMetricsPanel.tsx:1:import type { LiveConnectionState, LiveMetricPayload, LiveSourceMode } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\components\LiveMetricsPanel.tsx:52:          Waiting for CPR telemetry...
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.test.tsx:42:      command: "telemetry/start",
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.test.tsx:43:      topic: "resq/M01/cmd/telemetry",
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.test.tsx:51:      command: "telemetry/stop",
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.test.tsx:52:      topic: "resq/M01/cmd/telemetry",
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.test.tsx:166:    telemetryMode: "SENSOR_STREAM" as const,
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.tsx:36:  const [debugRequestState, setDebugRequestState] = useState<"idle" | "sending">("idle");
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.tsx:119:      setError(requestError instanceof Error ? requestError.message : "Failed to request a debug snapshot.");
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.tsx:185:            disabled={debugRequestState === "sending"}
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.tsx:186:            style={buttonStyle(debugRequestState === "sending")}
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.tsx:189:              {debugRequestState === "sending" ? <span className="debug-request-pulse" aria-hidden="true" /> : null}
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.tsx:190:              {debugRequestState === "sending" ? "Requesting debug..." : "Request Debug Snapshot"}
+code/resq-localhub\apps\localhub-desktop\src\components\FirmwareDiagnosticsPanel.tsx:267:            <EmptyText text="No debug snapshots recorded yet." />
+code/resq-localhub\apps\localhub-desktop\src\pages\AdminUsersPage.tsx:2:import type { AuthUser, CreateUserRequest, UserRole } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\pages\AdminUsersPage.tsx:3:import { USER_ROLES } from "@resq/shared";
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\CalibrationResultCard.tsx:10:  debugLoading?: boolean;
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\CalibrationResultCard.tsx:19:  debugLoading,
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\CalibrationResultCard.tsx:56:          disabled={debugLoading}
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\CalibrationResultCard.tsx:59:          {debugLoading ? "Requesting..." : "Request Debug Snapshot"}
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\DeviceCard.tsx:41:      statusMessage = "Live training session is currently active and recording telemetry.";
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\LiveCprGraph.tsx:15:import { normalizeTelemetry } from "../../utils/telemetryNormalization";
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\DeviceReadinessPanel.tsx:176:  const [debugLoading, setDebugLoading] = useState(false);
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\DeviceReadinessPanel.tsx:243:      setError(err instanceof Error ? err.message : "Failed to request debug snapshot.");
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\DeviceReadinessPanel.tsx:334:            debugLoading={debugLoading}
+code/resq-localhub\apps\localhub-desktop\src\components\cpr\DeviceReadinessPanel.tsx:359:                loading={debugLoading}

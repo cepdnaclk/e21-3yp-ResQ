@@ -15,6 +15,7 @@ import jakarta.annotation.PreDestroy;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -29,6 +30,12 @@ public class CalibrationStreamService {
     private static final long SSE_TIMEOUT_MS = 0L;
 
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> emittersByDeviceId = new ConcurrentHashMap<>();
+
+    public int totalEmitterCount() {
+        return emittersByDeviceId.values().stream()
+                .mapToInt(List::size)
+                .sum();
+    }
     private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private final DeviceReadinessService deviceReadinessService;

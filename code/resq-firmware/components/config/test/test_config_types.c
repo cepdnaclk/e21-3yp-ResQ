@@ -20,6 +20,7 @@ static calibration_config_t valid_calibration(void) {
       .bladder_2_full_press = 14000,
       .pressure_1_range_raw = 4000,
       .pressure_2_range_raw = 4000,
+      .pressure_saturation_hall_delta = 1200,
       .pressure_contact_threshold = 300,
       .pressure_valid_threshold = 1000,
       .pressure_balance_allowed_pct = 25,
@@ -86,6 +87,9 @@ TEST_CASE("Calibration validation covers every threshold boundary",
   ASSERT_INVALID_FIELD(bladder_2_full_press, 0);
   ASSERT_INVALID_FIELD(pressure_1_range_raw, 300);
   ASSERT_INVALID_FIELD(pressure_2_range_raw, 300);
+  ASSERT_INVALID_FIELD(pressure_saturation_hall_delta, -1);
+  ASSERT_INVALID_FIELD(pressure_saturation_hall_delta, 300);
+  ASSERT_INVALID_FIELD(pressure_saturation_hall_delta, 2001);
   ASSERT_INVALID_FIELD(pressure_contact_threshold, 0);
   ASSERT_INVALID_FIELD(pressure_valid_threshold, 300);
   ASSERT_INVALID_FIELD(pressure_balance_allowed_pct, 4);
@@ -120,6 +124,7 @@ TEST_CASE("Calibration validation covers every threshold boundary",
   config.pressure_2_range_raw = 0;
   config.pressure_contact_threshold = 0;
   config.pressure_valid_threshold = 0;
+  config.pressure_saturation_hall_delta = 0;
   TEST_ASSERT_TRUE(calibration_config_is_valid(&config));
 }
 

@@ -89,17 +89,33 @@ export function TraineeLiveSessionPage({
   useEffect(() => {
     if (session && !session.active) {
       setFetchingCompleted(true);
+      let cancelled = false;
       async function loadCompleted() {
-        try {
-          const data = await fetchCompletedSession(sessionId);
-          setCompletedSession(data);
-        } catch (err) {
-          console.warn("Failed to load completed session summary", err);
-        } finally {
+        for (let attempt = 0; attempt < 8 && !cancelled; attempt += 1) {
+          try {
+            const data = await fetchCompletedSession(sessionId);
+            if (!cancelled) {
+              setCompletedSession(data);
+              setError(null);
+            }
+            break;
+          } catch (err) {
+            if (attempt === 7 && !cancelled) {
+              console.warn("Failed to load completed session summary", err);
+              setError("Session ended, but its final score could not be loaded.");
+            } else {
+              await new Promise((resolve) => window.setTimeout(resolve, 250));
+            }
+          }
+        }
+        if (!cancelled) {
           setFetchingCompleted(false);
         }
       }
       loadCompleted();
+      return () => {
+        cancelled = true;
+      };
     }
   }, [session?.active, sessionId]);
 
@@ -111,7 +127,7 @@ export function TraineeLiveSessionPage({
     );
   }
 
-  if (session && !session.active && !completedSession) {
+  if (session && !session.active && !completedSession && fetchingCompleted) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
         <LoadingState message="Processing session completion summary..." />
@@ -130,7 +146,6 @@ export function TraineeLiveSessionPage({
       ? "bg-amber-50 text-amber-600 border-amber-200"
       : "bg-rose-50 text-rose-600 border-rose-200";
 
-    const hasDepthProgress = summary.avgDepthProgress !== null && summary.avgDepthProgress !== undefined;
     const hasRecoilPct = summary.recoilPct !== null && summary.recoilPct !== undefined;
 
     return (
@@ -192,13 +207,13 @@ export function TraineeLiveSessionPage({
                 </span>
               </div>
 
-              {hasDepthProgress && (
+              {summary.avgDepthMm !== null && (
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60">
                   <span className="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">
-                    Good Depth
+                    Avg Completed Peak Depth
                   </span>
                   <span className="text-sm text-slate-800 font-bold font-mono">
-                    {Math.round(summary.avgDepthProgress! * 100)}%
+                    {summary.avgDepthMm.toFixed(1)} mm
                   </span>
                 </div>
               )}
@@ -275,28 +290,17 @@ export function TraineeLiveSessionPage({
 
   if (normalized.depthMm !== null && normalized.depthMm !== undefined && normalized.depthMm > 0) {
     depthVal = `${normalized.depthMm.toFixed(1)}`;
-    if (flags.has("DEPTH_OK")) {
-      depthStatus = "Good";
-      depthTone = "good";
-    } else if (flags.has("DEPTH_LOW")) {
+    const minDepth = profile === "pediatric" ? 40 : 50;
+    const maxDepth = profile === "pediatric" ? 50 : 60;
+    if (normalized.depthMm < minDepth) {
       depthStatus = "Too shallow";
       depthTone = "danger";
-    } else if (flags.has("DEPTH_HIGH")) {
+    } else if (normalized.depthMm > maxDepth) {
       depthStatus = "Too deep";
       depthTone = "warning";
     } else {
-      const minDepth = profile === "pediatric" ? 40 : 50;
-      const maxDepth = profile === "pediatric" ? 50 : 60;
-      if (normalized.depthMm < minDepth) {
-        depthStatus = "Too shallow";
-        depthTone = "danger";
-      } else if (normalized.depthMm > maxDepth) {
-        depthStatus = "Too deep";
-        depthTone = "warning";
-      } else {
-        depthStatus = "Good";
-        depthTone = "good";
-      }
+      depthStatus = "Correct depth";
+      depthTone = "good";
     }
   }
 
@@ -373,11 +377,11 @@ export function TraineeLiveSessionPage({
       handsTone = "neutral";
     }
 
-    if (session.pressureBalancePct !== null) {
-      handsUnit = `(${Math.round(session.pressureBalancePct)}% balance)`;
+    if (normalized.pressureBalanceScorePct !== null) {
+      handsUnit = `(${Math.round(normalized.pressureBalanceScorePct)}% balance)`;
     }
-  } else if (session.pressureBalancePct !== null) {
-    handsUnit = `(${Math.round(session.pressureBalancePct)}% balance)`;
+  } else if (normalized.pressureBalanceScorePct !== null) {
+    handsUnit = `(${Math.round(normalized.pressureBalanceScorePct)}% balance)`;
     handsTone = session.pressureSkewed ? "danger" : "good";
     handsVal = session.pressureSkewed ? "Left leaning" : "Centered";
     handsStatus = session.pressureSkewed ? "Check Position" : "Good";
@@ -459,12 +463,20 @@ export function TraineeLiveSessionPage({
         {/* 4 simple clinical V2 metric cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full mt-2">
           <MetricCard
-            label="Depth"
+            label={
+              normalized.usesCompletedCompressionDepth
+                ? "Avg Completed Peak Depth"
+                : "Depth"
+            }
             value={depthVal}
             unit={depthVal !== "—" ? "mm" : undefined}
             status={depthStatus}
             tone={depthTone}
-            target={depthTargetStr}
+            target={
+              normalized.usesCompletedCompressionDepth
+                ? `${depthTargetStr} average of completed peaks`
+                : `${depthTargetStr} legacy live depth`
+            }
             large={true}
             subtitle={
               normalized.isDerivedDepth

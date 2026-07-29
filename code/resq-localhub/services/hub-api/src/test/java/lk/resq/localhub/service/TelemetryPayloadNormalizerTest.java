@@ -40,7 +40,6 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.value().validCompressionCount()).isEqualTo(16);
         assertThat(result.value().handPlacement()).isEqualTo("CENTER");
         assertThat(result.value().sourceMode()).isEqualTo("calibration");
-        assertThat(result.value().debugRaw()).isNotNull();
     }
 
     @Test
@@ -49,15 +48,22 @@ class TelemetryPayloadNormalizerTest {
                 {
                   "session_id": "S-FW-2",
                   "state": "SESSION_ACTIVE",
+                  "depth_mm": 42.9,
                   "depth_progress": 0.78,
                   "depth_ok": true,
                   "rate_cpm": 111,
                   "compression_count": 1,
+                  "completed_compression_count": 1,
+                  "depth_ok_compression_count": 1,
                   "valid_compression_count": 0,
+                  "last_compression_peak_depth_mm": 63.0,
+                  "average_completed_compression_peak_depth_mm": 63.0,
+                  "recoil_ok": true,
                   "recoil_ok_count": 0,
                   "incomplete_recoil_count": 0,
                   "pause_s": 0.2,
                   "hand_placement": "CENTER",
+                  "pressure_balance_score_pct": 92.9,
                   "pressure_balance_pct": 92.9,
                   "flags": "DEPTH_OK,RATE_OK,RECOIL_OK",
                   "ts_ms": 100432
@@ -70,21 +76,24 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.ok()).isTrue();
         assertThat(result.value().deviceId()).isEqualTo("M01");
         assertThat(result.value().sessionId()).isEqualTo("S-FW-2");
-        assertThat(result.value().depthMm()).isEqualTo(39.0);
+        assertThat(result.value().depthMm()).isEqualTo(42.9);
 
         assertThat(result.value().depthProgress()).isEqualTo(0.78);
         assertThat(result.value().depthOk()).isTrue();
         assertThat(result.value().rateCpm()).isEqualTo(111.0);
-        assertThat(result.value().recoilOk()).isNull();
+        assertThat(result.value().recoilOk()).isTrue();
         assertThat(result.value().compressionCount()).isEqualTo(1);
+        assertThat(result.value().completedCompressionCount()).isEqualTo(1);
+        assertThat(result.value().depthOkCompressionCount()).isEqualTo(1);
         assertThat(result.value().validCompressionCount()).isZero();
+        assertThat(result.value().lastCompressionPeakDepthMm()).isEqualTo(63.0);
+        assertThat(result.value().averageCompletedCompressionPeakDepthMm()).isEqualTo(63.0);
         assertThat(result.value().recoilOkCount()).isZero();
         assertThat(result.value().incompleteRecoilCount()).isZero();
         assertThat(result.value().handPlacement()).isEqualTo("CENTER");
-        assertThat(result.value().pressureBalancePct()).isEqualTo(92.9);
+        assertThat(result.value().pressureBalanceScorePct()).isEqualTo(92.9);
         assertThat(result.value().flags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
         assertThat(result.value().tsMs()).isEqualTo(100432L);
-        assertThat(result.value().debugRaw()).isNotNull();
     }
 
     @Test
@@ -164,5 +173,83 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.value().depthMm()).isEqualTo(48.5);
         assertThat(result.value().depthProgress()).isNull();
         assertThat(result.value().flags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
+    }
+
+    @Test
+    void normalizesCanonicalLegacyAndMatchingPressureFields() throws Exception {
+        var canonical = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {"device_id":"M01","session_id":"S1","depth_mm":50,"pressure_balance_score_pct":88}
+                """));
+        var legacy = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {"device_id":"M01","session_id":"S1","depth_mm":50,"pressure_balance_pct":88}
+                """));
+        var matching = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {
+                  "device_id":"M01",
+                  "session_id":"S1",
+                  "depth_mm":50,
+                  "pressure_balance_score_pct":88.0,
+                  "pressure_balance_pct":88.01
+                }
+                """));
+
+        assertThat(canonical.value().pressureBalanceScorePct()).isEqualTo(88.0);
+        assertThat(legacy.value().pressureBalanceScorePct()).isEqualTo(88.0);
+        assertThat(legacy.warnings()).contains("normalized legacy pressure_balance_pct alias");
+        assertThat(matching.ok()).isTrue();
+        assertThat(matching.value().pressureBalanceScorePct()).isEqualTo(88.0);
+    }
+
+    @Test
+    void rejectsConflictingOrOutOfRangePressureFields() throws Exception {
+        var conflicting = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {
+                  "device_id":"M01",
+                  "session_id":"S1",
+                  "depth_mm":50,
+                  "pressure_balance_score_pct":90,
+                  "pressure_balance_pct":80
+                }
+                """));
+        var below = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {"device_id":"M01","session_id":"S1","depth_mm":50,"pressure_balance_score_pct":-0.01}
+                """));
+        var above = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {"device_id":"M01","session_id":"S1","depth_mm":50,"pressure_balance_score_pct":100.01}
+                """));
+
+        assertThat(conflicting.ok()).isFalse();
+        assertThat(conflicting.reason()).contains("conflicts");
+        assertThat(below.ok()).isFalse();
+        assertThat(above.ok()).isFalse();
+    }
+
+    @Test
+    void rejectsContradictoryFlagsAndReportsBoundedConsistency() throws Exception {
+        var contradiction = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {
+                  "device_id":"M01",
+                  "session_id":"S1",
+                  "depth_mm":50,
+                  "depth_ok":false,
+                  "flags":"DEPTH_OK"
+                }
+                """));
+        var validLegacyFlags = TelemetryPayloadNormalizer.normalize(objectMapper.readTree("""
+                {
+                  "device_id":"M01",
+                  "session_id":"S1",
+                  "depth_mm":50,
+                  "depth_ok":true,
+                  "flags":"DEPTH_OK"
+                }
+                """));
+
+        assertThat(contradiction.ok()).isFalse();
+        assertThat(contradiction.consistency())
+                .isEqualTo(TelemetryPayloadNormalizer.MetricConsistency.INVALID_CONTRADICTORY_METRICS);
+        assertThat(validLegacyFlags.ok()).isTrue();
+        assertThat(validLegacyFlags.consistency())
+                .isEqualTo(TelemetryPayloadNormalizer.MetricConsistency.VALID_WITH_LEGACY_FLAGS);
     }
 }

@@ -234,7 +234,7 @@ resq_state_t paired_idle_manager_run(network_config_t *network_config,
         continue;
       }
       esp_err_t debug_err =
-          runtime_helpers_publish_debug_snapshot(network_config);
+          runtime_helpers_publish_debug_snapshot(network_config, &command);
 
       if (debug_err != ESP_OK) {
         runtime_helpers_publish_command_result_from_command(

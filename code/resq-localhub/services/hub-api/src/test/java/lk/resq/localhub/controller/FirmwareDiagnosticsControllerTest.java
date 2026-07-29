@@ -118,6 +118,8 @@ class FirmwareDiagnosticsControllerTest {
         assertThat(body.recentCommands()).isNotEmpty();
         assertThat(body.recentEvents()).isNotEmpty();
         assertThat(body.recentDebugSnapshots()).isNotEmpty();
+        String serialized = fixture.objectMapper.writeValueAsString(body);
+        assertThat(serialized).doesNotContain("payloadJson", "replyPayloadJson", "rawPayloadJson");
     }
 
     @Test
@@ -138,7 +140,7 @@ class FirmwareDiagnosticsControllerTest {
     }
 
     private static Fixture newFixture() {
-        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         FirmwarePersistenceRepository repository = new FirmwarePersistenceRepository(
                 Path.of("target", "firmware-diagnostics-controller-test-" + UUID.randomUUID() + ".sqlite").toString()
         );

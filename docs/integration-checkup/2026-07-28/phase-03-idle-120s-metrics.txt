@@ -1,0 +1,5 @@
+
+Topic              Messages MessagesPerSecond MessagesPerMinute TotalBytes BytesPerSecond BytesPerMinute AveragePayloadBytes UniquePayloads
+-----              -------- ----------------- ----------------- ---------- -------------- -------------- ------------------- --------------
+resq/M01/heartbeat      119             0.992              59.5      24546         204.55          12273              206.27            119
+resq/M01/status           1             0.008               0.5        138           1.15             69                 138              1

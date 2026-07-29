@@ -9,6 +9,7 @@ set(TEST_COMPONENTS
     "config"
     "error_manager"
     "mqtt_manager"
+    "firmware_mqtt_contract"
     "runtime_helpers"
     "runtime_identity"
     "session_manager"

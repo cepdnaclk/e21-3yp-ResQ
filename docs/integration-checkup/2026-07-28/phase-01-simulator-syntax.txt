@@ -1,0 +1,2 @@
+Command: node --check scripts\firmware-simulator\firmware-simulator.js
+Result: PASS (exit code 0; Node emits no output on success)

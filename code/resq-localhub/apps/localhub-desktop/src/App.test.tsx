@@ -111,77 +111,78 @@ describe("App routing and authorization", () => {
     expect(screen.getByRole("heading", { name: "Login" })).toBeInTheDocument();
   });
 
-  it("routes authenticated admin through active pages and nested IDs", () => {
+  it("routes authenticated admin through active pages and nested IDs", async () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Open Instructor"));
-    expect(screen.getByRole("heading", { name: "Instructor" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Instructor" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Calibrate"));
-    expect(screen.getByRole("heading", { name: "Calibration M-01" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Calibration M-01" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Back"));
     fireEvent.click(screen.getByText("Pair"));
-    expect(screen.getByRole("heading", { name: "Pair Manikin" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Pair Manikin" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Instructor nav"));
+    await screen.findByRole("heading", { name: "Instructor" });
     fireEvent.click(screen.getByText("Start live"));
-    expect(screen.getByRole("heading", { name: "Instructor Live s1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Instructor Live s1" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("End"));
-    expect(screen.getByRole("heading", { name: "Review s1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Review s1" })).toBeInTheDocument();
   });
 
-  it("parses direct routes and browser popstate changes", () => {
+  it("parses direct routes and browser popstate changes", async () => {
     setPath("/courses/c%2F1");
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Course c/1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Course c/1" })).toBeInTheDocument();
 
     navigate("/sessions/s%2F1");
-    expect(screen.getByRole("heading", { name: "Review s/1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Review s/1" })).toBeInTheDocument();
   });
 
-  it("blocks unauthorized roles and lets access denied navigate home", () => {
+  it("blocks unauthorized roles and lets access denied navigate home", async () => {
     mockAuth.currentUser = trainee;
     setPath("/admin/users");
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "Access Denied" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Back home"));
-    expect(screen.getByRole("heading", { name: "Trainee Dashboard" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Trainee Dashboard" })).toBeInTheDocument();
   });
 
-  it("routes trainees to trainee surfaces and blocks instructor-only live pages", () => {
+  it("routes trainees to trainee surfaces and blocks instructor-only live pages", async () => {
     mockAuth.currentUser = trainee;
     setPath("/trainee/sessions/s1/live");
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Trainee Live s1" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Trainee Live s1" })).toBeInTheDocument();
 
     navigate("/instructor/sessions/s1/live");
-    expect(screen.getByRole("heading", { name: "Access Denied" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Access Denied" })).toBeInTheDocument();
   });
 
-  it("enforces admin-only and instructor/admin routes", () => {
+  it("enforces admin-only and instructor/admin routes", async () => {
     mockAuth.currentUser = instructor;
     setPath("/diagnostics");
     render(<App />);
     expect(screen.getByRole("heading", { name: "Access Denied" })).toBeInTheDocument();
 
     navigate("/start-session");
-    expect(screen.getByRole("heading", { name: "Start Session" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Start Session" })).toBeInTheDocument();
 
     navigate("/demo-checklist");
-    expect(screen.getByRole("heading", { name: "Demo Checklist" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Demo Checklist" })).toBeInTheDocument();
   });
 
   it("handles shell navigation and logout", async () => {
     render(<App />);
     fireEvent.click(screen.getByText("Users nav"));
-    expect(screen.getByRole("heading", { name: "Admin Users" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Admin Users" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Diagnostics nav"));
-    expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Sign out"));
     await waitFor(() => expect(mockAuth.logout).toHaveBeenCalled());

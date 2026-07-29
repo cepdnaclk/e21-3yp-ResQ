@@ -670,8 +670,8 @@ export default function TraineeDashboard({
   const recoilSeries = sensorHistory.map((point) => point.recoilOk);
   const force1Series = sensorHistory.map(() => session?.latestForce1 ?? null);
   const force2Series = sensorHistory.map(() => session?.latestForce2 ?? null);
-  const balanceSeries = sensorHistory.map(() => session?.pressureBalancePct ?? null);
-  const latestBalance = session?.pressureBalancePct ?? null;
+  const balanceSeries = sensorHistory.map(() => session?.pressureBalanceScorePct ?? null);
+  const latestBalance = session?.pressureBalanceScorePct ?? null;
   const latestSkewed = session?.pressureSkewed ?? null;
   const liveDepth = liveState.latestMetric?.depthMm ?? session?.latestDepthMm ?? null;
   const liveRate = liveState.latestMetric?.rateCpm ?? session?.latestRateCpm ?? null;
@@ -1354,7 +1354,7 @@ export default function TraineeDashboard({
                       rateSeries={rateSeries}
                       pauseSeries={pauseSeries}
                       recoilSeries={recoilSeries}
-                      pressureValue={session?.pressureBalancePct ?? null}
+                      pressureValue={session?.pressureBalanceScorePct ?? null}
                       validCompressions={liveState.latestMetric?.validCompressionCount ?? null}
                       totalCompressions={liveState.latestMetric?.compressionCount ?? null}
                     />

@@ -283,6 +283,89 @@ class CalibrationPersistenceTest {
         assertThat(streamService.lastReadiness.readyForSession()).isTrue();
     }
 
+    @Test
+    void calibrationStartNackFinalizesMatchingEvidenceAsFailed() {
+        repository.saveEvidence(new CalibrationEvidence(
+                null,
+                "DEV-NACK",
+                "req-rejected",
+                Instant.now(),
+                null,
+                "RUNNING",
+                "STARTING",
+                false,
+                null,
+                null,
+                null,
+                "PAIRED_IDLE",
+                "adult-basic",
+                620,
+                1_405_000,
+                1_500_000,
+                1_500_000,
+                20,
+                3000,
+                "admin",
+                Instant.now(),
+                Instant.now()
+        ));
+
+        MqttSubscriberService sub = buildSubscriberWithRepo(repository);
+        ObjectNode payload = new ObjectMapper().createObjectNode();
+        payload.put("event_id", 4000);
+        payload.put("reply_id", "req-rejected");
+        payload.put("status", "NACK");
+        payload.put("state", "PAIRED_IDLE");
+        payload.put("reason", "SENSOR_MODE_REQUIRED");
+        payload.put("ts_ms", 3000L);
+
+        sub.handleMessage(
+                "resq/manikins/DEV-NACK/events/calibration",
+                new org.eclipse.paho.client.mqttv3.MqttMessage(payload.toString().getBytes())
+        );
+
+        CalibrationEvidence evidence = repository.findEvidenceByRequestId("DEV-NACK", "req-rejected")
+                .orElseThrow();
+        assertThat(evidence.finalResult()).isEqualTo("FAIL");
+        assertThat(evidence.completedAt()).isNotNull();
+        assertThat(evidence.calibrationState()).isEqualTo("FAILED");
+        assertThat(evidence.readyForSessionAtCompletion()).isFalse();
+        assertThat(evidence.lastReasonId()).isEqualTo("SENSOR_MODE_REQUIRED");
+        assertThat(evidence.firmwareState()).isEqualTo("PAIRED_IDLE");
+
+        assertThat(repository.findLatestRunningEvidence("DEV-NACK")).isEmpty();
+        assertThat(readinessService.getReadiness("DEV-NACK").calibrationState())
+                .isEqualTo(CalibrationState.FAILED);
+    }
+
+    @Test
+    void initializeReconcilesPreviouslyPersistedCalibrationStartNack() {
+        Instant nackReceivedAt = Instant.parse("2026-07-28T16:49:40Z");
+        repository.saveEvidence(new CalibrationEvidence(
+                null, "DEV-OLD-NACK", "req-old-rejected", Instant.now(), null,
+                "RUNNING", "STARTING", false, null, null, null, "PAIRED_IDLE",
+                "adult-basic", 620, 1_405_000, 1_500_000, 1_500_000, 20, 3000,
+                "admin", Instant.now(), Instant.now()
+        ));
+        repository.saveEventLog(new CalibrationEventLog(
+                null, "DEV-OLD-NACK", "req-old-rejected", 4000, null, null,
+                "NACK", "SENSOR_MODE_REQUIRED", null, "PAIRED_IDLE", 3000L,
+                nackReceivedAt, "{\"event_id\":4000,\"status\":\"NACK\"}"
+        ));
+
+        repository.initialize();
+
+        CalibrationEvidence evidence = repository
+                .findEvidenceByRequestId("DEV-OLD-NACK", "req-old-rejected")
+                .orElseThrow();
+        assertThat(evidence.finalResult()).isEqualTo("FAIL");
+        assertThat(evidence.completedAt()).isEqualTo(nackReceivedAt);
+        assertThat(evidence.calibrationState()).isEqualTo("FAILED");
+        assertThat(evidence.readyForSessionAtCompletion()).isFalse();
+        assertThat(evidence.lastReasonId()).isEqualTo("SENSOR_MODE_REQUIRED");
+        assertThat(repository.findLatestRunningEvidence("DEV-OLD-NACK")).isEmpty();
+    }
+
     /**
      * Refinement #7: evidence save failure after successful MQTT publish still returns PUBLISHED.
      */
@@ -336,7 +419,15 @@ class CalibrationPersistenceTest {
                 new PermissiveSensorStreamService()
         );
 
-        CalibrationStartRequest request = new CalibrationStartRequest(13500, 20100, 15000, 15000, "adult", 20, 3000);
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                CalibrationConstraints.DEFAULT_HALL_DELTA,
+                CalibrationConstraints.DEFAULT_REF_PRESSURE,
+                CalibrationConstraints.DEFAULT_BLADDER_1_PRESSURE,
+                CalibrationConstraints.DEFAULT_BLADDER_2_PRESSURE,
+                "adult",
+                20,
+                3000
+        );
         CalibrationCommandResponse response = service.startCalibration("DEV-101", request, "instructor1");
 
         // MQTT publish succeeded → response MUST be PUBLISHED despite DB save failure

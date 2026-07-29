@@ -195,7 +195,7 @@ export function createSseLiveClient(options: SseLiveClientOptions, callbacks: Ss
             console.debug("[LocalHub] session-live event", {
               sessionId: update.sessionId,
               compressionCount: update.latestMetric.compressionCount,
-              pressureBalancePct: update.latestMetric.pressureBalancePct,
+              pressureBalanceScorePct: update.latestMetric.pressureBalanceScorePct,
             });
           }
           callbacks.onUpdate(update);

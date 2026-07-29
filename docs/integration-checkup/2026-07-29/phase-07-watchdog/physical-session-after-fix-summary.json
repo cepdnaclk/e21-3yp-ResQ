@@ -1,0 +1,33 @@
+{
+  "completed": true,
+  "sessions": [
+    {
+      "session_id": "phase7-wdt-long-20260729",
+      "requested_duration_s": 610,
+      "start_epoch_s": 1785299348.4135406,
+      "stop_epoch_s": 1785299958.4664302,
+      "actual_duration_s": 610.052889585495
+    },
+    {
+      "session_id": "phase7-wdt-cycle-1-20260729",
+      "requested_duration_s": 65,
+      "start_epoch_s": 1785299963.5124393,
+      "stop_epoch_s": 1785300028.613454,
+      "actual_duration_s": 65.1010148525238
+    },
+    {
+      "session_id": "phase7-wdt-cycle-2-20260729",
+      "requested_duration_s": 65,
+      "start_epoch_s": 1785300033.6536672,
+      "stop_epoch_s": 1785300098.7732582,
+      "actual_duration_s": 65.11959099769592
+    },
+    {
+      "session_id": "phase7-wdt-cycle-3-20260729",
+      "requested_duration_s": 65,
+      "start_epoch_s": 1785300103.7891352,
+      "stop_epoch_s": 1785300168.9071434,
+      "actual_duration_s": 65.11800813674927
+    }
+  ]
+}

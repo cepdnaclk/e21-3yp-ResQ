@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -347,11 +346,7 @@ public class LocalAuthRepository {
     }
 
     private Connection openConnection() throws SQLException {
-        Connection connection = DriverManager.getConnection(jdbcUrl);
-        try (Statement statement = connection.createStatement()) {
-            statement.executeUpdate("PRAGMA foreign_keys = ON");
-        }
-        return connection;
+        return SqliteConnectionSupport.open(jdbcUrl);
     }
 
     private static void ensureColumn(Connection connection, String tableName, String columnName, String definition) throws SQLException {

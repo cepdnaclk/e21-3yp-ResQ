@@ -41,7 +41,6 @@ TEST_CASE("Request ID parser rejects malformed missing and oversized IDs", "[mqt
 
 TEST_CASE("Idle debug payload contains raw and converted direct snapshot fields", "[debug]")
 {
-    network_config_t network = {0};
     sensor_raw_sample_t raw = {
         .pressure_raw = {1100, 1200, 8300000},
         .pressure_read_valid = {true, true, true},
@@ -62,8 +61,12 @@ TEST_CASE("Idle debug payload contains raw and converted direct snapshot fields"
     };
     char payload[960];
 
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      runtime_helpers_build_direct_debug_payload(
+                          "", &raw, &converted, true, true, true, payload,
+                          sizeof(payload)));
     TEST_ASSERT_EQUAL(ESP_OK, runtime_helpers_build_direct_debug_payload(
-                                  &network,
+                                  "debug-req-1",
                                   &raw,
                                   &converted,
                                   true,
@@ -73,6 +76,8 @@ TEST_CASE("Idle debug payload contains raw and converted direct snapshot fields"
                                   sizeof(payload)));
 
     assert_payload_contains(payload, "\"source\":\"DIRECT_SENSOR_SNAPSHOT\"");
+    assert_payload_contains(payload, "\"reply_id\":\"debug-req-1\"");
+    TEST_ASSERT_NULL(strstr(payload, "\"device_id\""));
     assert_payload_contains(payload, "\"pressure_0_raw\":1100");
     assert_payload_contains(payload, "\"pressure_1_raw\":1200");
     assert_payload_contains(payload, "\"pressure_2_raw\":8300000");
@@ -91,9 +96,21 @@ TEST_CASE("Idle debug payload contains raw and converted direct snapshot fields"
     assert_payload_contains(payload, "\"ts_ms\":777");
 }
 
-TEST_CASE("Idle debug payload emits finite zero for invalid converted values", "[debug]")
+TEST_CASE("Debug command without request id is rejected before sensor access",
+          "[debug][mqtt]")
 {
     network_config_t network = {0};
+    resq_mqtt_command_t command = {0};
+    strcpy(command.payload, "{}");
+    command.payload_len = 2;
+
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND,
+                      runtime_helpers_publish_debug_snapshot(
+                          &network, &command));
+}
+
+TEST_CASE("Idle debug payload emits finite zero for invalid converted values", "[debug]")
+{
     sensor_raw_sample_t raw = {
         .pressure_raw = {1100, 1200, 1300},
         .pressure_read_valid = {true, true, true},
@@ -111,7 +128,7 @@ TEST_CASE("Idle debug payload emits finite zero for invalid converted values", "
     char payload[960];
 
     TEST_ASSERT_EQUAL(ESP_OK, runtime_helpers_build_direct_debug_payload(
-                                  &network,
+                                  "debug-req-2",
                                   &raw,
                                   &converted,
                                   true,

@@ -233,7 +233,7 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
     char request_id[128] = {0};
     esp_err_t id_err = resq_command_extract_request_id(cmd->payload, request_id, sizeof(request_id));
     if (id_err != ESP_OK) {
-        request_id[0] = '\0';
+        return id_err;
     }
 
     /* Determine routing and event_id based on command suffix */
@@ -290,10 +290,8 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
         return identity_err;
     }
 
-    if (request_id[0] != '\0') {
-        (void)mqtt_manager_cache_command_response(cmd->topic, request_id,
-                                                  topic_suffix, payload);
-    }
+    (void)mqtt_manager_cache_command_response(cmd->topic, request_id,
+                                              topic_suffix, payload);
 
     if (!mqtt_manager_is_connected()) {
         cJSON_free(payload);
@@ -305,18 +303,17 @@ esp_err_t runtime_helpers_publish_command_result_from_command(const network_conf
     return publish_err;
 }
 
-esp_err_t runtime_helpers_publish_command_result(const network_config_t *network_config,
-                                                 resq_state_t state,
-                                                 const char *command,
-                                                 const char *status,
-                                                 const char *reason)
+esp_err_t runtime_helpers_publish_local_action_event(
+    const network_config_t *network_config, resq_state_t state,
+    const char *action, const char *status, const char *reason)
 {
     if (network_config == NULL) return ESP_ERR_INVALID_ARG;
     cJSON *root = cJSON_CreateObject();
     if (root == NULL) return ESP_ERR_NO_MEM;
     cJSON_AddStringToObject(root, "device_id",
                            runtime_helpers_get_device_id(network_config));
-    cJSON_AddStringToObject(root, "command", command != NULL ? command : "");
+    cJSON_AddStringToObject(root, "source", "LOCAL_BUTTON");
+    cJSON_AddStringToObject(root, "action", action != NULL ? action : "");
     cJSON_AddStringToObject(root, "status", status != NULL ? status : "");
     cJSON_AddStringToObject(root, "reason", reason != NULL ? reason : "");
     cJSON_AddStringToObject(root, "state", resq_state_to_string(state));
@@ -337,7 +334,7 @@ esp_err_t runtime_helpers_publish_command_result(const network_config_t *network
 
 
 
-esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *network_config,
+esp_err_t runtime_helpers_build_direct_debug_payload(const char *reply_id,
                                                      const sensor_raw_sample_t *raw,
                                                      const sensor_converted_sample_t *converted,
                                                      bool converted_ok,
@@ -346,7 +343,7 @@ esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *net
                                                      char *out_payload,
                                                      size_t out_payload_len)
 {
-    if (network_config == NULL || raw == NULL || converted == NULL ||
+    if (runtime_helpers_is_blank(reply_id) || raw == NULL || converted == NULL ||
         out_payload == NULL || out_payload_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -370,7 +367,7 @@ esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *net
     int written = snprintf(out_payload,
                            out_payload_len,
                            "{"
-                           "\"device_id\":\"%s\","
+                           "\"reply_id\":\"%s\","
                            "\"source\":\"DIRECT_SENSOR_SNAPSHOT\","
                            "\"pressure_0_raw\":%ld,"
                            "\"pressure_1_raw\":%ld,"
@@ -389,7 +386,7 @@ esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *net
                            "\"pressure_saturation_mask\":%u,"
                            "\"ts_ms\":%lld"
                            "}",
-                           runtime_helpers_get_device_id(network_config),
+                           reply_id,
                            (long)raw->pressure_raw[0],
                            (long)raw->pressure_raw[1],
                            (long)raw->pressure_raw[2],
@@ -414,22 +411,26 @@ esp_err_t runtime_helpers_build_direct_debug_payload(const network_config_t *net
     return ESP_OK;
 }
 
-esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network_config)
+esp_err_t runtime_helpers_publish_debug_snapshot(
+    const network_config_t *network_config,
+    const resq_mqtt_command_t *command)
 {
-    if (network_config == NULL) {
+    if (network_config == NULL || command == NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+    char reply_id[RESQ_COMMAND_REPLY_ID_MAX_LEN] = {0};
+    esp_err_t request_err = resq_command_extract_request_id(
+        command->payload, reply_id, sizeof(reply_id));
+    if (request_err != ESP_OK) {
+        return request_err;
     }
     if (!io_mode_manager_is_sensor()) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    sensor_owner_t owner;
-    esp_err_t owner_err = sensor_owner_get(&owner);
+    esp_err_t owner_err = sensor_owner_acquire(SENSOR_OWNER_DIAGNOSTIC);
     if (owner_err != ESP_OK) {
         return owner_err;
-    }
-    if (owner != SENSOR_OWNER_NONE) {
-        return ESP_ERR_INVALID_STATE;
     }
 
     int32_t pressure_0_raw = HX710_ERROR_TIMEOUT;
@@ -448,6 +449,7 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
         &pressure_valid_mask);
 
     if (perr != ESP_OK) {
+        sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
         return ESP_FAIL;
     }
 
@@ -456,11 +458,13 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
 
     esp_err_t hall_err = hall_sensor_init(&local_hall, BOARD_HALL_ADC_CHAN);
     if (hall_err != ESP_OK) {
+        sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
         return hall_err;
     }
 
     hall_err = hall_sensor_read_raw(&local_hall, &hall_raw);
     if (hall_err != ESP_OK) {
+        sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
         return hall_err;
     }
 
@@ -492,10 +496,11 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
                         sensor_conversion_convert(&raw, &profile, &converted) == ESP_OK;
     char *payload = malloc(960);
     if (payload == NULL) {
+        sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
         return ESP_ERR_NO_MEM;
     }
     esp_err_t payload_err = runtime_helpers_build_direct_debug_payload(
-        network_config,
+        reply_id,
         &raw,
         &converted,
         converted_ok,
@@ -506,10 +511,12 @@ esp_err_t runtime_helpers_publish_debug_snapshot(const network_config_t *network
         960);
     if (payload_err != ESP_OK) {
         free(payload);
+        sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
         return payload_err;
     }
 
     esp_err_t publish_err = mqtt_manager_publish_debug_json(payload);
     free(payload);
+    sensor_owner_release(SENSOR_OWNER_DIAGNOSTIC);
     return publish_err;
 }

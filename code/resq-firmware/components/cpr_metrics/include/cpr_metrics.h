@@ -13,6 +13,10 @@ extern "C" {
 
 #define CPR_FLAGS_MAX_LEN 160
 #define CPR_HAND_PLACEMENT_MAX_LEN 24
+#define CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT 88.0f
+#ifndef CPR_PAUSE_CONDITION_THRESHOLD_S
+#define CPR_PAUSE_CONDITION_THRESHOLD_S 1.0f
+#endif
 
 #define CPR_SAMPLE_PRESSURE_0_READ_FAILED    (1u << 0)
 #define CPR_SAMPLE_PRESSURE_1_READ_FAILED    (1u << 1)
@@ -31,11 +35,13 @@ extern "C" {
 #define CPR_SENSOR_QUALITY_PRESSURE_OUT_OF_RANGE  (1u << 6)
 #define CPR_SENSOR_QUALITY_PRESSURE_BELOW_CONTACT (1u << 7)
 #define CPR_SENSOR_QUALITY_PRESSURE_STALE         (1u << 8)
+#define CPR_SENSOR_QUALITY_PRESSURE_CROSSOVER     (1u << 9)
 
 typedef enum {
     CPR_PRESSURE_LOCK_NONE = 0,
     CPR_PRESSURE_LOCK_UPPER_LIMIT,
     CPR_PRESSURE_LOCK_SATURATION,
+    CPR_PRESSURE_LOCK_CALIBRATED_CROSSOVER,
 } cpr_pressure_lock_reason_t;
 
 typedef struct {
@@ -60,9 +66,15 @@ typedef struct {
     float rate_cpm;
     float pause_s;
     int total_compressions;
+    int completed_compressions;
+    int depth_ok_compressions;
     int valid_compressions;
     int recoil_ok_count;
     int incomplete_recoil_count;
+    /* Peak excursion of the most recently completed compression. */
+    float last_compression_peak_depth_mm;
+    /* Arithmetic mean of one peak excursion from each completed compression. */
+    float average_completed_compression_peak_depth_mm;
     bool current_depth_in_range;
     bool last_compression_depth_ok;
     bool last_compression_recoil_ok;
@@ -187,6 +199,12 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample);
 
 esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot);
 
+/**
+ * Clamp and reconcile a CPR metric snapshot, then derive its compatible
+ * comma-separated flags from the authoritative metric booleans/conditions.
+ */
+esp_err_t cpr_metrics_normalize_snapshot(cpr_metrics_snapshot_t *snapshot);
+
 const char *cpr_pressure_lock_reason_to_string(
     cpr_pressure_lock_reason_t reason);
 
@@ -211,6 +229,16 @@ int32_t pressure_sensor_compute_balance_pct(int32_t pressure_1_delta,
                                             int32_t pressure_2_delta,
                                             int32_t pressure_1_range_raw,
                                             int32_t pressure_2_range_raw);
+
+/**
+ * True only when bladder saturation occurs in the explicitly calibrated
+ * deep-compression Hall region. Saturation before this boundary remains a
+ * sensor fault.
+ */
+bool cpr_pressure_saturation_is_calibrated_crossover(
+    const calibration_config_t *calibration,
+    int32_t hall_delta,
+    uint8_t saturation_mask);
 
 esp_err_t sensor_readiness_evaluate(const cpr_pressure_window_result_t *pressure,
                                     const cpr_hall_window_result_t *hall,

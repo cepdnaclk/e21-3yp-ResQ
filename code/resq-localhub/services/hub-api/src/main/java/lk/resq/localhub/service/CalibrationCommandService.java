@@ -192,8 +192,19 @@ public class CalibrationCommandService {
             throw new IllegalArgumentException("Requested calibration profile is inactive: " + resolvedProfileId);
         }
 
+        if (!request.hallDelta().equals(profile.hallDelta())
+                || !request.refPressure().equals(profile.refPressure())
+                || !request.bladder1Pressure().equals(profile.bladder1Pressure())
+                || !request.bladder2Pressure().equals(profile.bladder2Pressure())) {
+            throw new IllegalArgumentException(
+                    "Calibration targets must exactly match profile "
+                            + resolvedProfileId
+                            + "; update the profile before starting calibration"
+            );
+        }
+
         int version = profile.version();
-        String hash = fingerprintService.computeHash(resolvedProfileId, version, request.hallDelta(), request.refPressure(), request.bladder1Pressure(), request.bladder2Pressure());
+        String hash = profile.profileHash();
 
         CalibrationStartRequest enrichedRequest = new CalibrationStartRequest(
                 request.hallDelta(),

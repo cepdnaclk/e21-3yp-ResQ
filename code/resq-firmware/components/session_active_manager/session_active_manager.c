@@ -154,6 +154,52 @@ bool session_pressure_snapshot_is_fresh(
   return now_ms - snapshot->timestamp_ms <= max_age_ms;
 }
 
+TickType_t session_pressure_sample_interval_ticks(void) {
+  TickType_t ticks =
+      pdMS_TO_TICKS(SESSION_PRESSURE_SAMPLE_INTERVAL_MS);
+  return ticks > 0 ? ticks : 1;
+}
+
+TickType_t session_pressure_cycle_block_ticks(
+    session_pressure_cycle_path_t path, TickType_t now,
+    TickType_t *next_wake) {
+  if (next_wake == NULL ||
+      path < SESSION_PRESSURE_CYCLE_SUCCESS ||
+      path > SESSION_PRESSURE_CYCLE_OWNER_CONTENTION) {
+    return 0;
+  }
+
+  const TickType_t interval = session_pressure_sample_interval_ticks();
+  TickType_t scheduled = *next_wake + interval;
+
+  /*
+   * A signed tick delta is wrap-safe while deadlines remain within half the
+   * TickType_t range. If the acquisition reached or passed its deadline,
+   * discard missed periods and schedule from now. This guarantees a non-zero
+   * block instead of an unlimited vTaskDelayUntil() catch-up loop.
+   */
+  if ((int32_t)(scheduled - now) <= 0) {
+    scheduled = now + interval;
+  }
+
+  *next_wake = scheduled;
+  return scheduled - now;
+}
+
+uint32_t session_pressure_wait_for_next_cycle(TickType_t block_ticks) {
+  configASSERT(block_ticks > 0);
+  return ulTaskNotifyTake(pdTRUE, block_ticks);
+}
+
+bool session_pressure_cycle_should_sample(bool stop_requested) {
+  return !stop_requested;
+}
+
+bool session_pressure_tasks_can_start(bool hall_task_present,
+                                      bool pressure_task_present) {
+  return !hall_task_present && !pressure_task_present;
+}
+
 static void session_task_finish(TaskHandle_t *task_slot,
                                 EventBits_t stopped_bit,
                                 EventBits_t failed_bit,
@@ -271,6 +317,20 @@ static uint8_t session_pressure_saturation_mask(
   return mask;
 }
 
+static session_pressure_cycle_path_t session_pressure_cycle_path(
+    esp_err_t read_err, uint8_t valid_mask) {
+  if (read_err == ESP_OK && valid_mask == HX710_VALID_CHANNEL_ALL) {
+    return SESSION_PRESSURE_CYCLE_SUCCESS;
+  }
+  if (read_err == ESP_ERR_TIMEOUT) {
+    return SESSION_PRESSURE_CYCLE_TIMEOUT;
+  }
+  if (read_err == ESP_ERR_INVALID_STATE) {
+    return SESSION_PRESSURE_CYCLE_OWNER_CONTENTION;
+  }
+  return SESSION_PRESSURE_CYCLE_INVALID_RESPONSE;
+}
+
 static void session_pressure_task(void *arg) {
   (void)arg;
   uint32_t diagnostics_counter = 0;
@@ -291,11 +351,13 @@ static void session_pressure_task(void *arg) {
   bool degraded = false;
   bool had_invalid = false;
   bool available = false;
+  TickType_t next_wake = xTaskGetTickCount();
   xEventGroupSetBits(s_sensor_task_events,
                      PRESSURE_TASK_STARTED_BIT | PRESSURE_TASK_ACTIVE_BIT);
 
-  while ((xEventGroupGetBits(s_sensor_task_events) &
-          SESSION_TASK_STOP_REQUESTED_BIT) == 0) {
+  while (session_pressure_cycle_should_sample(
+      (xEventGroupGetBits(s_sensor_task_events) &
+       SESSION_TASK_STOP_REQUESTED_BIT) != 0)) {
     hx710_group_result_t group = {0};
     esp_err_t read_err = hx710_read_group_shared_sck(
         BOARD_HX710_SHARED_SCK, BOARD_HX710_0_DOUT, BOARD_HX710_1_DOUT,
@@ -365,6 +427,11 @@ static void session_pressure_task(void *arg) {
     if ((diagnostics_counter++ % 300u) == 0u) {
       task_diagnostics_record_stack_watermark("session_pressure");
     }
+
+    TickType_t block_ticks = session_pressure_cycle_block_ticks(
+        session_pressure_cycle_path(read_err, group.valid_mask),
+        xTaskGetTickCount(), &next_wake);
+    (void)session_pressure_wait_for_next_cycle(block_ticks);
   }
 
   task_diagnostics_record_stack_watermark("session_pressure");
@@ -383,7 +450,8 @@ static esp_err_t session_sensor_task_start(void) {
     return ESP_ERR_TIMEOUT;
   }
 
-  if (s_hall_task != NULL || s_pressure_task != NULL) {
+  if (!session_pressure_tasks_can_start(s_hall_task != NULL,
+                                        s_pressure_task != NULL)) {
     EventBits_t state = xEventGroupGetBits(s_sensor_task_events);
     esp_err_t result =
         (state & SESSION_TASK_STOP_REQUESTED_BIT) == 0
@@ -554,8 +622,18 @@ esp_err_t session_active_manager_stop_sensor_acquisition(void) {
   return stop_runtime_components(NULL);
 }
 
-static esp_err_t
-publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
+static esp_err_t publish_debug_snapshot_from_metrics(
+    const resq_mqtt_command_t *command) {
+  if (command == NULL) {
+    return ESP_ERR_INVALID_ARG;
+  }
+  char reply_id[RESQ_COMMAND_REPLY_ID_MAX_LEN] = {0};
+  esp_err_t request_err = resq_command_extract_request_id(
+      command->payload, reply_id, sizeof(reply_id));
+  if (request_err != ESP_OK) {
+    return request_err;
+  }
+
   cpr_metrics_snapshot_t snap = {0};
   esp_err_t err = cpr_metrics_get_snapshot(&snap);
   if (err != ESP_OK) {
@@ -569,7 +647,7 @@ publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
   int written = snprintf(
       payload, 2048,
       "{"
-      "\"device_id\":\"%s\","
+      "\"reply_id\":\"%s\","
       "\"source\":\"SESSION_METRICS\","
       "\"depth_progress\":%.3f,"
       "\"depth_mm\":%.3f,"
@@ -611,7 +689,7 @@ publish_debug_snapshot_from_metrics(const network_config_t *network_config) {
       "\"flags\":\"%s\","
       "\"ts_ms\":%lld"
       "}",
-      runtime_helpers_get_device_id(network_config), snap.depth_progress,
+      reply_id, snap.depth_progress,
       snap.depth_mm, snap.depth_ok ? "true" : "false", snap.rate_cpm,
       snap.hand_placement, snap.pressure_balance_pct,
       snap.pressure_balance_reliable ? "true" : "false",
@@ -1237,7 +1315,7 @@ static resq_state_t session_active_manager_run_internal(
     }
 
     if (strcmp(command_suffix, "cmd/debug") == 0) {
-      esp_err_t debug_err = publish_debug_snapshot_from_metrics(network_config);
+      esp_err_t debug_err = publish_debug_snapshot_from_metrics(&command);
       if (debug_err != ESP_OK) {
         runtime_helpers_publish_command_result_from_command(
             network_config, RESQ_STATE_SESSION_ACTIVE, &command, "cmd/debug",

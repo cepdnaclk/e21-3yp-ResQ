@@ -68,20 +68,6 @@ typedef struct {
     uint32_t interval_ms;
 } sensor_stream_command_t;
 
-static const char *calibration_pressure_mode_to_string(calibration_pressure_mode_t mode)
-{
-    switch (mode) {
-        case CALIBRATION_PRESSURE_REQUIRED:
-            return "REQUIRED";
-        case CALIBRATION_PRESSURE_OPTIONAL:
-            return "OPTIONAL";
-        case CALIBRATION_HALL_ONLY:
-            return "HALL_ONLY";
-        default:
-            return "OPTIONAL";
-    }
-}
-
 static bool sensor_stream_interval_valid(uint32_t interval_ms)
 {
     return interval_ms >= SENSOR_STREAM_MIN_INTERVAL_MS &&
@@ -323,7 +309,6 @@ static esp_err_t sensor_stream_publish_sample(const cpr_sensor_sample_t *sample,
     }
 
     esp_err_t build_err = telemetry_publisher_build_sensor_stream_payload(
-        runtime_helpers_get_device_id(NULL),
         state,
         &raw,
         &converted,
@@ -561,8 +546,7 @@ esp_err_t telemetry_publisher_validate_sensor_stream_command(const char *payload
     return ESP_OK;
 }
 
-esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
-                                                          resq_state_t state,
+esp_err_t telemetry_publisher_build_sensor_stream_payload(resq_state_t state,
                                                           const sensor_raw_sample_t *raw,
                                                           const sensor_converted_sample_t *converted,
                                                           uint32_t interval_ms,
@@ -595,7 +579,6 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
     int written = snprintf(out_payload,
                            out_payload_len,
                            "{"
-                           "\"device_id\":\"%s\","
                            "\"telemetry_mode\":\"SENSOR_STREAM\","
                            "\"state\":\"%s\","
                            "\"pressure_0_raw\":%ld,"
@@ -616,17 +599,10 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
                            "\"hall_mm\":%.3f,"
                            "\"hall_progress\":%.3f,"
                            "\"hall_mm_valid\":%s,"
-                           "\"pressure_profile_valid\":%s,"
-                           "\"hall_profile_valid\":%s,"
                            "\"pressure_saturation_mask\":%u,"
-                           "\"pressure_stable_mask\":%u,"
-                           "\"pressure_decision_usable_mask\":%u,"
-                           "\"pressure_last_stable_available\":%s,"
-                           "\"pressure_using_last_stable\":%s,"
                            "\"interval_ms\":%" PRIu32 ","
                            "\"ts_ms\":%lld"
                            "}",
-                           device_id ? device_id : "",
                            resq_state_to_string(state),
                            (long)raw->pressure_raw[0],
                            raw->pressure_read_valid[0] ? "true" : "false",
@@ -646,15 +622,7 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
                            hall_mm,
                            hall_progress,
                            hall_valid ? "true" : "false",
-                           converted->pressure_profile_valid ? "true" : "false",
-                           converted->hall_profile_valid ? "true" : "false",
                            (unsigned int)converted->pressure_saturation_mask,
-                           (unsigned int)raw->pressure_stable_mask,
-                           (unsigned int)raw->pressure_decision_usable_mask,
-                           raw->pressure_last_stable_available ? "true"
-                                                              : "false",
-                           raw->pressure_using_last_stable ? "true"
-                                                          : "false",
                            interval_ms,
                            (long long)converted->timestamp_ms);
 
@@ -666,137 +634,71 @@ esp_err_t telemetry_publisher_build_sensor_stream_payload(const char *device_id,
 }
 
 esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t *snap,
-                                                     const char *device_id,
                                                      const char *session_id,
                                                      char *out_payload,
                                                      size_t out_payload_len)
 {
-    if (snap == NULL || out_payload == NULL || out_payload_len == 0) {
+    if (snap == NULL || session_id == NULL || session_id[0] == '\0' ||
+        out_payload == NULL || out_payload_len == 0) {
         return ESP_ERR_INVALID_ARG;
+    }
+
+    cpr_metrics_snapshot_t normalized = *snap;
+    esp_err_t normalize_err = cpr_metrics_normalize_snapshot(&normalized);
+    if (normalize_err != ESP_OK) {
+        return normalize_err;
     }
 
     int written = snprintf(out_payload, out_payload_len,
         "{"
-        "\"event_type\":\"session_telemetry\","
-        "\"device_id\":\"%s\","
         "\"session_id\":\"%s\","
         "\"state\":\"SESSION_ACTIVE\","
         "\"depth_progress\":%.3f,"
         "\"depth_mm\":%.3f,"
-        "\"depth_source\":\"HALL\","
         "\"depth_ok\":%s,"
-        "\"current_depth_in_range\":%s,"
-        "\"last_compression_depth_ok\":%s,"
-        "\"last_compression_recoil_ok\":%s,"
-        "\"last_compression_incomplete_recoil\":%s,"
         "\"rate_cpm\":%.1f,"
         "\"compression_count\":%d,"
+        "\"completed_compression_count\":%d,"
+        "\"depth_ok_compression_count\":%d,"
         "\"valid_compression_count\":%d,"
+        "\"last_compression_peak_depth_mm\":%.3f,"
+        "\"average_completed_compression_peak_depth_mm\":%.3f,"
+        /* Backward-compatible aliases for pre-correction LocalHub builds. */
+        "\"last_compression_depth_mm\":%.3f,"
+        "\"average_compression_depth_mm\":%.3f,"
+        "\"recoil_ok\":%s,"
         "\"recoil_ok_count\":%d,"
         "\"incomplete_recoil_count\":%d,"
         "\"pause_s\":%.3f,"
         "\"hand_placement\":\"%s\","
+        "\"pressure_balance_score_pct\":%.2f,"
+        /* Deprecated compatibility alias; remove only after LocalHub Phase 6. */
         "\"pressure_balance_pct\":%.2f,"
-        "\"pressure_balance_reliable\":%s,"
-        "\"pressure_mode\":\"%s\","
-        "\"pressure_valid\":%s,"
-        "\"pressure_degraded\":%s,"
-        "\"using_last_stable_pressure\":%s,"
-        "\"hall_valid\":%s,"
-        "\"pressure_0_kpa\":%.3f,"
-        "\"pressure_0_kpa_valid\":%s,"
-        "\"pressure_1_kpa\":%.3f,"
-        "\"pressure_1_kpa_valid\":%s,"
-        "\"pressure_2_kpa\":%.3f,"
-        "\"pressure_2_kpa_valid\":%s,"
-        "\"pressure_kpa_valid\":%s,"
-        "\"hall_mm_valid\":%s,"
-        "\"pressure_acquisition_active\":%s,"
-        "\"pressure_frame_fresh\":%s,"
-        "\"pressure_temporarily_degraded\":%s,"
-        "\"pressure_current_valid_mask\":%u,"
-        "\"pressure_invalid_mask\":%u,"
-        "\"pressure_saturation_mask\":%u,"
-        "\"pressure_upper_limit_mask\":%u,"
-        "\"pressure_below_contact_mask\":%u,"
-        "\"pressure_out_of_range_mask\":%u,"
-        "\"pressure_stable_mask\":%u,"
-        "\"pressure_decision_usable_mask\":%u,"
-        "\"pressure_last_stable_available\":%s,"
-        "\"pressure_last_accepted_available\":%s,"
-        "\"pressure_last_accepted_age_ms\":%lld,"
-        "\"pressure_using_last_stable\":%s,"
-        "\"pressure_evidence_sufficient\":%s,"
-        "\"hand_placement_locked\":%s,"
-        "\"pressure_hand_placement_locked\":%s,"
-        "\"pressure_lock_reason\":\"%s\","
-        "\"pressure_became_unusable\":%s,"
-        "\"accepted_pressure_samples\":%u,"
-        "\"pressure_accepted_frame_count\":%u,"
-        "\"sensor_quality_flags\":%u,"
-        "\"missed_pressure_samples\":%d,"
-        "\"missed_hall_samples\":%d,"
         "\"flags\":\"%s\","
         "\"ts_ms\":%lld"
         "}",
-        device_id ? device_id : "",
         session_id ? session_id : "",
-        snap->depth_progress,
-        snap->hall_mm_valid ? snap->depth_mm : 0.0f,
-        snap->depth_ok ? "true" : "false",
-        snap->current_depth_in_range ? "true" : "false",
-        snap->last_compression_depth_ok ? "true" : "false",
-        snap->last_compression_recoil_ok ? "true" : "false",
-        snap->last_compression_incomplete_recoil ? "true" : "false",
-        snap->rate_cpm,
-        snap->total_compressions,
-        snap->valid_compressions,
-        snap->recoil_ok_count,
-        snap->incomplete_recoil_count,
-        snap->pause_s,
-        snap->hand_placement,
-        snap->pressure_balance_pct,
-        snap->pressure_balance_reliable ? "true" : "false",
-        calibration_pressure_mode_to_string(snap->pressure_mode),
-        snap->pressure_valid ? "true" : "false",
-        snap->pressure_degraded ? "true" : "false",
-        snap->using_last_stable_pressure ? "true" : "false",
-        snap->hall_valid ? "true" : "false",
-        snap->pressure_0_kpa_valid ? snap->pressure_0_kpa : 0.0f,
-        snap->pressure_0_kpa_valid ? "true" : "false",
-        snap->pressure_1_kpa_valid ? snap->pressure_1_kpa : 0.0f,
-        snap->pressure_1_kpa_valid ? "true" : "false",
-        snap->pressure_2_kpa_valid ? snap->pressure_2_kpa : 0.0f,
-        snap->pressure_2_kpa_valid ? "true" : "false",
-        snap->pressure_kpa_valid ? "true" : "false",
-        snap->hall_mm_valid ? "true" : "false",
-        snap->pressure_acquisition_active ? "true" : "false",
-        snap->pressure_frame_fresh ? "true" : "false",
-        snap->pressure_temporarily_degraded ? "true" : "false",
-        (unsigned int)snap->pressure_current_valid_mask,
-        (unsigned int)snap->pressure_invalid_mask,
-        (unsigned int)snap->pressure_saturation_mask,
-        (unsigned int)snap->pressure_upper_limit_mask,
-        (unsigned int)snap->pressure_below_contact_mask,
-        (unsigned int)snap->pressure_out_of_range_mask,
-        (unsigned int)snap->pressure_stable_mask,
-        (unsigned int)snap->pressure_decision_usable_mask,
-        snap->pressure_last_stable_available ? "true" : "false",
-        snap->pressure_last_accepted_available ? "true" : "false",
-        (long long)snap->pressure_last_accepted_age_ms,
-        snap->pressure_using_last_stable ? "true" : "false",
-        snap->pressure_evidence_sufficient ? "true" : "false",
-        snap->hand_placement_locked ? "true" : "false",
-        snap->hand_placement_locked ? "true" : "false",
-        cpr_pressure_lock_reason_to_string(snap->pressure_lock_reason),
-        snap->pressure_became_unusable ? "true" : "false",
-        snap->accepted_pressure_samples,
-        snap->accepted_pressure_samples,
-        (unsigned int)snap->sensor_quality_flags,
-        snap->missed_pressure_samples,
-        snap->missed_hall_samples,
-        snap->flags,
-        (long long)snap->ts_ms);
+        normalized.depth_progress,
+        normalized.hall_mm_valid ? normalized.depth_mm : 0.0f,
+        normalized.depth_ok ? "true" : "false",
+        normalized.rate_cpm,
+        normalized.total_compressions,
+        normalized.completed_compressions,
+        normalized.depth_ok_compressions,
+        normalized.valid_compressions,
+        normalized.last_compression_peak_depth_mm,
+        normalized.average_completed_compression_peak_depth_mm,
+        normalized.last_compression_peak_depth_mm,
+        normalized.average_completed_compression_peak_depth_mm,
+        normalized.recoil_ok ? "true" : "false",
+        normalized.recoil_ok_count,
+        normalized.incomplete_recoil_count,
+        normalized.pause_s,
+        normalized.hand_placement,
+        normalized.pressure_balance_pct,
+        normalized.pressure_balance_pct,
+        normalized.flags,
+        (long long)normalized.ts_ms);
 
     if (written <= 0 || written >= (int)out_payload_len) {
         return ESP_ERR_INVALID_SIZE;
@@ -819,7 +721,11 @@ static void telemetry_task(void *arg)
 
     while ((xEventGroupGetBits(s_task_events) &
             TELEMETRY_TASK_STOP_REQUESTED_BIT) == 0) {
-        if (!mqtt_manager_is_connected() || !session_manager_is_active()) {
+        bool session_owns_sensors = false;
+        if (!mqtt_manager_is_connected() || !session_manager_is_active() ||
+            sensor_owner_is(SENSOR_OWNER_SESSION, &session_owns_sensors) !=
+                ESP_OK ||
+            !session_owns_sensors) {
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
             continue;
         }
@@ -830,7 +736,6 @@ static void telemetry_task(void *arg)
             continue;
         }
 
-        const char *device_id = runtime_helpers_get_device_id(NULL);
         char session_id[RESQ_SESSION_ID_MAX_LEN] = {0};
         if (session_manager_get_session_id(session_id, sizeof(session_id)) !=
             ESP_OK) {
@@ -839,7 +744,6 @@ static void telemetry_task(void *arg)
         }
 
         if (telemetry_publisher_build_session_payload(&snap,
-                                                      device_id,
                                                       session_id,
                                                       payload,
                                                       SESSION_TELEMETRY_PAYLOAD_SIZE) == ESP_OK) {

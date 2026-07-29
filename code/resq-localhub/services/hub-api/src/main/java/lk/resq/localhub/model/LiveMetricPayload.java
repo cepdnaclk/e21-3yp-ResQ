@@ -14,13 +14,16 @@ public record LiveMetricPayload(
         Boolean recoilOk,
         Double pauseS,
         Integer compressionCount,
+        Integer completedCompressionCount,
+        Integer depthOkCompressionCount,
         Integer validCompressionCount,
+        Double lastCompressionPeakDepthMm,
+        Double averageCompletedCompressionPeakDepthMm,
         Integer recoilOkCount,
         Integer incompleteRecoilCount,
         String handPlacement,
         Object flags,
-        Double pressureBalancePct,
-        String sourceMode,
-        Object debugRaw
+        Double pressureBalanceScorePct,
+        String sourceMode
 ) {
 }

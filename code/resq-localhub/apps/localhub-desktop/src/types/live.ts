@@ -52,7 +52,7 @@ export type SessionLiveView = {
   /** @diagnostic */
   latestForce2: number | null;
 
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
   pressureSkewed: boolean | null;
   latestMetric: import("@resq/shared").LiveMetricPayload | null;
   seq: number | null;

@@ -23,7 +23,9 @@ describe("telemetryNormalization", () => {
     };
 
     const res = normalizeTelemetry(session as SessionLiveView);
+    expect(res.instantaneousDepthMm).toBe(36);
     expect(res.depthMm).toBe(36);
+    expect(res.usesCompletedCompressionDepth).toBe(false);
     expect(res.depthPercent).toBe(72);
     expect(res.isDerivedDepth).toBe(true);
   });
@@ -111,7 +113,9 @@ describe("telemetryNormalization", () => {
     };
 
     const res = normalizeTelemetry(session as SessionLiveView);
+    expect(res.instantaneousDepthMm).toBe(48);
     expect(res.depthMm).toBe(48);
+    expect(res.usesCompletedCompressionDepth).toBe(false);
     expect(res.rateCpm).toBe(105);
     expect(res.recoilPct).toBe(100);
     expect(res.isDerivedDepth).toBe(false);
@@ -136,6 +140,7 @@ describe("telemetryNormalization", () => {
     };
 
     const res = normalizeTelemetry(session as SessionLiveView);
+    expect(res.instantaneousDepthMm).toBe(40);
     expect(res.depthMm).toBe(40);
     expect(res.depthPercent).toBe(80);
     expect(res.rateCpm).toBe(108);
@@ -144,6 +149,35 @@ describe("telemetryNormalization", () => {
     expect(res.flags).toBe("DEPTH_OK,RATE_OK");
     expect(res.isDerivedDepth).toBe(true);
     expect(res.handPlacement).toBe("LEFT");
-    expect(res.pressureBalancePct).toBe(51);
+    expect(res.pressureBalanceScorePct).toBe(51);
+  });
+
+  it("uses the completed-compression average for the displayed depth", () => {
+    const session: Partial<SessionLiveView> = {
+      sessionId: "s1",
+      deviceId: "d1",
+      latestDepthMm: 12,
+      latestMetric: {
+        deviceId: "d1",
+        sessionId: "s1",
+        depthMm: 12,
+        rateCpm: 110,
+        recoilOk: true,
+        pauseS: 0,
+        compressionCount: 4,
+        completedCompressionCount: 3,
+        lastCompressionPeakDepthMm: 63,
+        averageCompletedCompressionPeakDepthMm: 58,
+        handPlacement: "CENTER",
+        flags: "DEPTH_HIGH",
+      },
+    };
+
+    const res = normalizeTelemetry(session as SessionLiveView);
+    expect(res.instantaneousDepthMm).toBe(12);
+    expect(res.depthMm).toBe(58);
+    expect(res.lastCompressionPeakDepthMm).toBe(63);
+    expect(res.completedCompressionCount).toBe(3);
+    expect(res.usesCompletedCompressionDepth).toBe(true);
   });
 });

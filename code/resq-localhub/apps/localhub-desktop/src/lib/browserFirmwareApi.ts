@@ -149,7 +149,7 @@ export type FirmwareDeviceDiagnosticsResponse = {
     lastEventType: string | null;
     latestForce1: number | null;
     latestForce2: number | null;
-    pressureBalancePct: number | null;
+    pressureBalanceScorePct: number | null;
     pressureSkewed: boolean | null;
     activeSessionId: string | null;
     activeTraineeId: string | null;

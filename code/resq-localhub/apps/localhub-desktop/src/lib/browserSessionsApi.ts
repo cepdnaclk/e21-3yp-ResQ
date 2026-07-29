@@ -141,7 +141,7 @@ export type SessionLiveView = {
   lastEventType: string | null;
   latestForce1: number | null;
   latestForce2: number | null;
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
   pressureSkewed: boolean | null;
   lifecycleState?: SessionLifecycleState | null;
   requestId?: string | null;

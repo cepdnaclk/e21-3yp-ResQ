@@ -1,6 +1,7 @@
 #include "cpr_metrics.h"
 
 #include <limits.h>
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,6 +114,8 @@ static SemaphoreHandle_t s_mutex = NULL;
 /* runtime counters */
 static cpr_state_t s_state = WAITING_FOR_COMPRESSION;
 static int s_total_compressions = 0;
+static int s_completed_compressions = 0;
+static int s_depth_ok_compressions = 0;
 static int s_valid_compressions = 0;
 static int s_recoil_ok_count = 0;
 static int s_incomplete_recoil_count = 0;
@@ -125,6 +128,9 @@ static bool s_current_compression_depth_ok = false;
 static bool s_last_compression_depth_ok = false;
 static bool s_last_compression_recoil_ok = false;
 static bool s_last_compression_incomplete_recoil = false;
+static float s_current_compression_peak_depth_mm = 0.0f;
+static float s_last_compression_peak_depth_mm = 0.0f;
+static double s_completed_compression_peak_sum_mm = 0.0;
 static float s_depth_progress = 0.0f;
 static float s_depth_mm = 0.0f;
 static float s_pressure_0_kpa = 0.0f;
@@ -159,6 +165,7 @@ static uint32_t s_sensor_quality_flags = 0;
 static int s_missed_pressure_samples = 0;
 static int s_missed_hall_samples = 0;
 static int64_t s_release_candidate_since_ms = 0;
+static int32_t s_release_min_delta = INT32_MAX;
 
 typedef struct {
     bool compression_active;
@@ -388,7 +395,13 @@ static void compression_pressure_update_decision(void)
             : p2_delta;
 
     s_pressure_balance_pct = (float)(100 - imbalance_pct);
-    if (imbalance_pct <= s_calib.pressure_balance_allowed_pct) {
+    if (s_pressure_balance_pct < 0.0f) {
+        s_pressure_balance_pct = 0.0f;
+    } else if (s_pressure_balance_pct > 100.0f) {
+        s_pressure_balance_pct = 100.0f;
+    }
+    if (s_pressure_balance_pct >=
+        CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT) {
         strncpy(s_hand_placement, "CENTER", sizeof(s_hand_placement) - 1);
     } else if (p1_normalized > p2_normalized) {
         strncpy(s_hand_placement, CPR_SENSOR_1_SIDE_LABEL,
@@ -411,6 +424,68 @@ static void compression_pressure_update_decision(void)
     s_has_reliable_pressure_balance = true;
 }
 
+static void compression_runtime_begin(int64_t now_ms)
+{
+    int64_t previous_start_ms = s_last_compression_start_ms;
+    s_state = COMPRESSING;
+    s_current_compression_start_ms = now_ms;
+    if (s_last_compression_end_ms > 0 &&
+        now_ms >= s_last_compression_end_ms) {
+        s_last_pause_s =
+            (now_ms - s_last_compression_end_ms) / 1000.0f;
+    }
+    s_current_compression_depth_ok = false;
+    s_current_compression_peak_depth_mm =
+        s_depth_mm > 0.0f ? s_depth_mm : 0.0f;
+    s_release_candidate_since_ms = 0;
+    s_release_min_delta = INT32_MAX;
+
+    if (previous_start_ms > 0) {
+        int64_t interval_ms = now_ms - previous_start_ms;
+        if (interval_ms >= 250 && interval_ms <= 3000) {
+            float instant_rate = 60000.0f / (float)interval_ms;
+            if (s_rate_cpm <= 0.1f) {
+                s_rate_cpm = instant_rate;
+            } else {
+                /*
+                 * Weight the newest completed interval strongly enough for
+                 * coaching to respond within the next compression.
+                 */
+                s_rate_cpm =
+                    (0.35f * s_rate_cpm) + (0.65f * instant_rate);
+            }
+        }
+    }
+
+    s_last_compression_start_ms = now_ms;
+    s_total_compressions++;
+}
+
+static void compression_runtime_complete(bool recoil_ok, int64_t now_ms)
+{
+    s_completed_compressions++;
+    s_last_compression_peak_depth_mm =
+        s_current_compression_peak_depth_mm;
+    s_completed_compression_peak_sum_mm +=
+        s_current_compression_peak_depth_mm;
+    if (s_current_compression_depth_ok) {
+        s_depth_ok_compressions++;
+    }
+
+    s_last_compression_depth_ok = s_current_compression_depth_ok;
+    s_last_compression_recoil_ok = recoil_ok;
+    s_last_compression_incomplete_recoil = !recoil_ok;
+    if (recoil_ok) {
+        s_recoil_ok_count++;
+    } else {
+        s_incomplete_recoil_count++;
+    }
+    s_last_compression_end_ms = now_ms;
+    s_release_candidate_since_ms = 0;
+    s_release_min_delta = INT32_MAX;
+    compression_pressure_end();
+}
+
 esp_err_t cpr_metrics_init(void)
 {
     if (s_mutex == NULL) {
@@ -423,6 +498,8 @@ esp_err_t cpr_metrics_init(void)
     memset(&s_calib, 0, sizeof(s_calib));
     s_state = WAITING_FOR_COMPRESSION;
     s_total_compressions = 0;
+    s_completed_compressions = 0;
+    s_depth_ok_compressions = 0;
     s_valid_compressions = 0;
     s_recoil_ok_count = 0;
     s_incomplete_recoil_count = 0;
@@ -435,6 +512,9 @@ esp_err_t cpr_metrics_init(void)
     s_last_compression_depth_ok = false;
     s_last_compression_recoil_ok = false;
     s_last_compression_incomplete_recoil = false;
+    s_current_compression_peak_depth_mm = 0.0f;
+    s_last_compression_peak_depth_mm = 0.0f;
+    s_completed_compression_peak_sum_mm = 0.0;
     s_depth_progress = 0.0f;
     s_depth_mm = 0.0f;
     s_pressure_0_kpa = 0.0f;
@@ -469,6 +549,7 @@ esp_err_t cpr_metrics_init(void)
     s_missed_pressure_samples = 0;
     s_missed_hall_samples = 0;
     s_release_candidate_since_ms = 0;
+    s_release_min_delta = INT32_MAX;
     memset(&s_compression_pressure, 0, sizeof(s_compression_pressure));
 
     return ESP_OK;
@@ -485,6 +566,8 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
 
     s_state = WAITING_FOR_COMPRESSION;
     s_total_compressions = 0;
+    s_completed_compressions = 0;
+    s_depth_ok_compressions = 0;
     s_valid_compressions = 0;
     s_recoil_ok_count = 0;
     s_incomplete_recoil_count = 0;
@@ -497,6 +580,9 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
     s_last_compression_depth_ok = false;
     s_last_compression_recoil_ok = false;
     s_last_compression_incomplete_recoil = false;
+    s_current_compression_peak_depth_mm = 0.0f;
+    s_last_compression_peak_depth_mm = 0.0f;
+    s_completed_compression_peak_sum_mm = 0.0;
     s_depth_progress = 0.0f;
     s_depth_mm = 0.0f;
     s_pressure_0_kpa = 0.0f;
@@ -531,6 +617,7 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration)
     s_missed_pressure_samples = 0;
     s_missed_hall_samples = 0;
     s_release_candidate_since_ms = 0;
+    s_release_min_delta = INT32_MAX;
     memset(&s_compression_pressure, 0, sizeof(s_compression_pressure));
 
     xSemaphoreGive(s_mutex);
@@ -574,6 +661,21 @@ static uint8_t pressure_saturation_mask(const cpr_sensor_sample_t *sample)
     return mask;
 }
 
+bool cpr_pressure_saturation_is_calibrated_crossover(
+    const calibration_config_t *calibration,
+    int32_t hall_delta,
+    uint8_t saturation_mask)
+{
+    return calibration != NULL &&
+           calibration->pressure_policy != CALIBRATION_HALL_ONLY &&
+           calibration->pressure_saturation_hall_delta >
+               calibration->hall_start_delta &&
+           calibration->pressure_saturation_hall_delta <=
+               calibration->hall_range_raw &&
+           hall_delta >= calibration->pressure_saturation_hall_delta &&
+           (saturation_mask & CPR_PRESSURE_BALANCE_SENSOR_MASK) != 0;
+}
+
 static sensor_conversion_profile_t conversion_profile_from_calibration(
     const calibration_config_t *calibration)
 {
@@ -603,13 +705,20 @@ static sensor_conversion_profile_t conversion_profile_from_calibration(
     return profile;
 }
 
-static void append_snapshot_flag(char *flags, size_t flags_len, size_t *pos, const char *flag)
+static void append_snapshot_flag(char *flags,
+                                 size_t flags_len,
+                                 size_t *pos,
+                                 const char *flag)
 {
     if (flags == NULL || pos == NULL || flag == NULL || *pos >= flags_len) {
         return;
     }
 
-    int written = snprintf(flags + *pos, flags_len - *pos, "%s", flag);
+    int written = snprintf(flags + *pos,
+                           flags_len - *pos,
+                           "%s%s",
+                           *pos > 0 ? "," : "",
+                           flag);
     if (written <= 0) {
         return;
     }
@@ -619,6 +728,182 @@ static void append_snapshot_flag(char *flags, size_t flags_len, size_t *pos, con
     } else {
         *pos += (size_t)written;
     }
+}
+
+esp_err_t cpr_metrics_normalize_snapshot(cpr_metrics_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!isfinite(snapshot->pressure_balance_pct)) {
+        snapshot->pressure_balance_pct = 0.0f;
+    } else if (snapshot->pressure_balance_pct < 0.0f) {
+        snapshot->pressure_balance_pct = 0.0f;
+    } else if (snapshot->pressure_balance_pct > 100.0f) {
+        snapshot->pressure_balance_pct = 100.0f;
+    }
+
+    if (snapshot->pressure_balance_reliable) {
+        if (snapshot->pressure_balance_pct >=
+            CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT) {
+            strncpy(snapshot->hand_placement,
+                    "CENTER",
+                    sizeof(snapshot->hand_placement) - 1);
+            snapshot->hand_placement[sizeof(snapshot->hand_placement) - 1] =
+                '\0';
+        } else if (strcmp(snapshot->hand_placement, "CENTER") == 0) {
+            strncpy(snapshot->hand_placement,
+                    "SKEWED",
+                    sizeof(snapshot->hand_placement) - 1);
+            snapshot->hand_placement[sizeof(snapshot->hand_placement) - 1] =
+                '\0';
+        }
+    }
+
+    snapshot->flags[0] = '\0';
+    size_t pos = 0;
+    if (snapshot->depth_ok) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "DEPTH_OK");
+    }
+
+    if (snapshot->rate_cpm > 0.1f) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             snapshot->rate_cpm < 100.0f
+                                 ? "RATE_SLOW"
+                                 : snapshot->rate_cpm <= 120.0f
+                                       ? "RATE_OK"
+                                       : "RATE_FAST");
+    }
+
+    if (snapshot->last_compression_incomplete_recoil) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "INCOMPLETE_RECOIL");
+    } else if (snapshot->recoil_ok) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "RECOIL_OK");
+    }
+
+    if (snapshot->pause_s > CPR_PAUSE_CONDITION_THRESHOLD_S) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PAUSE_DETECTED");
+    }
+
+    if (snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_MISSED) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_MISSED");
+    }
+    if (snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_HALL_MISSED) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HALL_MISSED");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_SATURATED) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_SATURATED");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_OUT_OF_RANGE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_OUT_OF_RANGE");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_CROSSOVER) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_CROSSOVER");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_BELOW_CONTACT) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_BELOW_CONTACT");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_STALE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_STALE");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_BALANCE_HELD");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_HAND_PLACEMENT_UNAVAILABLE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_PLACEMENT_UNAVAILABLE");
+    }
+    if (snapshot->sensor_quality_flags &
+        CPR_SENSOR_QUALITY_PRESSURE_UNSTABLE) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_UNSTABLE");
+    }
+    if (snapshot->hand_placement_locked) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_PLACEMENT_LOCKED");
+    }
+    if (snapshot->pressure_mode == CALIBRATION_HALL_ONLY) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HALL_ONLY");
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "PRESSURE_UNAVAILABLE");
+    }
+
+    if (strcmp(snapshot->hand_placement, "LEFT") == 0) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_LEFT");
+    } else if (strcmp(snapshot->hand_placement, "RIGHT") == 0) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_RIGHT");
+    } else if (strcmp(snapshot->hand_placement, "SKEWED") == 0) {
+        append_snapshot_flag(snapshot->flags,
+                             sizeof(snapshot->flags),
+                             &pos,
+                             "HAND_SKEWED");
+    }
+
+    snapshot->flags[sizeof(snapshot->flags) - 1] = '\0';
+    return ESP_OK;
 }
 
 esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
@@ -758,6 +1043,16 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         s_depth_progress = progress;
         s_depth_mm = converted.hall_mm;
     }
+    bool calibrated_pressure_crossover =
+        hall_sample_usable &&
+        cpr_pressure_saturation_is_calibrated_crossover(
+            &s_calib, hall_delta_now, current_saturation_mask);
+    if (calibrated_pressure_crossover) {
+        current_quality_flags &=
+            (uint32_t)~CPR_SENSOR_QUALITY_PRESSURE_SATURATED;
+        current_quality_flags |=
+            CPR_SENSOR_QUALITY_PRESSURE_CROSSOVER;
+    }
 
     /*
      * Hall owns the compression lifecycle. Reset pressure evidence before
@@ -811,14 +1106,16 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         s_pressure_below_contact_mask = below_contact_mask;
 
         uint8_t upper_limit_mask = 0;
-        if (pressure_1_valid &&
+        bool uses_calibrated_crossover =
+            s_calib.pressure_saturation_hall_delta > 0;
+        if (!uses_calibrated_crossover && pressure_1_valid &&
             contact_1 > pressure_reliable_contact_limit(
                             s_calib.pressure_1_baseline,
                             s_calib.bladder_1_full_press,
                             s_calib.pressure_1_range_raw)) {
             upper_limit_mask |= 0x02u;
         }
-        if (pressure_2_valid &&
+        if (!uses_calibrated_crossover && pressure_2_valid &&
             contact_2 > pressure_reliable_contact_limit(
                             s_calib.pressure_2_baseline,
                             s_calib.bladder_2_full_press,
@@ -834,24 +1131,43 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         if (required_saturation_mask != 0 || upper_limit_mask != 0) {
             s_pressure_balance_reliable = false;
             s_pressure_stable_mask = 0;
-            if (required_saturation_mask != 0) {
+            if (required_saturation_mask != 0 &&
+                !calibrated_pressure_crossover) {
                 s_sensor_quality_flags |=
                     CPR_SENSOR_QUALITY_PRESSURE_SATURATED;
-            } else {
+            } else if (required_saturation_mask == 0) {
                 s_sensor_quality_flags |=
                     CPR_SENSOR_QUALITY_PRESSURE_OUT_OF_RANGE;
             }
             if (!s_compression_pressure.hand_placement_locked) {
                 if (required_saturation_mask != 0) {
-                    ESP_LOGI(
-                        TAG,
-                        "SESSION_PRESSURE_SATURATED compression=%d "
-                        "saturation=0x%02x evidence_sufficient=%d",
-                        s_total_compressions,
-                        required_saturation_mask,
-                        s_compression_pressure.evidence_sufficient);
-                    compression_pressure_lock(
-                        CPR_PRESSURE_LOCK_SATURATION);
+                    if (calibrated_pressure_crossover) {
+                        ESP_LOGI(
+                            TAG,
+                            "SESSION_PRESSURE_CROSSOVER compression=%d "
+                            "hall_delta=%ld boundary=%ld saturation=0x%02x "
+                            "evidence_sufficient=%d",
+                            s_total_compressions,
+                            (long)hall_delta_now,
+                            (long)s_calib.pressure_saturation_hall_delta,
+                            required_saturation_mask,
+                            s_compression_pressure.evidence_sufficient);
+                        compression_pressure_lock(
+                            CPR_PRESSURE_LOCK_CALIBRATED_CROSSOVER);
+                    } else {
+                        ESP_LOGI(
+                            TAG,
+                            "SESSION_PRESSURE_SATURATED compression=%d "
+                            "hall_delta=%ld boundary=%ld saturation=0x%02x "
+                            "evidence_sufficient=%d",
+                            s_total_compressions,
+                            (long)hall_delta_now,
+                            (long)s_calib.pressure_saturation_hall_delta,
+                            required_saturation_mask,
+                            s_compression_pressure.evidence_sufficient);
+                        compression_pressure_lock(
+                            CPR_PRESSURE_LOCK_SATURATION);
+                    }
                 } else {
                     ESP_LOGI(
                         TAG,
@@ -976,35 +1292,16 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
         s_rate_cpm = 0.0f;
     }
     if (hall_sample_usable) {
+        if (s_state != WAITING_FOR_COMPRESSION &&
+            s_depth_mm > s_current_compression_peak_depth_mm) {
+            s_current_compression_peak_depth_mm = s_depth_mm;
+        }
+
         switch (s_state) {
             case WAITING_FOR_COMPRESSION:
                 /* compression start when adaptive hall start delta reached */
                 if (hall_delta_now >= s_calib.hall_start_delta) {
-                    /* new compression started */
-                    s_state = COMPRESSING;
-                    /* start new compression and update rate based on start-to-start interval */
-                    int64_t prev_start = s_last_compression_start_ms;
-                    s_current_compression_start_ms = now;
-                    if (s_last_compression_end_ms > 0 &&
-                        now >= s_last_compression_end_ms) {
-                        s_last_pause_s =
-                            (now - s_last_compression_end_ms) / 1000.0f;
-                    }
-                    s_current_compression_depth_ok = false;
-                    s_release_candidate_since_ms = 0;
-                    if (prev_start > 0) {
-                        int64_t interval_ms = s_current_compression_start_ms - prev_start;
-                        if (interval_ms >= 250 && interval_ms <= 3000) {
-                            float instant_rate = 60000.0f / (float)interval_ms;
-                            if (s_rate_cpm <= 0.1f) {
-                                s_rate_cpm = instant_rate;
-                            } else {
-                                s_rate_cpm = (0.7f * s_rate_cpm) + (0.3f * instant_rate);
-                            }
-                        }
-                    }
-                    s_last_compression_start_ms = s_current_compression_start_ms;
-                    s_total_compressions++;
+                    compression_runtime_begin(now);
                 }
                 break;
 
@@ -1029,14 +1326,9 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                 }
                 if (compression_release_confirmed(
                         hall_delta_now, now)) {
-                    /* canceled shallow or recoil detected too early */
-                    s_last_compression_depth_ok = s_current_compression_depth_ok;
-                    s_last_compression_recoil_ok = true;
-                    s_last_compression_incomplete_recoil = false;
-                    s_last_compression_end_ms = now;
+                    /* Shallow compression completed with full recoil. */
+                    compression_runtime_complete(true, now);
                     s_state = WAITING_FOR_COMPRESSION;
-                    s_release_candidate_since_ms = 0;
-                    compression_pressure_end();
                 }
                 break;
 
@@ -1045,22 +1337,42 @@ esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample)
                     /* begin releasing phase */
                     s_state = RELEASING;
                     s_release_candidate_since_ms = 0;
+                    s_release_min_delta = hall_delta_now;
                 }
                 break;
 
             case RELEASING:
+                if (hall_delta_now < s_release_min_delta) {
+                    s_release_min_delta = hall_delta_now;
+                }
                 /* proper recoil handling */
                 if (compression_release_confirmed(
                         hall_delta_now, now)) {
                     /* good recoil */
-                    s_recoil_ok_count++;
-                    s_last_compression_end_ms = now;
-                    s_last_compression_depth_ok = s_current_compression_depth_ok;
-                    s_last_compression_recoil_ok = true;
-                    s_last_compression_incomplete_recoil = false;
+                    compression_runtime_complete(true, now);
                     s_state = WAITING_FOR_COMPRESSION;
-                    s_release_candidate_since_ms = 0;
-                    compression_pressure_end();
+                } else {
+                    int32_t recompression_hysteresis =
+                        calib_max_i32(
+                            calib_max_i32(s_calib.hall_tolerance_raw * 2,
+                                          s_calib.hall_start_delta / 10),
+                            1);
+                    bool next_compression_started =
+                        s_release_min_delta != INT32_MAX &&
+                        hall_delta_now >= s_calib.hall_start_delta &&
+                        hall_delta_now - s_release_min_delta >=
+                            recompression_hysteresis;
+                    if (next_compression_started) {
+                        /*
+                         * The chest started moving down again before reaching
+                         * the recoil threshold. Complete the prior compression
+                         * as incomplete and immediately begin the new one so
+                         * the state machine cannot remain stuck in RELEASING.
+                         */
+                        compression_runtime_complete(false, now);
+                        compression_pressure_start();
+                        compression_runtime_begin(now);
+                    }
                 }
                 break;
         }
@@ -1091,9 +1403,18 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
             (s_last_sample_ms - s_last_compression_end_ms) / 1000.0f;
     }
     out_snapshot->total_compressions = s_total_compressions;
+    out_snapshot->completed_compressions = s_completed_compressions;
+    out_snapshot->depth_ok_compressions = s_depth_ok_compressions;
     out_snapshot->valid_compressions = s_valid_compressions;
     out_snapshot->recoil_ok_count = s_recoil_ok_count;
     out_snapshot->incomplete_recoil_count = s_incomplete_recoil_count;
+    out_snapshot->last_compression_peak_depth_mm =
+        s_last_compression_peak_depth_mm;
+    out_snapshot->average_completed_compression_peak_depth_mm =
+        s_completed_compressions > 0
+            ? (float)(s_completed_compression_peak_sum_mm /
+                      (double)s_completed_compressions)
+            : 0.0f;
     out_snapshot->current_depth_in_range = false;
     if (s_calib.hall_range_raw > 0 && s_calib.hall_full_delta_threshold > 0) {
         float full_pct = (float)s_calib.hall_full_delta_threshold / (float)s_calib.hall_range_raw;
@@ -1179,98 +1500,8 @@ esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot)
     out_snapshot->sensor_quality_flags = s_sensor_quality_flags;
     out_snapshot->missed_pressure_samples = s_missed_pressure_samples;
     out_snapshot->missed_hall_samples = s_missed_hall_samples;
-    /* build flags string */
-    out_snapshot->flags[0] = '\0';
-    size_t pos = 0;
-    if (out_snapshot->depth_ok) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "DEPTH_OK,");
-    }
-
-    /* Only emit rate flags if rate is known (requires at least two compression starts) */
-    if (out_snapshot->rate_cpm <= 0.1f) {
-        /* rate not known yet: do not add RATE_SLOW/RATE_OK/RATE_FAST */
-    } else if (out_snapshot->rate_cpm < 100.0f) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RATE_SLOW,");
-    } else if (out_snapshot->rate_cpm <= 120.0f) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RATE_OK,");
-    } else {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RATE_FAST,");
-    }
-
-    if (out_snapshot->last_compression_incomplete_recoil) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "INCOMPLETE_RECOIL,");
-    } else if (out_snapshot->recoil_ok) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "RECOIL_OK,");
-    }
-
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_MISSED) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "PRESSURE_MISSED,");
-    }
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_HALL_MISSED) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HALL_MISSED,");
-    }
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_SATURATED) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "PRESSURE_SATURATED,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_OUT_OF_RANGE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_OUT_OF_RANGE,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_BELOW_CONTACT) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_BELOW_CONTACT,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_STALE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_STALE,");
-    }
-    if (out_snapshot->sensor_quality_flags & CPR_SENSOR_QUALITY_PRESSURE_BALANCE_HELD) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "PRESSURE_BALANCE_HELD,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_HAND_PLACEMENT_UNAVAILABLE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "HAND_PLACEMENT_UNAVAILABLE,");
-    }
-    if (out_snapshot->sensor_quality_flags &
-        CPR_SENSOR_QUALITY_PRESSURE_UNSTABLE) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "PRESSURE_UNSTABLE,");
-    }
-    if (out_snapshot->hand_placement_locked) {
-        append_snapshot_flag(out_snapshot->flags,
-                             sizeof(out_snapshot->flags),
-                             &pos,
-                             "HAND_PLACEMENT_LOCKED,");
-    }
-    if (calibration_uses_hall_only_pressure()) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HALL_ONLY,PRESSURE_UNAVAILABLE,");
-    }
-
-    if (strcmp(out_snapshot->hand_placement, "CENTER") == 0) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HAND_CENTERED");
-    } else if (strcmp(out_snapshot->hand_placement, "LEFT") == 0) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HAND_LEFT");
-    } else if (strcmp(out_snapshot->hand_placement, "RIGHT") == 0) {
-        append_snapshot_flag(out_snapshot->flags, sizeof(out_snapshot->flags), &pos, "HAND_RIGHT");
-    } else {
-        /* NO_CONTACT -> leave empty or no flag */
-    }
-    out_snapshot->flags[sizeof(out_snapshot->flags) - 1] = '\0';
     out_snapshot->ts_ms = s_last_sample_ms;
+    cpr_metrics_normalize_snapshot(out_snapshot);
 
     xSemaphoreGive(s_mutex);
 
@@ -1285,6 +1516,8 @@ const char *cpr_pressure_lock_reason_to_string(
             return "UPPER_LIMIT";
         case CPR_PRESSURE_LOCK_SATURATION:
             return "SATURATION";
+        case CPR_PRESSURE_LOCK_CALIBRATED_CROSSOVER:
+            return "CALIBRATED_CROSSOVER";
         case CPR_PRESSURE_LOCK_NONE:
         default:
             return "NONE";

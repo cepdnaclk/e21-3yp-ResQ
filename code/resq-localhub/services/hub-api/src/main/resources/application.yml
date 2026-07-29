@@ -22,6 +22,7 @@ resq:
     password: ${RESQ_MQTT_PASSWORD:}
   live:
     stale-after-seconds: ${RESQ_LIVE_STALE_AFTER_SECONDS:12}
+    offline-after-seconds: ${RESQ_LIVE_OFFLINE_AFTER_SECONDS:22}
     stale-check-interval-ms: ${RESQ_LIVE_STALE_CHECK_INTERVAL_MS:2000}
   cloud-sync:
     enabled: ${RESQ_CLOUD_SYNC_ENABLED:true}
