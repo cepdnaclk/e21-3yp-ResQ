@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "./auth/AuthContext";
 import { MANUAL_LAN_IP_STORAGE_KEY, sanitizeManualLanIp } from "./lib/accessHost";
 import Card from "./components/ui/Card";
@@ -8,30 +8,35 @@ import Button from "./components/ui/Button";
 import V2LoginPage from "./pages/v2/LoginPage";
 import V2SetupFirstAdminPage from "./pages/v2/SetupFirstAdminPage";
 import V2LocalHubHomePage from "./pages/v2/LocalHubHomePage";
-import V2InstructorDashboardPage from "./pages/v2/InstructorDashboardPage";
-import V2PairManikinPage from "./pages/v2/PairManikinPage";
-import V2ManikinReadinessPage from "./pages/v2/ManikinReadinessPage";
-import V2CalibrationWizardPage from "./pages/v2/CalibrationWizardPage";
-import V2InstructorLiveSessionPage from "./pages/v2/InstructorLiveSessionPage";
-import V2TraineeLiveSessionPage from "./pages/v2/TraineeLiveSessionPage";
-import V2RecentSessionsPage from "./pages/v2/RecentSessionsPage";
-import V2SessionReviewPage from "./pages/v2/SessionReviewPage";
-import V2AdminUsersPage from "./pages/v2/AdminUsersPage";
-import V2TechnicianDiagnosticsPage from "./pages/v2/TechnicianDiagnosticsPage";
 import V2AccessDeniedPage from "./pages/v2/AccessDeniedPage";
-import V2CoursesPage from "./pages/v2/CoursesPage";
-import V2CourseDetailPage from "./pages/v2/CourseDetailPage";
-import V2StartSessionWizardPage from "./pages/v2/StartSessionWizardPage";
-import V2ActiveSessionsPage from "./pages/v2/ActiveSessionsPage";
-import V2AdminSyncDashboardPage from "./pages/v2/AdminSyncDashboardPage";
-import V2DemoChecklistPage from "./pages/v2/DemoChecklistPage";
-
-// Import Legacy Pages
-import LegacyInstructorDashboard from "./pages/InstructorDashboard";
-import LegacyTraineeDashboard from "./pages/TraineeDashboard";
 
 // Import Layout
 import AppShell from "./layouts/AppShell";
+
+const V2InstructorDashboardPage = lazy(() => import("./pages/v2/InstructorDashboardPage"));
+const V2PairManikinPage = lazy(() => import("./pages/v2/PairManikinPage"));
+const V2ManikinReadinessPage = lazy(() => import("./pages/v2/ManikinReadinessPage"));
+const V2CalibrationWizardPage = lazy(() => import("./pages/v2/CalibrationWizardPage"));
+const V2InstructorLiveSessionPage = lazy(() => import("./pages/v2/InstructorLiveSessionPage"));
+const V2TraineeLiveSessionPage = lazy(() => import("./pages/v2/TraineeLiveSessionPage"));
+const V2RecentSessionsPage = lazy(() => import("./pages/v2/RecentSessionsPage"));
+const V2SessionReviewPage = lazy(() => import("./pages/v2/SessionReviewPage"));
+const V2AdminUsersPage = lazy(() => import("./pages/v2/AdminUsersPage"));
+const V2TechnicianDiagnosticsPage = lazy(() => import("./pages/v2/TechnicianDiagnosticsPage"));
+const V2CoursesPage = lazy(() => import("./pages/v2/CoursesPage"));
+const V2CourseDetailPage = lazy(() => import("./pages/v2/CourseDetailPage"));
+const V2StartSessionWizardPage = lazy(() => import("./pages/v2/StartSessionWizardPage"));
+const V2ActiveSessionsPage = lazy(() => import("./pages/v2/ActiveSessionsPage"));
+const V2AdminSyncDashboardPage = lazy(() => import("./pages/v2/AdminSyncDashboardPage"));
+const V2DemoChecklistPage = lazy(() => import("./pages/v2/DemoChecklistPage"));
+const LegacyInstructorDashboard = lazy(() => import("./pages/InstructorDashboard"));
+const LegacyTraineeDashboard = lazy(() => import("./pages/TraineeDashboard"));
+
+const routeFallback = (
+  <div className="p-6 font-sans text-gray-700" role="status">
+    Loading screen...
+  </div>
+);
 
 type RouteState =
   | { name: "home" }
@@ -243,25 +248,39 @@ export default function App() {
 
   // 4. Trainee role quick-routing (if trainee enters dashboard, route to legacy-trainee by default)
   if (currentUser.role === "TRAINEE" && currentRoute.name !== "trainee-live" && currentRoute.name !== "legacy-trainee" && currentRoute.name !== "session-review") {
-    return <LegacyTraineeDashboard embeddedInDesktop={true} legacy={false} navigate={navigate} />;
+    return (
+      <Suspense fallback={routeFallback}>
+        <LegacyTraineeDashboard embeddedInDesktop={true} legacy={false} navigate={navigate} />
+      </Suspense>
+    );
   }
 
   // 5. Standalone full screen V2 routes (not wrapped in standard AppShell)
   if (currentRoute.name === "trainee-live") {
     return (
-      <V2TraineeLiveSessionPage
-        sessionId={currentRoute.sessionId}
-        onSessionEnded={() => navigate("/")}
-      />
+      <Suspense fallback={routeFallback}>
+        <V2TraineeLiveSessionPage
+          sessionId={currentRoute.sessionId}
+          onSessionEnded={() => navigate("/")}
+        />
+      </Suspense>
     );
   }
 
   // 6. Standalone legacy routes
   if (currentRoute.name === "legacy-instructor") {
-    return <LegacyInstructorDashboard manualLanIpOverride={manualLanIpOverride} />;
+    return (
+      <Suspense fallback={routeFallback}>
+        <LegacyInstructorDashboard manualLanIpOverride={manualLanIpOverride} />
+      </Suspense>
+    );
   }
   if (currentRoute.name === "legacy-trainee") {
-    return <LegacyTraineeDashboard embeddedInDesktop={false} legacy={true} navigate={navigate} />;
+    return (
+      <Suspense fallback={routeFallback}>
+        <LegacyTraineeDashboard embeddedInDesktop={false} legacy={true} navigate={navigate} />
+      </Suspense>
+    );
   }
   if (currentRoute.name === "access-denied") {
     return <V2AccessDeniedPage onBackToHome={() => navigate("/")} />;
@@ -315,67 +334,69 @@ export default function App() {
       page={activeShellKey}
       setPage={handlePageChange}
     >
-      {currentRoute.name === "home" && (
-        <V2LocalHubHomePage
-          onOpenInstructorDashboard={() => navigate("/instructor")}
-        />
-      )}
-      {currentRoute.name === "instructor" && (
-        <V2InstructorDashboardPage
-          onStartSession={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
-          onRunCalibration={(did) => navigate(`/instructor/manikins/${did}/calibration`)}
-          onPairNewManikin={() => navigate("/instructor/pair")}
-          onViewRecentSessions={() => navigate("/sessions")}
-        />
-      )}
-      {currentRoute.name === "pair-manikin" && (
-        <V2PairManikinPage onBack={() => navigate("/instructor")} />
-      )}
-      {currentRoute.name === "readiness" && (
-        <V2ManikinReadinessPage
-          deviceId={currentRoute.deviceId}
-          onBack={() => navigate("/instructor")}
-        />
-      )}
-      {currentRoute.name === "calibration" && (
-        <V2CalibrationWizardPage
-          deviceId={currentRoute.deviceId}
-          onBack={() => navigate("/instructor")}
-        />
-      )}
-      {currentRoute.name === "instructor-live" && (
-        <V2InstructorLiveSessionPage
-          sessionId={currentRoute.sessionId}
-          onSessionEnded={(sid) => navigate(`/sessions/${sid}`)}
-        />
-      )}
-      {currentRoute.name === "sessions" && (
-        <V2RecentSessionsPage onSelectSession={(sid) => navigate(`/sessions/${sid}`)} />
-      )}
-      {currentRoute.name === "session-review" && (
-        <V2SessionReviewPage
-          sessionId={currentRoute.sessionId}
-          onBack={() => navigate("/sessions")}
-        />
-      )}
-      {currentRoute.name === "admin-users" && <V2AdminUsersPage />}
-      {currentRoute.name === "admin-sync" && <V2AdminSyncDashboardPage navigate={navigate} />}
-      {currentRoute.name === "demo-checklist" && <V2DemoChecklistPage navigate={navigate} />}
-      {currentRoute.name === "diagnostics" && <V2TechnicianDiagnosticsPage />}
-      {currentRoute.name === "courses" && <V2CoursesPage />}
-      {currentRoute.name === "course-detail" && (
-        <V2CourseDetailPage
-          courseId={currentRoute.courseId}
-          onBack={() => navigate("/courses")}
-        />
-      )}
-      {currentRoute.name === "start-session" && <V2StartSessionWizardPage />}
-      {currentRoute.name === "live-sessions" && (
-        <V2ActiveSessionsPage
-          onViewLive={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
-          onNavigateHome={() => navigate("/")}
-        />
-      )}
+      <Suspense fallback={routeFallback}>
+        {currentRoute.name === "home" && (
+          <V2LocalHubHomePage
+            onOpenInstructorDashboard={() => navigate("/instructor")}
+          />
+        )}
+        {currentRoute.name === "instructor" && (
+          <V2InstructorDashboardPage
+            onStartSession={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
+            onRunCalibration={(did) => navigate(`/instructor/manikins/${did}/calibration`)}
+            onPairNewManikin={() => navigate("/instructor/pair")}
+            onViewRecentSessions={() => navigate("/sessions")}
+          />
+        )}
+        {currentRoute.name === "pair-manikin" && (
+          <V2PairManikinPage onBack={() => navigate("/instructor")} />
+        )}
+        {currentRoute.name === "readiness" && (
+          <V2ManikinReadinessPage
+            deviceId={currentRoute.deviceId}
+            onBack={() => navigate("/instructor")}
+          />
+        )}
+        {currentRoute.name === "calibration" && (
+          <V2CalibrationWizardPage
+            deviceId={currentRoute.deviceId}
+            onBack={() => navigate("/instructor")}
+          />
+        )}
+        {currentRoute.name === "instructor-live" && (
+          <V2InstructorLiveSessionPage
+            sessionId={currentRoute.sessionId}
+            onSessionEnded={(sid) => navigate(`/sessions/${sid}`)}
+          />
+        )}
+        {currentRoute.name === "sessions" && (
+          <V2RecentSessionsPage onSelectSession={(sid) => navigate(`/sessions/${sid}`)} />
+        )}
+        {currentRoute.name === "session-review" && (
+          <V2SessionReviewPage
+            sessionId={currentRoute.sessionId}
+            onBack={() => navigate("/sessions")}
+          />
+        )}
+        {currentRoute.name === "admin-users" && <V2AdminUsersPage />}
+        {currentRoute.name === "admin-sync" && <V2AdminSyncDashboardPage navigate={navigate} />}
+        {currentRoute.name === "demo-checklist" && <V2DemoChecklistPage navigate={navigate} />}
+        {currentRoute.name === "diagnostics" && <V2TechnicianDiagnosticsPage />}
+        {currentRoute.name === "courses" && <V2CoursesPage />}
+        {currentRoute.name === "course-detail" && (
+          <V2CourseDetailPage
+            courseId={currentRoute.courseId}
+            onBack={() => navigate("/courses")}
+          />
+        )}
+        {currentRoute.name === "start-session" && <V2StartSessionWizardPage />}
+        {currentRoute.name === "live-sessions" && (
+          <V2ActiveSessionsPage
+            onViewLive={(sid) => navigate(`/instructor/sessions/${sid}/live`)}
+            onNavigateHome={() => navigate("/")}
+          />
+        )}
+      </Suspense>
     </AppShell>
   );
 }
