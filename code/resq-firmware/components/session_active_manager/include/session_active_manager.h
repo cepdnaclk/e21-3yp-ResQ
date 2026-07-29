@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
 #include "states.h"
 #include "resq_config_types.h"
 #include "mqtt_manager.h"
@@ -15,6 +16,14 @@ extern "C" {
 
 #define SESSION_PRESSURE_CHANNEL_COUNT 3u
 #define SESSION_PRESSURE_SNAPSHOT_MAX_AGE_MS 200
+#define SESSION_PRESSURE_SAMPLE_INTERVAL_MS 20u
+
+typedef enum {
+    SESSION_PRESSURE_CYCLE_SUCCESS = 0,
+    SESSION_PRESSURE_CYCLE_TIMEOUT,
+    SESSION_PRESSURE_CYCLE_INVALID_RESPONSE,
+    SESSION_PRESSURE_CYCLE_OWNER_CONTENTION,
+} session_pressure_cycle_path_t;
 
 typedef struct {
     int32_t raw[SESSION_PRESSURE_CHANNEL_COUNT];
@@ -51,6 +60,36 @@ bool session_pressure_snapshot_is_fresh(
     uint32_t last_consumed_sequence,
     int64_t now_ms,
     int64_t max_age_ms);
+
+/**
+ * Return the pressure-task period in scheduler ticks. The result is always
+ * non-zero, including on configurations whose tick period is longer than the
+ * requested sample interval.
+ */
+TickType_t session_pressure_sample_interval_ticks(void);
+
+/**
+ * Advance a pressure-task schedule and return the real blocking interval.
+ * Missed periods are discarded so an overdue task cannot run an unlimited
+ * zero-delay catch-up loop. Every acquisition outcome reaches this policy.
+ */
+TickType_t session_pressure_cycle_block_ticks(
+    session_pressure_cycle_path_t path,
+    TickType_t now,
+    TickType_t *next_wake);
+
+/**
+ * Block the calling task until its next pressure cycle or a stop notification.
+ * A non-zero return means the task was notified before the timeout elapsed.
+ */
+uint32_t session_pressure_wait_for_next_cycle(TickType_t block_ticks);
+
+/** Return false once stop has been requested, before another sensor read. */
+bool session_pressure_cycle_should_sample(bool stop_requested);
+
+/** Return true only when neither per-session sensor task already exists. */
+bool session_pressure_tasks_can_start(bool hall_task_present,
+                                      bool pressure_task_present);
 
 resq_state_t session_active_manager_start(network_config_t *network_config,
                                           calibration_config_t *calibration_config,
