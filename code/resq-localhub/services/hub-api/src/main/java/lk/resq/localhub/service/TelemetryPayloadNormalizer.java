@@ -70,7 +70,31 @@ final class TelemetryPayloadNormalizer {
         }
 
         Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions", "totalCompressions");
+        Integer completedCompressionCount = firstInt(
+                payload,
+                "completedCompressionCount",
+                "completed_compression_count"
+        );
+        Integer depthOkCompressionCount = firstInt(
+                payload,
+                "depthOkCompressionCount",
+                "depth_ok_compression_count"
+        );
         Integer validCompressionCount = firstInt(payload, "validCompressionCount", "valid_compression_count");
+        Double lastCompressionPeakDepthMm = firstDouble(
+                payload,
+                "lastCompressionPeakDepthMm",
+                "last_compression_peak_depth_mm",
+                "lastCompressionDepthMm",
+                "last_compression_depth_mm"
+        );
+        Double averageCompletedCompressionPeakDepthMm = firstDouble(
+                payload,
+                "averageCompletedCompressionPeakDepthMm",
+                "average_completed_compression_peak_depth_mm",
+                "averageCompressionDepthMm",
+                "average_compression_depth_mm"
+        );
         Integer recoilOkCount = firstInt(payload, "recoilOkCount", "recoil_ok_count");
         Integer incompleteRecoilCount = firstInt(payload, "incompleteRecoilCount", "incomplete_recoil_count");
         String handPlacement = firstText(payload, "handPlacement", "hand_placement");
@@ -142,7 +166,11 @@ final class TelemetryPayloadNormalizer {
                 recoilOk,
                 pauseS,
                 compressionCount,
+                completedCompressionCount,
+                depthOkCompressionCount,
                 validCompressionCount,
+                lastCompressionPeakDepthMm,
+                averageCompletedCompressionPeakDepthMm,
                 recoilOkCount,
                 incompleteRecoilCount,
                 handPlacement,
@@ -182,8 +210,26 @@ final class TelemetryPayloadNormalizer {
         if (metric.compressionCount() != null && metric.compressionCount() < 0) {
             return "compressionCount cannot be negative";
         }
+        if (metric.completedCompressionCount() != null
+                && metric.completedCompressionCount() < 0) {
+            return "completedCompressionCount cannot be negative";
+        }
+        if (metric.depthOkCompressionCount() != null
+                && metric.depthOkCompressionCount() < 0) {
+            return "depthOkCompressionCount cannot be negative";
+        }
         if (metric.validCompressionCount() != null && metric.validCompressionCount() < 0) {
             return "validCompressionCount cannot be negative";
+        }
+        if (metric.lastCompressionPeakDepthMm() != null
+                && (metric.lastCompressionPeakDepthMm() < 0.0
+                || metric.lastCompressionPeakDepthMm() > 120.0)) {
+            return "lastCompressionPeakDepthMm is outside the accepted range";
+        }
+        if (metric.averageCompletedCompressionPeakDepthMm() != null
+                && (metric.averageCompletedCompressionPeakDepthMm() < 0.0
+                || metric.averageCompletedCompressionPeakDepthMm() > 120.0)) {
+            return "averageCompletedCompressionPeakDepthMm is outside the accepted range";
         }
         if (metric.recoilOkCount() != null && metric.recoilOkCount() < 0) {
             return "recoilOkCount cannot be negative";

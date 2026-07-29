@@ -8,6 +8,9 @@ import java.util.Optional;
 @Component
 public class CalibrationProfileIdentityValidator {
 
+    private static final int MIN_SUPPORTED_FIRMWARE_CALIBRATION_SCHEMA = 1;
+    private static final int MAX_SUPPORTED_FIRMWARE_CALIBRATION_SCHEMA = 3;
+
     private final CalibrationProfileRepository profileRepository;
     private final CalibrationProfileFingerprintService fingerprintService;
 
@@ -28,9 +31,15 @@ public class CalibrationProfileIdentityValidator {
             Integer profileVersion,
             String profileHash
     ) {
-        // schema version exactly 1
-        if (schemaVersion == null || schemaVersion != 1) {
-            return ValidationResult.failure("SCHEMA_VERSION_INVALID", "Schema version must be exactly 1");
+        // Accept only firmware calibration-record schemas understood by this
+        // LocalHub release. Reject unknown future versions instead of treating
+        // them as compatible.
+        if (schemaVersion == null
+                || schemaVersion < MIN_SUPPORTED_FIRMWARE_CALIBRATION_SCHEMA
+                || schemaVersion > MAX_SUPPORTED_FIRMWARE_CALIBRATION_SCHEMA) {
+            return ValidationResult.failure(
+                    "SCHEMA_VERSION_INVALID",
+                    "Unsupported firmware calibration schema version");
         }
         // generation > 0
         if (generation == null || generation <= 0) {

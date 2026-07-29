@@ -827,6 +827,118 @@ class ActiveSessionServiceTest {
         ))).isInstanceOf(CalibrationNotReadyException.class);
         assertThat(commandPublisher.publishStartCount).isEqualTo(0);
     }
+    @Test
+    void scoresCompletedCompressionsAndCountsEachPauseOnce() throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(
+                new SessionStartRequest(
+                        "M01", null, null, null, null, "Guest",
+                        "adult-basic", "Scoring", null));
+        activate(service, session);
+
+        String[] samples = {
+                """
+                {"session_id":"%s","depth_mm":20,"depth_progress":0.4,
+                 "rate_cpm":0,"compression_count":1,
+                 "completed_compression_count":0,
+                 "depth_ok_compression_count":0,
+                 "valid_compression_count":0,"recoil_ok_count":0,
+                 "incomplete_recoil_count":0,"pause_s":0}
+                """,
+                """
+                {"session_id":"%s","depth_mm":0,"depth_progress":0,
+                 "rate_cpm":0,"compression_count":1,
+                 "completed_compression_count":1,
+                 "depth_ok_compression_count":1,
+                 "valid_compression_count":1,
+                 "last_compression_depth_mm":55,
+                 "average_compression_depth_mm":55,
+                 "recoil_ok_count":1,"incomplete_recoil_count":0,
+                 "recoil_ok":true,"pause_s":2}
+                """,
+                """
+                {"session_id":"%s","depth_mm":0,"depth_progress":0,
+                 "rate_cpm":0,"compression_count":1,
+                 "completed_compression_count":1,
+                 "depth_ok_compression_count":1,
+                 "valid_compression_count":1,
+                 "last_compression_depth_mm":55,
+                 "average_compression_depth_mm":55,
+                 "recoil_ok_count":1,"incomplete_recoil_count":0,
+                 "recoil_ok":true,"pause_s":2.4}
+                """,
+                """
+                {"session_id":"%s","depth_mm":20,"depth_progress":0.4,
+                 "rate_cpm":110,"compression_count":2,
+                 "completed_compression_count":1,
+                 "depth_ok_compression_count":1,
+                 "valid_compression_count":1,
+                 "last_compression_depth_mm":55,
+                 "average_compression_depth_mm":55,
+                 "recoil_ok_count":1,"incomplete_recoil_count":0,
+                 "recoil_ok":true,"pause_s":2.4}
+                """,
+                """
+                {"session_id":"%s","depth_mm":0,"depth_progress":0,
+                 "rate_cpm":110,"compression_count":2,
+                 "completed_compression_count":2,
+                 "depth_ok_compression_count":2,
+                 "valid_compression_count":1,
+                 "last_compression_depth_mm":70,
+                 "average_compression_depth_mm":62.5,
+                 "recoil_ok_count":1,"incomplete_recoil_count":1,
+                 "recoil_ok":false,"pause_s":0}
+                """
+        };
+
+        for (String sample : samples) {
+            service.recordTelemetry(
+                    "M01",
+                    objectMapper.readTree(
+                            sample.formatted(session.sessionId())));
+        }
+
+        SessionEndResponse completed =
+                completeStop(service, session.sessionId());
+        assertThat(completed.summary().totalCompressions()).isEqualTo(2);
+        assertThat(completed.summary().avgDepthMm()).isEqualTo(62.5);
+        assertThat(completed.summary().avgRateCpm()).isEqualTo(110.0);
+        assertThat(completed.summary().recoilPct()).isEqualTo(50.0);
+        assertThat(completed.summary().pausesCount()).isEqualTo(1);
+        assertThat(completed.summary().score()).isEqualTo(75);
+    }
+
+    @Test
+    void unfinishedCompressionProducesZeroScoreWithCompletedCounterContract()
+            throws Exception {
+        ActiveSessionService service = newService();
+        SessionStartResponse session = service.startSession(
+                new SessionStartRequest(
+                        "M01", null, null, null, null, "Guest",
+                        "adult-basic", "No completed compressions", null));
+        activate(service, session);
+
+        service.recordTelemetry(
+                "M01",
+                objectMapper.readTree(
+                        """
+                        {"session_id":"%s","depth_mm":58,
+                         "depth_progress":1,"rate_cpm":110,
+                         "compression_count":1,
+                         "completed_compression_count":0,
+                         "depth_ok_compression_count":0,
+                         "valid_compression_count":0,
+                         "recoil_ok_count":0,
+                         "incomplete_recoil_count":0,"pause_s":0}
+                        """.formatted(session.sessionId())));
+
+        SessionEndResponse completed =
+                completeStop(service, session.sessionId());
+        assertThat(completed.summary().totalCompressions()).isZero();
+        assertThat(completed.summary().avgDepthMm()).isZero();
+        assertThat(completed.summary().score()).isZero();
+    }
+
     private ActiveSessionService newService() throws Exception {
         return newServiceFixture().service;
     }

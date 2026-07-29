@@ -842,7 +842,7 @@ public class MqttSubscriberService {
         String status = firstText(payload, "status");
         Integer progressId = integer(payload, "progress_id", "progressId");
         String result = firstText(payload, "result");
-        String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId"));
+        String reasonId = normalizedReasonId(firstScalarAsText(payload, "reason_id", "reasonId", "reason"));
         Integer actionId = integer(payload, "action_id", "actionId");
         String firmwareState = firstText(payload, "state", "firmwareState", "firmware_state");
         Long tsMs = longValue(payload, "ts_ms", "tsMs");
@@ -1295,8 +1295,14 @@ public class MqttSubscriberService {
                 String finalResult = oldEvidence.finalResult();
                 Instant completedAt = oldEvidence.completedAt();
                 Boolean readyAtCompletion = oldEvidence.readyForSessionAtCompletion();
+                boolean commandRejected = calEvent.eventId() == 4000
+                        && "NACK".equalsIgnoreCase(calEvent.status());
 
-                if (calEvent.eventId() == 4002) {
+                if (commandRejected) {
+                    finalResult = "FAIL";
+                    completedAt = Instant.now();
+                    readyAtCompletion = false;
+                } else if (calEvent.eventId() == 4002) {
                     finalResult = calEvent.result() != null ? calEvent.result().toUpperCase(Locale.ROOT) : "FAIL";
                     completedAt = Instant.now();
                     readyAtCompletion = "PASS".equals(finalResult);
@@ -1313,7 +1319,11 @@ public class MqttSubscriberService {
                         oldEvidence.startedAt(),
                         completedAt,
                         finalResult,
-                        calEvent.firmwareState() != null ? calEvent.firmwareState() : oldEvidence.calibrationState(),
+                        commandRejected
+                                ? "FAILED"
+                                : calEvent.firmwareState() != null
+                                        ? calEvent.firmwareState()
+                                        : oldEvidence.calibrationState(),
                         readyAtCompletion,
                         calEvent.progressId() != null ? calEvent.progressId() : oldEvidence.lastProgressId(),
                         calEvent.reasonId() != null ? calEvent.reasonId() : oldEvidence.lastReasonId(),

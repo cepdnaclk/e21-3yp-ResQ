@@ -77,6 +77,30 @@ public class LiveStreamService {
     }
 
     public void publishSessionLive(String sessionId, SessionLiveView payload) {
+        if (payload == null) {
+            lastSessionPayloadBySessionId.remove(sessionId);
+            CopyOnWriteArrayList<SseEmitter> terminalEmitters =
+                    sessionEmittersBySessionId.remove(sessionId);
+            if (terminalEmitters == null || terminalEmitters.isEmpty()) {
+                return;
+            }
+            List<SseEmitter> terminalSnapshot = List.copyOf(terminalEmitters);
+            /*
+             * Clear the shared list before sending so no older live publisher
+             * can deliver a stale update after the terminal marker.
+             */
+            terminalEmitters.clear();
+            /*
+             * Completion is a control-plane event, not disposable live
+             * telemetry. Send it immediately so the event that closes the UI
+             * and reveals the score cannot be dropped.
+             */
+            for (SseEmitter emitter : terminalSnapshot) {
+                sendEvent(emitter, "session-live", null,
+                        () -> { });
+            }
+            return;
+        }
         if (payload != null && payload.equals(lastSessionPayloadBySessionId.put(sessionId, payload))) {
             suppressedDuplicateUpdateCount.incrementAndGet();
             return;

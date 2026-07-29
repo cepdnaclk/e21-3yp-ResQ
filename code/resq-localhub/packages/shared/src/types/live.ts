@@ -61,7 +61,14 @@ export type LiveMetricPayload = {
   incompleteRecoilCount?: number | null;
   pauseS: number | null;
   compressionCount: number | null;
+  completedCompressionCount?: number | null;
+  depthOkCompressionCount?: number | null;
   validCompressionCount?: number | null;
+  lastCompressionPeakDepthMm?: number | null;
+  averageCompletedCompressionPeakDepthMm?: number | null;
+  /** Deprecated firmware compatibility aliases. */
+  lastCompressionDepthMm?: number | null;
+  averageCompressionDepthMm?: number | null;
   handPlacement: string | null;
   pressureBalanceScorePct?: number | null;
   flags: string | string[] | null;

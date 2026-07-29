@@ -47,7 +47,7 @@ class CalibrationProfileIdentityValidatorTest {
         String expectedHash = fingerprintService.computeHash(record);
 
         CalibrationProfileIdentityValidator.ValidationResult result = validator.validate(
-                1, // schemaVersion
+                3, // schemaVersion
                 10, // generation
                 "VALID", // storageStatus
                 false, // recalibrationRequired
@@ -62,9 +62,24 @@ class CalibrationProfileIdentityValidatorTest {
     }
 
     @Test
-    void testInvalidSchemaVersionRejects() {
+    void testKnownLegacySchemaVersionRemainsAccepted() {
+        CalibrationProfileRecord record = new CalibrationProfileRecord(
+                "adult-basic", "Adult Basic", 13500, 20100, 15000, 15000,
+                "Description", true, true, "2026-07-14T00:00:00Z", "2026-07-14T00:00:00Z", 1
+        );
+        repository.setRecordToReturn(record);
+
         CalibrationProfileIdentityValidator.ValidationResult result = validator.validate(
-                2, 10, "VALID", false, "adult-basic", 1, "hash"
+                1, 10, "VALID", false, "adult-basic", 1,
+                fingerprintService.computeHash(record)
+        );
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    void testUnknownFutureSchemaVersionRejects() {
+        CalibrationProfileIdentityValidator.ValidationResult result = validator.validate(
+                4, 10, "VALID", false, "adult-basic", 1, "hash"
         );
         assertThat(result.valid()).isFalse();
         assertThat(result.errorCode()).isEqualTo("SCHEMA_VERSION_INVALID");

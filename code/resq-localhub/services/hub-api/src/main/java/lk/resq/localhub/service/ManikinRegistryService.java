@@ -168,9 +168,25 @@ public class ManikinRegistryService {
                     state.latestRecoilOk,
                     state.latestPauseS,
                     compressionCount,
+                    firstInt(payload, "completedCompressionCount", null) != null
+                            ? firstInt(payload, "completedCompressionCount", null)
+                            : firstInt(payload, "completed_compression_count", null),
+                    firstInt(payload, "depthOkCompressionCount", null) != null
+                            ? firstInt(payload, "depthOkCompressionCount", null)
+                            : firstInt(payload, "depth_ok_compression_count", null),
                     firstInt(payload, "validCompressionCount", null) != null
                             ? firstInt(payload, "validCompressionCount", null)
                             : firstInt(payload, "valid_compression_count", null),
+                    firstDouble(payload, null,
+                            "lastCompressionPeakDepthMm",
+                            "last_compression_peak_depth_mm",
+                            "lastCompressionDepthMm",
+                            "last_compression_depth_mm"),
+                    firstDouble(payload, null,
+                            "averageCompletedCompressionPeakDepthMm",
+                            "average_completed_compression_peak_depth_mm",
+                            "averageCompressionDepthMm",
+                            "average_compression_depth_mm"),
                     firstInt(payload, "recoilOkCount", null) != null
                             ? firstInt(payload, "recoilOkCount", null)
                             : firstInt(payload, "recoil_ok_count", null),

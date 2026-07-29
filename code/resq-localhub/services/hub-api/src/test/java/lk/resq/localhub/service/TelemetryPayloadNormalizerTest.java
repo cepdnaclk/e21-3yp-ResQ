@@ -53,7 +53,11 @@ class TelemetryPayloadNormalizerTest {
                   "depth_ok": true,
                   "rate_cpm": 111,
                   "compression_count": 1,
+                  "completed_compression_count": 1,
+                  "depth_ok_compression_count": 1,
                   "valid_compression_count": 0,
+                  "last_compression_peak_depth_mm": 63.0,
+                  "average_completed_compression_peak_depth_mm": 63.0,
                   "recoil_ok": true,
                   "recoil_ok_count": 0,
                   "incomplete_recoil_count": 0,
@@ -79,7 +83,11 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.value().rateCpm()).isEqualTo(111.0);
         assertThat(result.value().recoilOk()).isTrue();
         assertThat(result.value().compressionCount()).isEqualTo(1);
+        assertThat(result.value().completedCompressionCount()).isEqualTo(1);
+        assertThat(result.value().depthOkCompressionCount()).isEqualTo(1);
         assertThat(result.value().validCompressionCount()).isZero();
+        assertThat(result.value().lastCompressionPeakDepthMm()).isEqualTo(63.0);
+        assertThat(result.value().averageCompletedCompressionPeakDepthMm()).isEqualTo(63.0);
         assertThat(result.value().recoilOkCount()).isZero();
         assertThat(result.value().incompleteRecoilCount()).isZero();
         assertThat(result.value().handPlacement()).isEqualTo("CENTER");

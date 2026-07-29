@@ -405,8 +405,20 @@ test("simulator status publishes for state sequence boot and reconnect changes",
   simulator.publishStatus();
   simulator.state = "READY_FOR_SESSION";
   simulator.calibrated = true;
+  simulator.calibrationIdentity = {
+    calibration_schema_version: 3,
+    calibration_generation: 1,
+    calibration_storage_status: "VALID",
+    recalibration_required: false,
+    profile_id: "adult-basic",
+    profile_version: 1,
+    profile_hash: "a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f",
+  };
   simulator.publishStatus();
   assert.equal(publications.at(-1).payload.state_seq, 2);
+  assert.equal(publications.at(-1).payload.calibration_schema_version, 3);
+  assert.equal(publications.at(-1).payload.profile_id, "adult-basic");
+  assert.equal(publications.at(-1).payload.profile_version, 1);
 
   simulator.bootId = "61ee328114907a52";
   simulator.publishStatus();

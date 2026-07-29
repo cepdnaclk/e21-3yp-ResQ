@@ -46,6 +46,7 @@ const PRESSURE_CENTER_SCORE_THRESHOLD_PCT = 88;
 const PAUSE_CONDITION_THRESHOLD_S = 1;
 const COMMAND_CACHE_MAX_ENTRIES = 32;
 const COMMAND_CACHE_TTL_MS = 5 * 60 * 1000;
+const CALIBRATION_SCHEMA_VERSION = 3;
 
 const DEFAULTS = {
   deviceId: process.env.DEVICE_ID || "M01",
@@ -77,6 +78,7 @@ class FirmwareSimulator {
     this.client = null;
     this.state = options.simulateError ? "ERROR" : "PAIRED_IDLE";
     this.calibrated = false;
+    this.calibrationIdentity = null;
     this.sessionActive = false;
     this.currentSessionId = options.sessionId;
     this.lastErrorId = options.simulateError ? "06201" : "00000";
@@ -281,6 +283,7 @@ class FirmwareSimulator {
     this.sessionActive = false;
     this.state = "CALIBRATING";
     this.calibrated = false;
+    this.calibrationIdentity = null;
     this.lastErrorId = "00000";
     this.publishStatus();
     this.publishCalibrationEvent({
@@ -334,7 +337,7 @@ class FirmwareSimulator {
           state: this.state,
           reason_id: "06401",
           action_id: ACTION_IDS.CHECK_SENSOR_AND_RETRY,
-          calibration_schema_version: 1,
+          calibration_schema_version: CALIBRATION_SCHEMA_VERSION,
           calibration_generation: 1,
           calibration_storage_status: "INVALID",
           recalibration_required: true,
@@ -349,6 +352,15 @@ class FirmwareSimulator {
 
       this.state = "READY_FOR_SESSION";
       this.calibrated = true;
+      this.calibrationIdentity = {
+        calibration_schema_version: CALIBRATION_SCHEMA_VERSION,
+        calibration_generation: 1,
+        calibration_storage_status: "VALID",
+        recalibration_required: false,
+        profile_id: stringOr(payload.profile_id, this.options.profileId),
+        profile_version: payload.profile_version,
+        profile_hash: payload.profile_hash,
+      };
       this.publishCalibrationEvent({
         event_id: EVENT_IDS.CALIBRATION_FINAL_RESULT,
         reply_id: payload.request_id,
@@ -358,13 +370,7 @@ class FirmwareSimulator {
         state: this.state,
         reason_id: "00000",
         action_id: ACTION_IDS.NO_ACTION_REQUIRED,
-        calibration_schema_version: 1,
-        calibration_generation: 1,
-        calibration_storage_status: "VALID",
-        recalibration_required: false,
-        profile_id: stringOr(payload.profile_id, this.options.profileId),
-        profile_version: payload.profile_version,
-        profile_hash: payload.profile_hash,
+        ...this.calibrationIdentity,
         ts_ms: this.tsMs(),
       });
       this.publishStatus();
@@ -375,6 +381,7 @@ class FirmwareSimulator {
     this.clearCalibrationTimers();
     this.state = "PAIRED_IDLE";
     this.calibrated = false;
+    this.calibrationIdentity = null;
     this.sessionActive = false;
     this.publishCalibrationEvent({
       event_id: EVENT_IDS.CALIBRATION_FINAL_RESULT,
@@ -516,13 +523,25 @@ class FirmwareSimulator {
   }
 
   publishStatus(force = false) {
+    const hasValidCalibrationIdentity = this.calibrated
+      && this.calibrationIdentity
+      && Number.isInteger(this.calibrationIdentity.calibration_schema_version)
+      && Number.isInteger(this.calibrationIdentity.calibration_generation)
+      && this.calibrationIdentity.calibration_storage_status === "VALID"
+      && this.calibrationIdentity.recalibration_required === false
+      && typeof this.calibrationIdentity.profile_id === "string"
+      && Number.isInteger(this.calibrationIdentity.profile_version)
+      && typeof this.calibrationIdentity.profile_hash === "string";
     const effective = {
       state: this.state,
       session_active: this.sessionActive,
-      calibrated: this.calibrated,
+      calibrated: Boolean(hasValidCalibrationIdentity),
       last_error_id: this.lastErrorId,
       boot_id: this.bootId,
     };
+    if (hasValidCalibrationIdentity) {
+      Object.assign(effective, this.calibrationIdentity);
+    }
     if (this.sessionActive || this.state === "SESSION_INTERRUPTED") {
       effective.session_id = this.currentSessionId;
     }

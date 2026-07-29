@@ -37,14 +37,33 @@ class LiveStreamServiceTest {
         assertThat(service.instructorEmitterCount()).isEqualTo(1);
     }
 
+    @Test
+    void terminalSessionEventBypassesDisposableFanoutQueue() {
+        CapturingLiveStreamService service = new CapturingLiveStreamService();
+        service.subscribeSession("session-1", null);
+        service.events.clear();
+        service.payloads.clear();
+
+        service.publishSessionLive("session-1", null);
+
+        assertThat(service.events).containsExactly("session-live");
+        assertThat(service.payloads).containsExactly((Object) null);
+
+        service.publishSessionLive("session-1", null);
+        assertThat(service.events).containsExactly("session-live");
+        service.stopHeartbeat();
+    }
+
     private static final class CapturingLiveStreamService extends LiveStreamService {
         private final List<String> events = new ArrayList<>();
+        private final List<Object> payloads = new ArrayList<>();
         private Runnable lastFailure = () -> {
         };
 
         @Override
         protected void sendEvent(SseEmitter emitter, String eventName, Object payload, Runnable onFailure) {
             events.add(eventName);
+            payloads.add(payload);
             lastFailure = onFailure;
         }
     }

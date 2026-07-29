@@ -85,10 +85,69 @@ public class CalibrationPersistenceRepository {
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_cal_evidences_request ON calibration_evidences(request_id)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_cal_event_logs_device_received ON calibration_event_logs(device_id, received_at DESC)");
                 statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_cal_event_logs_request ON calibration_event_logs(request_id)");
+                reconcileRejectedCalibrationStarts(statement);
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize calibration persistence store at " + databasePath, error);
         }
+    }
+
+    private static void reconcileRejectedCalibrationStarts(Statement statement) throws SQLException {
+        statement.executeUpdate("""
+                UPDATE calibration_evidences AS evidence
+                SET completed_at = COALESCE((
+                        SELECT event.received_at
+                        FROM calibration_event_logs AS event
+                        WHERE event.device_id = evidence.device_id
+                          AND event.request_id = evidence.request_id
+                          AND event.event_id = 4000
+                          AND UPPER(event.status) = 'NACK'
+                        ORDER BY event.id DESC
+                        LIMIT 1
+                    ), evidence.updated_at),
+                    final_result = 'FAIL',
+                    calibration_state = 'FAILED',
+                    ready_for_session_at_completion = 0,
+                    last_reason_id = COALESCE((
+                        SELECT event.reason_id
+                        FROM calibration_event_logs AS event
+                        WHERE event.device_id = evidence.device_id
+                          AND event.request_id = evidence.request_id
+                          AND event.event_id = 4000
+                          AND UPPER(event.status) = 'NACK'
+                        ORDER BY event.id DESC
+                        LIMIT 1
+                    ), evidence.last_reason_id),
+                    firmware_state = COALESCE((
+                        SELECT event.firmware_state
+                        FROM calibration_event_logs AS event
+                        WHERE event.device_id = evidence.device_id
+                          AND event.request_id = evidence.request_id
+                          AND event.event_id = 4000
+                          AND UPPER(event.status) = 'NACK'
+                        ORDER BY event.id DESC
+                        LIMIT 1
+                    ), evidence.firmware_state),
+                    updated_at = COALESCE((
+                        SELECT event.received_at
+                        FROM calibration_event_logs AS event
+                        WHERE event.device_id = evidence.device_id
+                          AND event.request_id = evidence.request_id
+                          AND event.event_id = 4000
+                          AND UPPER(event.status) = 'NACK'
+                        ORDER BY event.id DESC
+                        LIMIT 1
+                    ), evidence.updated_at)
+                WHERE (evidence.final_result IS NULL OR evidence.final_result = 'RUNNING')
+                  AND EXISTS (
+                      SELECT 1
+                      FROM calibration_event_logs AS event
+                      WHERE event.device_id = evidence.device_id
+                        AND event.request_id = evidence.request_id
+                        AND event.event_id = 4000
+                        AND UPPER(event.status) = 'NACK'
+                  )
+                """);
     }
 
     public synchronized void saveEvidence(CalibrationEvidence evidence) {
