@@ -1,6 +1,70 @@
-# Phase 7G-1 — Physical firmware and Unity runtime validation
+# Phase 7G — Physical firmware and Unity runtime validation
 
-## Hardware result
+## Authoritative latest result
+
+```text
+Hardware result: PASS
+Unity physical suite: 249/249 passed
+Production physical runtime: PASS
+```
+
+This result supersedes the initial failed attempt retained later in this file.
+After pressure-2/HX710 reseating, repeated targeted diagnostics passed and the
+full physical Unity rerun completed with:
+
+```text
+249 Tests 0 Failures 0 Ignored
+OK
+```
+
+The current corrected image was also exercised manually at a stable operating
+point:
+
+- provisioning completed in `SENSOR` mode;
+- the calibration page was exercised successfully;
+- corrected calibration completed;
+- a physical session started;
+- depth, scoring, and live metrics were observed;
+- session scoring appeared stable and acceptable.
+
+Result: **PASS — manual stable-point validation**.
+
+No additional numerical measurements are inferred from that manual check.
+Broader physical edge-case validation remains a separate activity and is not
+claimed here.
+
+The successful production calibration used:
+
+```text
+Hall Delta Raw ADC Counts: 240
+Reference Pressure Raw HX710 Counts: 1320000
+Bladder 1 Pressure Raw HX710 Counts: 4150000
+Bladder 2 Pressure Raw HX710 Counts: 4150000
+```
+
+The final production runtime:
+
+- matched all three pressure targets using fresh valid samples;
+- captured stable baselines of Hall 2274, P0 1,329,755, P1 4,164,489, and
+  P2 4,155,259;
+- recognized pressure saturation during a real compression as the expected
+  Hall crossover, not as a terminal sensor failure;
+- recorded crossover Hall delta 151 in the retained serial log;
+- captured a stable full press at Hall 2025, a raw range of 249 counts, and
+  derived the full-depth threshold;
+- saved calibration generation 1 using schema 3 and profile
+  `adult-basic/v1`;
+- published the exact profile hash
+  `a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f`;
+- entered `READY_FOR_SESSION`;
+- produced no task-watchdog, panic, assertion, Guru Meditation, or brownout in
+  the final successful production capture.
+
+The physical firmware was subsequently restored to the production image.
+Later scale work does not require reflashing unless an actual firmware change
+needs physical verification.
+
+## Superseded initial hardware attempt
 
 **BLOCKED — HARDWARE/POWER/SENSOR SETUP INCOMPLETE**
 
