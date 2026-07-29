@@ -1,0 +1,5 @@
+# Netlify / Amplify SPA redirect rule.
+# Without this, any deep link (e.g. /sessions/abc) returns HTTP 404
+# because the static file server looks for a real file at that path.
+# This rule rewrites all paths to index.html so React Router handles routing.
+/*    /index.html    200
