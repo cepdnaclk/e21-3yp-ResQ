@@ -90,9 +90,10 @@ export function TraineeLiveSessionPage({
 
   if (completedSession) {
     const summary = completedSession.summary;
-    const score = summary.score;
-    const isExcellent = score >= 85;
-    const isGood = score >= 70 && score < 85;
+    const score = summary.overallScore ?? summary.score;
+    const scoreAvailable = summary.overallScore !== null && summary.overallScore !== undefined;
+    const isExcellent = score >= 90;
+    const isGood = score >= 75 && score < 90;
     const scoreClass = isExcellent
       ? "bg-emerald-50 text-emerald-600 border-emerald-200"
       : isGood
@@ -139,10 +140,23 @@ export function TraineeLiveSessionPage({
               <div
                 className={`w-32 h-32 rounded-full border flex flex-col items-center justify-center shadow-sm ${scoreClass}`}
               >
-                <span className="text-4xl font-black">{score}%</span>
+                <span className="text-4xl font-black">{scoreAvailable ? `${score}%` : "—"}</span>
                 <span className="text-[9px] font-extrabold uppercase tracking-wider opacity-85">Score</span>
               </div>
             </div>
+
+            <div className="text-sm font-bold text-slate-700">
+              {summary.grade ?? (scoreAvailable ? "Completed" : "Score unavailable")}
+              {summary.scoreProvisional ? " · Provisional" : ""}
+            </div>
+            {summary.scoreCapReason && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+                Score capped at {summary.scoreCap}: {summary.scoreCapReason}
+              </p>
+            )}
+            {summary.recommendation && (
+              <p className="text-xs font-semibold text-slate-600">{summary.recommendation}</p>
+            )}
 
             {/* Metrics list */}
             <div className="grid grid-cols-2 gap-4 text-left pt-2">

@@ -85,6 +85,26 @@ export type SessionSummary = {
   pausesCount: number;
   score: number;
   latestFlags: string | null;
+  scoringVersion?: string | null;
+  overallScore?: number | null;
+  grade?: string | null;
+  depthScore?: number | null;
+  rateScore?: number | null;
+  recoilScore?: number | null;
+  handPlacementScore?: number | null;
+  compressionFractionScore?: number | null;
+  scoreCap?: number | null;
+  scoreCapReason?: string | null;
+  scoreProvisional?: boolean;
+  scoreValidCompressionCount?: number;
+  handPlacementPct?: number | null;
+  compressionFractionPct?: number | null;
+  recommendation?: string | null;
+  depthTarget?: string | null;
+  rateTarget?: string | null;
+  recoilTarget?: string | null;
+  handPlacementTarget?: string | null;
+  compressionFractionTarget?: string | null;
 };
 
 export type SessionEndResponse = {

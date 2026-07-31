@@ -34,26 +34,7 @@ export type SessionStartResponse = {
   recoveryStatus?: SessionRecoveryStatus | null;
 };
 
-export type SessionSummary = {
-  sessionId: string;
-  deviceId: string;
-  traineeId: string | null;
-  startedAt: string;
-  endedAt: string;
-  durationSeconds: number;
-  sampleCount: number;
-  totalCompressions: number;
-  validCompressions: number;
-  avgDepthMm: number;
-  avgDepthProgress: number | null;
-  avgRateCpm: number;
-  recoilPct: number;
-  recoilOkCount: number;
-  incompleteRecoilCount: number;
-  pausesCount: number;
-  score: number;
-  latestFlags: string | null;
-};
+export type SessionSummary = import("../types/session").SessionSummary;
 
 export type CompletedSession = {
   sessionId: string;

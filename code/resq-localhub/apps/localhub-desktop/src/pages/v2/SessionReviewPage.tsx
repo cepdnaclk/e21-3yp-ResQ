@@ -53,27 +53,27 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
     );
   }
 
-  // Derive simple suggestions/improvement areas based on metrics
   const summary = session.summary;
-  let improvementArea = "Excellent performance! Maintain consistent rhythm and chest recoil.";
-  if (summary.avgDepthMm && summary.avgDepthMm < 45) {
+  let improvementArea = summary.recommendation ?? "Excellent performance! Maintain consistent rhythm and chest recoil.";
+  if (!summary.recommendation && summary.avgDepthMm && summary.avgDepthMm < 45) {
     improvementArea = "Focus on compressing deeper to reach the target range of 50-60 mm.";
-  } else if (summary.avgDepthMm && summary.avgDepthMm > 65) {
+  } else if (!summary.recommendation && summary.avgDepthMm && summary.avgDepthMm > 65) {
     improvementArea = "Reduce compression depth slightly to avoid excessive pressure.";
-  } else if (summary.avgRateCpm && summary.avgRateCpm < 100) {
+  } else if (!summary.recommendation && summary.avgRateCpm && summary.avgRateCpm < 100) {
     improvementArea = "Speed up compressions slightly to maintain a steady rhythm of 100-120 compressions per minute.";
-  } else if (summary.avgRateCpm && summary.avgRateCpm > 125) {
+  } else if (!summary.recommendation && summary.avgRateCpm && summary.avgRateCpm > 125) {
     improvementArea = "Slow down compressions slightly. Keep within the recommended rate of 100-120 per minute.";
-  } else if (summary.recoilPct && summary.recoilPct < 85) {
+  } else if (!summary.recommendation && summary.recoilPct && summary.recoilPct < 85) {
     improvementArea = "Ensure you fully release the chest between compressions to allow correct heart refilling.";
-  } else if (summary.pausesCount > 2) {
+  } else if (!summary.recommendation && summary.pausesCount > 2) {
     improvementArea = "Minimize interruptions or pauses during CPR cycles.";
   }
 
-  const score = summary.score ?? 0;
-  const isExcellent = score >= 85;
-  const isGood = score >= 70 && score < 85;
-  const isWarning = score >= 50 && score < 70;
+  const score = summary.overallScore ?? summary.score ?? 0;
+  const scoreAvailable = summary.overallScore !== null && summary.overallScore !== undefined;
+  const isExcellent = score >= 90;
+  const isGood = score >= 75 && score < 90;
+  const isWarning = score >= 60 && score < 75;
 
   const scoreBgColor = isExcellent 
     ? "bg-emerald-50 text-emerald-800 border-emerald-100 shadow-emerald-500/5" 
@@ -130,13 +130,18 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
           {/* Performance Hero card */}
           <div className={`p-6 border rounded-2xl flex flex-col sm:flex-row items-center gap-6 shadow-sm ${scoreBgColor}`}>
             <div className="w-24 h-24 rounded-full border-4 border-current flex flex-col items-center justify-center bg-white shadow-inner shrink-0">
-              <span className={`text-3xl font-black ${scoreTextColor}`}>{score}%</span>
+              <span className={`text-3xl font-black ${scoreTextColor}`}>{scoreAvailable ? `${score}%` : "—"}</span>
               <span className="text-[9px] font-extrabold uppercase text-slate-400">Score</span>
             </div>
             <div className="space-y-1 text-center sm:text-left">
-              <h3 className="text-lg font-bold tracking-tight">Performance Rating</h3>
+              <h3 className="text-lg font-bold tracking-tight">
+                {summary.grade ?? "Performance Rating"}
+                {summary.scoreProvisional ? " · Provisional" : ""}
+              </h3>
               <p className="text-xs leading-relaxed opacity-90 font-medium">
-                {score >= 85 
+                {!scoreAvailable
+                  ? "A score is unavailable because one or more required sensor metrics lack valid evidence."
+                  : score >= 90
                   ? "Outstanding CPR execution. Compression parameters match target clinical guidelines." 
                   : score >= 70 
                   ? "Adequate performance with minor discrepancies in metrics limits. Ready for classroom practice." 
@@ -149,6 +154,38 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-5">Performance Metrics</h3>
             <CompressionQualitySummary summary={summary} />
           </Card>
+          {summary.scoringVersion && summary.scoringVersion !== "legacy-v0" && (
+            <Card>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Score breakdown</h3>
+                <span className="text-[10px] font-bold text-slate-500">{summary.scoringVersion}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {[
+                  ["Depth", summary.depthScore, summary.avgDepthMm == null ? "—" : `${summary.avgDepthMm.toFixed(1)} mm`, summary.depthTarget],
+                  ["Rate", summary.rateScore, summary.avgRateCpm == null ? "—" : `${summary.avgRateCpm.toFixed(0)} cpm`, summary.rateTarget],
+                  ["Recoil", summary.recoilScore, summary.recoilPct == null ? "—" : `${summary.recoilPct.toFixed(0)}%`, summary.recoilTarget],
+                  ["Hand placement", summary.handPlacementScore, summary.handPlacementPct == null ? "—" : `${summary.handPlacementPct.toFixed(0)}%`, summary.handPlacementTarget],
+                  ["Compression fraction", summary.compressionFractionScore, summary.compressionFractionPct == null ? "—" : `${summary.compressionFractionPct.toFixed(0)}%`, summary.compressionFractionTarget],
+                ].map(([label, componentScore, raw, target]) => (
+                  <div key={String(label)} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                    <div className="flex justify-between font-bold text-slate-800"><span>{label}</span><span>{componentScore == null ? "—" : `${componentScore}/100`}</span></div>
+                    <div className="mt-1 flex justify-between text-slate-500"><span>{raw}</span><span>Target: {target ?? "—"}</span></div>
+                  </div>
+                ))}
+              </div>
+              {summary.scoreCapReason && (
+                <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+                  Score capped at {summary.scoreCap}: {summary.scoreCapReason}
+                </p>
+              )}
+              {summary.scoreProvisional && (
+                <p className="mt-3 text-xs font-semibold text-slate-600">
+                  Provisional: {summary.scoreValidCompressionCount ?? 0} valid compressions; more evidence is required for a final result.
+                </p>
+              )}
+            </Card>
+          )}
         </div>
 
         {/* Actionable Insights */}
