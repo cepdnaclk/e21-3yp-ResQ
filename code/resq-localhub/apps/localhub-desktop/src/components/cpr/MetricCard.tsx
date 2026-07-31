@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 type MetricCardProps = {
   label: string;
   value: string;
@@ -23,7 +25,7 @@ const TONE_BG: Record<string, string> = {
   neutral: "border-slate-200 bg-white",
 };
 
-export function MetricCard({
+export const MetricCard = memo(function MetricCard({
   label,
   value,
   status,
@@ -35,7 +37,8 @@ export function MetricCard({
 }: MetricCardProps) {
   return (
     <div
-      className={`rounded-2xl border p-5 flex flex-col justify-between gap-3.5 transition-all duration-300 ${TONE_BG[tone]} shadow-[0_1px_3px_rgba(0,0,0,0.02)]`}
+      aria-label={`${label}: ${value}${unit ? ` ${unit}` : ""}${status ? `. ${status}` : ""}`}
+      className={`rounded-2xl border p-4 flex flex-col justify-between gap-2.5 ${TONE_BG[tone]} shadow-[0_1px_3px_rgba(0,0,0,0.02)]`}
     >
       <div>
         <div className="flex justify-between items-start">
@@ -87,6 +90,6 @@ export function MetricCard({
       )}
     </div>
   );
-}
+});
 
 export default MetricCard;

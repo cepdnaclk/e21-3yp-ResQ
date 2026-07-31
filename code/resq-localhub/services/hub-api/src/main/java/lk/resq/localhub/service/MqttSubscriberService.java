@@ -515,7 +515,7 @@ public class MqttSubscriberService {
                     }
 
                     if (!normalization.warnings().isEmpty()) {
-                        logger.info(
+                        logger.debug(
                                 "Normalized MQTT telemetry for device {} session {} with warnings: {}",
                                 validation.deviceId(),
                                 validation.sessionId(),
@@ -532,7 +532,7 @@ public class MqttSubscriberService {
                     String traineeId = activeSessionService.findActiveSessionForDevice(parsedTopic.deviceId)
                             .map(lk.resq.localhub.model.ActiveSessionInfo::traineeId)
                             .orElse("unknown");
-                    logger.info(
+                    logger.debug(
                             "Processed telemetry: deviceId={}, sessionId={}, traineeId={}, rateCpm={}, compressionCount={}, streamTargets=[instructor SSE, trainee SSE (/api/stream/sessions/live/{})]",
                             parsedTopic.deviceId,
                             normalization.value().sessionId(),
