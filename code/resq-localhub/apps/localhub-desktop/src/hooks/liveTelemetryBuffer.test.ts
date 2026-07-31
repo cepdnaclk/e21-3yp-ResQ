@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LIVE_CHART_MAX_SAMPLES,
+  decimateTelemetry,
   LiveTelemetryRingBuffer,
 } from "./liveTelemetryBuffer";
 
@@ -32,6 +33,16 @@ describe("LiveTelemetryRingBuffer", () => {
   });
 
   it("bounds one minute of chart data at the configured cadence", () => {
-    expect(LIVE_CHART_MAX_SAMPLES).toBe(600);
+    expect(LIVE_CHART_MAX_SAMPLES).toBe(1200);
+  });
+
+  it("decimates visible data while preserving first/last bucket extrema", () => {
+    const samples = Array.from({ length: 1_000 }, (_, timestampMs) => ({
+      timestampMs,
+      depthMm: timestampMs % 11,
+    }));
+    const visible = decimateTelemetry(samples, 200);
+    expect(visible.length).toBeLessThanOrEqual(200);
+    expect(Math.max(...visible.map((sample) => sample.depthMm))).toBe(10);
   });
 });

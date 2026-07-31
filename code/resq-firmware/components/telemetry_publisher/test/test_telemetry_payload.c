@@ -20,6 +20,10 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .depth_progress = 0.92f,
         .depth_mm = 46.0f,
         .depth_mm_valid = true,
+        .depth_mm_live = 46.0f,
+        .depth_mm_live_valid = true,
+        .depth_mm_scored = 45.0f,
+        .depth_mm_scored_valid = true,
         .rate_cpm = 108.0f,
         .completed_compressions = 11,
         .depth_ok_compressions = 9,
@@ -32,6 +36,10 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .incomplete_recoil_count = 3,
         .recoil_pct = 94.0f,
         .recoil_pct_valid = true,
+        .recoil_pct_live = 94.0f,
+        .recoil_pct_live_valid = true,
+        .recoil_pct_scored = 90.0f,
+        .recoil_pct_scored_valid = true,
         .depth_ok = true,
         .recoil_ok = true,
         .last_compression_recoil_ok = true,
@@ -138,6 +146,8 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_contains(payload, "\"state\":\"SESSION_ACTIVE\"");
     assert_contains(payload, "\"depth_mm\":46.000");
     assert_contains(payload, "\"depth_mm_valid\":true");
+    assert_contains(payload, "\"depth_mm_live\":46.000");
+    assert_contains(payload, "\"depth_mm_scored\":45.000");
     assert_contains(payload, "\"depth_progress\":0.920");
     assert_contains(payload, "\"depth_ok\":true");
     assert_contains(payload, "\"rate_cpm\":108.0");
@@ -153,6 +163,8 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_contains(payload, "\"average_compression_depth_mm\":54.250");
     assert_contains(payload, "\"recoil_ok\":true");
     assert_contains(payload, "\"recoil_pct\":94.00");
+    assert_contains(payload, "\"recoil_percent_live\":94.00");
+    assert_contains(payload, "\"recoil_percent_scored\":90.00");
     assert_contains(payload, "\"recoil_ok_count\":14");
     assert_contains(payload, "\"incomplete_recoil_count\":3");
     assert_contains(payload, "\"pause_s\":0.250");

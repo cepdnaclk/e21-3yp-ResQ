@@ -5,6 +5,7 @@ import {
   LIVE_CHART_INTERVAL_MS,
   LIVE_CHART_WINDOW_MS,
   LiveTelemetryRingBuffer,
+  decimateTelemetry,
 } from "./liveTelemetryBuffer";
 
 export interface RollingSample {
@@ -94,7 +95,7 @@ export function useRollingTelemetry({
       bufferRef.current.push(pending);
       bufferRef.current.pruneBefore(pending.timestampMs - LIVE_CHART_WINDOW_MS);
       lastPublishedAtRef.current = performance.now();
-      setData(bufferRef.current.toArray());
+      setData(decimateTelemetry(bufferRef.current.toArray()));
     };
 
     const elapsed = performance.now() - lastPublishedAtRef.current;

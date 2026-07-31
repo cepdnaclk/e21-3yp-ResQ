@@ -53,11 +53,15 @@ export type LiveMetricPayload = {
   tsMs?: number | null;
   timestamp?: string | number | null;
   depthMm: number | null;
+  /** Stable five-sample mean followed by EMA; scoring only. */
+  depthMmScored?: number | null;
   depthProgress?: number | null;
   depthOk?: boolean | null;
   rateCpm: number | null;
   recoilOk: boolean | null;
   recoilPct?: number | null;
+  /** Stable five-compression mean followed by EMA; scoring only. */
+  recoilPctScored?: number | null;
   recoilOkCount?: number | null;
   incompleteRecoilCount?: number | null;
   pauseS: number | null;

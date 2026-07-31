@@ -29,6 +29,7 @@
 
 #define SENSOR_STREAM_PAYLOAD_SIZE 1792u
 #define SESSION_TELEMETRY_PAYLOAD_SIZE 2304u
+#define SESSION_TELEMETRY_INTERVAL_MS 50u
 
 static TaskHandle_t s_task = NULL;
 static TaskHandle_t s_sensor_stream_task = NULL;
@@ -654,10 +655,22 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         snprintf(depth_mm_json, sizeof(depth_mm_json), "%.3f",
                  normalized.depth_mm);
     }
+    char depth_mm_scored_json[32] = "null";
+    if (normalized.depth_mm_scored_valid &&
+        isfinite(normalized.depth_mm_scored)) {
+        snprintf(depth_mm_scored_json, sizeof(depth_mm_scored_json), "%.3f",
+                 normalized.depth_mm_scored);
+    }
     char recoil_pct_json[32] = "null";
     if (normalized.recoil_pct_valid && isfinite(normalized.recoil_pct)) {
         snprintf(recoil_pct_json, sizeof(recoil_pct_json), "%.2f",
                  normalized.recoil_pct);
+    }
+    char recoil_pct_scored_json[32] = "null";
+    if (normalized.recoil_pct_scored_valid &&
+        isfinite(normalized.recoil_pct_scored)) {
+        snprintf(recoil_pct_scored_json, sizeof(recoil_pct_scored_json),
+                 "%.2f", normalized.recoil_pct_scored);
     }
 
     int written = snprintf(out_payload, out_payload_len,
@@ -667,6 +680,10 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         "\"depth_progress\":%.3f,"
         "\"depth_mm\":%s,"
         "\"depth_mm_valid\":%s,"
+        "\"depth_mm_live\":%s,"
+        "\"depth_mm_live_valid\":%s,"
+        "\"depth_mm_scored\":%s,"
+        "\"depth_mm_scored_valid\":%s,"
         "\"depth_ok\":%s,"
         "\"rate_cpm\":%.1f,"
         "\"compression_count\":%d,"
@@ -680,6 +697,10 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         "\"average_compression_depth_mm\":%.3f,"
         "\"recoil_ok\":%s,"
         "\"recoil_pct\":%s,"
+        "\"recoil_percent_live\":%s,"
+        "\"recoil_percent_live_valid\":%s,"
+        "\"recoil_percent_scored\":%s,"
+        "\"recoil_percent_scored_valid\":%s,"
         "\"recoil_ok_count\":%d,"
         "\"incomplete_recoil_count\":%d,"
         "\"pause_s\":%.3f,"
@@ -694,6 +715,10 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         normalized.depth_progress,
         depth_mm_json,
         normalized.depth_mm_valid ? "true" : "false",
+        depth_mm_json,
+        normalized.depth_mm_live_valid ? "true" : "false",
+        depth_mm_scored_json,
+        normalized.depth_mm_scored_valid ? "true" : "false",
         normalized.depth_ok ? "true" : "false",
         normalized.rate_cpm,
         normalized.total_compressions,
@@ -706,6 +731,10 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
         normalized.average_completed_compression_peak_depth_mm,
         normalized.recoil_ok ? "true" : "false",
         recoil_pct_json,
+        recoil_pct_json,
+        normalized.recoil_pct_live_valid ? "true" : "false",
+        recoil_pct_scored_json,
+        normalized.recoil_pct_scored_valid ? "true" : "false",
         normalized.recoil_ok_count,
         normalized.incomplete_recoil_count,
         normalized.pause_s,
@@ -768,7 +797,7 @@ static void telemetry_task(void *arg)
             task_diagnostics_record_stack_watermark("telemetry_task");
         }
 
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(200));
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(SESSION_TELEMETRY_INTERVAL_MS));
     }
 
 telemetry_exit:

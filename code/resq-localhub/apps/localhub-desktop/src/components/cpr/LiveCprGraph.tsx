@@ -1,10 +1,9 @@
 import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
   ResponsiveContainer,
   ReferenceArea,
   ReferenceLine,
@@ -28,26 +27,10 @@ const WaveformPlot = memo(function WaveformPlot({
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 15, right: 10, left: -25, bottom: 5 }}>
-        <defs>
-          <linearGradient id="depthColor" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#0284c7" stopOpacity={0.2} />
-            <stop offset="95%" stopColor="#0284c7" stopOpacity={0} />
-          </linearGradient>
-        </defs>
+      <LineChart data={data} margin={{ top: 15, right: 10, left: -25, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
         <XAxis dataKey="time" stroke="#94a3b8" style={{ fontSize: "8px", fontWeight: 700 }} />
         <YAxis stroke="#94a3b8" style={{ fontSize: "8px", fontWeight: 700 }} domain={[0, 70]} />
-        <Tooltip
-          contentStyle={{
-            background: "#ffffff",
-            borderColor: "#e2e8f0",
-            borderRadius: "12px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
-          }}
-          labelClassName="text-slate-400 text-[10px] font-bold"
-          itemStyle={{ fontSize: "11px", fontWeight: "bold", color: "#1e293b" }}
-        />
         <ReferenceArea y1={50} y2={60} fill="#0284c7" fillOpacity={0.06} />
         <ReferenceLine
           y={50}
@@ -87,17 +70,17 @@ const WaveformPlot = memo(function WaveformPlot({
             fontWeight: 700,
           }}
         />
-        <Area
-          type="monotone"
+        <Line
+          type="linear"
           dataKey="depthMm"
           stroke="#0284c7"
           strokeWidth={2.5}
-          fillOpacity={1}
-          fill="url(#depthColor)"
+          dot={false}
+          activeDot={false}
           name="Depth (mm)"
           isAnimationActive={false}
         />
-      </AreaChart>
+      </LineChart>
     </ResponsiveContainer>
   );
 });
