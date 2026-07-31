@@ -98,7 +98,7 @@ export function RecentSessionsPage({ onSelectSession }: RecentSessionsPageProps)
   }
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="app-page space-y-6">
       <PageHeader
         title="Session History"
         subtitle="Review past CPR training performance records and export report logs."

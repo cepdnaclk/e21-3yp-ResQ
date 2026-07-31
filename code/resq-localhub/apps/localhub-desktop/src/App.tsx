@@ -333,6 +333,7 @@ export default function App() {
       onLogout={handleLogout}
       page={activeShellKey}
       setPage={handlePageChange}
+      contentMode={currentRoute.name === "instructor-live" ? "dashboard" : "document"}
     >
       <Suspense fallback={routeFallback}>
         {currentRoute.name === "home" && (

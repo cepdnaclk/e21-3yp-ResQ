@@ -220,7 +220,7 @@ export function StartSessionWizardPage({ onRunCalibration }: StartSessionWizardP
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 select-none">
+    <div className="app-page app-page--narrow space-y-6 select-none">
       <PageHeader
         title="Start Training Session"
         subtitle="Configure and start a supervised real-time CPR session."

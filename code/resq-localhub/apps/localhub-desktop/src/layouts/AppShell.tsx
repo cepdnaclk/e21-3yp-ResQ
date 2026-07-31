@@ -9,6 +9,7 @@ type AppShellProps = {
   onLogout: () => void;
   page: string;
   setPage: (page: any) => void;
+  contentMode?: "document" | "dashboard";
   children: ReactNode;
 };
 
@@ -24,6 +25,7 @@ export function AppShell({
   onLogout,
   page,
   setPage,
+  contentMode = "document",
   children,
 }: AppShellProps) {
   const [navOpen, setNavOpen] = useState(false);
@@ -77,8 +79,8 @@ export function AppShell({
   const connectionLabel = connectionHealthy ? "LocalHub Connected" : "LocalHub Unavailable";
 
   return (
-    <div className="min-h-screen bg-[#f5f7f8] flex flex-col md:flex-row font-sans antialiased text-slate-800">
-      <aside className="hidden md:flex w-[248px] bg-[#09242c] flex-col justify-between shrink-0 text-slate-300">
+    <div className="h-screen min-h-0 overflow-hidden bg-[#f5f7f8] flex flex-col md:flex-row font-sans antialiased text-slate-800">
+      <aside className="hidden md:flex h-full w-[232px] xl:w-[248px] bg-[#09242c] flex-col justify-between shrink-0 text-slate-300">
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="px-5 py-5 border-b border-white/10 flex items-center gap-3">
             <div className="w-9 h-9 rounded-[10px] bg-teal-600 flex items-center justify-center p-1.5 shrink-0 shadow-sm">
@@ -127,8 +129,8 @@ export function AppShell({
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-h-screen">
-        <header className="bg-white border-b border-slate-200/70 px-4 sm:px-6 py-3.5 flex items-center justify-between">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <header className="shrink-0 bg-white border-b border-slate-200/70 px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -175,7 +177,14 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+        <main
+          data-content-mode={contentMode}
+          className={
+            contentMode === "dashboard"
+              ? "flex-1 min-h-0 min-w-0 overflow-hidden p-3 sm:p-4 w-full"
+              : "flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-4 sm:p-5 lg:p-6 w-full"
+          }
+        >
           {children}
         </main>
       </div>

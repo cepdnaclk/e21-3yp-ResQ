@@ -117,7 +117,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-50 font-sans text-slate-900 md:flex">
+    <div className="h-screen overflow-y-auto overflow-x-hidden bg-slate-50 font-sans text-slate-900 md:flex">
       {/* Left Branding Panel */}
       <aside className="flex min-h-[220px] flex-col justify-between bg-[#0a232c] px-6 py-7 text-white sm:px-8 md:min-h-screen md:basis-[41%] md:px-10 md:py-10 xl:px-14">
         <div className="flex items-center gap-3">

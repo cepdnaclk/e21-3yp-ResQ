@@ -900,7 +900,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   }, [targets]);
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto pb-12">
+    <div className="app-page app-page--medium space-y-5 pb-8">
       {/* Warning Stream Error */}
       {streamError && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-pulse">

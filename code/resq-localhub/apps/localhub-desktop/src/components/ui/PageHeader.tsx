@@ -9,7 +9,7 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, subtitle, actions, back }: PageHeaderProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-5 mb-6">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-100 pb-4 mb-5">
       <div className="space-y-1">
         {back && (
           <button
@@ -29,7 +29,7 @@ export function PageHeader({ title, subtitle, actions, back }: PageHeaderProps) 
             {back.label}
           </button>
         )}
-        <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight leading-none">
+        <h1 className="text-xl sm:text-2xl font-extrabold text-slate-800 tracking-tight leading-tight">
           {title}
         </h1>
         {subtitle && (
@@ -39,7 +39,7 @@ export function PageHeader({ title, subtitle, actions, back }: PageHeaderProps) 
         )}
       </div>
       {actions && (
-        <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-center">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0 self-start sm:self-center">
           {actions}
         </div>
       )}

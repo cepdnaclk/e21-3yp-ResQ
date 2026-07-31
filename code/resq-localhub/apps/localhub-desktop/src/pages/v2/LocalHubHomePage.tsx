@@ -340,7 +340,7 @@ export function LocalHubHomePage({ onOpenInstructorDashboard }: LocalHubHomePage
     visibleAttentionItems[0].tone === "info";
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto">
+    <div className="app-page space-y-5">
       <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Overview</h1>

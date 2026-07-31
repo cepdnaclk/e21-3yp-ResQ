@@ -94,7 +94,7 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
   const isInstructorOrAdmin = currentUser?.role === "ADMIN" || currentUser?.role === "INSTRUCTOR";
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
+    <div className="app-page app-page--medium space-y-6">
       {/* Page Header with Reports downloads */}
       <PageHeader
         title="Training Session Review"

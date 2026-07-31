@@ -15,7 +15,7 @@ export function AccessDeniedPage({ onBackToHome }: AccessDeniedPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="h-screen overflow-auto bg-gray-50 flex items-center justify-center p-4">
       <Card className="max-w-md w-full text-center py-12 px-6">
         <div className="mx-auto w-12 h-12 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-black text-xl mb-4">
           !
