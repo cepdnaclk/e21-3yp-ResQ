@@ -1,5 +1,7 @@
 package lk.resq.localhub.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionSummary;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +24,8 @@ import java.util.Optional;
 
 @Service
 public class LocalSessionRepository {
+
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
 
     private final Path databasePath;
     private final String jdbcUrl;
@@ -77,6 +81,7 @@ public class LocalSessionRepository {
                 ensureColumn(connection, "session_metrics", "avg_depth_progress", "REAL");
                 ensureColumn(connection, "session_metrics", "recoil_ok_count", "INTEGER NOT NULL DEFAULT 0");
                 ensureColumn(connection, "session_metrics", "incomplete_recoil_count", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumn(connection, "session_metrics", "scoring_details", "TEXT");
                 ensureColumn(connection, "sessions", "trainee_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "course_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "instructor_id", "TEXT NULL");
@@ -105,8 +110,8 @@ public class LocalSessionRepository {
                     """);
                  PreparedStatement metricsStatement = connection.prepareStatement("""
                     INSERT INTO session_metrics (
-                                            session_id, sample_count, total_compressions, valid_compressions, duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm, recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count, score, latest_flags
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            session_id, sample_count, total_compressions, valid_compressions, duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm, recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count, score, latest_flags, scoring_details
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
                                             sample_count = excluded.sample_count,
                                             total_compressions = excluded.total_compressions,
@@ -120,7 +125,8 @@ public class LocalSessionRepository {
                                             incomplete_recoil_count = excluded.incomplete_recoil_count,
                       pauses_count = excluded.pauses_count,
                       score = excluded.score,
-                      latest_flags = excluded.latest_flags
+                      latest_flags = excluded.latest_flags,
+                      scoring_details = excluded.scoring_details
                     """)) {
 
                 sessionStatement.setString(1, session.sessionId());
@@ -140,19 +146,20 @@ public class LocalSessionRepository {
                 metricsStatement.setInt(3, summary.totalCompressions());
                 metricsStatement.setInt(4, summary.validCompressions());
                 metricsStatement.setLong(5, summary.durationSeconds());
-                metricsStatement.setDouble(6, summary.avgDepthMm());
+                setNullableDouble(metricsStatement, 6, summary.avgDepthMm());
                 if (summary.avgDepthProgress() == null) {
                     metricsStatement.setNull(7, java.sql.Types.REAL);
                 } else {
                     metricsStatement.setDouble(7, summary.avgDepthProgress());
                 }
-                metricsStatement.setDouble(8, summary.avgRateCpm());
-                metricsStatement.setDouble(9, summary.recoilPct());
+                setNullableDouble(metricsStatement, 8, summary.avgRateCpm());
+                setNullableDouble(metricsStatement, 9, summary.recoilPct());
                 metricsStatement.setInt(10, summary.recoilOkCount());
                 metricsStatement.setInt(11, summary.incompleteRecoilCount());
                 metricsStatement.setInt(12, summary.pausesCount());
                 metricsStatement.setInt(13, summary.score());
                 metricsStatement.setString(14, summary.latestFlags());
+                metricsStatement.setString(15, serializeSummary(summary));
                 metricsStatement.executeUpdate();
 
                 connection.commit();
@@ -190,7 +197,8 @@ public class LocalSessionRepository {
                        m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
-                       m.latest_flags
+                       m.latest_flags,
+                       m.scoring_details
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
                      WHERE s.session_id = ?
@@ -234,7 +242,8 @@ public class LocalSessionRepository {
                        m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
-                       m.latest_flags
+                       m.latest_flags,
+                       m.scoring_details
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
                      ORDER BY s.ended_at DESC
@@ -276,7 +285,8 @@ public class LocalSessionRepository {
                        m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
-                       m.latest_flags
+                       m.latest_flags,
+                       m.scoring_details
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
                      WHERE 1=0
@@ -317,6 +327,8 @@ public class LocalSessionRepository {
     }
 
     private SessionEndResponse mapRow(ResultSet resultSet) throws SQLException {
+        String scoringDetails = resultSet.getString("scoring_details");
+        SessionSummary storedSummary = deserializeSummary(scoringDetails);
         SessionSummary summary = new SessionSummary(
                 resultSet.getString("session_id"),
                 resultSet.getString("device_id"),
@@ -337,6 +349,9 @@ public class LocalSessionRepository {
                 resultSet.getInt("score"),
                 resultSet.getString("latest_flags")
         );
+        if (storedSummary != null) {
+            summary = storedSummary;
+        }
 
         return new SessionEndResponse(
                 resultSet.getString("session_id"),
@@ -351,6 +366,29 @@ public class LocalSessionRepository {
                 resultSet.getString("course_id"),
                 resultSet.getString("instructor_id")
         );
+    }
+
+    private static void setNullableDouble(PreparedStatement statement, int index, Double value)
+            throws SQLException {
+        if (value == null) statement.setNull(index, java.sql.Types.REAL);
+        else statement.setDouble(index, value);
+    }
+
+    private static String serializeSummary(SessionSummary summary) {
+        try {
+            return JSON.writeValueAsString(summary);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Failed to serialize scoring details", error);
+        }
+    }
+
+    private static SessionSummary deserializeSummary(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return JSON.readValue(json, SessionSummary.class);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Failed to deserialize scoring details", error);
+        }
     }
 
     private Connection openConnection() throws SQLException {

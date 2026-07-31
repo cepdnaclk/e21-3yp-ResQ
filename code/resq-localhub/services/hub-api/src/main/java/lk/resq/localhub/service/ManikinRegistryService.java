@@ -162,11 +162,13 @@ public class ManikinRegistryService {
                     firstLong(payload, null, "tsMs", "ts_ms"),
                     jsonValue(payload.get("timestamp")),
                     state.latestDepthMm,
+                    firstDouble(payload, null, "depthMmScored", "depth_mm_scored"),
                     payloadDepthProgress,
                     firstBoolean(payload, null, "depthOk", "depth_ok"),
                     state.latestRateCpm,
                     state.latestRecoilOk,
                     firstDouble(payload, null, "recoilPct", "recoil_pct"),
+                    firstDouble(payload, null, "recoilPctScored", "recoil_percent_scored"),
                     state.latestPauseS,
                     compressionCount,
                     firstInt(payload, "completedCompressionCount", null) != null

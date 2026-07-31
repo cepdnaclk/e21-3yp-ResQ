@@ -905,7 +905,9 @@ class ActiveSessionServiceTest {
         assertThat(completed.summary().avgRateCpm()).isEqualTo(110.0);
         assertThat(completed.summary().recoilPct()).isEqualTo(50.0);
         assertThat(completed.summary().pausesCount()).isEqualTo(1);
-        assertThat(completed.summary().score()).isEqualTo(75);
+        assertThat(completed.summary().overallScore()).isNull();
+        assertThat(completed.summary().grade()).isEqualTo("Unavailable");
+        assertThat(completed.summary().scoreCapReason()).contains("required scoring evidence");
     }
 
     @Test
@@ -935,8 +937,9 @@ class ActiveSessionServiceTest {
         SessionEndResponse completed =
                 completeStop(service, session.sessionId());
         assertThat(completed.summary().totalCompressions()).isZero();
-        assertThat(completed.summary().avgDepthMm()).isZero();
+        assertThat(completed.summary().avgDepthMm()).isNull();
         assertThat(completed.summary().score()).isZero();
+        assertThat(completed.summary().overallScore()).isNull();
     }
 
     private ActiveSessionService newService() throws Exception {

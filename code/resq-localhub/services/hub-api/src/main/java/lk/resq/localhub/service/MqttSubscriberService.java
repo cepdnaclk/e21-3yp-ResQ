@@ -501,15 +501,14 @@ public class MqttSubscriberService {
                     }
 
                     JsonNode normalizedPayload = objectMapper.valueToTree(normalization.value());
-                    ActiveSessionService.TelemetryValidationResult validation =
-                            activeSessionService.validateTelemetryBinding(parsedTopic.deviceId, payload);
-                    if (!validation.accepted()) {
+                    if (!activeSessionService.recordNormalizedTelemetry(
+                            parsedTopic.deviceId, payload, normalization)) {
                         rejectedTelemetryCount.incrementAndGet();
                         logger.warn(
                                 "Rejected session telemetry for device {} session {}: {}",
                                 parsedTopic.deviceId,
                                 normalization.value().sessionId(),
-                                validation.reason()
+                                "active-session binding rejected"
                         );
                         return;
                     }
@@ -517,15 +516,15 @@ public class MqttSubscriberService {
                     if (!normalization.warnings().isEmpty()) {
                         logger.debug(
                                 "Normalized MQTT telemetry for device {} session {} with warnings: {}",
-                                validation.deviceId(),
-                                validation.sessionId(),
+                                normalization.value().deviceId(),
+                                normalization.value().sessionId(),
                                 normalization.warnings()
                         );
                     }
 
+                    /* Forward live state first; persistence and registry updates are noncritical. */
                     persistCanonicalMessage(envelope.canonicalTopic(), parsedTopic, normalizedPayload);
                     manikinRegistryService.updateFromTelemetry(parsedTopic.deviceId, normalizedPayload);
-                    activeSessionService.recordTelemetry(parsedTopic.deviceId, normalizedPayload);
                     acceptedTelemetryCount.incrementAndGet();
                     publishInstructorLiveSnapshot();
 

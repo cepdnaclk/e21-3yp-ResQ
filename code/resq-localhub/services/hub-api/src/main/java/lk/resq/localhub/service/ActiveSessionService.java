@@ -1220,6 +1220,17 @@ public class ActiveSessionService {
     }
 
     public TelemetryValidationResult validateTelemetryBinding(String topicDeviceId, JsonNode payload) {
+        String fallbackSessionId = activeSessionIdByDeviceId.get(normalize(topicDeviceId));
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                TelemetryPayloadNormalizer.normalize(payload, topicDeviceId, fallbackSessionId, rateEstimatorRegistry);
+        return validateTelemetryBinding(topicDeviceId, payload, normalization);
+    }
+
+    private TelemetryValidationResult validateTelemetryBinding(
+            String topicDeviceId,
+            JsonNode payload,
+            TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization
+    ) {
         String normalizedDeviceId = normalize(topicDeviceId);
         if (normalizedDeviceId == null) {
             return TelemetryValidationResult.rejected("topic deviceId is missing");
@@ -1266,8 +1277,6 @@ public class ActiveSessionService {
             return TelemetryValidationResult.rejected("device active session does not match payload sessionId");
         }
 
-        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                TelemetryPayloadNormalizer.normalize(payload, normalizedDeviceId, payloadSessionId, rateEstimatorRegistry);
         if (!normalization.ok()) {
             return TelemetryValidationResult.rejected(normalization.reason());
         }
@@ -1290,28 +1299,32 @@ public class ActiveSessionService {
     }
 
     public void recordTelemetry(String deviceId, JsonNode payload) {
-        TelemetryValidationResult validation = validateTelemetryBinding(deviceId, payload);
+        String fallbackSessionId = activeSessionIdByDeviceId.get(normalize(deviceId));
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
+                TelemetryPayloadNormalizer.normalize(payload, deviceId, fallbackSessionId, rateEstimatorRegistry);
+        recordNormalizedTelemetry(deviceId, payload, normalization);
+    }
+
+    boolean recordNormalizedTelemetry(
+            String deviceId,
+            JsonNode payload,
+            TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization
+    ) {
+        TelemetryValidationResult validation = validateTelemetryBinding(deviceId, payload, normalization);
         if (!validation.accepted()) {
             logger.info("Rejected telemetry for device {}: {}", deviceId, validation.reason());
-            return;
-        }
-
-        TelemetryPayloadNormalizer.TelemetryNormalizationResult normalization =
-                TelemetryPayloadNormalizer.normalize(payload, deviceId, validation.sessionId(), rateEstimatorRegistry);
-        if (!normalization.ok()) {
-            logger.info("Rejected telemetry for device {}: {}", deviceId, normalization.reason());
-            return;
+            return false;
         }
 
         ActiveSessionState state = sessionsById.get(validation.sessionId());
         if (state == null || !acceptsSessionTelemetry(state)) {
             logger.info("Rejected telemetry for device {}: session disappeared before recording", deviceId);
-            return;
+            return false;
         }
 
         LiveMetricPayload metric = normalization.value();
         state.accumulator.record(
-                metric.depthMm(),
+                metric.depthMmScored() != null ? metric.depthMmScored() : metric.depthMm(),
                 metric.depthProgress(),
                 metric.rateCpm(),
                 metric.recoilOk(),
@@ -1324,6 +1337,7 @@ public class ActiveSessionService {
                 metric.averageCompletedCompressionPeakDepthMm(),
                 metric.recoilOkCount(),
                 metric.incompleteRecoilCount(),
+                metric.handPlacement(),
                 flagsToString(metric.flags())
         );
         if (metric.seq() != null) {
@@ -1333,10 +1347,11 @@ public class ActiveSessionService {
         state.latestMetric = metric;
         state.latestMetricReceivedAt = Instant.now();
         state.updatedAt = now();
+        /* Live feedback is latency-sensitive; durable checkpointing follows it. */
+        getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         if (shouldCheckpoint(state)) {
             persistRuntimeState(state, false);
         }
-        getSessionLiveView(state.sessionId).ifPresent(view -> liveStreamService.publishSessionLive(state.sessionId, view));
         logger.debug(
             "Counted telemetry for active session {} on device {} (sampleCount={}, depthMm={}, depthProgress={}, rateCpm={}, recoilOk={}, pauseS={})",
             state.sessionId,
@@ -1348,6 +1363,7 @@ public class ActiveSessionService {
             metric.recoilOk(),
             metric.pauseS()
         );
+        return true;
     }
 
     public Optional<SessionLiveView> findActiveSessionForTrainee(AuthUser actor) {
@@ -2052,6 +2068,9 @@ public class ActiveSessionService {
             int recoilTrueCount,
             int recoilFalseCount,
             int pausesCount,
+            double totalPauseSeconds,
+            int placementEvaluatedCount,
+            int placementCorrectCount,
             Double lastDepthMm,
             Double lastDepthProgress,
             Double lastRateCpm,
@@ -2079,6 +2098,9 @@ public class ActiveSessionService {
         private int recoilTrueCount;
         private int recoilFalseCount;
         private int pausesCount;
+        private double totalPauseSeconds;
+        private int placementEvaluatedCount;
+        private int placementCorrectCount;
         private Double lastDepthMm;
         private Double lastDepthProgress;
         private Double lastRateCpm;
@@ -2100,6 +2122,7 @@ public class ActiveSessionService {
                 Double incomingAverageCompletedCompressionPeakDepthMm,
                 Integer recoilOkCount,
                 Integer incompleteRecoilCount,
+                String handPlacement,
                 String flags
         ) {
             sampleCount++;
@@ -2111,11 +2134,23 @@ public class ActiveSessionService {
                 totalCompressions =
                         Math.max(totalCompressions, compressionCount);
             }
+            int previousCompletedCompressions = completedCompressions;
             if (completedCompressionCount != null) {
                 hasCompletedCompressionCount = true;
                 completedCompressions =
                         Math.max(completedCompressions,
                                 completedCompressionCount);
+            }
+            int newlyCompleted = Math.max(0, completedCompressions - previousCompletedCompressions);
+            if (newlyCompleted > 0 && handPlacement != null &&
+                    !handPlacement.equalsIgnoreCase("UNAVAILABLE") &&
+                    !handPlacement.equalsIgnoreCase("UNKNOWN") &&
+                    !handPlacement.equalsIgnoreCase("NO_CONTACT")) {
+                placementEvaluatedCount += newlyCompleted;
+                if (handPlacement.equalsIgnoreCase("CENTER") ||
+                        handPlacement.equalsIgnoreCase("CENTERED")) {
+                    placementCorrectCount += newlyCompleted;
+                }
             }
             if (depthOkCompressionCount != null) {
                 depthOkCompressions =
@@ -2177,6 +2212,10 @@ public class ActiveSessionService {
                 pausesCount++;
                 lastPauseS = pauseS;
             }
+            if (compressionStarted && totalCompressions > 1 && pauseS != null &&
+                    Double.isFinite(pauseS) && pauseS > 0.0) {
+                totalPauseSeconds += pauseS;
+            }
 
             if (flags != null) {
                 latestFlags = flags;
@@ -2230,6 +2269,9 @@ public class ActiveSessionService {
                     recoilTrueCount,
                     recoilFalseCount,
                     pausesCount,
+                    totalPauseSeconds,
+                    placementEvaluatedCount,
+                    placementCorrectCount,
                     lastDepthMm,
                     lastDepthProgress,
                     lastRateCpm,
@@ -2263,6 +2305,9 @@ public class ActiveSessionService {
             recoilTrueCount = snapshot.recoilTrueCount();
             recoilFalseCount = snapshot.recoilFalseCount();
             pausesCount = snapshot.pausesCount();
+            totalPauseSeconds = snapshot.totalPauseSeconds();
+            placementEvaluatedCount = snapshot.placementEvaluatedCount();
+            placementCorrectCount = snapshot.placementCorrectCount();
             lastDepthMm = snapshot.lastDepthMm();
             lastDepthProgress = snapshot.lastDepthProgress();
             lastRateCpm = snapshot.lastRateCpm();
@@ -2278,14 +2323,14 @@ public class ActiveSessionService {
             int scoredCompressions = hasCompletedCompressionCount
                     ? completedCompressions
                     : totalCompressions;
-            double avgDepthMm =
+            Double avgDepthMm =
                     hasCompletedCompressionCount
                         ? completedCompressions > 0
                                 && averageCompletedCompressionPeakDepthMm != null
                             ? averageCompletedCompressionPeakDepthMm
-                            : 0.0
+                            : null
                         : depthSampleCount == 0
-                                ? 0.0
+                                ? null
                                 : depthSumMm / depthSampleCount;
             Double avgDepthProgress = null;
             if (completedCompressions > 0
@@ -2296,8 +2341,14 @@ public class ActiveSessionService {
                 avgDepthProgress =
                         depthProgressSum / depthProgressSampleCount;
             }
-            double avgRateCpm = rateSampleCount == 0 ? 0.0 : rateSumCpm / rateSampleCount;
-            double recoilPct = totalRecoilSamples == 0 ? 0.0 : (recoilTrueCount * 100.0) / totalRecoilSamples;
+            Double avgRateCpm = rateSampleCount == 0 ? null : rateSumCpm / rateSampleCount;
+            Double recoilPct = totalRecoilSamples == 0 ? null : (recoilTrueCount * 100.0) / totalRecoilSamples;
+            Double handPlacementPct = placementEvaluatedCount == 0 ? null :
+                    (placementCorrectCount * 100.0) / placementEvaluatedCount;
+            Double compressionFractionPct = durationSeconds <= 0 ? null :
+                    Math.max(0.0, Math.min(100.0,
+                            100.0 * (durationSeconds - Math.min(durationSeconds, totalPauseSeconds)) /
+                                    durationSeconds));
 
             logger.info(
                     "Computed summary from telemetry (sessionId={}, sampleCount={}, depthSampleCount={}, depthProgressSampleCount={}, recoilTrueCount={}, recoilFalseCount={}, pausesCount={})",
@@ -2310,90 +2361,26 @@ public class ActiveSessionService {
                     pausesCount
             );
 
-            SessionSummary baseSummary = new SessionSummary(
-                    sessionId,
-                    deviceId,
-                    traineeId,
-                    startedAt,
-                    endedAt,
-                    durationSeconds,
-                        totalSamples,
-                        scoredCompressions,
-                        validCompressions,
-                    avgDepthMm,
-                        avgDepthProgress,
-                    avgRateCpm,
-                    recoilPct,
-                        recoilTrueCount,
-                        recoilFalseCount,
-                    pausesCount,
-                    0,
-                    latestFlags
-            );
-
-            return new SessionSummary(
-                    baseSummary.sessionId(),
-                    baseSummary.deviceId(),
-                    baseSummary.traineeId(),
-                    baseSummary.startedAt(),
-                    baseSummary.endedAt(),
-                    baseSummary.durationSeconds(),
-                    baseSummary.sampleCount(),
-                    baseSummary.totalCompressions(),
-                    baseSummary.validCompressions(),
-                    baseSummary.avgDepthMm(),
-                    baseSummary.avgDepthProgress(),
-                    baseSummary.avgRateCpm(),
-                    baseSummary.recoilPct(),
-                    baseSummary.recoilOkCount(),
-                    baseSummary.incompleteRecoilCount(),
-                    baseSummary.pausesCount(),
-                    calculateScore(baseSummary),
-                    baseSummary.latestFlags()
-            );
-        }
-
-        private int calculateScore(SessionSummary summary) {
-            if (summary.totalCompressions() <= 0) {
-                return 0;
-            }
-
-            double depthDistance =
-                    summary.avgDepthMm() < 50.0
-                            ? 50.0 - summary.avgDepthMm()
-                            : summary.avgDepthMm() > 60.0
-                                ? summary.avgDepthMm() - 60.0
-                                : 0.0;
-            double depthTargetScore =
-                    Math.max(0.0, 40.0 - depthDistance * 2.0);
-
-            double rateDistance =
-                    summary.avgRateCpm() < 100.0
-                            ? 100.0 - summary.avgRateCpm()
-                            : summary.avgRateCpm() > 120.0
-                                ? summary.avgRateCpm() - 120.0
-                                : 0.0;
-            double rateTargetScore =
-                    Math.max(0.0, 30.0 - rateDistance);
-            double recoilScore =
-                    Math.max(0.0,
-                             Math.min(20.0,
-                                      summary.recoilPct() * 0.2));
-            double validCompressionScore =
-                    Math.min(10.0,
-                             10.0 * summary.validCompressions()
-                                     / Math.max(1.0,
-                                                summary.totalCompressions()));
-            double pausePenalty =
-                    Math.min(10.0,
-                             summary.pausesCount()
-                                     * (10.0
-                                        / Math.max(1.0,
-                                                   summary.totalCompressions())));
-            double rawScore =
-                    depthTargetScore + rateTargetScore + recoilScore
-                            + validCompressionScore - pausePenalty;
-            return (int) Math.round(Math.max(0.0, Math.min(100.0, rawScore)));
+            int evidenceCount = scoredCompressions;
+            CprScoringCalculator.Result result =
+                    avgDepthMm == null || avgRateCpm == null || recoilPct == null ||
+                            handPlacementPct == null || compressionFractionPct == null
+                            ? CprScoringCalculator.Result.unavailable(
+                                    CprScoringCalculator.CONFIG.version(), evidenceCount)
+                            : CprScoringCalculator.score(new CprScoringCalculator.Input(
+                                    avgDepthMm, avgRateCpm, recoilPct, handPlacementPct,
+                                    compressionFractionPct, evidenceCount));
+            int legacyScore = result.overallScore() == null ? 0 : result.overallScore();
+            return new SessionSummary(sessionId, deviceId, traineeId, startedAt, endedAt,
+                    durationSeconds, totalSamples, scoredCompressions, validCompressions,
+                    avgDepthMm, avgDepthProgress, avgRateCpm, recoilPct, recoilTrueCount,
+                    recoilFalseCount, pausesCount, legacyScore, latestFlags, result.version(),
+                    result.overallScore(), result.grade(), result.depthScore(), result.rateScore(),
+                    result.recoilScore(), result.handPlacementScore(),
+                    result.compressionFractionScore(), result.scoreCap(), result.scoreCapReason(),
+                    result.provisional(), result.validCompressionCount(), handPlacementPct,
+                    compressionFractionPct, result.recommendation(), "50–60 mm",
+                    "100–120 cpm", "≥90% complete", "≥90% centered", "≥80%");
         }
     }
 }
