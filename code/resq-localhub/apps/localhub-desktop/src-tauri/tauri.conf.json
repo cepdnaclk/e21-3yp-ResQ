@@ -33,7 +33,8 @@
       "resources/hub-api/resq-hub-api.jar": "hub-api/resq-hub-api.jar",
       "resources/config/application-release.properties": "config/application-release.properties",
       "resources/jre": "jre",
-      "resources/mosquitto": "mosquitto"
+      "resources/mosquitto": "mosquitto",
+      "resources/web-dashboard": "web-dashboard"
     }
   }
 }

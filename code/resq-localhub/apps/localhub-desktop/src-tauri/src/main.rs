@@ -3,12 +3,18 @@
 mod api_service;
 mod broker_service;
 mod commands;
+mod lan_web_server;
 mod process_lifecycle;
 
 use tauri::Manager;
 
 fn stop_managed_services(app_handle: &tauri::AppHandle) {
     eprintln!("Stopping all LocalHub managed services");
+    let lan_web_state = app_handle.state::<lan_web_server::LanWebServerState>();
+    if let Err(error) = lan_web_state.stop() {
+        eprintln!("Failed to stop student dashboard server during shutdown: {error}");
+    }
+
     let api_state = app_handle.state::<api_service::ApiServiceState>();
     if let Err(error) = api_state.stop() {
         eprintln!("Failed to stop backend during shutdown: {error}");
@@ -25,6 +31,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(api_service::ApiServiceState::default())
         .manage(broker_service::BrokerServiceState::default())
+        .manage(lan_web_server::LanWebServerState::default())
         .setup(|app| {
             eprintln!("LocalHub setup started");
             let app_handle = app.handle().clone();
@@ -42,17 +49,41 @@ fn main() {
 
             eprintln!("API start requested");
             let api_state = app.state::<api_service::ApiServiceState>();
-            match api_state.start_with_app(&app_handle) {
+            let backend_ready = match api_state.start_with_app(&app_handle) {
                 Ok(status) => {
                     eprintln!(
                         "API start completed with status: state={}, running={}, pid={:?}",
                         status.state, status.running, status.pid
                     );
+                    true
                 }
                 Err(error) => {
                     eprintln!("Failed to auto-start backend: {error}");
                     eprintln!("Backend startup failed; rolling back services started earlier");
                     stop_managed_services(&app_handle);
+                    false
+                }
+            };
+
+            if backend_ready {
+                let lan_web_state = app.state::<lan_web_server::LanWebServerState>();
+                #[cfg(debug_assertions)]
+                {
+                    let status = lan_web_state.observe_development_server();
+                    eprintln!(
+                        "Vite dashboard status: running={}, url={:?}, error={:?}",
+                        status.running, status.url, status.error
+                    );
+                }
+                #[cfg(not(debug_assertions))]
+                match lan_web_state.start_with_app(&app_handle) {
+                    Ok(status) => eprintln!(
+                        "Student dashboard server ready: running={}, url={:?}",
+                        status.running, status.url
+                    ),
+                    Err(error) => {
+                        eprintln!("Failed to start student dashboard server: {error}");
+                    }
                 }
             }
 
@@ -72,6 +103,8 @@ fn main() {
             commands::get_service_log_paths,
             commands::refresh_pairing_token,
             commands::save_provisioning_config,
+            lan_web_server::get_student_dashboard_status,
+            lan_web_server::refresh_student_dashboard_address,
             api_service::start_api_service,
             api_service::stop_api_service,
             api_service::get_api_service_status,

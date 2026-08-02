@@ -1,9 +1,11 @@
 import {
+  cpSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -16,6 +18,8 @@ const backendTargetDir = join(backendDir, "target");
 const resourcesDir = join(desktopDir, "src-tauri", "resources");
 const packagedJarPath = join(resourcesDir, "hub-api", "resq-hub-api.jar");
 const packagedRuntimeDir = join(resourcesDir, "jre");
+const frontendDistDir = join(desktopDir, "dist");
+const packagedWebDashboardDir = join(resourcesDir, "web-dashboard");
 
 const runtimeModules = [
   "java.base",
@@ -119,9 +123,27 @@ function buildJavaRuntime() {
   console.log(`Packaged Java runtime: ${packagedRuntimeDir}`);
 }
 
+function buildWebDashboard() {
+  if (process.platform === "win32") {
+    run("cmd.exe", ["/d", "/s", "/c", "npm.cmd", "run", "build"], desktopDir);
+  } else {
+    run("npm", ["run", "build"], desktopDir);
+  }
+
+  if (!existsSync(join(frontendDistDir, "index.html"))) {
+    throw new Error(`Vite did not produce ${join(frontendDistDir, "index.html")}`);
+  }
+
+  rmSync(packagedWebDashboardDir, { recursive: true, force: true });
+  cpSync(frontendDistDir, packagedWebDashboardDir, { recursive: true });
+  writeFileSync(join(packagedWebDashboardDir, ".gitkeep"), "");
+  console.log(`Packaged student dashboard: ${packagedWebDashboardDir}`);
+}
+
 try {
   buildBackendJar();
   buildJavaRuntime();
+  buildWebDashboard();
 } catch (error) {
   console.error(`Release preparation failed: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

@@ -53,6 +53,8 @@ code/resq-firmware/test/resq_firmware_unity_report.json
 code/resq-firmware/deploy_test/.venv/
 code/resq-firmware/deploy_test/config.toml
 code/resq-firmware/deploy_test/evidence/
+code/resq-localhub/apps/localhub-desktop/src-tauri/resources/web-dashboard/*
+!code/resq-localhub/apps/localhub-desktop/src-tauri/resources/web-dashboard/.gitkeep
 
 # Java/Maven build artifacts
 **/target/

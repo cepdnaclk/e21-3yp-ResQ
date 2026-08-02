@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "prepare:release": "node tools/prepare-release.mjs",
-    "build:release": "npm run prepare:release && npm run build",
+    "build:release": "npm run prepare:release",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",

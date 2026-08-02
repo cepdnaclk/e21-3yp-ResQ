@@ -5,26 +5,42 @@ function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/g, "");
 }
 
-export function getLocalServiceHost(): string {
-  if (typeof window === "undefined") {
+type BrowserLocation = Pick<Location, "hostname" | "protocol">;
+
+function resolveServiceHost(location?: BrowserLocation): string {
+  if (!location) {
     return "127.0.0.1";
   }
 
-  const { hostname, protocol } = window.location;
-  if (!hostname || protocol === "tauri:" || TAURI_HOSTNAMES.has(hostname)) {
+  const { hostname, protocol } = location;
+  if (!hostname || protocol === "tauri:" || protocol === "file:" || TAURI_HOSTNAMES.has(hostname)) {
     return "127.0.0.1";
   }
 
   return hostname;
 }
 
-export function getHubApiBaseUrl(): string {
-  const configuredUrl = import.meta.env.VITE_HUB_API_BASE_URL;
-  if (typeof configuredUrl === "string" && configuredUrl.trim()) {
+export function resolveLocalHubApiBase(
+  location?: BrowserLocation,
+  configuredUrl?: string,
+): string {
+  if (configuredUrl?.trim()) {
     return normalizeBaseUrl(configuredUrl);
   }
 
-  return `http://${getLocalServiceHost()}:${DEFAULT_HUB_API_PORT}`;
+  return `http://${resolveServiceHost(location)}:${DEFAULT_HUB_API_PORT}`;
+}
+
+export function getLocalServiceHost(): string {
+  return resolveServiceHost(typeof window === "undefined" ? undefined : window.location);
+}
+
+export function getHubApiBaseUrl(): string {
+  const configuredUrl = import.meta.env.VITE_HUB_API_BASE_URL;
+  return resolveLocalHubApiBase(
+    typeof window === "undefined" ? undefined : window.location,
+    typeof configuredUrl === "string" ? configuredUrl : undefined,
+  );
 }
 
 export function isTauriRuntime(): boolean {

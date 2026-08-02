@@ -8,6 +8,7 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import StatusBadge from "../../components/ui/StatusBadge";
 import LoadingState from "../../components/ui/LoadingState";
+import StudentTabletAccessPanel from "../../components/StudentTabletAccessPanel";
 import { useAuth } from "../../auth/AuthContext";
 import type { ManikinLiveSummary } from "../../types/manikin";
 import type { CompletedSession, SyncQueueItem } from "../../types/session";
@@ -215,6 +216,10 @@ export function LocalHubHomePage({ onOpenInstructorDashboard }: LocalHubHomePage
     [manikins],
   );
 
+  const shareableSession = activeSessions.find(
+    (manikin) => Boolean(manikin.activeSessionId && manikin.activeTraineeId),
+  );
+
   const traineeMap = useMemo(() => {
     const map = new Map<string, string>();
     trainees.forEach((trainee) => map.set(trainee.id, trainee.displayName));
@@ -404,6 +409,12 @@ export function LocalHubHomePage({ onOpenInstructorDashboard }: LocalHubHomePage
           destination={activeSessions.length > 0 ? "/live-sessions" : undefined}
         />
       </section>
+
+      <StudentTabletAccessPanel
+        backendAvailable={health?.ok === true}
+        activeSessionId={shareableSession?.activeSessionId}
+        canShareActiveSession={currentUser?.role === "INSTRUCTOR" || currentUser?.role === "ADMIN"}
+      />
 
       {visibleAttentionItems.length > 0 ? (
         <section aria-labelledby="attention-title">

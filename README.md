@@ -70,6 +70,16 @@ e21-3yp-ResQ/
 
 The packaged Windows application brings together the Tauri desktop shell, React frontend, Spring Boot backend, Mosquitto broker, bundled Java runtime, release configuration, and local SQLite-backed data storage. End users should install a published release instead of manually assembling these runtime components.
 
+### Student tablet connection
+
+1. Start ResQ Local Hub and keep it running during training.
+2. Connect the instructor PC and tablet to the same Wi-Fi network or Windows mobile hotspot.
+3. Open **Student Tablet Access** on the LocalHub Overview page.
+4. Scan the displayed QR code or copy the dashboard link to the tablet.
+5. Sign in as the assigned trainee and open the active session.
+
+The dashboard uses port `1420`, browser REST/SSE traffic uses backend port `18080`, and MQTT port `1883` is used by devices and backend services—not tablet browsers. Internet access is not required for local training. See [Student tablet access](code/resq-localhub/docs/student-tablet-access.md) for firewall and network troubleshooting.
+
 ## Installation
 
 [Download ResQ Local Hub v1.0.0](https://github.com/cepdnaclk/e21-3yp-ResQ/releases/tag/v1.0.0)
@@ -175,6 +185,7 @@ See the [firmware Unity test guide](code/resq-firmware/test/README.md) for execu
 | [CPR scoring method](docs/CPR_SCORING_METHOD.md) | Authoritative score inputs, targets, weights, and formulas |
 | [MQTT security modes](code/resq-localhub/docs/mqtt-security.md) | Development and secured broker configurations |
 | [Local demo runbook](code/resq-localhub/docs/local-demo-runbook.md) | Windows-first LocalHub demonstration workflow |
+| [Student tablet access](code/resq-localhub/docs/student-tablet-access.md) | LAN dashboard, QR workflow, ports, firewall, and troubleshooting |
 | [Calibration hardening report](docs/calibration-hardening-report.md) | Calibration reliability findings and verification |
 | [Physical hardware validation](docs/integration-checkup/2026-07-28/phase-07-hardware-validation.md) | Retained firmware and hardware validation record |
 

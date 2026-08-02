@@ -42,6 +42,15 @@ export type ServiceLogPaths = {
   brokerLogPath: string;
 };
 
+export type StudentDashboardStatus = {
+  running: boolean;
+  port: number;
+  lanIp: string | null;
+  url: string | null;
+  backendUrl: string | null;
+  error: string | null;
+};
+
 // Keep the backend URL in one place so it is easy to change later.
 export const HUB_API_BASE_URL = getHubApiBaseUrl();
 
@@ -82,6 +91,14 @@ export async function getNetworkInfo(): Promise<NetworkInfo> {
 
 export async function getServiceLogPaths(): Promise<ServiceLogPaths> {
   return invoke<ServiceLogPaths>("get_service_log_paths");
+}
+
+export async function getStudentDashboardStatus(): Promise<StudentDashboardStatus> {
+  return invoke<StudentDashboardStatus>("get_student_dashboard_status");
+}
+
+export async function refreshStudentDashboardAddress(): Promise<StudentDashboardStatus> {
+  return invoke<StudentDashboardStatus>("refresh_student_dashboard_address");
 }
 
 function isHubHealthResponse(value: unknown): value is HubHealthResponse {

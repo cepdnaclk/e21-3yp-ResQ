@@ -57,47 +57,42 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
 }
 
 fn pick_best_ipv4(interfaces: &[(String, IpAddr)]) -> Option<Ipv4Addr> {
-    // First pass: ignore loopback + link-local to prefer actual LAN addresses.
-    let pass_one = best_candidate(interfaces, false);
-    if pass_one.is_some() {
-        return pass_one;
-    }
-
-    // Fallback: allow link-local if nothing better exists.
-    best_candidate(interfaces, true)
+    best_candidate(interfaces)
 }
 
-fn best_candidate(interfaces: &[(String, IpAddr)], allow_link_local: bool) -> Option<Ipv4Addr> {
+fn best_candidate(interfaces: &[(String, IpAddr)]) -> Option<Ipv4Addr> {
     interfaces
         .iter()
         .filter_map(|(name, ip)| match ip {
             IpAddr::V4(v4) => Some((name, *v4)),
             IpAddr::V6(_) => None,
         })
-        .filter(|(_, ip)| !ip.is_loopback() && !ip.is_unspecified())
-        .filter(|(_, ip)| allow_link_local || !is_link_local_ipv4(*ip))
-        .max_by_key(|(name, ip)| score_ipv4(name, *ip))
+        .filter(|(_, ip)| {
+            ip.is_private()
+                && !ip.is_loopback()
+                && !ip.is_unspecified()
+                && !is_link_local_ipv4(*ip)
+        })
+        .max_by_key(|(name, _)| score_ipv4(name))
         .map(|(_, ip)| ip)
 }
 
-fn score_ipv4(interface_name: &str, ip: Ipv4Addr) -> i32 {
+fn score_ipv4(interface_name: &str) -> i32 {
     let mut score = 0;
 
-    if ip.is_private() {
-        score += 100;
-    }
-
-    if is_link_local_ipv4(ip) {
-        score -= 50;
-    }
+    score += 100;
 
     let lowered = interface_name.to_lowercase();
     if lowered.contains("ethernet") || lowered.contains("wi-fi") || lowered.contains("wlan") {
-        score += 10;
+        score += 25;
     }
 
-    if lowered.contains("virtual") || lowered.contains("vethernet") {
-        score -= 10;
+    if lowered.contains("virtual")
+        || lowered.contains("vethernet")
+        || lowered.contains("vpn")
+        || lowered.contains("tunnel")
+    {
+        score -= 25;
     }
 
     score
@@ -114,7 +109,14 @@ fn detect_ipv4_via_udp() -> Option<Ipv4Addr> {
     socket.connect("8.8.8.8:80").ok()?;
 
     match socket.local_addr().ok()?.ip() {
-        IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_unspecified() => Some(v4),
+        IpAddr::V4(v4)
+            if v4.is_private()
+                && !v4.is_loopback()
+                && !v4.is_unspecified()
+                && !is_link_local_ipv4(v4) =>
+        {
+            Some(v4)
+        }
         _ => None,
     }
 }
@@ -344,4 +346,60 @@ fn validate_provisioning_config(config: &ProvisioningConfig) -> Result<(), Strin
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_physical_ipv4_is_preferred_over_virtual_adapter() {
+        let interfaces = vec![
+            (
+                "vEthernet (Default Switch)".to_string(),
+                IpAddr::V4(Ipv4Addr::new(172, 20, 0, 1)),
+            ),
+            (
+                "Wi-Fi".to_string(),
+                IpAddr::V4(Ipv4Addr::new(192, 168, 8, 100)),
+            ),
+        ];
+
+        assert_eq!(
+            pick_best_ipv4(&interfaces),
+            Some(Ipv4Addr::new(192, 168, 8, 100))
+        );
+    }
+
+    #[test]
+    fn loopback_link_local_and_public_addresses_are_excluded() {
+        let interfaces = vec![
+            ("Loopback".to_string(), IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            (
+                "Ethernet".to_string(),
+                IpAddr::V4(Ipv4Addr::new(169, 254, 10, 20)),
+            ),
+            (
+                "Ethernet 2".to_string(),
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)),
+            ),
+        ];
+
+        assert_eq!(pick_best_ipv4(&interfaces), None);
+    }
+
+    #[test]
+    fn all_supported_private_ranges_are_eligible() {
+        for ip in [
+            Ipv4Addr::new(10, 1, 2, 3),
+            Ipv4Addr::new(172, 16, 2, 3),
+            Ipv4Addr::new(172, 31, 2, 3),
+            Ipv4Addr::new(192, 168, 2, 3),
+        ] {
+            assert_eq!(
+                pick_best_ipv4(&[("Ethernet".to_string(), IpAddr::V4(ip))]),
+                Some(ip)
+            );
+        }
+    }
 }
