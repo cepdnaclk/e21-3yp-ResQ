@@ -7,12 +7,15 @@ import LiveCoachingBanner from "./LiveCoachingBanner";
 import LiveCprGraph from "./LiveCprGraph";
 import SessionCard from "./SessionCard";
 import { useRollingTelemetry } from "../../hooks/useRollingTelemetry";
+import { normalizeTelemetry } from "../../utils/telemetryNormalization";
 
 vi.mock("recharts", () => {
   const ChartPart = ({ children, ...props }: any) => <g data-chart-part={props.dataKey ?? props.name ?? "part"}>{children}</g>;
   return {
     AreaChart: ({ children }: any) => <svg data-chart-part="chart">{children}</svg>,
+    LineChart: ({ children }: any) => <svg data-chart-part="chart">{children}</svg>,
     Area: ChartPart,
+    Line: ChartPart,
     XAxis: ChartPart,
     YAxis: ChartPart,
     CartesianGrid: ChartPart,
@@ -178,17 +181,33 @@ describe("CPR display components", () => {
 
   it("renders graph empty, live, and stale states with current metrics", () => {
     vi.mocked(useRollingTelemetry).mockReturnValueOnce([]);
-    const { rerender } = render(<LiveCprGraph session={liveSession as any} />);
+    const { rerender } = render(
+      <LiveCprGraph
+        session={liveSession as any}
+        normalized={normalizeTelemetry(liveSession as any)}
+      />,
+    );
     expect(screen.getByText("Waiting for compression data...")).toBeInTheDocument();
 
-    rerender(<LiveCprGraph session={liveSession as any} />);
+    rerender(
+      <LiveCprGraph
+        session={liveSession as any}
+        normalized={normalizeTelemetry(liveSession as any)}
+      />,
+    );
     expect(screen.getByText("Compression Depth Waveform")).toBeInTheDocument();
     expect(screen.getByText("Live Waveform")).toBeInTheDocument();
     expect(screen.getByText("108 CPM")).toBeInTheDocument();
-    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(screen.getByText("96%")).toBeInTheDocument();
     expect(screen.getByText("Centered")).toBeInTheDocument();
 
-    rerender(<LiveCprGraph session={{ ...liveSession, online: false, offline: true } as any} />);
+    const staleSession = { ...liveSession, online: false, offline: true };
+    rerender(
+      <LiveCprGraph
+        session={staleSession as any}
+        normalized={normalizeTelemetry(staleSession as any)}
+      />,
+    );
     expect(screen.getByText("Connection Stale")).toBeInTheDocument();
   });
 

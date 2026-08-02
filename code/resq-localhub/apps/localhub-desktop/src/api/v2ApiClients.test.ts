@@ -80,7 +80,11 @@ describe("V2 API clients", () => {
     await traineesApi.archiveTrainee("t/2");
 
     expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:18080/api/sessions/start");
-    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:18080/api/sessions/s%2F1");
+    const completedSessionUrl = new URL(String(fetchMock.mock.calls[3][0]));
+    expect(completedSessionUrl.origin + completedSessionUrl.pathname).toBe(
+      "http://localhost:18080/api/sessions/s%2F1",
+    );
+    expect(completedSessionUrl.searchParams.has("completionRead")).toBe(true);
     expect(fetchMock.mock.calls[5][0]).toBe("http://localhost:18080/api/courses/c%2F1");
     expect(fetchMock.mock.calls[9][0]).toBe("http://localhost:18080/api/trainees/t%2F1");
     expect(exportsApi.getSessionJsonExportUrl("s/1")).toBe("http://localhost:18080/api/export/sessions/s%2F1.json");

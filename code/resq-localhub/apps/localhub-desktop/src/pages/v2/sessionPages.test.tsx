@@ -7,7 +7,12 @@ import AccessDeniedPage from "./AccessDeniedPage";
 import { fetchLiveManikins } from "../../api/manikinsApi";
 import { subscribeToManikinsLive } from "../../api/liveEventsClient";
 import { fetchTrainees } from "../../api/traineesApi";
-import { endSession, fetchCompletedSession, fetchCompletedSessions, fetchSyncQueue } from "../../api/sessionsApi";
+import {
+  endSession,
+  fetchAuthoritativeCompletedSession,
+  fetchCompletedSessions,
+  fetchSyncQueue,
+} from "../../api/sessionsApi";
 import { downloadSessionCsv, downloadSessionJson } from "../../api/exportsApi";
 import { useAuth } from "../../auth/AuthContext";
 
@@ -23,12 +28,16 @@ vi.mock("../../api/traineesApi", () => ({
   fetchTrainees: vi.fn(),
 }));
 
-vi.mock("../../api/sessionsApi", () => ({
-  endSession: vi.fn(),
-  fetchCompletedSession: vi.fn(),
-  fetchCompletedSessions: vi.fn(),
-  fetchSyncQueue: vi.fn(),
-}));
+vi.mock("../../api/sessionsApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/sessionsApi")>();
+  return {
+    ...actual,
+    endSession: vi.fn(),
+    fetchAuthoritativeCompletedSession: vi.fn(),
+    fetchCompletedSessions: vi.fn(),
+    fetchSyncQueue: vi.fn(),
+  };
+});
 
 vi.mock("../../api/exportsApi", () => ({
   downloadSessionCsv: vi.fn(),
@@ -83,7 +92,7 @@ beforeEach(() => {
   vi.mocked(subscribeToManikinsLive).mockReturnValue({ stop: vi.fn() });
   vi.mocked(endSession).mockResolvedValue({ state: "STOP_PENDING" } as any);
   vi.mocked(fetchCompletedSessions).mockResolvedValue([completedSession as any]);
-  vi.mocked(fetchCompletedSession).mockResolvedValue(completedSession as any);
+  vi.mocked(fetchAuthoritativeCompletedSession).mockResolvedValue(completedSession as any);
   vi.mocked(fetchSyncQueue).mockResolvedValue([{ entityId: "session-1", syncStatus: "PENDING" }] as any);
   vi.mocked(useAuth).mockReturnValue({
     currentUser: { id: "admin", username: "admin", displayName: "Admin", role: "ADMIN" },
@@ -135,9 +144,9 @@ describe("V2 session pages", () => {
 
     render(<RecentSessionsPage onSelectSession={onSelectSession} />);
 
-    expect(await screen.findByText("trainee-1")).toBeInTheDocument();
-    expect(screen.getByText("Pending sync")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Review details"));
+    expect(await screen.findAllByText("trainee-1")).not.toHaveLength(0);
+    expect(screen.getAllByText("Pending sync").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "Review details" })[0]);
     expect(onSelectSession).toHaveBeenCalledWith("session-1");
 
     fireEvent.change(screen.getByPlaceholderText("Search by trainee identifier or course..."), {
@@ -175,7 +184,7 @@ describe("V2 session pages", () => {
     expect(screen.queryByText("Export CSV Session Report")).not.toBeInTheDocument();
     unmount();
 
-    vi.mocked(fetchCompletedSession).mockRejectedValueOnce(new Error("missing"));
+    vi.mocked(fetchAuthoritativeCompletedSession).mockRejectedValueOnce(new Error("missing"));
     render(<SessionReviewPage sessionId="missing" onBack={onBack} />);
     expect(await screen.findByText("Review Unavailable")).toBeInTheDocument();
   });

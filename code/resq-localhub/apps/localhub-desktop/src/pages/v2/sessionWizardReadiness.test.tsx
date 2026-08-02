@@ -150,8 +150,15 @@ describe("StartSessionWizardPage and ManikinReadinessPage", () => {
 
   it("renders readiness setup, saves good pressure targets, and opens readiness tab", async () => {
     const onBack = vi.fn();
+    const onRunCalibration = vi.fn();
 
-    render(<ManikinReadinessPage deviceId="manikin-1" onBack={onBack} />);
+    render(
+      <ManikinReadinessPage
+        deviceId="manikin-1"
+        onBack={onBack}
+        onRunCalibration={onRunCalibration}
+      />,
+    );
 
     expect(await screen.findByText("Manikin Setup & Readiness")).toBeInTheDocument();
     expect(screen.getByText("Adult Basic")).toBeInTheDocument();
@@ -163,10 +170,11 @@ describe("StartSessionWizardPage and ManikinReadinessPage", () => {
 
     fireEvent.change(screen.getByDisplayValue("3000"), { target: { value: "1000" } });
     fireEvent.click(screen.getByText("Save Pressure Setup"));
-    expect(screen.getByText("Readiness panel manikin-1")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Device Readiness" })).toBeInTheDocument();
+    expect(screen.getByText("Device Fully Ready")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Start Training Session"));
-    expect(onBack).toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Calibrate"));
+    expect(onRunCalibration).toHaveBeenCalledWith("manikin-1");
   });
 
   it("renders readiness error, empty profile, and no-device states", async () => {

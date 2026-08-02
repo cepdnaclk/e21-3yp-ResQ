@@ -3,16 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import InstructorLiveSessionPage from "./InstructorLiveSessionPage";
 import TraineeLiveSessionPage from "./TraineeLiveSessionPage";
 import PairManikinPage from "./PairManikinPage";
-import { fetchSessionLive, fetchCompletedSession, endSession } from "../../api/sessionsApi";
+import {
+  fetchSessionLive,
+  fetchCompletedSession,
+  fetchAuthoritativeCompletedSession,
+  endSession,
+} from "../../api/sessionsApi";
 import { subscribeToSessionLive } from "../../api/liveEventsClient";
 import { useAuth } from "../../auth/AuthContext";
 import { fetchHubServiceInfo } from "../../lib/browserManikinsProvisionApi";
 
-vi.mock("../../api/sessionsApi", () => ({
-  fetchSessionLive: vi.fn(),
-  fetchCompletedSession: vi.fn(),
-  endSession: vi.fn(),
-}));
+vi.mock("../../api/sessionsApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/sessionsApi")>();
+  return {
+    ...actual,
+    fetchSessionLive: vi.fn(),
+    fetchCompletedSession: vi.fn(),
+    fetchAuthoritativeCompletedSession: vi.fn(),
+    endSession: vi.fn(),
+  };
+});
 
 vi.mock("../../api/liveEventsClient", () => ({
   subscribeToSessionLive: vi.fn(),
@@ -115,6 +125,15 @@ const completedSession = {
     avgRateCpm: 110,
     recoilPct: 94,
     pausesCount: 0,
+    scoringVersion: "moderate-v1",
+    overallScore: 88,
+    grade: "Good",
+    depthScore: 88,
+    rateScore: 88,
+    recoilScore: 88,
+    handPlacementScore: 88,
+    compressionFractionScore: 88,
+    scoreProvisional: false,
   },
 };
 
@@ -130,6 +149,7 @@ beforeEach(() => {
   sessionLiveHandlers.length = 0;
   vi.mocked(fetchSessionLive).mockResolvedValue(liveSession as any);
   vi.mocked(fetchCompletedSession).mockResolvedValue(completedSession as any);
+  vi.mocked(fetchAuthoritativeCompletedSession).mockResolvedValue(completedSession as any);
   vi.mocked(endSession).mockResolvedValue({
     active: true,
     state: "STOP_PENDING",
@@ -167,7 +187,7 @@ describe("live session and manikin pairing pages", () => {
     fireEvent.click(screen.getByText("End Session"));
     await waitFor(() => expect(endSession).toHaveBeenCalledWith({ sessionId: "session-1" }));
     expect(screen.getByText("Stopping session. Waiting for firmware confirmation.")).toBeInTheDocument();
-    expect(screen.getByText("Stopping...")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ending session…" })).toBeDisabled();
 
     act(() => {
       sessionLiveHandlers[0].onUpdate({
@@ -179,8 +199,8 @@ describe("live session and manikin pairing pages", () => {
       sessionLiveHandlers[0].onEnded();
     });
 
-    expect(await screen.findByText("Session completed.")).toBeInTheDocument();
-    expect(onSessionEnded).toHaveBeenCalledWith("session-1");
+    expect(await screen.findByText("Session completed. Loading final score…")).toBeInTheDocument();
+    await waitFor(() => expect(onSessionEnded).toHaveBeenCalledWith("session-1"));
   });
 
   it("shows instructor unavailable state and routes back through the supplied callback", async () => {
@@ -210,7 +230,10 @@ describe("live session and manikin pairing pages", () => {
 
     expect(await screen.findByText("Session completed")).toBeInTheDocument();
     expect(screen.getByText("88%")).toBeInTheDocument();
-    expect(fetchCompletedSession).toHaveBeenCalledWith("session-1");
+    expect(fetchAuthoritativeCompletedSession).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(onSessionEnded).not.toHaveBeenCalled();
   });
 
@@ -220,7 +243,9 @@ describe("live session and manikin pairing pages", () => {
     render(<TraineeLiveSessionPage sessionId="missing-session" onSessionEnded={vi.fn()} />);
 
     expect(await screen.findByText("Session Closed")).toBeInTheDocument();
-    expect(screen.getByText("The active session could not be found.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The requested live session was not found or has already ended."),
+    ).toBeInTheDocument();
   });
 
   it("builds, copies, opens, clears, and completes a manikin provisioning QR", async () => {
