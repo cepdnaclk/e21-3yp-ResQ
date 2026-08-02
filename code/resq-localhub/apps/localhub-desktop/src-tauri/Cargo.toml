@@ -1,6 +1,6 @@
 [package]
 name = "localhub-desktop"
-version = "0.1.1"
+version = "1.0.0"
 description = "ResQ Local Hub desktop shell"
 authors = ["ResQ Team"]
 edition = "2021"
