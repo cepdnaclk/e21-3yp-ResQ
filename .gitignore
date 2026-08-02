@@ -1,9 +1,16 @@
 # OS and editor files
 .DS_Store
 Thumbs.db
-.vscode/
 .vs/
 .idea/
+
+# Local development and deployment configuration
+.ebextensions/
+.github/workflows/
+.vscode/
+
+# Local release artifacts
+release/
 
 # Logs and temp files
 *.log
@@ -51,6 +58,10 @@ code/resq-firmware/deploy_test/evidence/
 **/target/
 
 # Local runtime data
+*.db
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 code/resq-localhub/mosquitto/data/
 code/resq-localhub/mosquitto/log/
 docs/integration-checkup/**/phase-07-runs/**/*.sqlite
