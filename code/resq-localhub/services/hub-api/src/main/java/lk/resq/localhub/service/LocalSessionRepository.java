@@ -63,10 +63,10 @@ public class LocalSessionRepository {
                                                     total_compressions INTEGER NOT NULL DEFAULT 0,
                                                     valid_compressions INTEGER NOT NULL DEFAULT 0,
                           duration_seconds INTEGER NOT NULL,
-                          avg_depth_mm REAL NOT NULL,
+                          avg_depth_mm REAL,
                                                     avg_depth_progress REAL,
-                          avg_rate_cpm REAL NOT NULL,
-                          recoil_pct REAL NOT NULL,
+                          avg_rate_cpm REAL,
+                          recoil_pct REAL,
                                                     recoil_ok_count INTEGER NOT NULL DEFAULT 0,
                                                     incomplete_recoil_count INTEGER NOT NULL DEFAULT 0,
                           pauses_count INTEGER NOT NULL,
@@ -85,6 +85,7 @@ public class LocalSessionRepository {
                 ensureColumn(connection, "sessions", "trainee_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "course_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "instructor_id", "TEXT NULL");
+                migrateNullableEvidenceColumns(connection);
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize local SQLite store at " + databasePath, error);
@@ -366,6 +367,73 @@ public class LocalSessionRepository {
                 resultSet.getString("course_id"),
                 resultSet.getString("instructor_id")
         );
+    }
+
+    /**
+     * SQLite cannot remove a NOT NULL constraint with ALTER COLUMN. Older
+     * databases therefore need a one-time table rebuild so an authoritative
+     * unavailable score can persist missing depth/rate/recoil evidence as
+     * NULL instead of inventing zero measurements.
+     */
+    private static void migrateNullableEvidenceColumns(Connection connection) throws SQLException {
+        boolean migrationRequired = false;
+        try (Statement statement = connection.createStatement();
+             ResultSet columns = statement.executeQuery("PRAGMA table_info(session_metrics)")) {
+            while (columns.next()) {
+                String name = columns.getString("name");
+                if (("avg_depth_mm".equals(name) || "avg_rate_cpm".equals(name) || "recoil_pct".equals(name))
+                        && columns.getInt("notnull") == 1) {
+                    migrationRequired = true;
+                }
+            }
+        }
+        if (!migrationRequired) return;
+
+        connection.setAutoCommit(false);
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("DROP TABLE IF EXISTS session_metrics_nullable_migration");
+            statement.executeUpdate("""
+                    CREATE TABLE session_metrics_nullable_migration (
+                      session_id TEXT PRIMARY KEY,
+                      sample_count INTEGER NOT NULL DEFAULT 0,
+                      total_compressions INTEGER NOT NULL DEFAULT 0,
+                      valid_compressions INTEGER NOT NULL DEFAULT 0,
+                      duration_seconds INTEGER NOT NULL,
+                      avg_depth_mm REAL,
+                      avg_depth_progress REAL,
+                      avg_rate_cpm REAL,
+                      recoil_pct REAL,
+                      recoil_ok_count INTEGER NOT NULL DEFAULT 0,
+                      incomplete_recoil_count INTEGER NOT NULL DEFAULT 0,
+                      pauses_count INTEGER NOT NULL,
+                      score INTEGER NOT NULL,
+                      latest_flags TEXT,
+                      scoring_details TEXT,
+                      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO session_metrics_nullable_migration (
+                      session_id, sample_count, total_compressions, valid_compressions,
+                      duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm,
+                      recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count,
+                      score, latest_flags, scoring_details
+                    )
+                    SELECT session_id, sample_count, total_compressions, valid_compressions,
+                      duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm,
+                      recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count,
+                      score, latest_flags, scoring_details
+                    FROM session_metrics
+                    """);
+            statement.executeUpdate("DROP TABLE session_metrics");
+            statement.executeUpdate("ALTER TABLE session_metrics_nullable_migration RENAME TO session_metrics");
+            connection.commit();
+        } catch (SQLException error) {
+            connection.rollback();
+            throw error;
+        } finally {
+            connection.setAutoCommit(true);
+        }
     }
 
     private static void setNullableDouble(PreparedStatement statement, int index, Double value)

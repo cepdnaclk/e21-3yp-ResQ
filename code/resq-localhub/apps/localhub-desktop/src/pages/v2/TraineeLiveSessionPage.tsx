@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchCompletedSession } from "../../api/sessionsApi";
+import { fetchAuthoritativeCompletedSession } from "../../api/sessionsApi";
 import type { SessionLiveView } from "../../types/live";
 import type { CompletedSession } from "../../types/session";
 import LoadingState from "../../components/ui/LoadingState";
@@ -41,36 +41,41 @@ export function TraineeLiveSessionPage({
 
   useEffect(() => {
     if (session && !session.active) {
+      if (session.lifecycleState === "INTERRUPTED") {
+        setCompletionError("Session interrupted by the device. No false final score was created; ask your instructor whether partial evidence can be reviewed.");
+        setFetchingCompleted(false);
+        return;
+      }
+      if (session.lifecycleState === "STOP_TIMEOUT") {
+        setCompletionError("Session stop confirmation timed out. Retry from the instructor dashboard before expecting a final score.");
+        setFetchingCompleted(false);
+        return;
+      }
       setFetchingCompleted(true);
-      let cancelled = false;
+      const controller = new AbortController();
       async function loadCompleted() {
-        for (let attempt = 0; attempt < 8 && !cancelled; attempt += 1) {
-          try {
-            const data = await fetchCompletedSession(sessionId);
-            if (!cancelled) {
-              setCompletedSession(data);
-              setCompletionError(null);
-            }
-            break;
-          } catch (err) {
-            if (attempt === 7 && !cancelled) {
-              console.warn("Failed to load completed session summary", err);
-              setCompletionError("Session ended, but its final score could not be loaded.");
-            } else {
-              await new Promise((resolve) => window.setTimeout(resolve, 250));
-            }
+        try {
+          const data = await fetchAuthoritativeCompletedSession(sessionId, { signal: controller.signal });
+          if (!controller.signal.aborted) {
+            setCompletedSession(data);
+            setCompletionError(null);
+          }
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            console.warn("Failed to load completed session summary", err);
+            setCompletionError(err instanceof Error ? err.message : "Session ended, but its final score could not be loaded.");
           }
         }
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setFetchingCompleted(false);
         }
       }
-      loadCompleted();
+      void loadCompleted();
       return () => {
-        cancelled = true;
+        controller.abort();
       };
     }
-  }, [session?.active, sessionId]);
+  }, [session?.active, session?.lifecycleState, sessionId]);
 
   if (loading) {
     return (
@@ -92,6 +97,9 @@ export function TraineeLiveSessionPage({
     const summary = completedSession.summary;
     const score = summary.overallScore ?? summary.score;
     const scoreAvailable = summary.overallScore !== null && summary.overallScore !== undefined;
+    const unavailableReason = !scoreAvailable
+      ? summary.scoreCapReason ?? summary.recommendation ?? "Required scoring evidence is unavailable."
+      : null;
     const isExcellent = score >= 90;
     const isGood = score >= 75 && score < 90;
     const scoreClass = isExcellent
@@ -149,7 +157,15 @@ export function TraineeLiveSessionPage({
               {summary.grade ?? (scoreAvailable ? "Completed" : "Score unavailable")}
               {summary.scoreProvisional ? " · Provisional" : ""}
             </div>
-            {summary.scoreCapReason && (
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Scoring version: {summary.scoringVersion ?? "Unavailable"}
+            </p>
+            {!scoreAvailable && (
+              <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800">
+                Score unavailable: {unavailableReason}
+              </p>
+            )}
+            {scoreAvailable && summary.scoreCapReason && (
               <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
                 Score capped at {summary.scoreCap}: {summary.scoreCapReason}
               </p>
@@ -193,6 +209,21 @@ export function TraineeLiveSessionPage({
                   <span className="text-sm text-slate-800 font-bold font-mono">{Math.round(summary.recoilPct!)}%</span>
                 </div>
               )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+              {[
+                ["Depth score", summary.depthScore],
+                ["Rate score", summary.rateScore],
+                ["Recoil score", summary.recoilScore],
+                ["Hand-placement score", summary.handPlacementScore],
+                ["Compression-fraction score", summary.compressionFractionScore],
+              ].map(([label, componentScore]) => (
+                <div key={String(label)} className="flex justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold">
+                  <span className="text-slate-500">{label}</span>
+                  <span className="text-slate-800">{componentScore == null ? "Unavailable" : `${componentScore}/100`}</span>
+                </div>
+              ))}
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">

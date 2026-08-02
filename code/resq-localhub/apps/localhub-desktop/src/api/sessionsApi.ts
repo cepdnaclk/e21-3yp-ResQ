@@ -30,7 +30,82 @@ export async function fetchCompletedSessions(): Promise<CompletedSession[]> {
 
 /** GET /api/sessions/{sessionId} — single completed session */
 export async function fetchCompletedSession(sessionId: string): Promise<CompletedSession> {
-  return getJson<CompletedSession>(`/api/sessions/${encodeURIComponent(sessionId)}`);
+  return getJson<CompletedSession>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    completionRead: Date.now(),
+  });
+}
+
+export type CompletedSessionRetryOptions = {
+  intervalMs?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+};
+
+export function hasAuthoritativeScoreSummary(session: CompletedSession): boolean {
+  const summary = session?.summary as unknown as Record<string, unknown> | undefined;
+  if (!summary || typeof summary.scoringVersion !== "string") return false;
+  // Historical sessions were persisted before the component-score model existed.
+  // Their legacy score is already authoritative and must remain reviewable.
+  if (summary.scoringVersion === "legacy-v0") {
+    return typeof summary.score === "number";
+  }
+  if (summary.scoringVersion !== "moderate-v1") return false;
+  const requiredFields = [
+    "overallScore",
+    "grade",
+    "depthScore",
+    "rateScore",
+    "recoilScore",
+    "handPlacementScore",
+    "compressionFractionScore",
+    "scoreProvisional",
+  ];
+  return requiredFields.every((field) => Object.prototype.hasOwnProperty.call(summary, field));
+}
+
+/**
+ * Waits only for the short persistence-visibility window after authoritative
+ * completion. It is deliberately bounded so a missing result becomes an
+ * actionable error rather than an endless loading state.
+ */
+export async function fetchAuthoritativeCompletedSession(
+  sessionId: string,
+  options: CompletedSessionRetryOptions = {},
+): Promise<CompletedSession> {
+  const intervalMs = options.intervalMs ?? 250;
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+
+  while (!options.signal?.aborted) {
+    try {
+      const completed = await fetchCompletedSession(sessionId);
+      if (hasAuthoritativeScoreSummary(completed)) return completed;
+      lastError = new Error("Completed session summary does not yet contain the authoritative score fields.");
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (Date.now() >= deadline) break;
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        options.signal?.removeEventListener("abort", abort);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, intervalMs);
+      const abort = () => {
+        window.clearTimeout(timer);
+        finish();
+      };
+      options.signal?.addEventListener("abort", abort, { once: true });
+    });
+  }
+
+  if (options.signal?.aborted) {
+    throw new DOMException("Session summary request was cancelled.", "AbortError");
+  }
+  const detail = lastError instanceof Error ? ` ${lastError.message}` : "";
+  throw new Error(`The session ended, but its final score was not readable within ${timeoutMs / 1000} seconds.${detail}`);
 }
 
 /**

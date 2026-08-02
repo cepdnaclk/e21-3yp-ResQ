@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { endSession } from "../../api/sessionsApi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { endSession, fetchAuthoritativeCompletedSession } from "../../api/sessionsApi";
 import type { SessionLiveView } from "../../types/live";
 import Button from "../../components/ui/Button";
 import LoadingState from "../../components/ui/LoadingState";
@@ -36,12 +36,23 @@ export function InstructorLiveSessionPage({
   sessionId,
   onSessionEnded,
 }: InstructorLiveSessionPageProps) {
-  const { session, setSession, loading, error } = useSessionLiveStream({
-    sessionId,
-    onEnded: onSessionEnded,
-  });
   const [ending, setEnding] = useState(false);
   const [stopMessage, setStopMessage] = useState<string | null>(null);
+  const handleAuthoritativeCompletion = useCallback(async (completedSessionId: string) => {
+    setEnding(true);
+    setStopMessage("Session completed. Loading final score…");
+    try {
+      await fetchAuthoritativeCompletedSession(completedSessionId);
+      onSessionEnded(completedSessionId);
+    } catch (error) {
+      setEnding(false);
+      setStopMessage(error instanceof Error ? error.message : "The final score could not be loaded. Please try again.");
+    }
+  }, [onSessionEnded]);
+  const { session, setSession, loading, error } = useSessionLiveStream({
+    sessionId,
+    onEnded: handleAuthoritativeCompletion,
+  });
   const normalized = useMemo(() => normalizeTelemetry(session), [session]);
 
   useEffect(() => {
@@ -251,7 +262,7 @@ export function InstructorLiveSessionPage({
             disabled={ending || !canEndSession}
             className="shadow-sm font-bold px-6 py-2.5 text-xs rounded-xl"
           >
-            {ending || lifecycleState === "STOP_PENDING" ? "Stopping..." : "End Session"}
+            {ending || lifecycleState === "STOP_PENDING" ? "Ending session…" : "End Session"}
           </Button>
         </div>
       </div>

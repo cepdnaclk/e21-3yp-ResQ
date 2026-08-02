@@ -362,7 +362,7 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
                         onClick={() => m.activeSessionId && handleEndSession(m.activeSessionId)}
                         disabled={endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING"}
                       >
-                        {endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING" ? "Stopping..." : "End Session"}
+                        {endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING" ? "Ending session…" : "End Session"}
                       </Button>
                       <Button
                         type="button"

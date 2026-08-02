@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchCompletedSession } from "../../api/sessionsApi";
+import { fetchAuthoritativeCompletedSession } from "../../api/sessionsApi";
 import { downloadSessionJson, downloadSessionCsv } from "../../api/exportsApi";
 import type { CompletedSession } from "../../types/session";
 import Card from "../../components/ui/Card";
@@ -21,17 +21,21 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function loadSession() {
       try {
-        const data = await fetchCompletedSession(sessionId);
+        const data = await fetchAuthoritativeCompletedSession(sessionId, { signal: controller.signal });
         setSession(data);
       } catch (err) {
-        setError("Failed to load session details.");
+        if (!controller.signal.aborted) {
+          setError(err instanceof Error ? err.message : "Failed to load session details.");
+        }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
-    loadSession();
+    void loadSession();
+    return () => controller.abort();
   }, [sessionId]);
 
   if (loading) {
@@ -71,6 +75,9 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
 
   const score = summary.overallScore ?? summary.score ?? 0;
   const scoreAvailable = summary.overallScore !== null && summary.overallScore !== undefined;
+  const unavailableReason = !scoreAvailable
+    ? summary.scoreCapReason ?? summary.recommendation ?? "Required scoring evidence is unavailable."
+    : null;
   const isExcellent = score >= 90;
   const isGood = score >= 75 && score < 90;
   const isWarning = score >= 60 && score < 75;
@@ -140,7 +147,7 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
               </h3>
               <p className="text-xs leading-relaxed opacity-90 font-medium">
                 {!scoreAvailable
-                  ? "A score is unavailable because one or more required sensor metrics lack valid evidence."
+                  ? `Score unavailable: ${unavailableReason}`
                   : score >= 90
                   ? "Outstanding CPR execution. Compression parameters match target clinical guidelines." 
                   : score >= 70 
@@ -174,9 +181,14 @@ export function SessionReviewPage({ sessionId, onBack }: SessionReviewPageProps)
                   </div>
                 ))}
               </div>
-              {summary.scoreCapReason && (
+              {scoreAvailable && summary.scoreCapReason && (
                 <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
                   Score capped at {summary.scoreCap}: {summary.scoreCapReason}
+                </p>
+              )}
+              {!scoreAvailable && (
+                <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800">
+                  Score unavailable: {unavailableReason}
                 </p>
               )}
               {summary.scoreProvisional && (
