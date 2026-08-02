@@ -145,6 +145,14 @@ class CalibrationControllerTest {
         assertThat(response.getBody()).isEqualTo(state);
     }
 
+    @Test
+    void latestCalibrationEvidenceReturnsNoContentWhenHistoryIsEmpty() {
+        ResponseEntity<?> response = controller.latestCalibrationEvidence(null, "M01");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(response.getBody()).isNull();
+    }
+
     private static final class DummyCalibrationCommandService extends CalibrationCommandService {
         private CalibrationCommandResponse mockStartResponse;
         private CalibrationCommandResponse mockCancelResponse;

@@ -106,6 +106,26 @@ class SensorStreamServiceTest {
         assertThat(failedEmitter.completeWithErrorCalls).isZero();
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void heartbeatRemovesAQuietDisconnectedEmitter() {
+        var failedEmitter = new FailingEmitter();
+        ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>> emitters =
+                (ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>>) ReflectionTestUtils.getField(
+                        service,
+                        "emittersByDeviceId"
+                );
+        assertThat(emitters).isNotNull();
+        emitters.put("M01", new CopyOnWriteArrayList<>());
+        emitters.get("M01").add(failedEmitter);
+
+        service.sendHeartbeats();
+
+        assertThat(service.subscriberCount("M01")).isZero();
+        assertThat(emitters).doesNotContainKey("M01");
+        assertThat(failedEmitter.completeWithErrorCalls).isZero();
+    }
+
     private static final class FailingEmitter extends SseEmitter {
         private int completeWithErrorCalls;
 
