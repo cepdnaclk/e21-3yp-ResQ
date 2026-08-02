@@ -63,8 +63,8 @@ describe("FirmwareDiagnosticsPanel sensor stream", () => {
     render(<FirmwareDiagnosticsPanel deviceId="M01" />);
 
     const input = screen.getByLabelText("Interval (ms)");
-    fireEvent.change(input, { target: { value: "99" } });
-    expect(screen.getByRole("alert")).toHaveTextContent("Interval must be at least 100 ms.");
+    fireEvent.change(input, { target: { value: "49" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("Interval must be at least 50 ms.");
     expect(screen.getByRole("button", { name: "Start Stream" })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "200" } });

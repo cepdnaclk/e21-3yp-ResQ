@@ -8,7 +8,11 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import { getDeviceStateTone } from "../../utils/userFriendlyLabels";
 import CalibrationTargetTracking from "../../components/cpr/CalibrationTargetTracking";
 import { createSensorStreamClient, startSensorStream, stopSensorStream } from "../../lib/sensorStreamClient";
-import type { SensorStreamCommandUpdate, SensorStreamUiState } from "../../lib/sensorStreamTypes";
+import {
+  CALIBRATION_SENSOR_STREAM_INTERVAL_MS,
+  type SensorStreamCommandUpdate,
+  type SensorStreamUiState,
+} from "../../lib/sensorStreamTypes";
 import {
   buildCalibrationTargets,
   isUsableRaw,
@@ -42,6 +46,80 @@ const STEPS = [
   { name: "Full Compression", ids: [9, 10] },
   { name: "Save / Result", ids: [11, 12, 13] },
 ];
+
+type CalibrationRawUpdate = {
+  pressure0Raw?: number | null;
+  pressure0RawValid?: boolean | null;
+  pressure1Raw?: number | null;
+  pressure1RawValid?: boolean | null;
+  pressure2Raw?: number | null;
+  pressure2RawValid?: boolean | null;
+  hallRaw?: number | null;
+  hallRawValid?: boolean | null;
+  hallMm?: number | null;
+  hallMmValid?: boolean | null;
+  receivedAt: string;
+};
+
+function requestCalibrationFrame(callback: FrameRequestCallback): number {
+  if (typeof window.requestAnimationFrame === "function") {
+    return window.requestAnimationFrame(callback);
+  }
+  return window.setTimeout(() => callback(performance.now()), 16);
+}
+
+function cancelCalibrationFrame(frameId: number) {
+  if (typeof window.cancelAnimationFrame === "function") {
+    window.cancelAnimationFrame(frameId);
+  } else {
+    window.clearTimeout(frameId);
+  }
+}
+
+function mergeLatestValidRawSample(
+  previous: CalibrationRawSample | null,
+  update: CalibrationRawUpdate,
+): CalibrationRawSample | null {
+  const next: CalibrationRawSample = previous ? { ...previous } : {
+    pressure0Raw: null,
+    pressure0RawValid: false,
+    pressure1Raw: null,
+    pressure1RawValid: false,
+    pressure2Raw: null,
+    pressure2RawValid: false,
+    hallRaw: null,
+    hallRawValid: false,
+    hallMm: null,
+    hallMmValid: false,
+    receivedAt: null,
+  };
+  let changed = false;
+
+  const mergeRaw = (
+    value: number | null | undefined,
+    valid: boolean | null | undefined,
+    valueKey: "pressure0Raw" | "pressure1Raw" | "pressure2Raw" | "hallRaw",
+    validKey: "pressure0RawValid" | "pressure1RawValid" | "pressure2RawValid" | "hallRawValid",
+  ) => {
+    if (valid === true && isUsableRaw(value, true)) {
+      next[valueKey] = value;
+      next[validKey] = true;
+      changed = true;
+    }
+  };
+
+  mergeRaw(update.pressure0Raw, update.pressure0RawValid, "pressure0Raw", "pressure0RawValid");
+  mergeRaw(update.pressure1Raw, update.pressure1RawValid, "pressure1Raw", "pressure1RawValid");
+  mergeRaw(update.pressure2Raw, update.pressure2RawValid, "pressure2Raw", "pressure2RawValid");
+  mergeRaw(update.hallRaw, update.hallRawValid, "hallRaw", "hallRawValid");
+  if (update.hallMmValid === true && typeof update.hallMm === "number" && Number.isFinite(update.hallMm)) {
+    next.hallMm = update.hallMm;
+    next.hallMmValid = true;
+    changed = true;
+  }
+
+  return changed ? { ...next, receivedAt: update.receivedAt } : previous;
+}
 
 const LAST_COMPLETED_PROGRESS: Record<number, number> = {
   1: 0,
@@ -238,6 +316,9 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const streamStartedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const announcementRef = useRef({ text: "", at: 0 });
+  const latestRawSampleRef = useRef<CalibrationRawSample | null>(null);
+  const pendingRawSampleRef = useRef<CalibrationRawSample | null>(null);
+  const rawSampleFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!defaultProfile) return;
@@ -269,39 +350,58 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   }, [deviceId]);
 
   const startManualStream = useCallback(async () => {
-    if (streamStartedRef.current && (manualStreamState === "STARTING" || manualStreamState === "RUNNING")) return;
+    if (streamStartedRef.current) return;
     stopRequestedRef.current = false;
     streamStartedRef.current = true;
     setManualStreamState("STARTING");
     setManualStreamReasonId(null);
     try {
-      const response = await startSensorStream(deviceId, 200);
+      const response = await startSensorStream(deviceId, CALIBRATION_SENSOR_STREAM_INTERVAL_MS);
       setManualStreamState(response.streamState);
     } catch (error) {
       streamStartedRef.current = false;
       setManualStreamState("ERROR");
       setManualStreamReasonId(error instanceof Error ? error.message : "telemetry_start_failed");
     }
-  }, [deviceId, manualStreamState]);
+  }, [deviceId]);
+
+  const enqueueLatestRawSample = useCallback((update: CalibrationRawUpdate) => {
+    const base = pendingRawSampleRef.current ?? latestRawSampleRef.current;
+    const merged = mergeLatestValidRawSample(base, update);
+    if (!merged || merged === base) return;
+    pendingRawSampleRef.current = merged;
+    if (rawSampleFrameRef.current !== null) return;
+
+    rawSampleFrameRef.current = requestCalibrationFrame(() => {
+      rawSampleFrameRef.current = null;
+      const newest = pendingRawSampleRef.current;
+      pendingRawSampleRef.current = null;
+      if (!newest) return;
+      latestRawSampleRef.current = newest;
+      setRawSample(newest);
+      setLastSampleAtMs(Date.now());
+      setSampleStale(false);
+    });
+  }, []);
 
   const applyCalibrationRawSample = useCallback((event: CalibrationStreamEvent) => {
     const hasRaw = event.pressure0Raw !== undefined || event.pressure1Raw !== undefined ||
       event.pressure2Raw !== undefined || event.hallRaw !== undefined;
     if (!hasRaw) return;
     const receivedAt = event.receivedAt ?? new Date().toISOString();
-    setRawSample((previous) => ({
-      pressure0Raw: event.pressure0Raw !== undefined ? event.pressure0Raw : previous?.pressure0Raw ?? null,
-      pressure0RawValid: event.pressure0RawValid !== undefined ? event.pressure0RawValid === true : previous?.pressure0RawValid ?? false,
-      pressure1Raw: event.pressure1Raw !== undefined ? event.pressure1Raw : previous?.pressure1Raw ?? null,
-      pressure1RawValid: event.pressure1RawValid !== undefined ? event.pressure1RawValid === true : previous?.pressure1RawValid ?? false,
-      pressure2Raw: event.pressure2Raw !== undefined ? event.pressure2Raw : previous?.pressure2Raw ?? null,
-      pressure2RawValid: event.pressure2RawValid !== undefined ? event.pressure2RawValid === true : previous?.pressure2RawValid ?? false,
-      hallRaw: event.hallRaw !== undefined ? event.hallRaw : previous?.hallRaw ?? null,
-      hallRawValid: event.hallRawValid !== undefined ? event.hallRawValid === true : previous?.hallRawValid ?? false,
-      hallMm: event.hallMm !== undefined ? event.hallMm : previous?.hallMm ?? null,
-      hallMmValid: event.hallMmValid !== undefined ? event.hallMmValid === true : previous?.hallMmValid ?? false,
+    enqueueLatestRawSample({
+      pressure0Raw: event.pressure0Raw,
+      pressure0RawValid: event.pressure0RawValid,
+      pressure1Raw: event.pressure1Raw,
+      pressure1RawValid: event.pressure1RawValid,
+      pressure2Raw: event.pressure2Raw,
+      pressure2RawValid: event.pressure2RawValid,
+      hallRaw: event.hallRaw,
+      hallRawValid: event.hallRawValid,
+      hallMm: event.hallMm,
+      hallMmValid: event.hallMmValid,
       receivedAt,
-    }));
+    });
     if (typeof event.fullDepthMm === "number" && Number.isFinite(event.fullDepthMm) && event.fullDepthMm > 0) {
       setFullDepthMm(event.fullDepthMm);
     }
@@ -310,9 +410,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
     } else if (event.progressId === 8 && isUsableRaw(event.hallRaw, event.hallRawValid)) {
       setHallBaselineRaw(event.hallRaw);
     }
-    setLastSampleAtMs(Date.now());
-    setSampleStale(false);
-  }, []);
+  }, [enqueueLatestRawSample]);
 
   useEffect(() => {
     let disposed = false;
@@ -323,6 +421,12 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
     setManualStreamCommand(null);
     setActiveConfig(null);
     setRawSample(null);
+    latestRawSampleRef.current = null;
+    pendingRawSampleRef.current = null;
+    if (rawSampleFrameRef.current !== null) {
+      cancelCalibrationFrame(rawSampleFrameRef.current);
+      rawSampleFrameRef.current = null;
+    }
     setHallBaselineRaw(null);
     setFullDepthMm(null);
     setMaxHallDelta(null);
@@ -333,7 +437,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       },
       onSnapshot: (snapshot) => {
         if (disposed) return;
-        setRawSample({
+        enqueueLatestRawSample({
           pressure0Raw: snapshot.pressure0Raw,
           pressure0RawValid: snapshot.pressure0RawValid,
           pressure1Raw: snapshot.pressure1Raw,
@@ -346,8 +450,6 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
           hallMmValid: snapshot.hallMmValid,
           receivedAt: snapshot.receivedAt,
         });
-        setLastSampleAtMs(Date.now());
-        setSampleStale(false);
         if (!stopRequestedRef.current) setManualStreamState("RUNNING");
       },
       onCommand: (update) => {
@@ -367,17 +469,28 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       },
     });
     client.start();
+    // Defer START until after the current effect turn. In React Strict Mode the
+    // probe mount is cleaned up before this microtask runs, so only the durable
+    // mount opens a firmware stream.
+    queueMicrotask(() => {
+      if (!disposed) void startManualStream();
+    });
 
     return () => {
       disposed = true;
       client.stop();
+      pendingRawSampleRef.current = null;
+      if (rawSampleFrameRef.current !== null) {
+        cancelCalibrationFrame(rawSampleFrameRef.current);
+        rawSampleFrameRef.current = null;
+      }
       if (streamStartedRef.current && !stopRequestedRef.current) {
         stopRequestedRef.current = true;
         void stopSensorStream(deviceId);
       }
       streamStartedRef.current = false;
     };
-  }, [deviceId]);
+  }, [deviceId, enqueueLatestRawSample, startManualStream]);
 
   useEffect(() => {
     if (lastSampleAtMs === null || manualStreamState === "IDLE" || manualStreamState === "STOPPING") return;
@@ -617,7 +730,6 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       };
 
       setActiveConfig(reqPayload);
-      await startManualStream();
       await startCalibration(deviceId, reqPayload);
       setStartNotice("Calibration started; live tracking will use calibration-owned raw samples while firmware owns the sensors.");
     } catch (err) {

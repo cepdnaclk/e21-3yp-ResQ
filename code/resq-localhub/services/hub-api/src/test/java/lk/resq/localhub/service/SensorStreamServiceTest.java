@@ -11,11 +11,20 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SensorStreamServiceTest {
 
     private final SensorStreamService service = new SensorStreamService();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void acceptsCalibrationCadenceAndRejectsAnythingFaster() {
+        SensorStreamService.validateIntervalMs(50);
+        assertThatThrownBy(() -> SensorStreamService.validateIntervalMs(49))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("between 50 and 1000");
+    }
 
     @Test
     void parsesAuthoritativeRawSensorStreamFields() throws Exception {

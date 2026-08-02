@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class SensorStreamService {
 
-    public static final int SENSOR_STREAM_MIN_INTERVAL_MS = 100;
+    public static final int SENSOR_STREAM_MIN_INTERVAL_MS = 50;
     public static final int SENSOR_STREAM_DEFAULT_INTERVAL_MS = 200;
     public static final int SENSOR_STREAM_MAX_INTERVAL_MS = 1000;
 
@@ -257,7 +257,7 @@ public class SensorStreamService {
             throw new IllegalArgumentException("interval_ms is required");
         }
         if (intervalMs < SENSOR_STREAM_MIN_INTERVAL_MS || intervalMs > SENSOR_STREAM_MAX_INTERVAL_MS) {
-            throw new IllegalArgumentException("interval_ms must be between 100 and 1000");
+            throw new IllegalArgumentException("interval_ms must be between 50 and 1000");
         }
     }
 

@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
 #include "telemetry_publisher.h"
 #include "io_mode_manager.h"
 #include "unity.h"
@@ -258,7 +259,7 @@ TEST_CASE("Sensor stream command validation requires request id action and inter
                           &interval_ms));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
                       telemetry_publisher_validate_sensor_stream_command(
-                          "{\"request_id\":\"r1\",\"action\":\"START\",\"interval_ms\":99}",
+                          "{\"request_id\":\"r1\",\"action\":\"START\",\"interval_ms\":49}",
                           &start,
                           &interval_ms));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
@@ -274,6 +275,15 @@ TEST_CASE("Sensor stream command validation requires request id action and inter
                           &interval_ms));
     TEST_ASSERT_TRUE(start);
     TEST_ASSERT_EQUAL_UINT32(200, interval_ms);
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"calibration\",\"action\":\"START\",\"interval_ms\":50}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_TRUE(start);
+    TEST_ASSERT_EQUAL_UINT32(50, interval_ms);
+    TEST_ASSERT_GREATER_THAN_UINT32(0, pdMS_TO_TICKS(interval_ms));
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_validate_sensor_stream_command(

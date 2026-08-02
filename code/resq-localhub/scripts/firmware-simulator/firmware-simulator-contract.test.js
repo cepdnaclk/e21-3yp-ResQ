@@ -291,6 +291,33 @@ test("sensor stream is explicit bounded diagnostics and does not change session 
   assert.equal(simulator.manualTelemetryTimer, null);
 });
 
+test("sensor stream accepts the 50 ms calibration cadence and rejects lower intervals", () => {
+  const { publications, simulator } = simulatorHarness();
+
+  simulator.handleTelemetryControl({
+    request_id: "stream-start-50",
+    action: "START",
+    interval_ms: 50,
+  });
+  assert.equal(simulator.manualTelemetryIntervalMs, 50);
+  assert.notEqual(simulator.manualTelemetryTimer, null);
+  assert.equal(
+    publications.some((entry) => entry.payload.reply_id === "stream-start-50" && entry.payload.status === "ACK"),
+    true,
+  );
+
+  simulator.handleTelemetryControl({
+    request_id: "stream-start-49",
+    action: "START",
+    interval_ms: 49,
+  });
+  assert.equal(
+    publications.some((entry) => entry.payload.reply_id === "stream-start-49" && entry.payload.status === "NACK"),
+    true,
+  );
+  simulator.stopManualTelemetry();
+});
+
 test("session and calibration transitions stop an active manual stream", () => {
   const { simulator } = simulatorHarness();
   simulator.startTelemetry = () => {};

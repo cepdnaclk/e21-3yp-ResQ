@@ -34,7 +34,7 @@ static TaskHandle_t s_task = NULL;
 static TaskHandle_t s_sensor_stream_task = NULL;
 static SemaphoreHandle_t s_mutex = NULL;
 static EventGroupHandle_t s_task_events = NULL;
-static uint32_t s_sensor_stream_interval_ms = 200;
+static uint32_t s_sensor_stream_interval_ms = TELEMETRY_SENSOR_STREAM_INTERVAL_DEFAULT_MS;
 static resq_state_t s_sensor_stream_state = RESQ_STATE_PAIRED_IDLE;
 static calibration_config_t s_sensor_stream_calibration;
 
