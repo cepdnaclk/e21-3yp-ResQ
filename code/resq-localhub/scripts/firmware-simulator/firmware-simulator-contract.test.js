@@ -124,13 +124,17 @@ test("simulator session telemetry is minimal and fixture-compatible", () => {
   const metric = publications.at(-1).payload;
 
   assert.deepEqual(Object.keys(metric).sort(), [
+    "average_completed_compression_peak_depth_mm",
+    "completed_compression_count",
     "compression_count",
     "depth_mm",
     "depth_ok",
+    "depth_ok_compression_count",
     "depth_progress",
     "flags",
     "hand_placement",
     "incomplete_recoil_count",
+    "last_compression_peak_depth_mm",
     "pause_s",
     "pressure_balance_pct",
     "pressure_balance_score_pct",
@@ -192,8 +196,18 @@ test("session telemetry is gated and counters reset only at session start", () =
   assert.equal(simulator.telemetryCount, 0);
   simulator.publishTelemetry();
   simulator.publishTelemetry();
-  assert.equal(simulator.telemetryCount, 2);
-  assert.equal(simulator.latestSessionMetric.compression_count, 2);
+  simulator.publishTelemetry();
+  assert.equal(simulator.telemetryCount, 3);
+  assert.equal(simulator.latestSessionMetric.compression_count, 1);
+  assert.equal(simulator.latestSessionMetric.completed_compression_count, 1);
+  assert.equal(simulator.latestSessionMetric.valid_compression_count, 1);
+
+  simulator.handleSessionStart({ request_id: "start-2", session_id: "S-002" });
+  assert.equal(simulator.telemetryCount, 0);
+  assert.equal(simulator.completedCompressionCount, 0);
+  simulator.publishTelemetry();
+  assert.equal(simulator.telemetryCount, 1);
+  assert.equal(simulator.latestSessionMetric.compression_count, 0);
 
   simulator.handleSessionStop({ request_id: "stop-1" });
   const before = publications.filter((entry) => entry.topic.endsWith("/telemetry")).length;
@@ -202,6 +216,24 @@ test("session telemetry is gated and counters reset only at session start", () =
     publications.filter((entry) => entry.topic.endsWith("/telemetry")).length,
     before,
   );
+});
+
+test("simulator completion evidence follows the configured CPR cadence", () => {
+  const { simulator } = simulatorHarness();
+  simulator.sessionActive = true;
+  for (let index = 0; index < 300; index += 1) simulator.publishTelemetry();
+
+  const metric = simulator.latestSessionMetric;
+  assert.ok(metric.completed_compression_count >= 100 && metric.completed_compression_count <= 116);
+  assert.equal(metric.compression_count, metric.completed_compression_count);
+  assert.equal(metric.valid_compression_count, metric.completed_compression_count);
+  assert.equal(
+    metric.recoil_ok_count + metric.incomplete_recoil_count,
+    metric.completed_compression_count,
+  );
+  assert.ok(metric.depth_ok_compression_count <= metric.completed_compression_count);
+  assert.equal(typeof metric.last_compression_peak_depth_mm, "number");
+  assert.equal(typeof metric.average_completed_compression_peak_depth_mm, "number");
 });
 
 test("fixture modes remain separated", () => {
