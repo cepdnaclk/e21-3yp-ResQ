@@ -142,7 +142,75 @@ export function RecentSessionsPage({ onSelectSession }: RecentSessionsPageProps)
           <p className="text-slate-400 text-xs mt-1">Try refining your search keyword or complete a practice cycle.</p>
         </Card>
       ) : (
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-[0_4px_16px_rgba(0,0,0,0.01)] overflow-hidden">
+        <>
+          <div className="grid gap-3 2xl:hidden">
+            {filteredSessions.map((session) => {
+              const score = session.summary?.score ?? 0;
+              const scoreTone = getScoreTone(score);
+              const scoreBadgeTone: "success" | "info" | "warning" | "danger" | "muted" =
+                scoreTone === "excellent"
+                  ? "success"
+                  : scoreTone === "good"
+                    ? "info"
+                    : scoreTone === "fair"
+                      ? "warning"
+                      : "danger";
+              const queueItem = syncQueue.find((item) => item.entityId === session.sessionId);
+              const syncProps = getSyncBadgeProps(queueItem?.syncStatus);
+
+              return (
+                <Card key={session.sessionId} className="space-y-4 border border-slate-100 p-4 sm:p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="break-all font-mono text-xs font-bold text-slate-800">
+                        {session.traineeId || "Anonymous"}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-700">
+                        {session.scenario || "Standard CPR"}
+                      </p>
+                      {session.courseId && (
+                        <p className="mt-0.5 break-all text-[10px] font-bold text-slate-400">{session.courseId}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                      <span className="text-sm font-extrabold text-slate-800">{score}%</span>
+                      <StatusBadge tone={scoreBadgeTone} label={getScoreLabel(score)} dot={false} />
+                      <StatusBadge
+                        tone={syncProps.tone}
+                        label={syncProps.label}
+                        dot={syncProps.tone !== "muted"}
+                      />
+                    </div>
+                  </div>
+
+                  <dl className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
+                    <div>
+                      <dt className="font-bold uppercase tracking-wider text-slate-400">Date &amp; time</dt>
+                      <dd className="mt-1 text-slate-600">{formatDateTime(session.startedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-bold uppercase tracking-wider text-slate-400">Duration</dt>
+                      <dd className="mt-1 font-mono text-slate-600">
+                        {formatDuration(session.summary?.durationSeconds)}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="w-full border-slate-200/60 bg-white font-bold sm:w-auto"
+                    onClick={() => onSelectSession(session.sessionId)}
+                  >
+                    Review details
+                  </Button>
+                </Card>
+              );
+            })}
+          </div>
+
+          <div className="hidden bg-white border border-slate-100 rounded-2xl shadow-[0_4px_16px_rgba(0,0,0,0.01)] overflow-hidden 2xl:block">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-100 text-xs select-none">
               <thead className="bg-slate-50/70">
@@ -235,7 +303,8 @@ export function RecentSessionsPage({ onSelectSession }: RecentSessionsPageProps)
               </tbody>
             </table>
           </div>
-        </div>
+          </div>
+        </>
       )}
     </div>
   );
