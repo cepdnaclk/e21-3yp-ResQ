@@ -137,7 +137,7 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
           "[telemetry]")
 {
     cpr_metrics_snapshot_t snap = base_snapshot();
-    char payload[768];
+    char payload[TELEMETRY_SESSION_PAYLOAD_MAX_LEN];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "S-001", payload, sizeof(payload)));
@@ -191,7 +191,7 @@ TEST_CASE("Session telemetry never substitutes zero for unavailable live filters
     snap.depth_mm_valid = false;
     snap.recoil_pct = 0.0f;
     snap.recoil_pct_valid = false;
-    char payload[768];
+    char payload[TELEMETRY_SESSION_PAYLOAD_MAX_LEN];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "S-001", payload, sizeof(payload)));
@@ -210,7 +210,7 @@ TEST_CASE("Session payload derives flags and clamps pressure score", "[telemetry
     snap.pause_s = CPR_PAUSE_CONDITION_THRESHOLD_S + 0.1f;
     snap.pressure_balance_pct = 120.0f;
     strcpy(snap.flags, "DEPTH_OK,RECOIL_OK");
-    char payload[768];
+    char payload[TELEMETRY_SESSION_PAYLOAD_MAX_LEN];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "S-001", payload, sizeof(payload)));

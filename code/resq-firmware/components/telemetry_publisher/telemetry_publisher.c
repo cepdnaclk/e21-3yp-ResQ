@@ -28,7 +28,6 @@
 #include "task_diagnostics.h"
 
 #define SENSOR_STREAM_PAYLOAD_SIZE 1792u
-#define SESSION_TELEMETRY_PAYLOAD_SIZE 2304u
 #define SESSION_TELEMETRY_INTERVAL_MS 50u
 
 static TaskHandle_t s_task = NULL;
@@ -754,7 +753,7 @@ esp_err_t telemetry_publisher_build_session_payload(const cpr_metrics_snapshot_t
 static void telemetry_task(void *arg)
 {
     (void)arg;
-    char *payload = malloc(SESSION_TELEMETRY_PAYLOAD_SIZE);
+    char *payload = malloc(TELEMETRY_SESSION_PAYLOAD_MAX_LEN);
     if (payload == NULL) {
         goto telemetry_exit;
     }
@@ -790,7 +789,7 @@ static void telemetry_task(void *arg)
         if (telemetry_publisher_build_session_payload(&snap,
                                                       session_id,
                                                       payload,
-                                                      SESSION_TELEMETRY_PAYLOAD_SIZE) == ESP_OK) {
+                                                      TELEMETRY_SESSION_PAYLOAD_MAX_LEN) == ESP_OK) {
             mqtt_manager_publish_telemetry_json(payload);
         }
         if ((diagnostics_counter++ % 300u) == 0u) {

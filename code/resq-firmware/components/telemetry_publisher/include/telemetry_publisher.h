@@ -33,6 +33,7 @@ esp_err_t telemetry_publisher_stop_sensor_stream(void);
 
 bool telemetry_publisher_is_sensor_stream_running(void);
 
+#define TELEMETRY_SESSION_PAYLOAD_MAX_LEN 2304u
 #define TELEMETRY_SENSOR_STREAM_INTERVAL_DEFAULT_MS 200u
 #define TELEMETRY_SENSOR_STREAM_INTERVAL_MIN_MS 100u
 #define TELEMETRY_SENSOR_STREAM_INTERVAL_MAX_MS 1000u
