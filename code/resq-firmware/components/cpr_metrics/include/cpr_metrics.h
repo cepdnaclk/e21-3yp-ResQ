@@ -14,6 +14,9 @@ extern "C" {
 #define CPR_FLAGS_MAX_LEN 160
 #define CPR_HAND_PLACEMENT_MAX_LEN 24
 #define CPR_PRESSURE_CENTER_SCORE_THRESHOLD_PCT 88.0f
+#define CPR_LIVE_METRIC_WINDOW_SIZE 5
+#define CPR_LIVE_METRIC_EMA_ALPHA 0.60f
+#define CPR_DISPLAY_METRIC_EMA_ALPHA 0.85f
 #ifndef CPR_PAUSE_CONDITION_THRESHOLD_S
 #define CPR_PAUSE_CONDITION_THRESHOLD_S 1.0f
 #endif
@@ -63,6 +66,11 @@ typedef struct {
 typedef struct {
     float depth_progress;
     float depth_mm;
+    bool depth_mm_valid;
+    float depth_mm_live;
+    bool depth_mm_live_valid;
+    float depth_mm_scored;
+    bool depth_mm_scored_valid;
     float rate_cpm;
     float pause_s;
     int total_compressions;
@@ -71,6 +79,12 @@ typedef struct {
     int valid_compressions;
     int recoil_ok_count;
     int incomplete_recoil_count;
+    float recoil_pct;
+    bool recoil_pct_valid;
+    float recoil_pct_live;
+    bool recoil_pct_live_valid;
+    float recoil_pct_scored;
+    bool recoil_pct_scored_valid;
     /* Peak excursion of the most recently completed compression. */
     float last_compression_peak_depth_mm;
     /* Arithmetic mean of one peak excursion from each completed compression. */
@@ -198,6 +212,12 @@ esp_err_t cpr_metrics_reset(const calibration_config_t *calibration);
 esp_err_t cpr_metrics_update(const cpr_sensor_sample_t *sample);
 
 esp_err_t cpr_metrics_get_snapshot(cpr_metrics_snapshot_t *out_snapshot);
+
+/**
+ * Clear session-only live filters after the final snapshot has been captured.
+ * Compression counters and completed-event metrics are preserved.
+ */
+esp_err_t cpr_metrics_clear_live_filters(void);
 
 /**
  * Clamp and reconcile a CPR metric snapshot, then derive its compatible

@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import { fetchSessionLive, fetchCompletedSession } from "../../api/sessionsApi";
-import { subscribeToSessionLive } from "../../api/liveEventsClient";
+import { useEffect, useMemo, useState } from "react";
+import { fetchAuthoritativeCompletedSession } from "../../api/sessionsApi";
 import type { SessionLiveView } from "../../types/live";
 import type { CompletedSession } from "../../types/session";
 import LoadingState from "../../components/ui/LoadingState";
@@ -13,6 +12,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { normalizeTelemetry } from "../../utils/telemetryNormalization";
 import LiveCprGraph from "../../components/cpr/LiveCprGraph";
 import LiveCoachingBanner from "../../components/cpr/LiveCoachingBanner";
+import { useSessionLiveStream } from "../../hooks/useSessionLiveStream";
 
 type TraineeLiveSessionPageProps = {
   sessionId: string;
@@ -23,105 +23,63 @@ export function TraineeLiveSessionPage({
   sessionId,
   onSessionEnded,
 }: TraineeLiveSessionPageProps) {
-  const [session, setSession] = useState<SessionLiveView | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    session,
+    loading,
+    error: streamError,
+  } = useSessionLiveStream({
+    sessionId,
+    endBehavior: "mark-inactive",
+    stopOnInactiveUpdate: true,
+  });
+  const [completionError, setCompletionError] = useState<string | null>(null);
   const { currentUser, logout } = useAuth();
 
   const [completedSession, setCompletedSession] = useState<CompletedSession | null>(null);
   const [fetchingCompleted, setFetchingCompleted] = useState(false);
-
-  useEffect(() => {
-    let subscription: { stop: () => void } | null = null;
-    let stopped = false;
-
-    async function init() {
-      try {
-        const initial = await fetchSessionLive(sessionId);
-        if (stopped) return;
-        if (!initial) {
-          setError("The active session could not be found.");
-          setLoading(false);
-          return;
-        }
-
-        setSession(initial);
-        setLoading(false);
-
-        // Subscribe to live SSE updates
-        subscription = subscribeToSessionLive(
-          sessionId,
-          initial.deviceId,
-          (update) => {
-            if (!stopped) {
-              setSession(update);
-              if (update.active === false || update.sessionActive === false) {
-                subscription?.stop();
-              }
-            }
-          },
-          () => {
-            if (!stopped) {
-              setSession((prev) => (prev ? { ...prev, active: false } : null));
-              subscription?.stop();
-            }
-          },
-          (err) => {
-            console.warn("Trainee session SSE error", err);
-          }
-        );
-      } catch (err) {
-        if (!stopped) {
-          setError("Failed to stream session updates.");
-          setLoading(false);
-        }
-      }
-    }
-
-    init();
-
-    return () => {
-      stopped = true;
-      subscription?.stop();
-    };
-  }, [sessionId]);
+  const normalized = useMemo(() => normalizeTelemetry(session), [session]);
 
   useEffect(() => {
     if (session && !session.active) {
+      if (session.lifecycleState === "INTERRUPTED") {
+        setCompletionError("Session interrupted by the device. No false final score was created; ask your instructor whether partial evidence can be reviewed.");
+        setFetchingCompleted(false);
+        return;
+      }
+      if (session.lifecycleState === "STOP_TIMEOUT") {
+        setCompletionError("Session stop confirmation timed out. Retry from the instructor dashboard before expecting a final score.");
+        setFetchingCompleted(false);
+        return;
+      }
       setFetchingCompleted(true);
-      let cancelled = false;
+      const controller = new AbortController();
       async function loadCompleted() {
-        for (let attempt = 0; attempt < 8 && !cancelled; attempt += 1) {
-          try {
-            const data = await fetchCompletedSession(sessionId);
-            if (!cancelled) {
-              setCompletedSession(data);
-              setError(null);
-            }
-            break;
-          } catch (err) {
-            if (attempt === 7 && !cancelled) {
-              console.warn("Failed to load completed session summary", err);
-              setError("Session ended, but its final score could not be loaded.");
-            } else {
-              await new Promise((resolve) => window.setTimeout(resolve, 250));
-            }
+        try {
+          const data = await fetchAuthoritativeCompletedSession(sessionId, { signal: controller.signal });
+          if (!controller.signal.aborted) {
+            setCompletedSession(data);
+            setCompletionError(null);
+          }
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            console.warn("Failed to load completed session summary", err);
+            setCompletionError(err instanceof Error ? err.message : "Session ended, but its final score could not be loaded.");
           }
         }
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setFetchingCompleted(false);
         }
       }
-      loadCompleted();
+      void loadCompleted();
       return () => {
-        cancelled = true;
+        controller.abort();
       };
     }
-  }, [session?.active, sessionId]);
+  }, [session?.active, session?.lifecycleState, sessionId]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
+      <div className="h-screen overflow-auto bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
         <LoadingState message="Connecting to training session monitor..." />
       </div>
     );
@@ -129,7 +87,7 @@ export function TraineeLiveSessionPage({
 
   if (session && !session.active && !completedSession && fetchingCompleted) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
+      <div className="h-screen overflow-auto bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
         <LoadingState message="Processing session completion summary..." />
       </div>
     );
@@ -137,9 +95,13 @@ export function TraineeLiveSessionPage({
 
   if (completedSession) {
     const summary = completedSession.summary;
-    const score = summary.score;
-    const isExcellent = score >= 85;
-    const isGood = score >= 70 && score < 85;
+    const score = summary.overallScore ?? summary.score;
+    const scoreAvailable = summary.overallScore !== null && summary.overallScore !== undefined;
+    const unavailableReason = !scoreAvailable
+      ? summary.scoreCapReason ?? summary.recommendation ?? "Required scoring evidence is unavailable."
+      : null;
+    const isExcellent = score >= 90;
+    const isGood = score >= 75 && score < 90;
     const scoreClass = isExcellent
       ? "bg-emerald-50 text-emerald-600 border-emerald-200"
       : isGood
@@ -149,7 +111,7 @@ export function TraineeLiveSessionPage({
     const hasRecoilPct = summary.recoilPct !== null && summary.recoilPct !== undefined;
 
     return (
-      <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col justify-between p-6 sm:p-8 font-sans select-none animate-fadeIn">
+      <div className="h-screen overflow-y-auto bg-[#F8FAFC] text-slate-800 flex flex-col justify-between p-6 sm:p-8 font-sans select-none animate-fadeIn">
         {/* Top Header */}
         <header className="flex justify-between items-center border-b border-slate-200 pb-5 shrink-0">
           <div className="flex items-center gap-3">
@@ -186,10 +148,31 @@ export function TraineeLiveSessionPage({
               <div
                 className={`w-32 h-32 rounded-full border flex flex-col items-center justify-center shadow-sm ${scoreClass}`}
               >
-                <span className="text-4xl font-black">{score}%</span>
+                <span className="text-4xl font-black">{scoreAvailable ? `${score}%` : "—"}</span>
                 <span className="text-[9px] font-extrabold uppercase tracking-wider opacity-85">Score</span>
               </div>
             </div>
+
+            <div className="text-sm font-bold text-slate-700">
+              {summary.grade ?? (scoreAvailable ? "Completed" : "Score unavailable")}
+              {summary.scoreProvisional ? " · Provisional" : ""}
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Scoring version: {summary.scoringVersion ?? "Unavailable"}
+            </p>
+            {!scoreAvailable && (
+              <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800">
+                Score unavailable: {unavailableReason}
+              </p>
+            )}
+            {scoreAvailable && summary.scoreCapReason && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+                Score capped at {summary.scoreCap}: {summary.scoreCapReason}
+              </p>
+            )}
+            {summary.recommendation && (
+              <p className="text-xs font-semibold text-slate-600">{summary.recommendation}</p>
+            )}
 
             {/* Metrics list */}
             <div className="grid grid-cols-2 gap-4 text-left pt-2">
@@ -228,11 +211,26 @@ export function TraineeLiveSessionPage({
               )}
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+              {[
+                ["Depth score", summary.depthScore],
+                ["Rate score", summary.rateScore],
+                ["Recoil score", summary.recoilScore],
+                ["Hand-placement score", summary.handPlacementScore],
+                ["Compression-fraction score", summary.compressionFractionScore],
+              ].map(([label, componentScore]) => (
+                <div key={String(label)} className="flex justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold">
+                  <span className="text-slate-500">{label}</span>
+                  <span className="text-slate-800">{componentScore == null ? "Unavailable" : `${componentScore}/100`}</span>
+                </div>
+              ))}
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-slate-100">
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => window.location.assign("/")}
+                onClick={() => onSessionEnded(sessionId)}
                 className="flex-1 font-bold text-xs py-3 rounded-xl"
               >
                 Back to My Dashboard
@@ -256,9 +254,10 @@ export function TraineeLiveSessionPage({
     );
   }
 
+  const error = completionError ?? streamError;
   if (error || !session) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-8 text-slate-800">
+      <div className="h-screen overflow-auto bg-[#F8FAFC] flex flex-col items-center justify-center p-8 text-slate-800">
         <div className="w-full max-w-md bg-white border border-slate-200 p-10 rounded-3xl text-center space-y-4 shadow-sm">
           <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-500 font-bold">
             !
@@ -269,8 +268,6 @@ export function TraineeLiveSessionPage({
       </div>
     );
   }
-
-  const normalized = normalizeTelemetry(session);
 
   // Profile parsing
   const profile = session.scenario && session.scenario.toLowerCase().includes("pediatric") ? "pediatric" : "adult";
@@ -390,9 +387,9 @@ export function TraineeLiveSessionPage({
   const compressionCount = session.latestMetric?.compressionCount ?? 0;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col justify-between p-6 sm:p-8 font-sans select-none animate-fadeIn">
+    <div className="h-screen min-h-0 overflow-hidden bg-[#F8FAFC] text-slate-800 flex flex-col p-3 sm:p-4 font-sans select-none">
       {/* Top Header */}
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-5 gap-4">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-200 pb-3 gap-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-teal-650 flex items-center justify-center p-1.5 shrink-0">
             <img
@@ -409,9 +406,9 @@ export function TraineeLiveSessionPage({
           </div>
         </div>
 
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-3">
           {/* Timer & Compressions Badges */}
-          <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-5 py-2 shadow-sm">
+          <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-1 shadow-sm">
             <SessionTimer startedAt={session.startedAt} active={session.active} />
             <div className="w-px h-8 bg-slate-200" />
             <div className="flex flex-col items-center py-1">
@@ -444,9 +441,9 @@ export function TraineeLiveSessionPage({
       </header>
 
       {/* Main split display: side metrics + center dial */}
-      <main className="flex-1 flex flex-col items-center justify-center my-6 sm:my-8 max-w-5xl mx-auto w-full gap-6 sm:gap-8">
+      <main className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden flex flex-col items-center my-3 max-w-[1500px] mx-auto w-full gap-3">
         {/* Large Central Coaching Cue Card */}
-        <div className="w-full max-w-3xl animate-scaleUp">
+        <div className="w-full">
           <LiveCoachingBanner
             coachingCue={session.latestMetric ? "Active" : "Waiting"}
             depthMm={normalized.depthMm}
@@ -461,7 +458,7 @@ export function TraineeLiveSessionPage({
         </div>
 
         {/* 4 simple clinical V2 metric cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full mt-2">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
           <MetricCard
             label={
               normalized.usesCompletedCompressionDepth
@@ -514,13 +511,13 @@ export function TraineeLiveSessionPage({
         </div>
 
         {/* Live CPR Graph */}
-        <div className="w-full max-w-5xl">
-          <LiveCprGraph session={session} />
+        <div className="w-full flex-1 min-h-[260px]">
+          <LiveCprGraph session={session} normalized={normalized} compact />
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-4 border-t border-slate-200">
+      <footer className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider pt-2 border-t border-slate-200 shrink-0">
         ResQ Live Telemetry Guide • Visible from distance
       </footer>
     </div>

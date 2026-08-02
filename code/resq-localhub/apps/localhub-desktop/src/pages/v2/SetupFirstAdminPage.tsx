@@ -58,7 +58,7 @@ export function SetupFirstAdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f4f6f8] flex flex-col items-center justify-center p-6 font-sans">
+    <div className="h-screen overflow-y-auto bg-[#f4f6f8] flex flex-col items-center justify-center p-6 font-sans">
       <div className="w-full max-w-xl space-y-6">
         {/* Wizard Branding */}
         <div className="text-center space-y-2">

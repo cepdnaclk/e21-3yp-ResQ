@@ -333,6 +333,7 @@ export default function App() {
       onLogout={handleLogout}
       page={activeShellKey}
       setPage={handlePageChange}
+      contentMode={currentRoute.name === "instructor-live" ? "dashboard" : "document"}
     >
       <Suspense fallback={routeFallback}>
         {currentRoute.name === "home" && (
@@ -355,6 +356,7 @@ export default function App() {
           <V2ManikinReadinessPage
             deviceId={currentRoute.deviceId}
             onBack={() => navigate("/instructor")}
+            onRunCalibration={(did) => navigate(`/instructor/manikins/${did}/calibration`)}
           />
         )}
         {currentRoute.name === "calibration" && (
@@ -389,7 +391,11 @@ export default function App() {
             onBack={() => navigate("/courses")}
           />
         )}
-        {currentRoute.name === "start-session" && <V2StartSessionWizardPage />}
+        {currentRoute.name === "start-session" && (
+          <V2StartSessionWizardPage
+            onRunCalibration={(did) => navigate(`/instructor/manikins/${did}/calibration`)}
+          />
+        )}
         {currentRoute.name === "live-sessions" && (
           <V2ActiveSessionsPage
             onViewLive={(sid) => navigate(`/instructor/sessions/${sid}/live`)}

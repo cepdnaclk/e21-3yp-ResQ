@@ -135,7 +135,9 @@ public class CalibrationController {
         try {
             authService.requireRole(request, UserRole.INSTRUCTOR, UserRole.ADMIN);
             CalibrationEvidence latest = calibrationPersistenceRepository.findLatestEvidence(deviceId).orElse(null);
-            return ResponseEntity.ok(latest);
+            return latest == null
+                    ? ResponseEntity.noContent().build()
+                    : ResponseEntity.ok(latest);
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (ForbiddenException error) {

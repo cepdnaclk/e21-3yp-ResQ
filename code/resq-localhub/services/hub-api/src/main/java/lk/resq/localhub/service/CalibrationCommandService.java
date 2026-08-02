@@ -112,18 +112,38 @@ public class CalibrationCommandService {
         return startCalibration(deviceId, request, "system");
     }
 
-    public CalibrationCommandResponse startCalibration(String deviceId, CalibrationStartRequest request, String createdByUsername) {
+    public synchronized CalibrationCommandResponse startCalibration(String deviceId, CalibrationStartRequest request, String createdByUsername) {
         if (deviceId == null || deviceId.trim().isEmpty()) {
             throw new IllegalArgumentException("deviceId is required");
         }
 
         String normalizedDeviceId = deviceId.trim();
 
-        if (manikinRegistryService.getLiveSummary(normalizedDeviceId).isEmpty()) {
-            throw new IllegalArgumentException("Device " + normalizedDeviceId + " is not registered");
-        }
+        ManikinLiveSummary liveSummary = manikinRegistryService.getLiveSummary(normalizedDeviceId)
+                .orElseThrow(() -> new IllegalArgumentException("Device " + normalizedDeviceId + " is not registered"));
 
         ensureDeviceOnline(normalizedDeviceId);
+        if (Boolean.TRUE.equals(liveSummary.sessionActive())
+                || "SESSION_ACTIVE".equalsIgnoreCase(liveSummary.state())
+                || liveSummary.activeSessionId() != null) {
+            throw new IllegalStateException(
+                    "Calibration is unavailable while device " + normalizedDeviceId + " has an active session"
+            );
+        }
+
+        DeviceReadinessState currentReadiness = deviceReadinessService.getReadiness(normalizedDeviceId);
+        if (currentReadiness != null
+                && (currentReadiness.calibrationState() == lk.resq.localhub.model.firmware.CalibrationState.STARTING
+                || currentReadiness.calibrationState() == lk.resq.localhub.model.firmware.CalibrationState.CALIBRATING)) {
+            return new CalibrationCommandResponse(
+                    normalizedDeviceId,
+                    currentReadiness.lastReplyId(),
+                    "calibration/start",
+                    "ALREADY_PENDING",
+                    "Calibration is already in progress; no duplicate command was published.",
+                    Instant.now()
+            );
+        }
 
         if (request == null) {
             throw new IllegalArgumentException("Request body must not be null");

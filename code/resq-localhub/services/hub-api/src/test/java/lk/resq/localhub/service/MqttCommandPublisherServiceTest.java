@@ -100,12 +100,12 @@ class MqttCommandPublisherServiceTest {
         assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("interval_ms is required");
-        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", 99))
+        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", 49))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("between 100 and 1000");
+                .hasMessageContaining("between 50 and 1000");
         assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", 1001))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("between 100 and 1000");
+                .hasMessageContaining("between 50 and 1000");
     }
 
     @Test

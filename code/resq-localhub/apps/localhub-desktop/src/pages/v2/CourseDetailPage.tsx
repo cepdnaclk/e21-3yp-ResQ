@@ -70,7 +70,7 @@ export function V2CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) 
   const resolvedCourseId = course.cloudCourseId || course.courseId || (course as any).id;
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto select-none animate-fadeIn">
+    <div className="app-page app-page--medium space-y-6 select-none animate-fadeIn">
       {/* Page Header */}
       <PageHeader
         title={course.title || course.name || "Course Details"}

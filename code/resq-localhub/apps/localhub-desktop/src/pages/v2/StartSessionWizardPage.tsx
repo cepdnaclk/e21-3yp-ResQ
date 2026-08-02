@@ -14,7 +14,11 @@ import StatusBadge from "../../components/ui/StatusBadge";
 import { subscribeToManikinsLive } from "../../api/liveEventsClient";
 import { DeviceReadinessPanel } from "../../components/cpr/DeviceReadinessPanel";
 
-export function StartSessionWizardPage() {
+type StartSessionWizardPageProps = {
+  onRunCalibration: (deviceId: string) => void;
+};
+
+export function StartSessionWizardPage({ onRunCalibration }: StartSessionWizardPageProps) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +220,7 @@ export function StartSessionWizardPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 select-none">
+    <div className="app-page app-page--narrow space-y-6 select-none">
       <PageHeader
         title="Start Training Session"
         subtitle="Configure and start a supervised real-time CPR session."
@@ -440,6 +444,7 @@ export function StartSessionWizardPage() {
             continueLabel="Continue to Launch"
             showBack={true}
             onBack={() => setStep(3)}
+            onRunCalibration={onRunCalibration}
           />
         </div>
       )}

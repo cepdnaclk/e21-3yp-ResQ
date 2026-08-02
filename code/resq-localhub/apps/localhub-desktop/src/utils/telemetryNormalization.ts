@@ -106,12 +106,22 @@ export function normalizeTelemetry(session: SessionLiveView | null): NormalizedT
   let hasRecoilCounts = false;
 
   if (latestMetric) {
+    const authoritativeRecoilPct =
+      latestMetric.recoilPct ?? latestMetric.recoil_pct ?? null;
     const hasOkCount = (latestMetric.recoilOkCount !== null && latestMetric.recoilOkCount !== undefined) ||
                        (latestMetric.recoil_ok_count !== null && latestMetric.recoil_ok_count !== undefined);
     const hasIncompleteCount = (latestMetric.incompleteRecoilCount !== null && latestMetric.incompleteRecoilCount !== undefined) ||
                                (latestMetric.incomplete_recoil_count !== null && latestMetric.incomplete_recoil_count !== undefined);
 
-    if (hasOkCount || hasIncompleteCount) {
+    if (authoritativeRecoilPct !== null && Number.isFinite(authoritativeRecoilPct)) {
+      recoilPct = authoritativeRecoilPct;
+      if (hasOkCount || hasIncompleteCount) {
+        hasRecoilCounts = true;
+        const recoilOkCount = latestMetric.recoilOkCount ?? latestMetric.recoil_ok_count ?? 0;
+        const incompleteRecoilCount = latestMetric.incompleteRecoilCount ?? latestMetric.incomplete_recoil_count ?? 0;
+        recoilTotal = recoilOkCount + incompleteRecoilCount;
+      }
+    } else if (hasOkCount || hasIncompleteCount) {
       hasRecoilCounts = true;
       const recoilOkCount = latestMetric.recoilOkCount ?? latestMetric.recoil_ok_count ?? 0;
       const incompleteRecoilCount = latestMetric.incompleteRecoilCount ?? latestMetric.incomplete_recoil_count ?? 0;

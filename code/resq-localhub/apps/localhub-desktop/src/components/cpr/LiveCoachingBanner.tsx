@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 interface LiveCoachingBannerProps {
   coachingCue: string;
   depthMm: number | null;
@@ -10,7 +12,7 @@ interface LiveCoachingBannerProps {
   compressionCount: number;
 }
 
-export function LiveCoachingBanner({
+export const LiveCoachingBanner = memo(function LiveCoachingBanner({
   coachingCue,
   depthMm,
   rateCpm,
@@ -135,7 +137,10 @@ export function LiveCoachingBanner({
 
   return (
     <div
-      className={`rounded-2xl border border-slate-200 border-l-8 ${accentClasses.border} ${accentClasses.bg} p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all duration-300 shadow-sm`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className={`rounded-2xl border border-slate-200 border-l-8 ${accentClasses.border} ${accentClasses.bg} p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm`}
     >
       <div className="flex items-start gap-4">
         <div
@@ -154,6 +159,6 @@ export function LiveCoachingBanner({
       </div>
     </div>
   );
-}
+});
 
 export default LiveCoachingBanner;

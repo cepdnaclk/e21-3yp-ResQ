@@ -983,7 +983,46 @@ class ActiveSessionServiceTest {
         assertThat(completed.summary().avgRateCpm()).isEqualTo(110.0);
         assertThat(completed.summary().recoilPct()).isEqualTo(50.0);
         assertThat(completed.summary().pausesCount()).isEqualTo(1);
-        assertThat(completed.summary().score()).isEqualTo(75);
+        assertThat(completed.summary().overallScore()).isNull();
+        assertThat(completed.summary().grade()).isEqualTo("Unavailable");
+        assertThat(completed.summary().scoreCapReason()).contains("required scoring evidence");
+    }
+
+    @Test
+    void persistsModerateV1ScoreBeforePublishingCompletedNotification() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-01T10:00:00Z"));
+        ServiceFixture fixture = newServiceFixture(clock, 7_000L);
+        SessionStartResponse session = fixture.service.startSession(
+                new SessionStartRequest(
+                        "M01", null, null, null, null, "Guest",
+                        "adult-basic", "Authoritative scoring order", null));
+        activate(fixture.service, session);
+
+        fixture.service.recordTelemetry("M01", objectMapper.readTree("""
+                {"session_id":"%s","depth_mm":20,"depth_progress":0.4,
+                 "rate_cpm":110,"compression_count":12,
+                 "completed_compression_count":12,
+                 "depth_ok_compression_count":12,
+                 "valid_compression_count":12,
+                 "last_compression_depth_mm":54,
+                 "average_compression_depth_mm":54,
+                 "recoil_ok_count":12,"incomplete_recoil_count":0,
+                 "recoil_ok":true,"hand_placement":"CENTER","pause_s":0.5}
+                """.formatted(session.sessionId())));
+        clock.advanceMillis(60_000L);
+
+        SessionEndResponse completed = completeStop(fixture.service, session.sessionId());
+
+        assertThat(fixture.liveStreamService.terminalPublishedAfterPersistence).isTrue();
+        assertThat(fixture.sessionRepository.findById(session.sessionId())).contains(completed);
+        assertThat(completed.summary().scoringVersion()).isEqualTo("moderate-v1");
+        assertThat(completed.summary().overallScore()).isNotNull();
+        assertThat(completed.summary().grade()).isNotBlank();
+        assertThat(completed.summary().depthScore()).isNotNull();
+        assertThat(completed.summary().rateScore()).isNotNull();
+        assertThat(completed.summary().recoilScore()).isNotNull();
+        assertThat(completed.summary().handPlacementScore()).isNotNull();
+        assertThat(completed.summary().compressionFractionScore()).isNotNull();
     }
 
     @Test
@@ -1013,8 +1052,9 @@ class ActiveSessionServiceTest {
         SessionEndResponse completed =
                 completeStop(service, session.sessionId());
         assertThat(completed.summary().totalCompressions()).isZero();
-        assertThat(completed.summary().avgDepthMm()).isZero();
+        assertThat(completed.summary().avgDepthMm()).isNull();
         assertThat(completed.summary().score()).isZero();
+        assertThat(completed.summary().overallScore()).isNull();
     }
 
     private ActiveSessionService newService() throws Exception {
@@ -1028,7 +1068,8 @@ class ActiveSessionServiceTest {
     private ServiceFixture newServiceFixture(Clock clock, long startAckTimeoutMs) throws Exception {
         NoopMqttCommandPublisherService commandPublisher = new NoopMqttCommandPublisherService();
         InMemoryLocalSessionRepository sessionRepository = new InMemoryLocalSessionRepository();
-        LiveStreamService liveStreamService = new NoopLiveStreamService();
+        NoopLiveStreamService liveStreamService = new NoopLiveStreamService();
+        liveStreamService.sessionRepository = sessionRepository;
         TraineeRecordsRepository traineeRecordsRepository = new TraineeRecordsRepository();
         ManikinRegistryService registry = new ManikinRegistryService(12);
         FirmwarePersistenceRepository firmwareRepository = new FirmwarePersistenceRepository(
@@ -1111,7 +1152,7 @@ class ActiveSessionServiceTest {
                 fingerprintService,
                 identityValidator
         );
-        return new ServiceFixture(service, registry, firmwareRepository, readinessService, commandPublisher, sessionRepository, syncQueueRepository);
+        return new ServiceFixture(service, registry, firmwareRepository, readinessService, commandPublisher, sessionRepository, syncQueueRepository, liveStreamService);
     }
 
     private static SessionStartRequest startRequest(String deviceId) {
@@ -1221,8 +1262,13 @@ class ActiveSessionServiceTest {
         }
     }
     private static final class NoopLiveStreamService extends LiveStreamService {
+        private InMemoryLocalSessionRepository sessionRepository;
+        private boolean terminalPublishedAfterPersistence;
         @Override
         public void publishSessionLive(String sessionId, lk.resq.localhub.model.SessionLiveView payload) {
+            if (payload == null && sessionRepository != null) {
+                terminalPublishedAfterPersistence = sessionRepository.findById(sessionId).isPresent();
+            }
         }
     }
     private record ServiceFixture(
@@ -1232,7 +1278,8 @@ class ActiveSessionServiceTest {
             DeviceReadinessService readinessService,
             NoopMqttCommandPublisherService commandPublisher,
             InMemoryLocalSessionRepository sessionRepository,
-            SyncQueueRepository syncQueueRepository
+            SyncQueueRepository syncQueueRepository,
+            NoopLiveStreamService liveStreamService
     ) {
     }
     private static final class CapturingMqttCommandPublisherService extends MqttCommandPublisherService {

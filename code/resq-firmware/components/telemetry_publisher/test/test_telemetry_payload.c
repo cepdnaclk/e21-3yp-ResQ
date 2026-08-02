@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
 #include "telemetry_publisher.h"
 #include "io_mode_manager.h"
 #include "unity.h"
@@ -19,6 +20,11 @@ static cpr_metrics_snapshot_t base_snapshot(void)
     cpr_metrics_snapshot_t snap = {
         .depth_progress = 0.92f,
         .depth_mm = 46.0f,
+        .depth_mm_valid = true,
+        .depth_mm_live = 46.0f,
+        .depth_mm_live_valid = true,
+        .depth_mm_scored = 45.0f,
+        .depth_mm_scored_valid = true,
         .rate_cpm = 108.0f,
         .completed_compressions = 11,
         .depth_ok_compressions = 9,
@@ -29,6 +35,12 @@ static cpr_metrics_snapshot_t base_snapshot(void)
         .valid_compressions = 15,
         .recoil_ok_count = 14,
         .incomplete_recoil_count = 3,
+        .recoil_pct = 94.0f,
+        .recoil_pct_valid = true,
+        .recoil_pct_live = 94.0f,
+        .recoil_pct_live_valid = true,
+        .recoil_pct_scored = 90.0f,
+        .recoil_pct_scored_valid = true,
         .depth_ok = true,
         .recoil_ok = true,
         .last_compression_recoil_ok = true,
@@ -126,7 +138,7 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
           "[telemetry]")
 {
     cpr_metrics_snapshot_t snap = base_snapshot();
-    char payload[768];
+    char payload[TELEMETRY_SESSION_PAYLOAD_MAX_LEN];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "S-001", payload, sizeof(payload)));
@@ -134,6 +146,9 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_contains(payload, "\"session_id\":\"S-001\"");
     assert_contains(payload, "\"state\":\"SESSION_ACTIVE\"");
     assert_contains(payload, "\"depth_mm\":46.000");
+    assert_contains(payload, "\"depth_mm_valid\":true");
+    assert_contains(payload, "\"depth_mm_live\":46.000");
+    assert_contains(payload, "\"depth_mm_scored\":45.000");
     assert_contains(payload, "\"depth_progress\":0.920");
     assert_contains(payload, "\"depth_ok\":true");
     assert_contains(payload, "\"rate_cpm\":108.0");
@@ -148,6 +163,9 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_contains(payload, "\"last_compression_depth_mm\":56.500");
     assert_contains(payload, "\"average_compression_depth_mm\":54.250");
     assert_contains(payload, "\"recoil_ok\":true");
+    assert_contains(payload, "\"recoil_pct\":94.00");
+    assert_contains(payload, "\"recoil_percent_live\":94.00");
+    assert_contains(payload, "\"recoil_percent_scored\":90.00");
     assert_contains(payload, "\"recoil_ok_count\":14");
     assert_contains(payload, "\"incomplete_recoil_count\":3");
     assert_contains(payload, "\"pause_s\":0.250");
@@ -166,6 +184,24 @@ TEST_CASE("Session telemetry is minimal and keeps only consumed live metrics",
     assert_not_contains(payload, "\"pressure_balance_reliable\"");
 }
 
+TEST_CASE("Session telemetry never substitutes zero for unavailable live filters",
+          "[telemetry][ema]")
+{
+    cpr_metrics_snapshot_t snap = base_snapshot();
+    snap.depth_mm = 0.0f;
+    snap.depth_mm_valid = false;
+    snap.recoil_pct = 0.0f;
+    snap.recoil_pct_valid = false;
+    char payload[TELEMETRY_SESSION_PAYLOAD_MAX_LEN];
+
+    TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
+                                  &snap, "S-001", payload, sizeof(payload)));
+
+    assert_contains(payload, "\"depth_mm\":null");
+    assert_contains(payload, "\"depth_mm_valid\":false");
+    assert_contains(payload, "\"recoil_pct\":null");
+}
+
 TEST_CASE("Session payload derives flags and clamps pressure score", "[telemetry]")
 {
     cpr_metrics_snapshot_t snap = base_snapshot();
@@ -175,7 +211,7 @@ TEST_CASE("Session payload derives flags and clamps pressure score", "[telemetry
     snap.pause_s = CPR_PAUSE_CONDITION_THRESHOLD_S + 0.1f;
     snap.pressure_balance_pct = 120.0f;
     strcpy(snap.flags, "DEPTH_OK,RECOIL_OK");
-    char payload[768];
+    char payload[TELEMETRY_SESSION_PAYLOAD_MAX_LEN];
 
     TEST_ASSERT_EQUAL(ESP_OK, telemetry_publisher_build_session_payload(
                                   &snap, "S-001", payload, sizeof(payload)));
@@ -223,7 +259,7 @@ TEST_CASE("Sensor stream command validation requires request id action and inter
                           &interval_ms));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
                       telemetry_publisher_validate_sensor_stream_command(
-                          "{\"request_id\":\"r1\",\"action\":\"START\",\"interval_ms\":99}",
+                          "{\"request_id\":\"r1\",\"action\":\"START\",\"interval_ms\":49}",
                           &start,
                           &interval_ms));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
@@ -239,6 +275,15 @@ TEST_CASE("Sensor stream command validation requires request id action and inter
                           &interval_ms));
     TEST_ASSERT_TRUE(start);
     TEST_ASSERT_EQUAL_UINT32(200, interval_ms);
+
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      telemetry_publisher_validate_sensor_stream_command(
+                          "{\"request_id\":\"calibration\",\"action\":\"START\",\"interval_ms\":50}",
+                          &start,
+                          &interval_ms));
+    TEST_ASSERT_TRUE(start);
+    TEST_ASSERT_EQUAL_UINT32(50, interval_ms);
+    TEST_ASSERT_GREATER_THAN_UINT32(0, pdMS_TO_TICKS(interval_ms));
 
     TEST_ASSERT_EQUAL(ESP_OK,
                       telemetry_publisher_validate_sensor_stream_command(

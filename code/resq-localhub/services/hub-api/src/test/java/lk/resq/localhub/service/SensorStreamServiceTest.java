@@ -11,11 +11,20 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SensorStreamServiceTest {
 
     private final SensorStreamService service = new SensorStreamService();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void acceptsCalibrationCadenceAndRejectsAnythingFaster() {
+        SensorStreamService.validateIntervalMs(50);
+        assertThatThrownBy(() -> SensorStreamService.validateIntervalMs(49))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("between 50 and 1000");
+    }
 
     @Test
     void parsesAuthoritativeRawSensorStreamFields() throws Exception {
@@ -103,6 +112,26 @@ class SensorStreamServiceTest {
         assertThat(service.beginStart("M01")).isTrue();
 
         assertThat(service.subscriberCount("M01")).isZero();
+        assertThat(failedEmitter.completeWithErrorCalls).isZero();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void heartbeatRemovesAQuietDisconnectedEmitter() {
+        var failedEmitter = new FailingEmitter();
+        ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>> emitters =
+                (ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>>) ReflectionTestUtils.getField(
+                        service,
+                        "emittersByDeviceId"
+                );
+        assertThat(emitters).isNotNull();
+        emitters.put("M01", new CopyOnWriteArrayList<>());
+        emitters.get("M01").add(failedEmitter);
+
+        service.sendHeartbeats();
+
+        assertThat(service.subscriberCount("M01")).isZero();
+        assertThat(emitters).doesNotContainKey("M01");
         assertThat(failedEmitter.completeWithErrorCalls).isZero();
     }
 

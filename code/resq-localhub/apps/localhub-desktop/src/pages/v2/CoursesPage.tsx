@@ -104,7 +104,7 @@ export function CoursesPage() {
   const hasCourses = courses.length > 0;
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto select-none">
+    <div className="app-page space-y-6 select-none">
       <PageHeader
         title={currentUser?.role === "ADMIN" ? "Classroom Courses & Roster" : "My Assigned Courses"}
         subtitle="Manage CPR course assignments, view student rosters, and launch training practices."

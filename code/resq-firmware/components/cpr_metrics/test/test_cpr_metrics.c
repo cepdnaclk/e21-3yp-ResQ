@@ -1,3 +1,4 @@
+#include <math.h>
 #include <string.h>
 
 #include "cpr_metrics.h"
@@ -89,6 +90,19 @@ static void start_with_stable_pressure(int32_t hall,
     update(hall, p1, p2, ts);
     update(hall, p1, p2, ts + 1);
     update(hall, p1, p2, ts + 2);
+}
+
+static void complete_compression_for_recoil(bool recoil_ok, int64_t ts)
+{
+    update(1400, 1600, 1600, ts);
+    update(1900, 1700, 1700, ts + 100);
+    update(1200, 1200, 1200, ts + 200);
+    if (recoil_ok) {
+        update(1000, 1000, 1000, ts + 300);
+        update(1000, 1000, 1000, ts + 360);
+    } else {
+        update(1400, 1600, 1600, ts + 300);
+    }
 }
 
 TEST_CASE("CPR metrics validates lifecycle inputs", "[metrics]")
@@ -716,4 +730,141 @@ TEST_CASE("CPR metrics invalidates stale rate and tracks release pause",
     TEST_ASSERT_FALSE(snapshot.last_compression_incomplete_recoil);
     TEST_ASSERT_FALSE(snapshot.current_depth_in_range);
     TEST_ASSERT_TRUE(snapshot.depth_ok);
+}
+
+TEST_CASE("live depth uses newest reading while scored depth keeps five-reading EMA",
+          "[metrics][window][ema][depth]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1800, 1000, 1000, 1000);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_TRUE(snapshot.depth_mm_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.0f, snapshot.depth_mm_scored);
+
+    update(1840, 1000, 1000, 1100);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 41.70f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 40.60f, snapshot.depth_mm_scored);
+
+    update(1900, 1000, 1000, 1200);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 44.505f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 41.64f, snapshot.depth_mm_scored);
+
+    update(1960, 1000, 1000, 1300);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 47.47575f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.906f, snapshot.depth_mm_scored);
+
+    update(2000, 1000, 1000, 1400);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 49.62136f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 44.1624f, snapshot.depth_mm_scored);
+
+    update(2100, 1000, 1000, 1500);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 54.1932f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 46.46496f, snapshot.depth_mm_scored);
+
+    update_with_quality(1000, 1000, 1000, 1600,
+                        CPR_SAMPLE_HALL_READ_FAILED);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 54.1932f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 46.46496f, snapshot.depth_mm_scored);
+
+    update(2200, 1000, 1000, 1500);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 54.1932f, snapshot.depth_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 46.46496f, snapshot.depth_mm_scored);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_clear_live_filters());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FALSE(snapshot.depth_mm_valid);
+    TEST_ASSERT_FALSE(snapshot.recoil_pct_valid);
+    TEST_ASSERT_FALSE(snapshot.depth_mm_scored_valid);
+    TEST_ASSERT_TRUE(isfinite(snapshot.depth_mm));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, snapshot.depth_mm);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+    update(2000, 1000, 1000, 2000);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 50.0f, snapshot.depth_mm);
+}
+
+TEST_CASE("live recoil EMA is independent from depth and preserves classifications",
+          "[metrics][window][ema][recoil]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    update(1400, 1600, 1600, 1000);
+    update(1900, 1700, 1700, 1100);
+    update(1200, 1200, 1200, 1200);
+    update(1000, 1000, 1000, 1300);
+    update(1000, 1000, 1000, 1360);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_TRUE(snapshot.recoil_pct_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, snapshot.recoil_pct);
+    float depth_before = snapshot.depth_mm;
+
+    update(1400, 1600, 1600, 1500);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(1, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(1, snapshot.recoil_ok_count);
+    TEST_ASSERT_EQUAL(0, snapshot.incomplete_recoil_count);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, snapshot.recoil_pct);
+    TEST_ASSERT_TRUE(fabsf(depth_before - snapshot.depth_mm) > 0.01f);
+
+    update(1900, 1700, 1700, 1600);
+    update(1200, 1500, 1500, 1700);
+    update(1400, 1600, 1600, 1800);
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_EQUAL(2, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(1, snapshot.recoil_ok_count);
+    TEST_ASSERT_EQUAL(1, snapshot.incomplete_recoil_count);
+    TEST_ASSERT_FALSE(snapshot.last_compression_recoil_ok);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 15.0f, snapshot.recoil_pct);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 70.0f, snapshot.recoil_pct_scored);
+    TEST_ASSERT_TRUE(isfinite(snapshot.recoil_pct));
+}
+
+TEST_CASE("live recoil window evicts the oldest of five completed events",
+          "[metrics][window][ema][recoil]")
+{
+    calibration_config_t calibration = metrics_calibration();
+    cpr_metrics_snapshot_t snapshot;
+    const bool outcomes[] = {true, false, true, false, true, false};
+    const float expected[] = {
+        100.0f, 70.0f, 68.0f, 57.2f, 58.88f, 47.552f
+    };
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_init());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_reset(&calibration));
+
+    for (size_t i = 0; i < sizeof(outcomes) / sizeof(outcomes[0]); ++i) {
+        complete_compression_for_recoil(outcomes[i],
+                                        1000 + (int64_t)i * 500);
+        TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+        TEST_ASSERT_TRUE(snapshot.recoil_pct_valid);
+        TEST_ASSERT_FLOAT_WITHIN(0.02f, expected[i], snapshot.recoil_pct_scored);
+        TEST_ASSERT_TRUE(isfinite(snapshot.recoil_pct));
+    }
+
+    TEST_ASSERT_EQUAL(6, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(3, snapshot.recoil_ok_count);
+    TEST_ASSERT_EQUAL(3, snapshot.incomplete_recoil_count);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_clear_live_filters());
+    TEST_ASSERT_EQUAL(ESP_OK, cpr_metrics_get_snapshot(&snapshot));
+    TEST_ASSERT_FALSE(snapshot.recoil_pct_valid);
+    TEST_ASSERT_EQUAL(6, snapshot.completed_compressions);
+    TEST_ASSERT_EQUAL(3, snapshot.recoil_ok_count);
+    TEST_ASSERT_EQUAL(3, snapshot.incomplete_recoil_count);
 }

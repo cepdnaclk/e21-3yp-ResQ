@@ -17,6 +17,31 @@ body {
 @tailwind components;
 @tailwind utilities;
 
+.app-page {
+  width: 100%;
+  max-width: 90rem;
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.app-page > * {
+  min-width: 0;
+}
+
+.app-page--medium {
+  max-width: 80rem;
+}
+
+.app-page--narrow {
+  max-width: 70rem;
+}
+
+@media (max-width: 1024px) {
+  .app-page {
+    row-gap: 1.25rem;
+  }
+}
+
 :root {
   color-scheme: light;
   --bg: #ffffff;

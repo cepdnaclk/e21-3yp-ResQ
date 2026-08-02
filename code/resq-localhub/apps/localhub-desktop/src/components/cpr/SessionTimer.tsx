@@ -1,7 +1,7 @@
 /**
  * SessionTimer.tsx — Live elapsed timer for an active session.
  */
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 type SessionTimerProps = {
   startedAt: string | null | undefined;
@@ -21,7 +21,7 @@ function formatSeconds(secs: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function SessionTimer({ startedAt, active = true }: SessionTimerProps) {
+export const SessionTimer = memo(function SessionTimer({ startedAt, active = true }: SessionTimerProps) {
   const [elapsed, setElapsed] = useState(() => getElapsedSeconds(startedAt));
 
   useEffect(() => {
@@ -33,13 +33,17 @@ export function SessionTimer({ startedAt, active = true }: SessionTimerProps) {
   }, [startedAt, active]);
 
   return (
-    <div className="flex flex-col items-center gap-1 py-1 select-none">
+    <div
+      role="timer"
+      aria-label={`Elapsed time ${formatSeconds(elapsed)}`}
+      className="flex flex-col items-center gap-1 py-1 select-none"
+    >
       <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider block">Elapsed Time</span>
-      <span className="text-4xl font-mono font-extrabold text-slate-800 tabular-nums tracking-tight">
+      <span className="text-2xl sm:text-3xl font-mono font-extrabold text-slate-800 tabular-nums tracking-tight">
         {formatSeconds(elapsed)}
       </span>
     </div>
   );
-}
+});
 
 export default SessionTimer;

@@ -74,14 +74,15 @@ describe("sensorStreamClient", () => {
   });
 
   it("validates interval boundaries and malformed snapshots", () => {
-    expect(validateSensorStreamInterval("99")).toBe("Interval must be at least 100 ms.");
+    expect(validateSensorStreamInterval("49")).toBe("Interval must be at least 50 ms.");
+    expect(validateSensorStreamInterval("50")).toBeNull();
     expect(validateSensorStreamInterval("100")).toBeNull();
     expect(validateSensorStreamInterval("200")).toBeNull();
     expect(validateSensorStreamInterval("1000")).toBeNull();
     expect(validateSensorStreamInterval("1001")).toBe("Interval must not exceed 1000 ms.");
     expect(validateSensorStreamInterval("")).toBe("Interval is required.");
     expect(validateSensorStreamInterval("200.5")).toBe("Interval must be a whole number.");
-    expect(validateSensorStreamInterval("-1")).toBe("Interval must be at least 100 ms.");
+    expect(validateSensorStreamInterval("-1")).toBe("Interval must be at least 50 ms.");
 
     expect(parseSensorStreamSnapshot({ ...sampleSnapshot(), device_id: "M02" }, "M01")).toBeNull();
     expect(parseSensorStreamSnapshot({ ...sampleSnapshot(), telemetry_mode: "SESSION" }, "M01")).toBeNull();

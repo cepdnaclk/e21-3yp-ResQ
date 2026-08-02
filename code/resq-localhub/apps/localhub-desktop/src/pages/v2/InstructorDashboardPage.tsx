@@ -184,7 +184,7 @@ export function InstructorDashboardPage({
     : null;
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="app-page space-y-6">
       {/* Header */}
       <PageHeader
         title="Instructor Dashboard"

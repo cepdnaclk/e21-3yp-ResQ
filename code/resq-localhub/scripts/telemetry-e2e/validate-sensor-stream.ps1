@@ -35,8 +35,8 @@ function ConvertFrom-JsonLine($Line) {
     }
 }
 
-if ($IntervalMs -lt 100 -or $IntervalMs -gt 1000) {
-    Fail "Interval must be between 100 and 1000 ms"
+if ($IntervalMs -lt 50 -or $IntervalMs -gt 1000) {
+    Fail "Interval must be between 50 and 1000 ms"
 }
 
 Assert-Command "mosquitto_sub"

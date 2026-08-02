@@ -6,31 +6,57 @@ import lk.resq.localhub.model.firmware.SensorStreamSnapshot;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 @Service
 public class SensorStreamService {
 
-    public static final int SENSOR_STREAM_MIN_INTERVAL_MS = 100;
+    public static final int SENSOR_STREAM_MIN_INTERVAL_MS = 50;
     public static final int SENSOR_STREAM_DEFAULT_INTERVAL_MS = 200;
     public static final int SENSOR_STREAM_MAX_INTERVAL_MS = 1000;
 
     private static final long SSE_TIMEOUT_MS = 0L;
+    private static final long HEARTBEAT_INTERVAL_SECONDS = 15L;
 
     private final ConcurrentMap<String, SensorStreamSnapshot> latestSnapshots = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, SensorStreamCommandUpdate> controlsByDeviceId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CompletableFuture<SensorStreamCommandUpdate>> pendingRepliesByRequestId = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CopyOnWriteArrayList<SseEmitter>> emittersByDeviceId = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "resq-sensor-stream-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    @PostConstruct
+    public void startHeartbeat() {
+        heartbeatExecutor.scheduleWithFixedDelay(
+                this::sendHeartbeats,
+                HEARTBEAT_INTERVAL_SECONDS,
+                HEARTBEAT_INTERVAL_SECONDS,
+                TimeUnit.SECONDS
+        );
+    }
+
+    @PreDestroy
+    public void stopHeartbeat() {
+        heartbeatExecutor.shutdownNow();
+    }
 
     public SensorStreamSnapshot parseSnapshot(String topicDeviceId, JsonNode payload, Instant receivedAt) {
         String deviceId = requiredText(payload, "device_id", "deviceId");
@@ -272,12 +298,22 @@ public class SensorStreamService {
                 .sum();
     }
 
+    void sendHeartbeats() {
+        Map<String, String> payload = Map.of("ts", Instant.now().toString());
+        emittersByDeviceId.forEach((deviceId, emitters) -> {
+            emitters.removeIf(emitter -> !sendHeartbeat(emitter, payload));
+            if (emitters.isEmpty()) {
+                emittersByDeviceId.remove(deviceId, emitters);
+            }
+        });
+    }
+
     public static void validateIntervalMs(Integer intervalMs) {
         if (intervalMs == null) {
             throw new IllegalArgumentException("interval_ms is required");
         }
         if (intervalMs < SENSOR_STREAM_MIN_INTERVAL_MS || intervalMs > SENSOR_STREAM_MAX_INTERVAL_MS) {
-            throw new IllegalArgumentException("interval_ms must be between 100 and 1000");
+            throw new IllegalArgumentException("interval_ms must be between 50 and 1000");
         }
     }
 
@@ -324,6 +360,17 @@ public class SensorStreamService {
                     .name("sensor-stream-command")
                     .id(update.deviceId() + "-command-" + update.receivedAt().toEpochMilli())
                     .data(update));
+            return true;
+        } catch (IOException | IllegalStateException error) {
+            return false;
+        }
+    }
+
+    private boolean sendHeartbeat(SseEmitter emitter, Map<String, String> payload) {
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("heartbeat")
+                    .data(payload));
             return true;
         } catch (IOException | IllegalStateException error) {
             return false;

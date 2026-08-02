@@ -1,6 +1,7 @@
-export const SENSOR_STREAM_MIN_INTERVAL_MS = 100;
+export const SENSOR_STREAM_MIN_INTERVAL_MS = 50;
 export const SENSOR_STREAM_DEFAULT_INTERVAL_MS = 200;
 export const SENSOR_STREAM_MAX_INTERVAL_MS = 1000;
+export const CALIBRATION_SENSOR_STREAM_INTERVAL_MS = 50;
 
 export type SensorStreamUiState =
   | "IDLE"
@@ -82,7 +83,7 @@ export function validateSensorStreamInterval(value: string): string | null {
     return "Interval must be a whole number.";
   }
   if (number < SENSOR_STREAM_MIN_INTERVAL_MS) {
-    return "Interval must be at least 100 ms.";
+    return "Interval must be at least 50 ms.";
   }
   if (number > SENSOR_STREAM_MAX_INTERVAL_MS) {
     return "Interval must not exceed 1000 ms.";

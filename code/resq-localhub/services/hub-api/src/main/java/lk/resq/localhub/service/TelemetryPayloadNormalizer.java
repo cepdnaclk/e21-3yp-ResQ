@@ -47,7 +47,9 @@ final class TelemetryPayloadNormalizer {
             return TelemetryNormalizationResult.rejected("payload sessionId is missing", warnings);
         }
 
-        Double depthMm = firstDouble(payload, "depthMm", "depth_mm");
+        Boolean depthMmValid = firstBoolean(payload, "depthMmValid", "depth_mm_valid");
+        Double depthMm = firstDouble(payload, "depthMmLive", "depth_mm_live", "depthMm", "depth_mm");
+        Double depthMmScored = firstDouble(payload, "depthMmScored", "depth_mm_scored");
         Double depthProgress = firstDouble(payload, "depthProgress", "depth_progress");
         String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "depthSource", "depth_source", "mode"));
 
@@ -55,8 +57,10 @@ final class TelemetryPayloadNormalizer {
 
         Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
         Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
+        Double recoilPct = firstDouble(payload, "recoilPercentLive", "recoil_percent_live", "recoilPct", "recoil_pct");
+        Double recoilPctScored = firstDouble(payload, "recoilPercentScored", "recoil_percent_scored", "recoilPctScored", "recoil_pct_scored");
         Double pauseS = firstDouble(payload, "pauseS", "pause_s");
-        if (depthMm == null) {
+        if (depthMm == null && !Boolean.FALSE.equals(depthMmValid)) {
             depthMm = firstDouble(payload, "current_delta", "currentDelta");
             if (depthMm != null) {
                 warnings.add("used raw current_delta/currentDelta as fallback depthMm");
@@ -142,7 +146,8 @@ final class TelemetryPayloadNormalizer {
             return TelemetryNormalizationResult.rejectedContradiction(contradiction, warnings);
         }
 
-        if (depthMm == null && depthProgress == null && depthOk == null && rateCpm == null && recoilOk == null) {
+        if (depthMm == null && depthProgress == null && depthOk == null && rateCpm == null
+                && recoilOk == null && recoilPct == null) {
             return TelemetryNormalizationResult.rejected("payload is missing required metric-first fields", warnings);
         }
 
@@ -160,10 +165,13 @@ final class TelemetryPayloadNormalizer {
                 firstLong(payload, "tsMs", "ts_ms"),
                 jsonValue(payload.get("timestamp")),
                 depthMm,
+                depthMmScored,
                 depthProgress,
                 depthOk,
                 rateCpm,
                 recoilOk,
+                recoilPct,
+                recoilPctScored,
                 pauseS,
                 compressionCount,
                 completedCompressionCount,
@@ -206,6 +214,21 @@ final class TelemetryPayloadNormalizer {
         }
         if (metric.pauseS() != null && (metric.pauseS() < 0.0 || metric.pauseS() > 600.0)) {
             return "pauseS is outside the accepted range";
+        }
+        if (metric.depthMmScored() != null && (!Double.isFinite(metric.depthMmScored()) ||
+                metric.depthMmScored() < 0.0 || metric.depthMmScored() > 120.0)) {
+            return "depthMmScored is outside the accepted range";
+        }
+        if (metric.recoilPct() != null
+                && (metric.recoilPct().isNaN()
+                || metric.recoilPct().isInfinite()
+                || metric.recoilPct() < 0.0
+                || metric.recoilPct() > 100.0)) {
+            return "recoilPct is outside the accepted range";
+        }
+        if (metric.recoilPctScored() != null && (!Double.isFinite(metric.recoilPctScored()) ||
+                metric.recoilPctScored() < 0.0 || metric.recoilPctScored() > 100.0)) {
+            return "recoilPctScored is outside the accepted range";
         }
         if (metric.compressionCount() != null && metric.compressionCount() < 0) {
             return "compressionCount cannot be negative";

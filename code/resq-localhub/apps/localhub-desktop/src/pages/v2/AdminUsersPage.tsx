@@ -92,7 +92,7 @@ export function AdminUsersPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto select-none">
+    <div className="app-page app-page--medium space-y-6 select-none">
       <PageHeader
         title="User Accounts Directory"
         subtitle="Manage login accounts for instructors, clinical coordinators, and trainees."

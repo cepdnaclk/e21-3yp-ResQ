@@ -41,4 +41,23 @@ describe("AppShell", () => {
     await user.click(screen.getByRole("button", { name: "Sign Out" }));
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
+
+  it("uses a bounded non-scrolling content region for live dashboards", () => {
+    render(
+      <AppShell
+        currentUser={adminUser}
+        connectionHealthy
+        lastApiSuccessAt={Date.now()}
+        onLogout={vi.fn()}
+        page="instructor"
+        setPage={vi.fn()}
+        contentMode="dashboard"
+      >
+        <div>Live dashboard</div>
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("main")).toHaveAttribute("data-content-mode", "dashboard");
+    expect(screen.getByRole("main")).toHaveClass("overflow-hidden");
+  });
 });

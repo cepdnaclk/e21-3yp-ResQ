@@ -40,7 +40,7 @@ HTTP command publication does not mean the stream is running. After START is acc
 
 ## Interval Validation
 
-The interval input defaults to 200 ms and accepts whole numbers from 100 to 1000 ms. Invalid values are shown inline and disable Start. The frontend does not silently clamp values; backend validation remains authoritative.
+The interval input defaults to 200 ms and accepts whole numbers from 50 to 1000 ms. Calibration explicitly requests 50 ms; the diagnostics default remains conservative. Invalid values are shown inline and disable Start. The frontend does not silently clamp values; backend validation remains authoritative.
 
 ## Validity Rendering
 

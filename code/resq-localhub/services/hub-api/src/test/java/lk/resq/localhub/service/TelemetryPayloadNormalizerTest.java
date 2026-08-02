@@ -49,6 +49,7 @@ class TelemetryPayloadNormalizerTest {
                   "session_id": "S-FW-2",
                   "state": "SESSION_ACTIVE",
                   "depth_mm": 42.9,
+                  "depth_mm_valid": true,
                   "depth_progress": 0.78,
                   "depth_ok": true,
                   "rate_cpm": 111,
@@ -59,6 +60,7 @@ class TelemetryPayloadNormalizerTest {
                   "last_compression_peak_depth_mm": 63.0,
                   "average_completed_compression_peak_depth_mm": 63.0,
                   "recoil_ok": true,
+                  "recoil_pct": 94.0,
                   "recoil_ok_count": 0,
                   "incomplete_recoil_count": 0,
                   "pause_s": 0.2,
@@ -82,6 +84,7 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.value().depthOk()).isTrue();
         assertThat(result.value().rateCpm()).isEqualTo(111.0);
         assertThat(result.value().recoilOk()).isTrue();
+        assertThat(result.value().recoilPct()).isEqualTo(94.0);
         assertThat(result.value().compressionCount()).isEqualTo(1);
         assertThat(result.value().completedCompressionCount()).isEqualTo(1);
         assertThat(result.value().depthOkCompressionCount()).isEqualTo(1);
@@ -94,6 +97,27 @@ class TelemetryPayloadNormalizerTest {
         assertThat(result.value().pressureBalanceScorePct()).isEqualTo(92.9);
         assertThat(result.value().flags()).isEqualTo("DEPTH_OK,RATE_OK,RECOIL_OK");
         assertThat(result.value().tsMs()).isEqualTo(100432L);
+    }
+
+    @Test
+    void doesNotSubstituteZeroDepthWhenFirmwareMarksDepthInvalid() throws Exception {
+        var payload = objectMapper.readTree("""
+                {
+                  "session_id": "S-FW-INVALID",
+                  "depth_mm": null,
+                  "depth_mm_valid": false,
+                  "depth_progress": 0.0,
+                  "rate_cpm": 108,
+                  "recoil_pct": 40.0
+                }
+                """);
+
+        TelemetryPayloadNormalizer.TelemetryNormalizationResult result =
+                TelemetryPayloadNormalizer.normalize(payload, "M01");
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.value().depthMm()).isNull();
+        assertThat(result.value().recoilPct()).isEqualTo(40.0);
     }
 
     @Test

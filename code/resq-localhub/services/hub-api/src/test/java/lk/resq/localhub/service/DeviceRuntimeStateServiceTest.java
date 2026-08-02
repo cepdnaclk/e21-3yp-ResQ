@@ -192,6 +192,121 @@ class DeviceRuntimeStateServiceTest {
         assertThat(state.stateSeq()).isEqualTo(42L);
     }
 
+    @Test
+    void failedRecalibrationPreservesPreviousTrustedProfile() {
+        DeviceRuntimeStateService service = new DeviceRuntimeStateService();
+        String oldHash = "4da18fea2e079ce05c14f50a7dc687db762db3f6f0b8c93fc7c6b345e5cdab31";
+        String candidateHash = "b82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f";
+
+        service.applyCalibrationEvent(
+                "M01",
+                calibrationResultEvent("old-profile", "PASS", "ACK", "READY_FOR_SESSION", 100L)
+                        .withCalibrationIdentity(1, 3, "VALID", false, 7, oldHash)
+                        .withOrdering("0123456789abcdef", 40L)
+        );
+        DeviceRuntimeState failed = service.applyCalibrationEvent(
+                "M01",
+                calibrationResultEvent("candidate-profile", "FAIL", "NACK", "CALIBRATION_FAIL", 200L)
+                        .withCalibrationIdentity(1, 4, "INVALID", true, 8, candidateHash)
+                        .withOrdering("0123456789abcdef", 41L)
+        );
+
+        assertThat(failed.calibrationState()).isEqualTo("FAILED");
+        assertThat(failed.firmwareState()).isEqualTo("CALIBRATION_FAIL");
+        assertThat(failed.readyForSession()).isFalse();
+        assertThat(failed.calibrated()).isTrue();
+        assertThat(failed.calibrationProfileId()).isEqualTo("old-profile");
+        assertThat(failed.calibrationStorageStatus()).isEqualTo("VALID");
+        assertThat(failed.recalibrationRequired()).isFalse();
+        assertThat(failed.profileVersion()).isEqualTo(7);
+        assertThat(failed.profileHash()).isEqualTo(oldHash);
+        assertThat(failed.calibrationGeneration()).isEqualTo(3);
+    }
+
+    @Test
+    void successfulRecalibrationReplacesTrustedProfile() {
+        DeviceRuntimeStateService service = new DeviceRuntimeStateService();
+        String oldHash = "4da18fea2e079ce05c14f50a7dc687db762db3f6f0b8c93fc7c6b345e5cdab31";
+        String newHash = "b82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f";
+
+        service.applyCalibrationEvent(
+                "M01",
+                calibrationResultEvent("old-profile", "PASS", "ACK", "READY_FOR_SESSION", 100L)
+                        .withCalibrationIdentity(1, 3, "VALID", false, 7, oldHash)
+                        .withOrdering("0123456789abcdef", 40L)
+        );
+        DeviceRuntimeState passed = service.applyCalibrationEvent(
+                "M01",
+                calibrationResultEvent("new-profile", "PASS", "ACK", "READY_FOR_SESSION", 200L)
+                        .withCalibrationIdentity(1, 4, "VALID", false, 8, newHash)
+                        .withOrdering("0123456789abcdef", 41L)
+        );
+
+        assertThat(passed.readyForSession()).isTrue();
+        assertThat(passed.calibrated()).isTrue();
+        assertThat(passed.calibrationProfileId()).isEqualTo("new-profile");
+        assertThat(passed.profileVersion()).isEqualTo(8);
+        assertThat(passed.profileHash()).isEqualTo(newHash);
+        assertThat(passed.calibrationGeneration()).isEqualTo(4);
+    }
+
+    @Test
+    void cancelledRecalibrationPreservesPreviousTrustedProfile() {
+        DeviceRuntimeStateService service = new DeviceRuntimeStateService();
+        String oldHash = "4da18fea2e079ce05c14f50a7dc687db762db3f6f0b8c93fc7c6b345e5cdab31";
+        service.applyCalibrationEvent(
+                "M01",
+                calibrationResultEvent("old-profile", "PASS", "ACK", "READY_FOR_SESSION", 100L)
+                        .withCalibrationIdentity(1, 3, "VALID", false, 7, oldHash)
+                        .withOrdering("0123456789abcdef", 40L)
+        );
+
+        DeviceRuntimeState cancelled = service.applyCalibrationEvent(
+                "M01",
+                calibrationResultEvent("candidate-profile", "CANCELLED", "ACK", "PAIRED_IDLE", 200L)
+                        .withOrdering("0123456789abcdef", 41L)
+        );
+
+        assertThat(cancelled.calibrationState()).isEqualTo("CANCELLED");
+        assertThat(cancelled.calibrated()).isTrue();
+        assertThat(cancelled.calibrationProfileId()).isEqualTo("old-profile");
+        assertThat(cancelled.profileHash()).isEqualTo(oldHash);
+    }
+
+    @Test
+    void interruptedSessionPreservesPreviousTrustedProfileWithoutRemainingReady() throws Exception {
+        DeviceRuntimeStateService service = new DeviceRuntimeStateService();
+        String oldHash = "4da18fea2e079ce05c14f50a7dc687db762db3f6f0b8c93fc7c6b345e5cdab31";
+        service.applyCalibrationEvent(
+                "M01",
+                calibrationResultEvent("old-profile", "PASS", "ACK", "READY_FOR_SESSION", 100L)
+                        .withCalibrationIdentity(1, 3, "VALID", false, 7, oldHash)
+                        .withOrdering("0123456789abcdef", 40L)
+        );
+
+        DeviceRuntimeState interrupted = service.applyStatus("M01", objectMapper.readTree("""
+                {
+                  "state":"SESSION_INTERRUPTED",
+                  "calibrated":false,
+                  "session_active":false,
+                  "ts_ms":200,
+                  "boot_id":"0123456789abcdef",
+                  "state_seq":41
+                }
+                """));
+
+        assertThat(interrupted.firmwareState()).isEqualTo("SESSION_INTERRUPTED");
+        assertThat(interrupted.calibrationState()).isEqualTo("INTERRUPTED");
+        assertThat(interrupted.readyForSession()).isFalse();
+        assertThat(interrupted.calibrated()).isTrue();
+        assertThat(interrupted.calibrationProfileId()).isEqualTo("old-profile");
+        assertThat(interrupted.calibrationStorageStatus()).isEqualTo("VALID");
+        assertThat(interrupted.recalibrationRequired()).isFalse();
+        assertThat(interrupted.profileVersion()).isEqualTo(7);
+        assertThat(interrupted.profileHash()).isEqualTo(oldHash);
+        assertThat(interrupted.calibrationGeneration()).isEqualTo(3);
+    }
+
     static CalibrationMqttEvent calibrationEvent(Integer eventId, String result, String status, String state, Long tsMs) {
         return new CalibrationMqttEvent(
                 "M01",
@@ -205,6 +320,29 @@ class DeviceRuntimeStateServiceTest {
                 state,
                 tsMs,
                 Instant.now()
+        );
+    }
+
+    private static CalibrationMqttEvent calibrationResultEvent(
+            String profileId,
+            String result,
+            String status,
+            String state,
+            Long tsMs
+    ) {
+        return new CalibrationMqttEvent(
+                "M01",
+                4002,
+                "req-" + profileId,
+                status,
+                11,
+                result,
+                "00000",
+                0,
+                state,
+                tsMs,
+                Instant.now(),
+                profileId
         );
     }
 

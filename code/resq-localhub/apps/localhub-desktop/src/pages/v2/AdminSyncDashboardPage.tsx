@@ -123,7 +123,7 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
   ).length;
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="app-page space-y-6">
       <PageHeader
         title="Cloud Sync Dashboard"
         subtitle="Manage cloud roster replication, synchronization logs, and telemetry upload queue."

@@ -170,4 +170,81 @@ describe("InstructorDashboardPage V2", () => {
     // Warning message should be shown in modal
     expect(screen.getByText("Run calibration before starting a CPR session.")).toBeInTheDocument();
   });
+
+  it("shows one Recalibrate action for a calibrated idle device", async () => {
+    vi.mocked(fetchLiveManikins).mockResolvedValue([{
+      ...mockManikin,
+      calibrated: true,
+      sessionActive: false,
+    }]);
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "READY",
+      readyForSession: true,
+      calibrationStorageStatus: "VALID",
+      recalibrationRequired: false,
+    });
+
+    render(
+      <InstructorDashboardPage
+        onStartSession={vi.fn()}
+        onRunCalibration={vi.fn()}
+        onPairNewManikin={vi.fn()}
+        onViewRecentSessions={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole("button", { name: "Recalibrate" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "Recalibrate" })).toHaveLength(1);
+  });
+
+  it("disables calibration and removes Start Session during an active session", async () => {
+    vi.mocked(fetchLiveManikins).mockResolvedValue([{
+      ...mockManikin,
+      state: "SESSION_ACTIVE",
+      sessionActive: true,
+      activeSessionId: "S-01",
+      calibrated: true,
+    }]);
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "READY",
+      readyForSession: false,
+      calibrationStorageStatus: "VALID",
+      recalibrationRequired: false,
+    });
+
+    render(
+      <InstructorDashboardPage
+        onStartSession={vi.fn()}
+        onRunCalibration={vi.fn()}
+        onPairNewManikin={vi.fn()}
+        onViewRecentSessions={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole("button", { name: "Recalibrate" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Start Session" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Session" })).toBeEnabled();
+    expect(screen.getByText(/Calibration is unavailable during an active session/i)).toBeInTheDocument();
+  });
+
+  it("shows a disabled pending calibration action", async () => {
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "CALIBRATING",
+      readyForSession: false,
+    });
+
+    render(
+      <InstructorDashboardPage
+        onStartSession={vi.fn()}
+        onRunCalibration={vi.fn()}
+        onPairNewManikin={vi.fn()}
+        onViewRecentSessions={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole("button", { name: "Calibration in progress" })).toBeDisabled();
+  });
 });

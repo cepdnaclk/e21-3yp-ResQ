@@ -30,7 +30,7 @@ class DeviceTelemetryControllerTest {
         Fixture fixture = newFixture();
 
         assertThat(fixture.controller.startTelemetry(null, "M01", null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(fixture.controller.startTelemetry(null, "M01", Map.of("interval_ms", 99)).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(fixture.controller.startTelemetry(null, "M01", Map.of("interval_ms", 49)).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(fixture.controller.startTelemetry(null, "M01", Map.of("interval_ms", 1001)).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(fixture.controller.startTelemetry(null, "M01", Map.of("interval_ms", -1)).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }

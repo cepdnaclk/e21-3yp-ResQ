@@ -79,7 +79,7 @@ export function V2DemoChecklistPage({ navigate }: DemoChecklistPageProps) {
   const checkReportsSaving = reportsOk === true;
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
+    <div className="app-page app-page--medium space-y-6">
       <PageHeader
         title="Demo Readiness"
         subtitle="Verify the end-to-end simulation setup, roster replication, and local hub operational state."

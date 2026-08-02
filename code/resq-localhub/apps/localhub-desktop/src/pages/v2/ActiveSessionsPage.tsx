@@ -158,7 +158,7 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
   }
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="app-page space-y-6">
       <PageHeader
         title="Live Active Sessions"
         subtitle="Monitor ongoing CPR practices and view student performance in real-time."
@@ -362,7 +362,7 @@ export function ActiveSessionsPage({ onViewLive, onNavigateHome }: ActiveSession
                         onClick={() => m.activeSessionId && handleEndSession(m.activeSessionId)}
                         disabled={endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING"}
                       >
-                        {endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING" ? "Stopping..." : "End Session"}
+                        {endingSessionId === m.activeSessionId || lifecycleState === "STOP_PENDING" ? "Ending session…" : "End Session"}
                       </Button>
                       <Button
                         type="button"

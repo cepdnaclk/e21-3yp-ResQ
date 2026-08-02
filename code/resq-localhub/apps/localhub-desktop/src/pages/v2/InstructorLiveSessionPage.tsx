@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import { fetchSessionLive, endSession } from "../../api/sessionsApi";
-import { subscribeToSessionLive } from "../../api/liveEventsClient";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { endSession, fetchAuthoritativeCompletedSession } from "../../api/sessionsApi";
 import type { SessionLiveView } from "../../types/live";
 import Button from "../../components/ui/Button";
 import LoadingState from "../../components/ui/LoadingState";
@@ -9,6 +8,7 @@ import { SessionTimer } from "../../components/cpr/SessionTimer";
 import { normalizeTelemetry } from "../../utils/telemetryNormalization";
 import LiveCprGraph from "../../components/cpr/LiveCprGraph";
 import LiveCoachingBanner from "../../components/cpr/LiveCoachingBanner";
+import { useSessionLiveStream } from "../../hooks/useSessionLiveStream";
 
 type InstructorLiveSessionPageProps = {
   sessionId: string;
@@ -36,64 +36,30 @@ export function InstructorLiveSessionPage({
   sessionId,
   onSessionEnded,
 }: InstructorLiveSessionPageProps) {
-  const [session, setSession] = useState<SessionLiveView | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const [stopMessage, setStopMessage] = useState<string | null>(null);
+  const handleAuthoritativeCompletion = useCallback(async (completedSessionId: string) => {
+    setEnding(true);
+    setStopMessage("Session completed. Loading final score…");
+    try {
+      await fetchAuthoritativeCompletedSession(completedSessionId);
+      onSessionEnded(completedSessionId);
+    } catch (error) {
+      setEnding(false);
+      setStopMessage(error instanceof Error ? error.message : "The final score could not be loaded. Please try again.");
+    }
+  }, [onSessionEnded]);
+  const { session, setSession, loading, error } = useSessionLiveStream({
+    sessionId,
+    onEnded: handleAuthoritativeCompletion,
+  });
+  const normalized = useMemo(() => normalizeTelemetry(session), [session]);
 
   useEffect(() => {
-    let subscription: { stop: () => void } | null = null;
-    let stopped = false;
-
-    async function init() {
-      try {
-        const initial = await fetchSessionLive(sessionId);
-        if (stopped) return;
-        if (!initial) {
-          setError("The requested live session was not found or has already ended.");
-          setLoading(false);
-          return;
-        }
-
-        setSession(initial);
-        setLoading(false);
-
-        // Start SSE subscription
-        subscription = subscribeToSessionLive(
-          sessionId,
-          initial.deviceId,
-          (update) => {
-            if (!stopped) {
-              setSession(update);
-              setStopMessage(getStopStatusText(update.lifecycleState));
-              if (update.lifecycleState !== "STOP_PENDING") {
-                setEnding(false);
-              }
-            }
-          },
-          () => {
-            if (!stopped) onSessionEnded(sessionId);
-          },
-          (err) => {
-            console.warn("SSE connection error", err);
-          }
-        );
-      } catch (err) {
-        if (!stopped) {
-          setError("Failed to connect to the live session stream.");
-          setLoading(false);
-        }
-      }
+    if (session?.lifecycleState && session.lifecycleState !== "STOP_PENDING") {
+      setEnding(false);
     }
-
-    init();
-
-    return () => {
-      stopped = true;
-      subscription?.stop();
-    };
-  }, [sessionId]);
+  }, [session?.lifecycleState]);
 
   async function handleEndSession() {
     setEnding(true);
@@ -121,7 +87,7 @@ export function InstructorLiveSessionPage({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
+      <div className="h-full bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
         <LoadingState message="Connecting to training session..." />
       </div>
     );
@@ -129,7 +95,7 @@ export function InstructorLiveSessionPage({
 
   if (error || !session) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
+      <div className="h-full bg-slate-50 flex flex-col items-center justify-center p-8 text-slate-800">
         <div className="w-full max-w-lg bg-white border border-slate-200 text-center py-16 px-8 rounded-3xl space-y-4 shadow-sm">
           <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-500 font-bold">
             !
@@ -144,7 +110,6 @@ export function InstructorLiveSessionPage({
     );
   }
 
-  const normalized = normalizeTelemetry(session);
   const lifecycleState = session.lifecycleState ?? null;
   const recoveryStatus = session.recoveryStatus ?? "NONE";
   const stopStatusText = stopMessage ?? getStopStatusText(lifecycleState);
@@ -260,10 +225,10 @@ export function InstructorLiveSessionPage({
   const compressionCount = session.latestMetric?.compressionCount ?? 0;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-sans select-none p-6 sm:p-8">
+    <div className="h-full min-h-0 overflow-hidden bg-[#F8FAFC] text-slate-800 flex flex-col font-sans select-none p-3 sm:p-4">
       {/* Live Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5 mb-8">
-        <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-3 mb-3 shrink-0">
+        <div className="space-y-2">
           <h1 className="text-2xl font-black tracking-tight text-slate-900 leading-none">
             Live CPR Training
           </h1>
@@ -297,12 +262,12 @@ export function InstructorLiveSessionPage({
             disabled={ending || !canEndSession}
             className="shadow-sm font-bold px-6 py-2.5 text-xs rounded-xl"
           >
-            {ending || lifecycleState === "STOP_PENDING" ? "Stopping..." : "End Session"}
+            {ending || lifecycleState === "STOP_PENDING" ? "Ending session…" : "End Session"}
           </Button>
         </div>
       </div>
 
-      <div className="max-w-5xl w-full mx-auto space-y-8">
+      <div className="max-w-[1500px] flex-1 min-h-0 w-full mx-auto grid grid-rows-[auto_auto_minmax(0,1fr)] gap-3">
         {/* Live Coaching Banner */}
         <LiveCoachingBanner
           coachingCue={session.latestMetric ? "Active" : "Waiting"}
@@ -317,7 +282,7 @@ export function InstructorLiveSessionPage({
         />
 
         {/* Metrics Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 w-full">
           <MetricCard
             label={
               normalized.usesCompletedCompressionDepth
@@ -366,17 +331,18 @@ export function InstructorLiveSessionPage({
           />
         </div>
 
-        {/* Live CPR Graph */}
-        <div>
-          <LiveCprGraph session={session} />
-        </div>
+        <div className="grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(220px,1fr)] gap-3">
+          {/* Live CPR Graph */}
+          <div className="min-h-0">
+            <LiveCprGraph session={session} normalized={normalized} compact />
+          </div>
 
-        {/* Recent flags badges */}
-        <div className="bg-white border border-slate-200 p-6 rounded-2xl space-y-3 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+          {/* Recent flags badges */}
+          <div className="bg-white border border-slate-200 p-4 rounded-2xl flex min-h-0 flex-col gap-3 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
           <h3 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block border-b border-slate-100 pb-2">
             Recent Performance Flags
           </h3>
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex flex-wrap content-start gap-2 pt-1 overflow-y-auto">
             {(() => {
               const FLAG_LABELS: Record<string, string> = {
                 RATE_SLOW: "Rate slow",
@@ -420,6 +386,7 @@ export function InstructorLiveSessionPage({
                 );
               });
             })()}
+          </div>
           </div>
         </div>
       </div>

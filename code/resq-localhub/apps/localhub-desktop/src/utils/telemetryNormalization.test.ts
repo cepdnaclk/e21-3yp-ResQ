@@ -77,6 +77,32 @@ describe("telemetryNormalization", () => {
     expect(res.recoilTotal).toBe(10);
   });
 
+  it("uses the firmware recoil EMA without smoothing it again", () => {
+    const session: Partial<SessionLiveView> = {
+      sessionId: "s1",
+      deviceId: "d1",
+      latestMetric: {
+        deviceId: "d1",
+        sessionId: "s1",
+        depthMm: 46,
+        rateCpm: 110,
+        recoilOk: false,
+        recoilPct: 40,
+        recoilOkCount: 1,
+        incompleteRecoilCount: 1,
+        pauseS: 0,
+        compressionCount: 2,
+        handPlacement: "CENTER",
+        flags: null,
+      },
+    };
+
+    const res = normalizeTelemetry(session as SessionLiveView);
+    expect(res.recoilPct).toBe(40);
+    expect(res.hasRecoilCounts).toBe(true);
+    expect(res.recoilTotal).toBe(2);
+  });
+
   it("detects when recoil total is 0", () => {
     const session: Partial<SessionLiveView> = {
       sessionId: "s1",

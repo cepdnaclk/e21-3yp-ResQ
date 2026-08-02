@@ -83,6 +83,13 @@ class FirmwareSimulator {
     this.currentSessionId = options.sessionId;
     this.lastErrorId = options.simulateError ? "06201" : "00000";
     this.telemetryCount = 0;
+    this.compressionProgress = 0;
+    this.completedCompressionCount = 0;
+    this.depthOkCompressionCount = 0;
+    this.recoilOkCount = 0;
+    this.incompleteRecoilCount = 0;
+    this.completedDepthSumMm = 0;
+    this.lastCompressionPeakDepthMm = null;
     this.latestSessionMetric = null;
     this.manualTelemetryCount = 0;
     this.heartbeatTimer = null;
@@ -403,6 +410,13 @@ class FirmwareSimulator {
     this.stopManualTelemetry();
     this.currentSessionId = stringOr(payload.session_id, this.options.sessionId);
     this.telemetryCount = 0;
+    this.compressionProgress = 0;
+    this.completedCompressionCount = 0;
+    this.depthOkCompressionCount = 0;
+    this.recoilOkCount = 0;
+    this.incompleteRecoilCount = 0;
+    this.completedDepthSumMm = 0;
+    this.lastCompressionPeakDepthMm = null;
     this.latestSessionMetric = null;
     this.sessionActive = true;
     this.state = "SESSION_ACTIVE";
@@ -468,7 +482,7 @@ class FirmwareSimulator {
     const action = String(payload.action || "").trim().toUpperCase();
     if (action === "START") {
       const intervalMs = Number(payload.interval_ms);
-      if (!Number.isInteger(intervalMs) || intervalMs < 100 || intervalMs > 1000) {
+      if (!Number.isInteger(intervalMs) || intervalMs < 50 || intervalMs > 1000) {
         this.publishTelemetryControlResult(payload.request_id, "NACK", "07101");
         return;
       }
@@ -581,19 +595,42 @@ class FirmwareSimulator {
     this.telemetryCount += 1;
     const wobble = Math.sin(this.telemetryCount / 3);
     const depthProgress = clamp(0.75 + wobble * 0.12, 0, 1);
+    const depthMm = depthProgress * 55;
+    const depthOk = Math.abs(wobble) < 0.85;
+    const rateCpm = 108 + Math.round(wobble * 8);
+    this.compressionProgress += this.options.telemetryIntervalMs * rateCpm / 60_000;
+    const completedCompressionCount = Math.floor(this.compressionProgress + 1e-9);
+    const newlyCompleted = Math.max(0, completedCompressionCount - this.completedCompressionCount);
+    if (newlyCompleted > 0) {
+      this.completedCompressionCount = completedCompressionCount;
+      this.completedDepthSumMm += depthMm * newlyCompleted;
+      this.lastCompressionPeakDepthMm = depthMm;
+      if (depthOk) this.depthOkCompressionCount += newlyCompleted;
+      for (let index = completedCompressionCount - newlyCompleted + 1; index <= completedCompressionCount; index += 1) {
+        if (index % 7 === 0) this.incompleteRecoilCount += 1;
+        else this.recoilOkCount += 1;
+      }
+    }
+    const recoilOk = completedCompressionCount === 0 || completedCompressionCount % 7 !== 0;
     const metric = normalizeSessionMetric({
       session_id: this.currentSessionId,
       state: "SESSION_ACTIVE",
-      depth_mm: depthProgress * 55,
+      depth_mm: depthMm,
       depth_progress: depthProgress,
-      depth_ok: Math.abs(wobble) < 0.85,
-      rate_cpm: 108 + Math.round(wobble * 8),
-      compression_count: this.telemetryCount,
-      valid_compression_count: Math.max(0, this.telemetryCount - 1),
-      recoil_ok: this.telemetryCount % 7 !== 0,
-      recoil_ok_count: Math.max(0, this.telemetryCount - 1),
-      incomplete_recoil_count: this.telemetryCount > 5 ? 1 : 0,
-      pause_s: this.telemetryCount % 20 === 0 ? 0.7 : 0.2,
+      depth_ok: depthOk,
+      rate_cpm: rateCpm,
+      compression_count: completedCompressionCount,
+      completed_compression_count: completedCompressionCount,
+      depth_ok_compression_count: this.depthOkCompressionCount,
+      valid_compression_count: completedCompressionCount,
+      last_compression_peak_depth_mm: this.lastCompressionPeakDepthMm,
+      average_completed_compression_peak_depth_mm: completedCompressionCount > 0
+        ? this.completedDepthSumMm / completedCompressionCount
+        : null,
+      recoil_ok: recoilOk,
+      recoil_ok_count: this.recoilOkCount,
+      incomplete_recoil_count: this.incompleteRecoilCount,
+      pause_s: newlyCompleted > 0 ? 0.08 : 0,
       hand_placement: "CENTER",
       pressure_balance_score_pct: 92 + wobble * 3,
       ts_ms: this.tsMs(),

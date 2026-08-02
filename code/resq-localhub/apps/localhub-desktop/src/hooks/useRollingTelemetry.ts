@@ -1,63 +1,119 @@
-import { useEffect, useState, useRef } from "react";
-import type { SessionLiveView } from "../types/live";
-import { normalizeTelemetry } from "../utils/telemetryNormalization";
+import { useEffect, useRef, useState } from "react";
+import type { LiveMetricPayload } from "../types/live";
+import type { NormalizedTelemetry } from "../utils/telemetryNormalization";
+import {
+  LIVE_CHART_INTERVAL_MS,
+  LIVE_CHART_WINDOW_MS,
+  LiveTelemetryRingBuffer,
+  decimateTelemetry,
+} from "./liveTelemetryBuffer";
 
 export interface RollingSample {
+  timestampMs: number;
   time: string;
   depthMm: number | null;
   rateCpm: number | null;
   recoilPct: number | null;
 }
 
-export function useRollingTelemetry(session: SessionLiveView | null) {
+type RollingTelemetryInput = {
+  sessionId: string | null;
+  active: boolean;
+  metric: LiveMetricPayload | null;
+  normalized: NormalizedTelemetry;
+};
+
+export function useRollingTelemetry({
+  sessionId,
+  active,
+  metric,
+  normalized,
+}: RollingTelemetryInput) {
   const [data, setData] = useState<RollingSample[]>([]);
   const lastSeqRef = useRef<number | null>(null);
-  const sessionId = session?.sessionId ?? null;
+  const lastPublishedAtRef = useRef(0);
+  const pendingRef = useRef<RollingSample | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const bufferRef = useRef(new LiveTelemetryRingBuffer<RollingSample>());
 
   useEffect(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    bufferRef.current.clear();
+    pendingRef.current = null;
     setData([]);
     lastSeqRef.current = null;
+    lastPublishedAtRef.current = 0;
+
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
   }, [sessionId]);
 
   useEffect(() => {
-    if (!session?.active) {
+    if (!active || !metric) {
       return;
     }
 
-    const metric = session.latestMetric as any;
-    if (!metric) return;
-
-    // Use normalized values
-    const normalized = normalizeTelemetry(session);
-
     // Avoid duplicates using seq or tsMs
-    const seq = metric.seq ?? metric.tsMs ?? metric.ts_ms ?? Date.now();
+    const legacyMetric = metric as LiveMetricPayload & { ts_ms?: number };
+    const sampleTimestamp = metric.tsMs ?? legacyMetric.ts_ms ?? Date.now();
+    const seq = metric.seq ?? sampleTimestamp;
     if (lastSeqRef.current !== null && seq <= lastSeqRef.current) {
       return;
     }
     lastSeqRef.current = seq;
 
-    // Time label formatting
-    const ts = metric.tsMs ?? metric.ts_ms;
-    const timeLabel = ts
-      ? new Date(ts).toLocaleTimeString([], { hour12: false, minute: "2-digit", second: "2-digit" })
-      : new Date().toLocaleTimeString([], { hour12: false, minute: "2-digit", second: "2-digit" });
+    pendingRef.current = {
+      timestampMs: sampleTimestamp,
+      time: new Date(sampleTimestamp).toLocaleTimeString([], {
+        hour12: false,
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+      depthMm:
+        normalized.instantaneousDepthMm !== null
+          ? Number(normalized.instantaneousDepthMm.toFixed(1))
+          : null,
+      rateCpm:
+        normalized.rateCpm !== null ? Number(normalized.rateCpm.toFixed(1)) : null,
+      recoilPct:
+        normalized.recoilPct !== null ? Number(normalized.recoilPct.toFixed(0)) : null,
+    };
 
-    setData((prev) => {
-      const next = [
-        ...prev,
-        {
-          time: timeLabel,
-          depthMm: normalized.instantaneousDepthMm !== null
-            ? Number(normalized.instantaneousDepthMm.toFixed(1))
-            : null,
-          rateCpm: normalized.rateCpm !== null ? Number(normalized.rateCpm.toFixed(1)) : null,
-          recoilPct: normalized.recoilPct !== null ? Number(normalized.recoilPct.toFixed(0)) : null,
-        },
-      ];
-      return next.slice(-60); // Keep last 60 samples
-    });
-  }, [session?.latestMetric?.seq, session?.latestMetric?.tsMs, (session?.latestMetric as any)?.ts_ms, session?.active, session]);
+    const publish = () => {
+      timerRef.current = null;
+      const pending = pendingRef.current;
+      if (!pending) {
+        return;
+      }
+      pendingRef.current = null;
+      bufferRef.current.push(pending);
+      bufferRef.current.pruneBefore(pending.timestampMs - LIVE_CHART_WINDOW_MS);
+      lastPublishedAtRef.current = performance.now();
+      setData(decimateTelemetry(bufferRef.current.toArray()));
+    };
+
+    const elapsed = performance.now() - lastPublishedAtRef.current;
+    if (lastPublishedAtRef.current === 0 || elapsed >= LIVE_CHART_INTERVAL_MS) {
+      publish();
+    } else if (timerRef.current === null) {
+      timerRef.current = window.setTimeout(
+        publish,
+        LIVE_CHART_INTERVAL_MS - elapsed,
+      );
+    }
+  }, [
+    active,
+    metric,
+    normalized.instantaneousDepthMm,
+    normalized.rateCpm,
+    normalized.recoilPct,
+  ]);
 
   return data;
 }

@@ -1,10 +1,12 @@
 import { render, screen, waitFor, act, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import CalibrationWizardPage from "./CalibrationWizardPage";
-import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence } from "../../api/manikinsApi";
+import { getDeviceReadiness, startCalibration, cancelCalibration, getLatestCalibrationEvidence, fetchLiveManikin } from "../../api/manikinsApi";
 import { connectCalibrationStream } from "../../api/liveEventsClient";
 import type { SensorStreamClientCallbacks } from "../../lib/sensorStreamClient";
+import type { SensorStreamSnapshot } from "../../lib/sensorStreamTypes";
 
 const { defaultCalibrationProfile } = vi.hoisted(() => ({
   defaultCalibrationProfile: {
@@ -37,6 +39,7 @@ vi.mock("../../api/manikinsApi", () => ({
   startCalibration: vi.fn(),
   cancelCalibration: vi.fn(),
   getLatestCalibrationEvidence: vi.fn(),
+  fetchLiveManikin: vi.fn(),
 }));
 
 vi.mock("../../api/liveEventsClient", () => ({
@@ -45,6 +48,7 @@ vi.mock("../../api/liveEventsClient", () => ({
 
 const startSensorStreamMock = vi.fn();
 const stopSensorStreamMock = vi.fn();
+const createSensorStreamClientMock = vi.fn();
 let sensorStreamCallbacks: SensorStreamClientCallbacks | null = null;
 const stopSensorClientMock = vi.fn();
 
@@ -52,6 +56,7 @@ vi.mock("../../lib/sensorStreamClient", () => ({
   startSensorStream: (...args: unknown[]) => startSensorStreamMock(...args),
   stopSensorStream: (...args: unknown[]) => stopSensorStreamMock(...args),
   createSensorStreamClient: (_deviceId: string, callbacks: SensorStreamClientCallbacks) => {
+    createSensorStreamClientMock(_deviceId);
     sensorStreamCallbacks = callbacks;
     return { start: vi.fn(), stop: stopSensorClientMock };
   },
@@ -86,6 +91,37 @@ async function openAdvancedConfiguration() {
   await userEvent.click(screen.getByText("Advanced Calibration Configuration"));
 }
 
+function sensorSnapshot(overrides: Partial<SensorStreamSnapshot> = {}): SensorStreamSnapshot {
+  return {
+    deviceId: "MAN-01",
+    telemetryMode: "SENSOR_STREAM",
+    state: "PAIRED_IDLE",
+    pressure0Raw: 1_000_000,
+    pressure0RawValid: true,
+    pressure1Raw: 2_000_000,
+    pressure1RawValid: true,
+    pressure2Raw: 3_000_000,
+    pressure2RawValid: true,
+    hallRaw: 2800,
+    hallRawValid: true,
+    pressure0Kpa: 0,
+    pressure0KpaValid: false,
+    pressure1Kpa: 0,
+    pressure1KpaValid: false,
+    pressure2Kpa: 0,
+    pressure2KpaValid: false,
+    pressureKpaValid: false,
+    hallMm: 0,
+    hallProgress: 0,
+    hallMmValid: false,
+    pressureSaturationMask: 0,
+    intervalMs: 50,
+    firmwareTimestampMs: 0,
+    receivedAt: "2026-07-15T10:00:00Z",
+    ...overrides,
+  };
+}
+
 describe("CalibrationWizardPage", () => {
   let sseHandlers: any = null;
   const mockClose = vi.fn();
@@ -95,6 +131,7 @@ describe("CalibrationWizardPage", () => {
     sseHandlers = null;
     mockClose.mockClear();
     sensorStreamCallbacks = null;
+    createSensorStreamClientMock.mockClear();
     startSensorStreamMock.mockResolvedValue({
       deviceId: "MAN-01", requestId: "stream-start", action: "START", command: "telemetry/start",
       topic: "resq/MAN-01/cmd/telemetry", intervalMs: 200, status: "PUBLISHED", streamState: "STARTING", idempotent: false,
@@ -111,6 +148,15 @@ describe("CalibrationWizardPage", () => {
     });
 
     vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(null);
+    vi.mocked(fetchLiveManikin).mockResolvedValue({
+      deviceId: "MAN-01",
+      online: true,
+      offline: false,
+      stale: false,
+      sessionActive: false,
+      activeSessionId: null,
+      calibrated: false,
+    } as any);
 
     vi.mocked(connectCalibrationStream).mockImplementation((deviceId, handlers) => {
       sseHandlers = handlers;
@@ -150,6 +196,98 @@ describe("CalibrationWizardPage", () => {
 
     expect(await screen.findByRole("button", { name: "Start Calibration" })).toBeInTheDocument();
     expect(screen.queryByText("Calibration Complete")).not.toBeInTheDocument();
+  });
+
+  it("shows Recalibrate for a connected calibrated idle device", async () => {
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "READY",
+      readyForSession: true,
+      calibrationStorageStatus: "VALID",
+      recalibrationRequired: false,
+    });
+    vi.mocked(fetchLiveManikin).mockResolvedValue({
+      deviceId: "MAN-01",
+      online: true,
+      offline: false,
+      stale: false,
+      sessionActive: false,
+      activeSessionId: null,
+      calibrated: true,
+    } as any);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "Recalibrate" })).toBeEnabled();
+  });
+
+  it("keeps calibration usable when live-summary refresh fails but readiness is available", async () => {
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
+      deviceId: "MAN-01",
+      calibrationState: "NOT_READY",
+      firmwareState: "PAIRED_IDLE",
+      readyForSession: false,
+    });
+    vi.mocked(fetchLiveManikin).mockRejectedValue(new Error("temporary live-summary failure"));
+    vi.mocked(startCalibration).mockResolvedValue({
+      deviceId: "MAN-01",
+      requestId: "req-live-fallback",
+      command: "start",
+      status: "PUBLISHED",
+    });
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Start Calibration" });
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(startCalibration).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("blocks calibration while a session is active", async () => {
+    vi.mocked(fetchLiveManikin).mockResolvedValue({
+      deviceId: "MAN-01",
+      online: true,
+      offline: false,
+      stale: false,
+      sessionActive: true,
+      activeSessionId: "S-01",
+      calibrated: true,
+    } as any);
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+
+    const button = await screen.findByRole("button", { name: "Recalibrate" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/unavailable while this manikin has an active session/i)).toBeInTheDocument();
+  });
+
+  it("keeps the start action disabled while its command is pending", async () => {
+    let resolveStart: ((value: any) => void) | null = null;
+    vi.mocked(startCalibration).mockImplementation(() => new Promise((resolve) => {
+      resolveStart = resolve;
+    }));
+
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    const button = await screen.findByRole("button", { name: "Start Calibration" });
+    await userEvent.click(button);
+
+    expect(screen.queryByRole("button", { name: "Start Calibration" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel Calibration" })).toBeInTheDocument();
+    expect(startCalibration).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveStart?.({
+        deviceId: "MAN-01",
+        requestId: "req-1",
+        command: "start",
+        status: "PUBLISHED",
+      });
+      await Promise.resolve();
+    });
   });
 
   it("blocks calibration start and shows inline messages on invalid values", async () => {
@@ -213,14 +351,17 @@ describe("CalibrationWizardPage", () => {
     expect(screen.getByLabelText(/Hall Delta/i)).toBeDisabled();
   });
 
-  it("starts the manual stream once and a re-render does not duplicate START", async () => {
+  it("opens the 50 ms manual stream once and a re-render or calibration start does not duplicate START", async () => {
     vi.mocked(startCalibration).mockResolvedValue({ deviceId: "MAN-01", requestId: "req-1", command: "start", status: "PUBLISHED" });
     const { rerender } = render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
     await screen.findByText("Calibration / Pre-Check");
 
-    await userEvent.click(screen.getByRole("button", { name: "Start Calibration" }));
     await waitFor(() => expect(startSensorStreamMock).toHaveBeenCalledTimes(1));
+    expect(startSensorStreamMock).toHaveBeenCalledWith("MAN-01", 50);
+    expect(createSensorStreamClientMock).toHaveBeenCalledTimes(1);
     rerender(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    expect(startSensorStreamMock).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Start Calibration" }));
     expect(startSensorStreamMock).toHaveBeenCalledTimes(1);
 
     act(() => sensorStreamCallbacks?.onCommand?.({
@@ -228,6 +369,22 @@ describe("CalibrationWizardPage", () => {
       status: "ACK", reasonId: null, firmwareState: "PAIRED_IDLE", streamState: "RUNNING", receivedAt: new Date().toISOString(),
     }));
     expect(await screen.findByText("Live SENSOR_STREAM raw samples")).toBeInTheDocument();
+  });
+
+  it("leaves exactly one active stream client under React Strict Mode", async () => {
+    const view = render(
+      <StrictMode>
+        <CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />
+      </StrictMode>,
+    );
+    await screen.findByText("Calibration / Pre-Check");
+    await waitFor(() => expect(startSensorStreamMock).toHaveBeenCalledTimes(1));
+    expect(createSensorStreamClientMock).toHaveBeenCalledTimes(2);
+    expect(stopSensorClientMock).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    expect(stopSensorClientMock).toHaveBeenCalledTimes(2);
+    expect(stopSensorStreamMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows START NACK state and reason without retry-spamming", async () => {
@@ -333,7 +490,9 @@ describe("CalibrationWizardPage", () => {
       });
     });
 
-    expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getAllByText("1,320,000 counts")).toHaveLength(2);
+    await waitFor(() => {
+      expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getAllByText("1,320,000 counts")).toHaveLength(2);
+    });
     expect(within(screen.getByRole("region", { name: "Bladder 1 Pressure target status" })).getByText("4,149,250 counts")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Bladder 1 Pressure target status" })).getByText("-750 counts")).toBeInTheDocument();
     expect(within(screen.getByRole("region", { name: "Bladder 2 Pressure target status" })).getByText("Unavailable")).toBeInTheDocument();
@@ -358,7 +517,55 @@ describe("CalibrationWizardPage", () => {
       receivedAt: "2026-07-15T10:00:00Z",
     }));
 
-    expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getByText("19,880 counts")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getByText("19,880 counts")).toBeInTheDocument();
+    });
+  });
+
+  it("renders only the newest valid sample from a 1,000-sample burst in one animation frame", async () => {
+    let pendingFrame: FrameRequestCallback | null = null;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      pendingFrame = callback;
+      return 17;
+    });
+    const cancelFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    vi.mocked(getLatestCalibrationEvidence).mockResolvedValue(MOCK_EVIDENCE as any);
+    const view = render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Calibration / Pre-Check");
+
+    act(() => {
+      for (let index = 0; index < 1000; index += 1) {
+        sensorStreamCallbacks?.onSnapshot(sensorSnapshot({
+          pressure0Raw: 1_000_000 + index,
+          firmwareTimestampMs: index,
+        }));
+      }
+    });
+
+    expect(requestFrame).toHaveBeenCalledTimes(1);
+    act(() => pendingFrame?.(16));
+    expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getByText("1,000,999 counts")).toBeInTheDocument();
+
+    act(() => {
+      sensorStreamCallbacks?.onSnapshot(sensorSnapshot({
+        pressure0Raw: -999999,
+        pressure0RawValid: false,
+        pressure1RawValid: false,
+        pressure2RawValid: false,
+        hallRawValid: false,
+        hallMmValid: false,
+        firmwareTimestampMs: 1001,
+      }));
+    });
+    expect(requestFrame).toHaveBeenCalledTimes(1);
+    expect(within(screen.getByRole("region", { name: "Reference Pressure target status" })).getByText("1,000,999 counts")).toBeInTheDocument();
+
+    act(() => sensorStreamCallbacks?.onSnapshot(sensorSnapshot({ pressure0Raw: 1_001_000 })));
+    expect(requestFrame).toHaveBeenCalledTimes(2);
+    view.unmount();
+    expect(cancelFrame).toHaveBeenCalledWith(17);
+    requestFrame.mockRestore();
+    cancelFrame.mockRestore();
   });
 
   it("does not display an invalid raw sentinel as a measurement", async () => {

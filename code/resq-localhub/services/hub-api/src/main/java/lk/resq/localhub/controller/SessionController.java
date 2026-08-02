@@ -230,7 +230,7 @@ public class SessionController {
 
     private static String toCsv(SessionEndResponse session) {
         StringBuilder builder = new StringBuilder();
-        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress,avgRateCpm,recoilPct,recoilOkCount,incompleteRecoilCount,pausesCount,score,latestFlags\n");
+        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress,avgRateCpm,recoilPct,recoilOkCount,incompleteRecoilCount,pausesCount,score,scoringVersion,overallScore,grade,scoreCap,scoreCapReason,scoreProvisional,latestFlags\n");
         builder.append(csv(session.sessionId())).append(',')
                 .append(csv(session.deviceId())).append(',')
                 .append(csv(session.traineeId())).append(',')
@@ -248,6 +248,12 @@ public class SessionController {
                 .append(session.summary().incompleteRecoilCount()).append(',')
                 .append(session.summary().pausesCount()).append(',')
                 .append(session.summary().score()).append(',')
+                .append(csv(session.summary().scoringVersion())).append(',')
+                .append(session.summary().overallScore() == null ? "" : session.summary().overallScore()).append(',')
+                .append(csv(session.summary().grade())).append(',')
+                .append(session.summary().scoreCap() == null ? "" : session.summary().scoreCap()).append(',')
+                .append(csv(session.summary().scoreCapReason())).append(',')
+                .append(session.summary().scoreProvisional()).append(',')
                 .append(csv(session.summary().latestFlags()))
                 .append('\n');
         return builder.toString();
