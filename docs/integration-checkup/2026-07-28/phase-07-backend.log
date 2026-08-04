@@ -1,5 +1,0 @@
-PHASE 7G-1 LOCALHUB BACKEND: NOT STARTED
-
-Reason: LocalHub dependencies are started only after the physical Unity suite
-passes. The suite failed its HX710 hardware gate, so no backend was started by
-this checkpoint and no backend runtime behavior is claimed.

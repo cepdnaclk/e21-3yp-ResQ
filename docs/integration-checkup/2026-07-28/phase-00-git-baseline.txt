@@ -1,4 +1,0 @@
-Repository: <repo>
-Branch: integration/firmware-localhub-traffic-scaling
-Base commit: f7aa2890c45c5d380d6283193083dec006349b6a
-Recorded at: 2026-07-28 (Asia/Colombo)

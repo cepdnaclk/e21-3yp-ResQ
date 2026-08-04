@@ -1,7 +1,0 @@
-mvn.cmd : OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap
-classpath has been appended
-At line:2 char:114
-+ ... perty Path; & '<user-profile>\.m2\wrapper\dists\apache-maven-3.9.14\e ...
-+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (OpenJDK 64-Bit ...s been appended:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError

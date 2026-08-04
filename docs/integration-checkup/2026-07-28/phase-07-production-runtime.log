@@ -1,6 +1,0 @@
-PHASE 7G-1 PRODUCTION RUNTIME: NOT RUN
-
-Reason: the mandatory physical Unity gate completed with 241 tests, 5 failures,
-and 0 ignored. All five failures trace to invalid synchronized HX710 reads:
-pressure_2 on GPIO10 remained LOW after the 25-pulse transaction. Production
-build, erase, flash, boot, and runtime validation were intentionally not begun.

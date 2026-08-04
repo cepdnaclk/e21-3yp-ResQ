@@ -1,5 +1,0 @@
-PHASE 7G-1 MOSQUITTO BROKER: NOT STARTED
-
-Reason: LocalHub dependencies are started only after the physical Unity suite
-passes. The suite failed its HX710 hardware gate, so no broker was started by
-this checkpoint and no broker runtime traffic is claimed.
