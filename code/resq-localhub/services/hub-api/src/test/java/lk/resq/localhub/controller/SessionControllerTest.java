@@ -8,12 +8,8 @@ import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.UserRole;
-import lk.resq.localhub.config.CprPerformanceAnalyzerProperties;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
-import lk.resq.localhub.service.CprPerformanceAnalyzer;
-import lk.resq.localhub.service.CprTrendAnalyzer;
-import lk.resq.localhub.service.LocalCoachResponseGenerator;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
 import lk.resq.localhub.service.FirmwareCalibrationService;
@@ -143,19 +139,6 @@ class SessionControllerTest {
         assertThat(payload.path("traineeId").asText()).isEqualTo("trainee-bob-123");
     }
 
-    @Test
-    void getSessionReviewReturnsPerformanceAnalysis() throws Exception {
-        Fixture fixture = newFixture();
-        SessionEndResponse completed = seedCompletedSession(fixture.service, "M01");
-
-        ResponseEntity<?> response = fixture.controller.getSessionReview(new MockHttpServletRequest(), completed.sessionId());
-
-        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
-        lk.resq.localhub.model.cpr.CprPerformanceAnalysis analysis = requireBody(response.getBody());
-        assertThat(analysis.overallStatus()).isNotNull();
-        assertThat(analysis.strengths()).isNotEmpty();
-    }
-
     private static SessionEndResponse seedCompletedSession(ActiveSessionService service, String deviceId) throws Exception {
         SessionStartResponse started = service.startSession(new SessionStartRequest(
                 deviceId,
@@ -221,11 +204,7 @@ class SessionControllerTest {
             syncQueueService
         );
         AuthService authService = new AllowingAuthService(objectMapper);
-        CprPerformanceAnalyzerProperties properties = new CprPerformanceAnalyzerProperties();
-        CprPerformanceAnalyzer perfAnalyzer = new CprPerformanceAnalyzer(properties);
-        CprTrendAnalyzer trendAnalyzer = new CprTrendAnalyzer(perfAnalyzer, properties);
-        LocalCoachResponseGenerator coachResponseGenerator = new LocalCoachResponseGenerator();
-        SessionController controller = new SessionController(service, authService, registry, trendAnalyzer, perfAnalyzer, coachResponseGenerator, sessionRepository);
+        SessionController controller = new SessionController(service, authService, registry);
         return new Fixture(service, controller, syncQueueRepository, syncQueueService);
     }
 

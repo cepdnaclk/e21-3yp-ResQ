@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { queryInstructorCoach } from "../../api/sessionsApi";
-import type { CprInstructorCoachQueryResponse } from "../../api/sessionsApi";
+import { queryInstructorCoach } from "../../api/cprCoachApi";
+import type { CprInstructorCoachQueryResponse } from "../../api/cprCoachApi";
 import type { TraineeRecord } from "../../types/trainee";
 import type { CompletedSession } from "../../types/session";
 import Card from "../ui/Card";

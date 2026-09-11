@@ -19,17 +19,17 @@ import lk.resq.localhub.model.cpr.CprTrendAnalysis.TrendDirection;
 @Service
 public class CprTrendAnalyzer {
 
-    private final LocalSessionRepository localSessionRepository;
+    private final CprAiSessionRepository cprAiSessionRepository;
     private final CprPerformanceAnalyzer cprPerformanceAnalyzer;
     private final CprPerformanceAnalyzerProperties properties;
 
     @Autowired
     public CprTrendAnalyzer(
-            LocalSessionRepository localSessionRepository,
+            CprAiSessionRepository cprAiSessionRepository,
             CprPerformanceAnalyzer cprPerformanceAnalyzer,
             CprPerformanceAnalyzerProperties properties
     ) {
-        this.localSessionRepository = localSessionRepository;
+        this.cprAiSessionRepository = cprAiSessionRepository;
         this.cprPerformanceAnalyzer = cprPerformanceAnalyzer;
         this.properties = properties;
     }
@@ -39,13 +39,13 @@ public class CprTrendAnalyzer {
             CprPerformanceAnalyzer cprPerformanceAnalyzer,
             CprPerformanceAnalyzerProperties properties
     ) {
-        this.localSessionRepository = null;
+        this.cprAiSessionRepository = null;
         this.cprPerformanceAnalyzer = cprPerformanceAnalyzer;
         this.properties = properties;
     }
 
     public CprTrendAnalysis analyzeUserTrend(String userId, Instant fromDate, Instant toDate) {
-        if (localSessionRepository == null) {
+        if (cprAiSessionRepository == null) {
             throw new IllegalStateException("Trend analysis requires a session repository");
         }
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
@@ -60,7 +60,7 @@ public class CprTrendAnalyzer {
                 null
         );
 
-        List<CprSessionSummaryResponse> sessions = localSessionRepository.findCprSessions(query);
+        List<CprSessionSummaryResponse> sessions = cprAiSessionRepository.findCprSessions(query);
         return analyzeTrend(sessions);
     }
 

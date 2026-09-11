@@ -24,7 +24,7 @@ import lk.resq.localhub.model.cpr.CprTrendAnalysis.TrendDirection;
 @Service
 public class CprInstructorCoachService {
 
-    private final LocalSessionRepository sessionRepository;
+    private final CprAiSessionRepository cprAiSessionRepository;
     private final CprPerformanceAnalyzer performanceAnalyzer;
     private final CprTrendAnalyzer trendAnalyzer;
     private final LocalAuthRepository authRepository;
@@ -32,13 +32,13 @@ public class CprInstructorCoachService {
 
     @Autowired
     public CprInstructorCoachService(
-            LocalSessionRepository sessionRepository,
+            CprAiSessionRepository cprAiSessionRepository,
             CprPerformanceAnalyzer performanceAnalyzer,
             CprTrendAnalyzer trendAnalyzer,
             LocalAuthRepository authRepository,
             @Autowired(required = false) RosterCacheRepository rosterRepository
     ) {
-        this.sessionRepository = sessionRepository;
+        this.cprAiSessionRepository = cprAiSessionRepository;
         this.performanceAnalyzer = performanceAnalyzer;
         this.trendAnalyzer = trendAnalyzer;
         this.authRepository = authRepository;
@@ -90,7 +90,7 @@ public class CprInstructorCoachService {
             CprSessionSummaryQueryRequest query = new CprSessionSummaryQueryRequest(
                     null, null, fromStr, toStr, null
             );
-            return sessionRepository.findCprSessions(query);
+            return cprAiSessionRepository.findCprSessions(query);
         }
 
         Instant now = Instant.now();
@@ -99,7 +99,7 @@ public class CprInstructorCoachService {
         CprSessionSummaryQueryRequest query24h = new CprSessionSummaryQueryRequest(
                 null, null, now.minus(24, ChronoUnit.HOURS).toString(), now.toString(), null
         );
-        List<CprSessionSummaryResponse> sessions = sessionRepository.findCprSessions(query24h);
+        List<CprSessionSummaryResponse> sessions = cprAiSessionRepository.findCprSessions(query24h);
         if (!sessions.isEmpty()) {
             return sessions;
         }
@@ -108,14 +108,14 @@ public class CprInstructorCoachService {
         CprSessionSummaryQueryRequest query7d = new CprSessionSummaryQueryRequest(
                 null, null, now.minus(7, ChronoUnit.DAYS).toString(), now.toString(), null
         );
-        sessions = sessionRepository.findCprSessions(query7d);
+        sessions = cprAiSessionRepository.findCprSessions(query7d);
         if (!sessions.isEmpty()) {
             return sessions;
         }
 
         // 3. Fallback to all sessions
         CprSessionSummaryQueryRequest queryAll = new CprSessionSummaryQueryRequest(null, null, null, null, null);
-        return sessionRepository.findCprSessions(queryAll);
+        return cprAiSessionRepository.findCprSessions(queryAll);
     }
 
     private String getTraineeDisplayName(String traineeId) {
@@ -229,7 +229,7 @@ public class CprInstructorCoachService {
         String fromStr = request.fromDate() != null ? request.fromDate().toString() : null;
         String toStr = request.toDate() != null ? request.toDate().toString() : null;
         CprSessionSummaryQueryRequest queryAll = new CprSessionSummaryQueryRequest(null, null, fromStr, toStr, null);
-        List<CprSessionSummaryResponse> sessions = sessionRepository.findCprSessions(queryAll);
+        List<CprSessionSummaryResponse> sessions = cprAiSessionRepository.findCprSessions(queryAll);
         if (sessions.isEmpty()) {
             return new CprInstructorCoachResponse(
                     "No completed sessions found to analyze mistakes.",
@@ -337,7 +337,7 @@ public class CprInstructorCoachService {
         CprSessionSummaryResponse targetSession = null;
 
         if (sessionId != null && !sessionId.isBlank()) {
-            Optional<CprSessionSummaryResponse> sessionOpt = sessionRepository.findCprSessionById(sessionId.trim());
+            Optional<CprSessionSummaryResponse> sessionOpt = cprAiSessionRepository.findCprSessionById(sessionId.trim());
             if (sessionOpt.isPresent()) {
                 targetSession = sessionOpt.get();
                 traineeId = targetSession.traineeId();
@@ -352,7 +352,7 @@ public class CprInstructorCoachService {
                 );
             }
             CprSessionSummaryQueryRequest query = new CprSessionSummaryQueryRequest(traineeId.trim(), null, null, null, null);
-            List<CprSessionSummaryResponse> sessions = sessionRepository.findCprSessions(query);
+            List<CprSessionSummaryResponse> sessions = cprAiSessionRepository.findCprSessions(query);
             if (!sessions.isEmpty()) {
                 targetSession = sessions.get(0);
             }
@@ -408,7 +408,7 @@ public class CprInstructorCoachService {
         }
 
         CprSessionSummaryQueryRequest query = new CprSessionSummaryQueryRequest(traineeId.trim(), null, null, null, null);
-        List<CprSessionSummaryResponse> sessions = sessionRepository.findCprSessions(query);
+        List<CprSessionSummaryResponse> sessions = cprAiSessionRepository.findCprSessions(query);
 
         if (sessions.isEmpty()) {
             return new CprInstructorCoachResponse(
@@ -474,7 +474,7 @@ public class CprInstructorCoachService {
         }
 
         CprSessionSummaryQueryRequest query = new CprSessionSummaryQueryRequest(traineeId.trim(), null, null, null, null);
-        List<CprSessionSummaryResponse> sessions = sessionRepository.findCprSessions(query);
+        List<CprSessionSummaryResponse> sessions = cprAiSessionRepository.findCprSessions(query);
 
         if (sessions.isEmpty()) {
             return new CprInstructorCoachResponse(

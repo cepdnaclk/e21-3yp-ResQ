@@ -7,20 +7,8 @@ import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
 import lk.resq.localhub.model.UserRole;
-import lk.resq.localhub.config.CprPerformanceAnalyzerProperties;
-import lk.resq.localhub.model.cpr.CprBadPerformanceSession;
-import lk.resq.localhub.model.cpr.CprPerformanceAnalysis;
-import lk.resq.localhub.model.cpr.CprSessionSummaryQueryRequest;
-import lk.resq.localhub.model.cpr.CprSessionSummaryResponse;
-import lk.resq.localhub.model.cpr.CprTrendAnalysis;
-import lk.resq.localhub.model.cpr.LocalCoachRequest;
-import lk.resq.localhub.model.cpr.LocalCoachResponse;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
-import lk.resq.localhub.service.CprPerformanceAnalyzer;
-import lk.resq.localhub.service.CprTrendAnalyzer;
-import lk.resq.localhub.service.LocalCoachResponseGenerator;
-import lk.resq.localhub.service.LocalSessionRepository;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.MqttCommandPublishException;
 import lk.resq.localhub.service.ManikinRegistryService;
@@ -40,8 +28,6 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.NoSuchElementException;
 import java.util.Map;
-import java.util.List;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/sessions")
@@ -50,27 +36,11 @@ public class SessionController {
     private final ActiveSessionService activeSessionService;
     private final AuthService authService;
     private final ManikinRegistryService manikinRegistryService;
-    private final CprTrendAnalyzer cprTrendAnalyzer;
-    private final CprPerformanceAnalyzer cprPerformanceAnalyzer;
-    private final LocalCoachResponseGenerator localCoachResponseGenerator;
-    private final LocalSessionRepository localSessionRepository;
 
-    public SessionController(
-            ActiveSessionService activeSessionService,
-            AuthService authService,
-            ManikinRegistryService manikinRegistryService,
-            CprTrendAnalyzer cprTrendAnalyzer,
-            CprPerformanceAnalyzer cprPerformanceAnalyzer,
-            LocalCoachResponseGenerator localCoachResponseGenerator,
-            LocalSessionRepository localSessionRepository
-    ) {
+    public SessionController(ActiveSessionService activeSessionService, AuthService authService, ManikinRegistryService manikinRegistryService) {
         this.activeSessionService = activeSessionService;
         this.authService = authService;
         this.manikinRegistryService = manikinRegistryService;
-        this.cprTrendAnalyzer = cprTrendAnalyzer;
-        this.cprPerformanceAnalyzer = cprPerformanceAnalyzer;
-        this.localCoachResponseGenerator = localCoachResponseGenerator;
-        this.localSessionRepository = localSessionRepository;
     }
 
     @PostMapping("/start")
@@ -162,100 +132,6 @@ public class SessionController {
         }
     }
 
-    @GetMapping("/trends")
-    public ResponseEntity<?> getTrends(
-            HttpServletRequest request,
-            @RequestParam(required = false) String userId,
-            @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to
-    ) {
-        try {
-            AuthUser actor = authService.requireAuth(request);
-            String targetUserId = userId;
-            if (actor.role() == UserRole.TRAINEE) {
-                if (userId != null && !userId.equalsIgnoreCase(actor.id()) && !userId.equalsIgnoreCase(actor.username())) {
-                    throw new ForbiddenException("You can only view your own trends.");
-                }
-                targetUserId = actor.id();
-            } else {
-                if (targetUserId == null) {
-                    targetUserId = actor.id();
-                }
-            }
-
-            java.time.Instant fromInstant = null;
-            java.time.Instant toInstant = null;
-            if (from != null && !from.isBlank()) {
-                fromInstant = java.time.Instant.parse(from.trim());
-            }
-            if (to != null && !to.isBlank()) {
-                toInstant = java.time.Instant.parse(to.trim());
-            }
-
-            return ResponseEntity.ok(cprTrendAnalyzer.analyzeUserTrend(targetUserId, fromInstant, toInstant));
-        } catch (ForbiddenException error) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
-        } catch (IllegalArgumentException error) {
-            return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
-        } catch (Exception error) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiErrorResponse("Failed to analyze trends: " + error.getMessage()));
-        }
-    }
-
-    public record CoachAskRequest(String question) {}
-
-    @PostMapping("/coach/ask")
-    public ResponseEntity<?> askCoach(HttpServletRequest request, @RequestBody CoachAskRequest requestBody) {
-        try {
-            AuthUser actor = authService.requireAuth(request);
-            if (requestBody == null || requestBody.question() == null) {
-                return ResponseEntity.badRequest().body(new ApiErrorResponse("question is required"));
-            }
-
-            String userId = actor.id();
-
-            // Fetch user's completed sessions
-            CprSessionSummaryQueryRequest query = new CprSessionSummaryQueryRequest(userId, null, null, null, null);
-            List<CprSessionSummaryResponse> cprSessions = localSessionRepository.findCprSessions(query);
-
-            List<CprSessionSummaryResponse> sorted = cprSessions.stream()
-                    .sorted(java.util.Comparator.comparing(CprSessionSummaryResponse::startedAt))
-                    .toList();
-
-            CprSessionSummaryResponse lastSession = sorted.isEmpty() ? null : sorted.get(sorted.size() - 1);
-            CprSessionSummaryResponse bestSession = sorted.stream()
-                    .max(java.util.Comparator.comparingInt(CprSessionSummaryResponse::overallScore))
-                    .orElse(null);
-
-            CprPerformanceAnalysis lastSessionAnalysis = lastSession == null ? null : cprPerformanceAnalyzer.analyze(lastSession);
-
-            java.time.Instant threeWeeksAgo = java.time.Instant.now().minus(java.time.Duration.ofDays(21));
-            List<CprBadPerformanceSession> badSessions = cprPerformanceAnalyzer.findBadPerformanceSessions(cprSessions).stream()
-                    .filter(s -> s.sessionDateTime().isAfter(threeWeeksAgo))
-                    .toList();
-
-            CprTrendAnalysis trend = cprTrendAnalyzer.analyzeTrend(cprSessions);
-
-            LocalCoachRequest coachRequest = new LocalCoachRequest(
-                    requestBody.question(),
-                    lastSessionAnalysis,
-                    badSessions,
-                    trend,
-                    lastSession,
-                    bestSession
-            );
-
-            LocalCoachResponse coachResponse = localCoachResponseGenerator.generateResponse(coachRequest);
-            return ResponseEntity.ok(coachResponse);
-        } catch (ForbiddenException error) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
-        } catch (IllegalArgumentException error) {
-            return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
-        } catch (Exception error) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiErrorResponse("Failed to generate coach response: " + error.getMessage()));
-        }
-    }
-
     @GetMapping("/{sessionId}")
     public ResponseEntity<?> getSession(HttpServletRequest request, @PathVariable String sessionId) {
         try {
@@ -330,37 +206,6 @@ public class SessionController {
                     .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                             .body(new ApiErrorResponse("Session " + sessionId + " was not found or is not active")));
         } catch (ForbiddenException error) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
-        }
-    }
-
-    @GetMapping("/{sessionId}/review")
-    public ResponseEntity<?> getSessionReview(HttpServletRequest request, @PathVariable String sessionId) {
-        try {
-            AuthUser actor = authService.requireAuth(request);
-            return activeSessionService.findCompletedSession(sessionId)
-                    .<ResponseEntity<?>>map(session -> {
-                        if (actor.role() == UserRole.TRAINEE && (session.traineeId() == null || 
-                            (!session.traineeId().equalsIgnoreCase(actor.id()) && 
-                             !session.traineeId().equalsIgnoreCase(actor.username())))) {
-                            throw new ForbiddenException("You can only view your own session results.");
-                        }
-
-                        Optional<CprSessionSummaryResponse> cprSession = localSessionRepository.findCprSessionById(sessionId);
-                        if (cprSession.isEmpty()) {
-                            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                                    .body(new ApiErrorResponse("CPR Session data not found for session " + sessionId));
-                        }
-
-                        return ResponseEntity.ok(cprPerformanceAnalyzer.analyze(cprSession.get()));
-                    })
-                    .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                            .body(new ApiErrorResponse("Session " + sessionId + " was not found")));
-        } catch (ForbiddenException error) {
-            authService.maybeAuth(request).ifPresentOrElse(
-                    user -> authService.audit(user.id(), "ACCESS_DENIED", "session", "review", Map.of("sessionId", sessionId)),
-                    () -> authService.audit(null, "ACCESS_DENIED", "session", "review", Map.of("sessionId", sessionId))
-            );
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiErrorResponse(error.getMessage()));
         }
     }

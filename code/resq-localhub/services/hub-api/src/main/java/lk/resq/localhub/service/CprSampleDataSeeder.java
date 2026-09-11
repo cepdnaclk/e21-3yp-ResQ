@@ -1,8 +1,8 @@
 package lk.resq.localhub.service;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,23 +10,23 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
-import lk.resq.localhub.model.SessionEndResponse;
-import lk.resq.localhub.model.SessionSummary;
+import lk.resq.localhub.model.cpr.CprSessionSummaryQueryRequest;
+import lk.resq.localhub.model.cpr.CprSessionSummaryResponse;
 
 // This seed data is only for testing without real hardware and must not be used in production.
 @Service
 @Profile({"dev", "test"})
 public class CprSampleDataSeeder {
 
-    private final LocalSessionRepository sessionRepository;
+    private final CprAiSessionRepository cprAiSessionRepository;
     private final boolean enabled;
 
     @Autowired
     public CprSampleDataSeeder(
-            LocalSessionRepository sessionRepository,
+            CprAiSessionRepository cprAiSessionRepository,
             @Value("${resq.sample-data.enabled:false}") boolean enabled
     ) {
-        this.sessionRepository = sessionRepository;
+        this.cprAiSessionRepository = cprAiSessionRepository;
         this.enabled = enabled;
     }
 
@@ -39,13 +39,12 @@ public class CprSampleDataSeeder {
         }
 
         // Check if database already has synthetic seeded sessions
-        lk.resq.localhub.model.cpr.CprSessionSummaryQueryRequest query = 
-            new lk.resq.localhub.model.cpr.CprSessionSummaryQueryRequest(null, null, null, null, null);
-        List<lk.resq.localhub.model.cpr.CprSessionSummaryResponse> existing = sessionRepository.findCprSessions(query);
+        CprSessionSummaryQueryRequest query = new CprSessionSummaryQueryRequest(null, null, null, null, null);
+        List<CprSessionSummaryResponse> existing = cprAiSessionRepository.findCprSessions(query);
         if (existing.stream().anyMatch(s -> "DEV_SEED".equals(s.dataSource()))) {
             existing.stream()
-                .filter(s -> "DEV_SEED".equals(s.dataSource()))
-                .forEach(s -> seededIds.add(s.id()));
+                    .filter(s -> "DEV_SEED".equals(s.dataSource()))
+                    .forEach(s -> seededIds.add(s.id()));
             return seededIds;
         }
 
@@ -112,50 +111,30 @@ public class CprSampleDataSeeder {
             String scenario,
             String notes
     ) {
-        SessionSummary summary = new SessionSummary(
+        CprSessionSummaryResponse summary = new CprSessionSummaryResponse(
                 sessionId,
-                "M01",
                 traineeId,
+                traineeId,
+                "M01",
                 time,
                 time.plusSeconds(60),
                 60L,
-                100,
-                100,
-                (int) (100 * (depthAcc / 100.0)),
                 depth,
-                1.0,
-                rate,
-                100.0 - recoilError,
-                (int) (100 * ((100.0 - recoilError) / 100.0)),
-                (int) (100 * (recoilError / 100.0)),
-                0,
-                score,
-                "FLAGS",
-                depth - 5.0,
+                Math.max(0.0, depth - 5.0),
                 depth + 5.0,
                 depthAcc,
+                rate,
                 rateAcc,
                 recoilError,
+                0,
                 0.0,
                 consistency,
-                fatigueDrop
-        );
-
-        SessionEndResponse response = new SessionEndResponse(
-                sessionId,
-                "M01",
-                traineeId,
+                fatigueDrop,
+                score,
                 time,
-                true,
-                time.plusSeconds(60),
-                scenario,
-                notes,
-                summary,
-                "course-101",
-                "instructor-1",
                 "DEV_SEED"
         );
 
-        sessionRepository.save(response);
+        cprAiSessionRepository.saveCprSession(summary);
     }
 }

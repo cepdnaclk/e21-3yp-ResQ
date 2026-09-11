@@ -27,6 +27,7 @@ import lk.resq.localhub.model.cpr.CprTrendAnalysis;
 import lk.resq.localhub.model.cpr.LocalCoachRequest;
 import lk.resq.localhub.model.cpr.LocalCoachResponse;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CprAiSessionRepository;
 import lk.resq.localhub.service.CprPerformanceAnalyzer;
 import lk.resq.localhub.service.CprTrendAnalyzer;
 import lk.resq.localhub.service.ForbiddenException;
@@ -38,7 +39,7 @@ import lk.resq.localhub.service.LocalSessionRepository;
 public class CprCoachController {
 
     private final AuthService authService;
-    private final LocalSessionRepository localSessionRepository;
+    private final CprAiSessionRepository cprAiSessionRepository;
     private final CprPerformanceAnalyzer cprPerformanceAnalyzer;
     private final CprTrendAnalyzer cprTrendAnalyzer;
     private final LocalCoachResponseGenerator localCoachResponseGenerator;
@@ -46,13 +47,13 @@ public class CprCoachController {
     @Autowired
     public CprCoachController(
             AuthService authService,
-            LocalSessionRepository localSessionRepository,
+            CprAiSessionRepository cprAiSessionRepository,
             CprPerformanceAnalyzer cprPerformanceAnalyzer,
             CprTrendAnalyzer cprTrendAnalyzer,
             LocalCoachResponseGenerator localCoachResponseGenerator
     ) {
         this.authService = authService;
-        this.localSessionRepository = localSessionRepository;
+        this.cprAiSessionRepository = cprAiSessionRepository;
         this.cprPerformanceAnalyzer = cprPerformanceAnalyzer;
         this.cprTrendAnalyzer = cprTrendAnalyzer;
         this.localCoachResponseGenerator = localCoachResponseGenerator;
@@ -101,7 +102,7 @@ public class CprCoachController {
                     resolvedTo == null ? null : resolvedTo.toString(),
                     null
             );
-            List<CprSessionSummaryResponse> cprSessions = localSessionRepository.findCprSessions(query);
+            List<CprSessionSummaryResponse> cprSessions = cprAiSessionRepository.findCprSessions(query);
 
             List<CprSessionSummaryResponse> sorted = cprSessions.stream()
                     .sorted(Comparator.comparing(CprSessionSummaryResponse::startedAt))

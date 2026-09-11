@@ -16,12 +16,12 @@ import lk.resq.localhub.model.cpr.CprSessionSummaryResponse;
 class CprSampleDataSeederTest {
 
     private Path tempDbPath;
-    private LocalSessionRepository sessionRepository;
+    private CprAiSessionRepository sessionRepository;
 
     @BeforeEach
     void setUp() throws IOException {
         tempDbPath = Files.createTempFile("cpr-seeder-test-", ".sqlite");
-        sessionRepository = new LocalSessionRepository(tempDbPath.toString());
+        sessionRepository = new CprAiSessionRepository(tempDbPath.toString());
         sessionRepository.initialize();
     }
 

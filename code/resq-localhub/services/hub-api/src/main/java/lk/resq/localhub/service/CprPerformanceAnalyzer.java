@@ -17,17 +17,17 @@ import lk.resq.localhub.model.cpr.CprSessionSummaryResponse;
 @Service
 public class CprPerformanceAnalyzer {
 
-    private final LocalSessionRepository localSessionRepository;
+    private final CprAiSessionRepository cprAiSessionRepository;
     private final CprPerformanceAnalyzerProperties properties;
 
     @Autowired
-    public CprPerformanceAnalyzer(LocalSessionRepository localSessionRepository, CprPerformanceAnalyzerProperties properties) {
-        this.localSessionRepository = localSessionRepository;
+    public CprPerformanceAnalyzer(CprAiSessionRepository cprAiSessionRepository, CprPerformanceAnalyzerProperties properties) {
+        this.cprAiSessionRepository = cprAiSessionRepository;
         this.properties = properties;
     }
 
     public CprPerformanceAnalyzer(CprPerformanceAnalyzerProperties properties) {
-        this.localSessionRepository = null;
+        this.cprAiSessionRepository = null;
         this.properties = properties;
     }
 
@@ -108,7 +108,7 @@ public class CprPerformanceAnalyzer {
     }
 
     public List<CprBadPerformanceSession> findBadPerformanceSessions(String userId, Instant fromDate, Instant toDate) {
-        if (localSessionRepository == null) {
+        if (cprAiSessionRepository == null) {
             throw new IllegalStateException("Bad performance search requires a session repository");
         }
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
@@ -123,10 +123,10 @@ public class CprPerformanceAnalyzer {
                 null
         );
 
-        return findBadPerformanceSessions(localSessionRepository.findCprSessions(query));
-        }
+        return findBadPerformanceSessions(cprAiSessionRepository.findCprSessions(query));
+    }
 
-        public List<CprBadPerformanceSession> findBadPerformanceSessions(List<CprSessionSummaryResponse> sessions) {
+    public List<CprBadPerformanceSession> findBadPerformanceSessions(List<CprSessionSummaryResponse> sessions) {
         if (sessions == null || sessions.isEmpty()) {
             return List.of();
         }

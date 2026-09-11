@@ -13,10 +13,10 @@ import lk.resq.localhub.model.cpr.CprSessionSummaryResponse;
 @Service
 public class CprSessionService {
 
-    private final LocalSessionRepository localSessionRepository;
+    private final CprAiSessionRepository cprAiSessionRepository;
 
-    public CprSessionService(LocalSessionRepository localSessionRepository) {
-        this.localSessionRepository = localSessionRepository;
+    public CprSessionService(CprAiSessionRepository cprAiSessionRepository) {
+        this.cprAiSessionRepository = cprAiSessionRepository;
     }
 
     public CprSessionSummaryResponse save(CprSessionSummaryRequest request) {
@@ -77,8 +77,9 @@ public class CprSessionService {
         );
 
         Instant createdAt = Instant.now();
-        localSessionRepository.saveCprSession(normalizedRequest, createdAt);
-        return toResponse(normalizedRequest, createdAt);
+        CprSessionSummaryResponse response = toResponse(normalizedRequest, createdAt);
+        cprAiSessionRepository.saveCprSession(response);
+        return response;
     }
 
     public List<CprSessionSummaryResponse> list(CprSessionSummaryQueryRequest query) {
@@ -97,12 +98,12 @@ public class CprSessionService {
                 normalizeOptional(query.manikinId())
         );
 
-        return localSessionRepository.findCprSessions(normalizedQuery);
+        return cprAiSessionRepository.findCprSessions(normalizedQuery);
     }
 
     public Optional<CprSessionSummaryResponse> findById(String id) {
         String normalizedId = normalizeRequired(id, "id");
-        return localSessionRepository.findCprSessionById(normalizedId);
+        return cprAiSessionRepository.findCprSessionById(normalizedId);
     }
 
     private static CprSessionSummaryResponse toResponse(CprSessionSummaryRequest request, Instant createdAt) {

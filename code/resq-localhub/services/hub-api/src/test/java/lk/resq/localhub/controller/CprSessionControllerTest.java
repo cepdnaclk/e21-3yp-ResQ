@@ -12,8 +12,8 @@ import org.springframework.http.HttpStatus;
 import lk.resq.localhub.model.ApiErrorResponse;
 import lk.resq.localhub.model.cpr.CprSessionSummaryRequest;
 import lk.resq.localhub.model.cpr.CprSessionSummaryResponse;
+import lk.resq.localhub.service.CprAiSessionRepository;
 import lk.resq.localhub.service.CprSessionService;
-import lk.resq.localhub.service.LocalSessionRepository;
 
 class CprSessionControllerTest {
 
@@ -100,7 +100,7 @@ class CprSessionControllerTest {
     }
 
     private static Fixture newFixture() {
-        LocalSessionRepository repository = new LocalSessionRepository(
+        CprAiSessionRepository repository = new CprAiSessionRepository(
                 Path.of("target", "cpr-session-controller-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         repository.initialize();

@@ -1,0 +1,1 @@
+import{O as s}from"./index-BWdo_erD.js";async function o(){return s("/api/courses")}async function t(n){return s(`/api/courses/${encodeURIComponent(n)}`)}async function r(n){return s(`/api/courses/${encodeURIComponent(n)}/students`)}async function c(n){return s(`/api/courses/${encodeURIComponent(n)}/instructors`)}export{r as a,t as b,c,o as f};

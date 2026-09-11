@@ -25,12 +25,12 @@ import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CprPerformanceAnalyzer;
 import lk.resq.localhub.service.CprTrendAnalyzer;
 import lk.resq.localhub.service.LocalCoachResponseGenerator;
-import lk.resq.localhub.service.LocalSessionRepository;
+import lk.resq.localhub.service.CprAiSessionRepository;
 
 class CprCoachControllerTest {
 
     private AuthService authService;
-    private LocalSessionRepository sessionRepository;
+    private CprAiSessionRepository sessionRepository;
     private CprPerformanceAnalyzer performanceAnalyzer;
     private CprTrendAnalyzer trendAnalyzer;
     private LocalCoachResponseGenerator coachResponseGenerator;
@@ -39,7 +39,7 @@ class CprCoachControllerTest {
     @BeforeEach
     void setUp() {
         authService = mock(AuthService.class);
-        sessionRepository = mock(LocalSessionRepository.class);
+        sessionRepository = mock(CprAiSessionRepository.class);
         performanceAnalyzer = mock(CprPerformanceAnalyzer.class);
         trendAnalyzer = mock(CprTrendAnalyzer.class);
         coachResponseGenerator = mock(LocalCoachResponseGenerator.class);

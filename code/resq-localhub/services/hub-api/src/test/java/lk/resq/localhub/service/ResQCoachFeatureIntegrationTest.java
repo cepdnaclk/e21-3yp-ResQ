@@ -13,8 +13,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import lk.resq.localhub.config.CprPerformanceAnalyzerProperties;
-import lk.resq.localhub.model.SessionEndResponse;
-import lk.resq.localhub.model.SessionSummary;
 import lk.resq.localhub.model.cpr.CprBadPerformanceSession;
 import lk.resq.localhub.model.cpr.CprPerformanceAnalysis;
 import lk.resq.localhub.model.cpr.CprSessionSummaryQueryRequest;
@@ -26,7 +24,7 @@ import lk.resq.localhub.model.cpr.LocalCoachResponse;
 class ResQCoachFeatureIntegrationTest {
 
     private Path tempDbPath;
-    private LocalSessionRepository sessionRepository;
+    private CprAiSessionRepository sessionRepository;
     private CprPerformanceAnalyzerProperties properties;
     private CprPerformanceAnalyzer performanceAnalyzer;
     private CprTrendAnalyzer trendAnalyzer;
@@ -35,7 +33,7 @@ class ResQCoachFeatureIntegrationTest {
     @BeforeEach
     void setUp() throws IOException {
         tempDbPath = Files.createTempFile("resq-coach-integration-", ".sqlite");
-        sessionRepository = new LocalSessionRepository(tempDbPath.toString());
+        sessionRepository = new CprAiSessionRepository(tempDbPath.toString());
         sessionRepository.initialize();
 
         properties = new CprPerformanceAnalyzerProperties();
@@ -148,49 +146,30 @@ class ResQCoachFeatureIntegrationTest {
             double consistency,
             double fatigueDrop
     ) {
-        SessionSummary summary = new SessionSummary(
+        CprSessionSummaryResponse summary = new CprSessionSummaryResponse(
                 sessionId,
-                "M01",
                 traineeId,
+                traineeId,
+                "M01",
                 time,
                 time.plusSeconds(60),
                 60L,
-                100,
-                100,
-                (int) (100 * (depthAcc / 100.0)),
                 depth,
-                1.0,
-                rate,
-                100.0 - recoilError,
-                (int) (100 * ((100.0 - recoilError) / 100.0)),
-                (int) (100 * (recoilError / 100.0)),
-                0,
-                score,
-                "FLAGS",
-                depth - 5.0,
+                Math.max(0.0, depth - 5.0),
                 depth + 5.0,
                 depthAcc,
+                rate,
                 rateAcc,
                 recoilError,
+                0,
                 0.0,
                 consistency,
-                fatigueDrop
-        );
-
-        SessionEndResponse response = new SessionEndResponse(
-                sessionId,
-                "M01",
-                traineeId,
+                fatigueDrop,
+                score,
                 time,
-                true,
-                time.plusSeconds(60),
-                "Standard CPR",
-                "notes",
-                summary,
-                "course-101",
-                "instructor-1"
+                "REAL_SENSOR"
         );
 
-        sessionRepository.save(response);
+        sessionRepository.saveCprSession(summary);
     }
 }
