@@ -6,6 +6,7 @@ idf_component_register(
         "include"
 
     REQUIRES
+        buzzer_manager
         config
         esp_driver_gpio
         freertos

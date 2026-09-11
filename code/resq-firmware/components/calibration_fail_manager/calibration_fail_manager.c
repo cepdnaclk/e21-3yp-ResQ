@@ -10,26 +10,42 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "board_config.h"
 #include "calibration_manager.h"
 #include "calibration_codes.h"
 
 #include "mqtt_manager.h"
 #include "runtime_helpers.h"
-#include "status_indicator.h"
 #include "wifi_manager.h"
 #include "esp_timer.h"
+#include "telemetry_publisher.h"
 
 static const char *TAG = "calibration_fail_mgr";
 static bool s_initialized = false;
 
-#ifndef BUTTON_1
-#define BUTTON_1 GPIO_NUM_9
-#endif
-
-#ifndef BUTTON_2
-#define BUTTON_2 GPIO_NUM_1
-#endif
+resq_state_t calibration_fail_manager_state_for_button(
+    const system_button_event_t *event)
+{
+    if (event == NULL) {
+        return RESQ_STATE_CALIBRATION_FAIL;
+    }
+    if (event->press_type == SYSTEM_BUTTON_PRESS_SHORT) {
+        if (event->button_id == SYSTEM_BUTTON_ID_1) {
+            return RESQ_STATE_CALIBRATING;
+        }
+        if (event->button_id == SYSTEM_BUTTON_ID_2) {
+            return RESQ_STATE_PAIRED_IDLE;
+        }
+    }
+    if (event->press_type == SYSTEM_BUTTON_PRESS_LONG) {
+        if (event->button_id == SYSTEM_BUTTON_ID_1) {
+            return RESQ_STATE_TURN_OFF;
+        }
+        if (event->button_id == SYSTEM_BUTTON_ID_2) {
+            return RESQ_STATE_RESETTING;
+        }
+    }
+    return RESQ_STATE_CALIBRATION_FAIL;
+}
 
 esp_err_t calibration_fail_manager_init(void)
 {
@@ -51,8 +67,6 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
         return RESQ_STATE_ERROR;
     }
 
-    status_indicator_set_state(RESQ_STATE_CALIBRATION_FAIL);
-
     calibration_reason_id_t reason_id = calibration_manager_get_last_failure_reason();
     calibration_action_id_t action_id = calibration_manager_get_last_failure_action();
 
@@ -73,36 +87,35 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
         calibration_manager_publish_progress_event(reason_id,
                                RESQ_STATE_CALIBRATION_FAIL,
-                               action_id);
+                               action_id,
+                               12);
     }
 
     while (true) {
         system_button_event_t button_event = {0};
 
-        if (system_button_manager_wait_event(&button_event, pdMS_TO_TICKS(50)) == ESP_OK) {
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
-                button_event.button_id == SYSTEM_BUTTON_ID_1) {
-
+        if (system_button_manager_wait_event(&button_event,
+                                             pdMS_TO_TICKS(50)) == ESP_OK) {
+            resq_state_t button_state =
+                calibration_fail_manager_state_for_button(&button_event);
+            if (button_state == RESQ_STATE_CALIBRATING) {
                 ESP_LOGW(TAG,
                          "BUTTON_1 short press: retry calibration duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
 
-                esp_err_t retry_err = calibration_manager_retry_last(network_config);
-
+                esp_err_t retry_err =
+                    calibration_manager_retry_last(network_config);
                 if (retry_err == ESP_OK) {
-                    runtime_helpers_publish_command_result(network_config,
-                                                           RESQ_STATE_CALIBRATION_FAIL,
-                                                           "button/retry",
-                                                           "ACK",
-                                                           "retry_calibration");
-
+                    runtime_helpers_publish_local_action_event(
+                        network_config, RESQ_STATE_CALIBRATION_FAIL,
+                        "button/retry", "ACK", "retry_calibration");
                     return RESQ_STATE_CALIBRATING;
                 }
 
-                /* Map retry errors to calibration reason/action */
-                calibration_reason_id_t reason = CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE;
-                calibration_action_id_t action = CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE;
-
+                calibration_reason_id_t reason =
+                    CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE;
+                calibration_action_id_t action =
+                    CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE;
                 if (retry_err == ESP_ERR_NOT_FOUND) {
                     reason = CAL_REASON_INVALID_CALIBRATION_PAYLOAD;
                     action = CAL_ACTION_SEND_VALID_PAYLOAD;
@@ -111,60 +124,41 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                     action = CAL_ACTION_WAIT_OR_CANCEL;
                 }
 
-                runtime_helpers_publish_command_result(network_config,
-                                                       RESQ_STATE_CALIBRATION_FAIL,
-                                                       "button/retry",
-                                                       "NACK",
-                                                       "retry_failed");
-
-                calibration_manager_publish_progress_event(reason,
-                                                           RESQ_STATE_CALIBRATION_FAIL,
-                                                           action);
-            }
-
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_SHORT &&
-                button_event.button_id == SYSTEM_BUTTON_ID_2) {
-
+                runtime_helpers_publish_local_action_event(
+                    network_config, RESQ_STATE_CALIBRATION_FAIL,
+                    "button/retry", "NACK", "retry_failed");
+                calibration_manager_publish_progress_event(
+                    reason, RESQ_STATE_CALIBRATION_FAIL, action, 12);
+            } else if (button_state == RESQ_STATE_PAIRED_IDLE) {
                 ESP_LOGW(TAG,
                          "BUTTON_2 short press: return to paired idle duration=%lu ms",
                          (unsigned long)button_event.duration_ms);
-
+                telemetry_publisher_stop_sensor_stream();
                 calibration_manager_drop_temporary_values();
-
-                runtime_helpers_publish_command_result(network_config,
-                                                       RESQ_STATE_CALIBRATION_FAIL,
-                                                       "button/idle",
-                                                       "ACK",
-                                                       "returning_to_paired_idle");
-
+                runtime_helpers_publish_local_action_event(
+                    network_config, RESQ_STATE_CALIBRATION_FAIL,
+                    "button/idle", "ACK", "returning_to_paired_idle");
                 return RESQ_STATE_PAIRED_IDLE;
-            }
-
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
-                button_event.button_id == SYSTEM_BUTTON_ID_1) {
-
-                ESP_LOGW(TAG,
-                         "BUTTON_1 long press in CALIBRATION_FAIL: TURN_OFF duration=%lu ms",
-                         (unsigned long)button_event.duration_ms);
-
+            } else if (button_state == RESQ_STATE_TURN_OFF) {
+                telemetry_publisher_stop_sensor_stream();
                 return RESQ_STATE_TURN_OFF;
-            }
-
-            if (button_event.press_type == SYSTEM_BUTTON_PRESS_LONG &&
-                button_event.button_id == SYSTEM_BUTTON_ID_2) {
-                ESP_LOGW(TAG,
-                         "BUTTON_2 long press in CALIBRATION_FAIL ignored; use short press to return idle");
+            } else if (button_state == RESQ_STATE_RESETTING) {
+                telemetry_publisher_stop_sensor_stream();
+                return RESQ_STATE_RESETTING;
             }
         }
 
         if (!wifi_manager_is_connected()) {
+            telemetry_publisher_stop_sensor_stream();
             calibration_manager_publish_progress_event(CAL_REASON_WIFI_DISCONNECTED_DURING_CALIBRATION,
                                                        RESQ_STATE_CALIBRATION_FAIL,
-                                                       CAL_ACTION_BUTTON_1_CONTINUE_BUTTON_2_IDLE);
+                                                       CAL_ACTION_BUTTON_1_CONTINUE_BUTTON_2_IDLE,
+                                                       12);
             return RESQ_STATE_ERROR;
         }
 
         if (!mqtt_manager_is_connected()) {
+            telemetry_publisher_stop_sensor_stream();
             return RESQ_STATE_ERROR;
         }
 
@@ -191,6 +185,15 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
             continue;
         }
 
+        if (strcmp(suffix, RESQ_SUFFIX_CMD_TELEMETRY) == 0) {
+            telemetry_publisher_handle_sensor_stream_command(network_config,
+                                                             RESQ_STATE_CALIBRATION_FAIL,
+                                                             calibration_config,
+                                                             &command,
+                                                             true);
+            continue;
+        }
+
         if (strcmp(suffix, "cmd/calibration/cancel") == 0) {
             char reply_id[128] = {0};
             if (resq_command_extract_request_id(command.payload, reply_id, sizeof(reply_id)) != ESP_OK) {
@@ -207,8 +210,7 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
                                                                                       "ACK",
                                                                                       "calibration_cancelled");
             if (pub_err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/cancel; skipping cancel (err=%d)", pub_err);
-                continue;
+                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/cancel after local cleanup (err=%d)", pub_err);
             }
 
             /* publish minimal calibration_result CANCELLED */
@@ -233,7 +235,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
         }
 
         if (strcmp(suffix, "cmd/debug") == 0) {
-            esp_err_t debug_err = runtime_helpers_publish_debug_snapshot(network_config);
+            esp_err_t debug_err =
+                runtime_helpers_publish_debug_snapshot(network_config, &command);
 
             if (debug_err != ESP_OK) {
                 runtime_helpers_publish_command_result_from_command(network_config,
@@ -282,7 +285,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(parse_reason,
                                                            RESQ_STATE_CALIBRATION_FAIL,
-                                                           CAL_ACTION_SEND_VALID_PAYLOAD);
+                                                           CAL_ACTION_SEND_VALID_PAYLOAD,
+                                                           0);
 
                 continue;
             }
@@ -297,7 +301,8 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_ALREADY_RUNNING,
                                        RESQ_STATE_CALIBRATING,
-                                       CAL_ACTION_WAIT_OR_CANCEL);
+                                       CAL_ACTION_WAIT_OR_CANCEL,
+                                       0);
                 continue;
             }
 
@@ -306,26 +311,20 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
             parsed.calibrated = false;
 
-            esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
-                                                                                      RESQ_STATE_CALIBRATION_FAIL,
-                                                                                      &command,
-                                                                                      "cmd/calibration/start",
-                                                                                      "ACK",
-                                                                                      "moving_to_calibrating");
-            if (pub_err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/start; skipping calibration start (err=%d)", pub_err);
+            esp_err_t stream_stop_err = telemetry_publisher_stop_sensor_stream();
+            if (stream_stop_err != ESP_OK) {
+                runtime_helpers_publish_command_result_from_command(network_config,
+                                                                    RESQ_STATE_CALIBRATION_FAIL,
+                                                                    &command,
+                                                                    "cmd/calibration/start",
+                                                                    "NACK",
+                                                                    "07102");
                 continue;
             }
 
-            /* publish result STARTED and store request id */
+            /* Start and confirm the task before publishing ACK/STARTED. Local
+             * recovery must not depend on MQTT availability. */
             calibration_manager_set_request_id(reply_id);
-            calibration_manager_publish_calibration_result(reply_id,
-                                                           "ACK",
-                                                           "STARTED",
-                                                           CAL_REASON_NONE,
-                                                           RESQ_STATE_CALIBRATING,
-                                                           CAL_ACTION_NONE);
-
             esp_err_t start_err = calibration_manager_start(network_config,
                                                             &parsed,
                                                             command_id[0] != '\0' ? command_id : NULL);
@@ -340,9 +339,27 @@ resq_state_t calibration_fail_manager_run(network_config_t *network_config,
 
                 calibration_manager_publish_progress_event(CAL_REASON_CALIBRATION_VALUES_OUT_OF_RANGE,
                                                            RESQ_STATE_CALIBRATION_FAIL,
-                                                           CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE);
+                                                           CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE,
+                                                           12);
                 continue;
             }
+
+            esp_err_t pub_err = runtime_helpers_publish_command_result_from_command(network_config,
+                                                                                      RESQ_STATE_CALIBRATION_FAIL,
+                                                                                      &command,
+                                                                                      "cmd/calibration/start",
+                                                                                      "ACK",
+                                                                                      "moving_to_calibrating");
+            if (pub_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to publish command result for cmd/calibration/start after startup (err=%d)", pub_err);
+            }
+
+            calibration_manager_publish_calibration_result(reply_id,
+                                                           "ACK",
+                                                           "STARTED",
+                                                           CAL_REASON_NONE,
+                                                           RESQ_STATE_CALIBRATING,
+                                                           CAL_ACTION_NONE);
 
             return RESQ_STATE_CALIBRATING;
         }

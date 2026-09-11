@@ -17,12 +17,52 @@ const child = spawn(tauriBinary, args, {
   },
 });
 
+let exiting = false;
+
+function stopChildTree(signal) {
+  if (exiting) {
+    return;
+  }
+  exiting = true;
+
+  if (!child.pid) {
+    process.exit(0);
+    return;
+  }
+
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill", ["/PID", String(child.pid), "/T"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+
+    killer.on("exit", () => {
+      const force = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      force.on("exit", () => process.exit(0));
+    });
+    return;
+  }
+
+  child.kill(signal);
+  process.exit(0);
+}
+
+process.on("SIGINT", () => stopChildTree("SIGINT"));
+process.on("SIGTERM", () => stopChildTree("SIGTERM"));
+
 child.on("error", (error) => {
   console.error(error);
   process.exit(1);
 });
 
 child.on("exit", (code, signal) => {
+  if (exiting) {
+    return;
+  }
+
   if (signal) {
     process.kill(process.pid, signal);
     return;

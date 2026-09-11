@@ -1,6 +1,9 @@
 use local_ip_address::list_afinet_netifas;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +18,13 @@ pub struct AppInfo {
 pub struct NetworkInfo {
     hostname: String,
     primary_ipv4: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProvisioningConfig {
+    wifi_ssid: String,
+    wifi_password: String,
 }
 
 #[tauri::command]
@@ -47,47 +57,42 @@ pub fn get_network_info() -> Result<NetworkInfo, String> {
 }
 
 fn pick_best_ipv4(interfaces: &[(String, IpAddr)]) -> Option<Ipv4Addr> {
-    // First pass: ignore loopback + link-local to prefer actual LAN addresses.
-    let pass_one = best_candidate(interfaces, false);
-    if pass_one.is_some() {
-        return pass_one;
-    }
-
-    // Fallback: allow link-local if nothing better exists.
-    best_candidate(interfaces, true)
+    best_candidate(interfaces)
 }
 
-fn best_candidate(interfaces: &[(String, IpAddr)], allow_link_local: bool) -> Option<Ipv4Addr> {
+fn best_candidate(interfaces: &[(String, IpAddr)]) -> Option<Ipv4Addr> {
     interfaces
         .iter()
         .filter_map(|(name, ip)| match ip {
             IpAddr::V4(v4) => Some((name, *v4)),
             IpAddr::V6(_) => None,
         })
-        .filter(|(_, ip)| !ip.is_loopback() && !ip.is_unspecified())
-        .filter(|(_, ip)| allow_link_local || !is_link_local_ipv4(*ip))
-        .max_by_key(|(name, ip)| score_ipv4(name, *ip))
+        .filter(|(_, ip)| {
+            ip.is_private()
+                && !ip.is_loopback()
+                && !ip.is_unspecified()
+                && !is_link_local_ipv4(*ip)
+        })
+        .max_by_key(|(name, _)| score_ipv4(name))
         .map(|(_, ip)| ip)
 }
 
-fn score_ipv4(interface_name: &str, ip: Ipv4Addr) -> i32 {
+fn score_ipv4(interface_name: &str) -> i32 {
     let mut score = 0;
 
-    if ip.is_private() {
-        score += 100;
-    }
-
-    if is_link_local_ipv4(ip) {
-        score -= 50;
-    }
+    score += 100;
 
     let lowered = interface_name.to_lowercase();
     if lowered.contains("ethernet") || lowered.contains("wi-fi") || lowered.contains("wlan") {
-        score += 10;
+        score += 25;
     }
 
-    if lowered.contains("virtual") || lowered.contains("vethernet") {
-        score -= 10;
+    if lowered.contains("virtual")
+        || lowered.contains("vethernet")
+        || lowered.contains("vpn")
+        || lowered.contains("tunnel")
+    {
+        score -= 25;
     }
 
     score
@@ -104,7 +109,14 @@ fn detect_ipv4_via_udp() -> Option<Ipv4Addr> {
     socket.connect("8.8.8.8:80").ok()?;
 
     match socket.local_addr().ok()?.ip() {
-        IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_unspecified() => Some(v4),
+        IpAddr::V4(v4)
+            if v4.is_private()
+                && !v4.is_loopback()
+                && !v4.is_unspecified()
+                && !is_link_local_ipv4(v4) =>
+        {
+            Some(v4)
+        }
         _ => None,
     }
 }
@@ -128,14 +140,23 @@ pub struct DashboardUrls {
     trainee_url: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceLogPaths {
+    log_dir: String,
+    backend_log_path: String,
+    broker_log_path: String,
+}
+
 #[tauri::command]
-pub fn get_provisioning_data() -> Result<ProvisioningData, String> {
+pub fn get_provisioning_data(app: AppHandle) -> Result<ProvisioningData, String> {
     let backend_host = get_network_info()?
         .primary_ipv4
         .ok_or("Failed to detect LAN IP")?;
 
-    let wifi_ssid = "ResQ-Hub".to_string();
-    let wifi_password = "password123".to_string();
+    let config = load_provisioning_config(&app)?;
+    let wifi_ssid = config.wifi_ssid;
+    let wifi_password = config.wifi_password;
     let backend_base_url = format!("http://{}:18080", backend_host);
     let esp_setup_base_url = "http://192.168.4.1".to_string();
     let esp_provision_path = "/".to_string();
@@ -186,8 +207,52 @@ pub fn detect_primary_ipv4() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+pub fn get_service_log_paths(app: tauri::AppHandle) -> Result<ServiceLogPaths, String> {
+    let log_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("Failed to resolve application data directory: {error}"))?
+        .join("logs");
+
+    std::fs::create_dir_all(&log_dir)
+        .map_err(|error| format!("Failed to create log directory at {}: {error}", log_dir.display()))?;
+
+    let backend_log_path = log_dir.join("hub-api.log");
+    let broker_log_path = log_dir.join("mosquitto.log");
+
+    Ok(ServiceLogPaths {
+        log_dir: path_to_string(log_dir),
+        backend_log_path: path_to_string(backend_log_path),
+        broker_log_path: path_to_string(broker_log_path),
+    })
+}
+
+#[tauri::command]
 pub fn refresh_pairing_token() -> Result<String, String> {
     fetch_pairing_token()
+}
+
+#[tauri::command]
+pub fn save_provisioning_config(
+    app: AppHandle,
+    wifi_ssid: String,
+    wifi_password: String,
+) -> Result<ProvisioningConfig, String> {
+    let config = ProvisioningConfig {
+        wifi_ssid: wifi_ssid.trim().to_string(),
+        wifi_password,
+    };
+
+    validate_provisioning_config(&config)?;
+
+    let path = provisioning_config_path(&app)?;
+    let raw = serde_json::to_string_pretty(&config)
+        .map_err(|error| format!("Failed to serialize provisioning config: {error}"))?;
+
+    fs::write(&path, raw)
+        .map_err(|error| format!("Failed to save provisioning config at {}: {error}", path.display()))?;
+
+    Ok(config)
 }
 
 fn fetch_pairing_token() -> Result<String, String> {
@@ -206,19 +271,135 @@ fn fetch_pairing_token() -> Result<String, String> {
                 Err(e) => Err(format!("Failed to parse response: {}", e)),
             }
         }
-        Err(_e) => {
-            // Fallback for development only: generate a mock token when backend is unavailable.
-            // In release builds we should return an error so problems are visible.
-            if cfg!(debug_assertions) {
+        Err(error) => {
+            if cfg!(debug_assertions) && std::env::var_os("RESQ_ALLOW_DEV_PAIRING_TOKEN").is_some() {
                 use std::time::{SystemTime, UNIX_EPOCH};
                 let timestamp = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                Ok(format!("dev-token-{}", timestamp))
-            } else {
-                Err("Failed to fetch pairing token from backend".to_string())
+                return Ok(format!("dev-token-{}", timestamp));
             }
+
+            Err(format!(
+                "Unable to request a pairing token because the LocalHub backend is unavailable: {error}"
+            ))
+        }
+    }
+}
+
+fn path_to_string(path: PathBuf) -> String {
+    path.display().to_string()
+}
+
+fn provisioning_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let config_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("Failed to resolve application data directory: {error}"))?;
+
+    fs::create_dir_all(&config_dir).map_err(|error| {
+        format!(
+            "Failed to create application data directory at {}: {error}",
+            config_dir.display()
+        )
+    })?;
+
+    Ok(config_dir.join("provisioning-config.json"))
+}
+
+fn load_provisioning_config(app: &AppHandle) -> Result<ProvisioningConfig, String> {
+    let path = provisioning_config_path(app)?;
+
+    if path.exists() {
+        let raw = fs::read_to_string(&path)
+            .map_err(|error| format!("Failed to read provisioning config: {error}"))?;
+
+        let config: ProvisioningConfig = serde_json::from_str(&raw)
+            .map_err(|error| format!("Failed to parse provisioning config: {error}"))?;
+
+        validate_provisioning_config(&config)?;
+        return Ok(config);
+    }
+
+    // Development-only fallback through environment variables.
+    // Do not hardcode a password in release builds.
+    let wifi_ssid = std::env::var("RESQ_PROVISION_WIFI_SSID").unwrap_or_default();
+    let wifi_password = std::env::var("RESQ_PROVISION_WIFI_PASSWORD").unwrap_or_default();
+
+    let config = ProvisioningConfig {
+        wifi_ssid,
+        wifi_password,
+    };
+
+    validate_provisioning_config(&config)?;
+    Ok(config)
+}
+
+fn validate_provisioning_config(config: &ProvisioningConfig) -> Result<(), String> {
+    if config.wifi_ssid.trim().is_empty() {
+        return Err("Provisioning Wi-Fi SSID is not configured".to_string());
+    }
+
+    if config.wifi_password.trim().is_empty() {
+        return Err("Provisioning Wi-Fi password is not configured".to_string());
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_physical_ipv4_is_preferred_over_virtual_adapter() {
+        let interfaces = vec![
+            (
+                "vEthernet (Default Switch)".to_string(),
+                IpAddr::V4(Ipv4Addr::new(172, 20, 0, 1)),
+            ),
+            (
+                "Wi-Fi".to_string(),
+                IpAddr::V4(Ipv4Addr::new(192, 168, 8, 100)),
+            ),
+        ];
+
+        assert_eq!(
+            pick_best_ipv4(&interfaces),
+            Some(Ipv4Addr::new(192, 168, 8, 100))
+        );
+    }
+
+    #[test]
+    fn loopback_link_local_and_public_addresses_are_excluded() {
+        let interfaces = vec![
+            ("Loopback".to_string(), IpAddr::V4(Ipv4Addr::LOCALHOST)),
+            (
+                "Ethernet".to_string(),
+                IpAddr::V4(Ipv4Addr::new(169, 254, 10, 20)),
+            ),
+            (
+                "Ethernet 2".to_string(),
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 10)),
+            ),
+        ];
+
+        assert_eq!(pick_best_ipv4(&interfaces), None);
+    }
+
+    #[test]
+    fn all_supported_private_ranges_are_eligible() {
+        for ip in [
+            Ipv4Addr::new(10, 1, 2, 3),
+            Ipv4Addr::new(172, 16, 2, 3),
+            Ipv4Addr::new(172, 31, 2, 3),
+            Ipv4Addr::new(192, 168, 2, 3),
+        ] {
+            assert_eq!(
+                pick_best_ipv4(&[("Ethernet".to_string(), IpAddr::V4(ip))]),
+                Some(ip)
+            );
         }
     }
 }

@@ -17,19 +17,47 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class LiveStreamService {
 
     private static final Logger logger = LoggerFactory.getLogger(LiveStreamService.class);
     private static final long SSE_TIMEOUT_MS = 0L;
+    static final int FANOUT_QUEUE_CAPACITY = 64;
+    private static final int FANOUT_THREADS = 2;
 
     private final CopyOnWriteArrayList<SseEmitter> instructorEmitters = new CopyOnWriteArrayList<>();
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<SseEmitter>> sessionEmittersBySessionId = new ConcurrentHashMap<>();
     private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
+    private final AtomicLong droppedFanoutTaskCount = new AtomicLong();
+    private final ThreadPoolExecutor fanoutExecutor = new ThreadPoolExecutor(
+            FANOUT_THREADS,
+            FANOUT_THREADS,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(FANOUT_QUEUE_CAPACITY),
+            runnable -> {
+                Thread thread = new Thread(runnable, "resq-sse-fanout");
+                thread.setDaemon(true);
+                return thread;
+            },
+            (task, executor) -> {
+                droppedFanoutTaskCount.incrementAndGet();
+                executor.getQueue().poll();
+                if (!executor.getQueue().offer(task)) {
+                    droppedFanoutTaskCount.incrementAndGet();
+                }
+            }
+    );
+    private volatile List<ManikinLiveSummary> lastInstructorPayload;
+    private final ConcurrentHashMap<String, SessionLiveView> lastSessionPayloadBySessionId = new ConcurrentHashMap<>();
+    private final AtomicLong suppressedDuplicateUpdateCount = new AtomicLong();
 
     @PostConstruct
     public void startHeartbeat() {
@@ -39,6 +67,7 @@ public class LiveStreamService {
     @PreDestroy
     public void stopHeartbeat() {
         heartbeatExecutor.shutdownNow();
+        fanoutExecutor.shutdownNow();
     }
 
     public SseEmitter subscribeInstructor(List<ManikinLiveSummary> initialPayload) {
@@ -61,34 +90,117 @@ public class LiveStreamService {
     }
 
     public void publishInstructorLive(List<ManikinLiveSummary> payload) {
-        for (SseEmitter emitter : instructorEmitters) {
-            sendEvent(emitter, "manikins-live", payload, () -> instructorEmitters.remove(emitter));
+        List<ManikinLiveSummary> boundedPayload = payload == null ? List.of() : List.copyOf(payload);
+        if (boundedPayload.equals(lastInstructorPayload)) {
+            suppressedDuplicateUpdateCount.incrementAndGet();
+            return;
         }
+        lastInstructorPayload = boundedPayload;
+        dispatchFanout(() -> {
+            for (SseEmitter emitter : instructorEmitters) {
+                sendEvent(emitter, "manikins-live", boundedPayload, () -> instructorEmitters.remove(emitter));
+            }
+        });
     }
 
     public void publishSessionLive(String sessionId, SessionLiveView payload) {
+        if (payload == null) {
+            lastSessionPayloadBySessionId.remove(sessionId);
+            CopyOnWriteArrayList<SseEmitter> terminalEmitters =
+                    sessionEmittersBySessionId.remove(sessionId);
+            if (terminalEmitters == null || terminalEmitters.isEmpty()) {
+                return;
+            }
+            List<SseEmitter> terminalSnapshot = List.copyOf(terminalEmitters);
+            /*
+             * Clear the shared list before sending so no older live publisher
+             * can deliver a stale update after the terminal marker.
+             */
+            terminalEmitters.clear();
+            /*
+             * Completion is a control-plane event, not disposable live
+             * telemetry. Send it immediately so the event that closes the UI
+             * and reveals the score cannot be dropped.
+             */
+            for (SseEmitter emitter : terminalSnapshot) {
+                sendEvent(emitter, "session-live", null,
+                        () -> { });
+            }
+            return;
+        }
+        if (payload != null && payload.equals(lastSessionPayloadBySessionId.put(sessionId, payload))) {
+            suppressedDuplicateUpdateCount.incrementAndGet();
+            return;
+        }
         CopyOnWriteArrayList<SseEmitter> emitters = sessionEmittersBySessionId.get(sessionId);
         if (emitters == null || emitters.isEmpty()) {
             return;
         }
 
-        for (SseEmitter emitter : emitters) {
-            sendEvent(emitter, "session-live", payload, () -> removeSessionEmitter(sessionId, emitter));
+        dispatchFanout(() -> {
+            for (SseEmitter emitter : emitters) {
+                sendEvent(emitter, "session-live", payload, () -> removeSessionEmitter(sessionId, emitter));
+            }
+        });
+    }
+
+    long suppressedDuplicateUpdateCount() {
+        return suppressedDuplicateUpdateCount.get();
+    }
+
+    public int instructorEmitterCount() {
+        return instructorEmitters.size();
+    }
+
+    public int sessionEmitterCount() {
+        return sessionEmittersBySessionId.values().stream()
+                .mapToInt(List::size)
+                .sum();
+    }
+
+    public int totalEmitterCount() {
+        return instructorEmitterCount() + sessionEmitterCount();
+    }
+
+    public int queuedFanoutTaskCount() {
+        return fanoutExecutor.getQueue().size();
+    }
+
+    public long droppedFanoutTaskCount() {
+        return droppedFanoutTaskCount.get();
+    }
+
+    boolean awaitFanoutIdle(long timeoutMs) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        while (System.nanoTime() < deadline) {
+            if (fanoutExecutor.getQueue().isEmpty() && fanoutExecutor.getActiveCount() == 0) {
+                return true;
+            }
+            Thread.sleep(5);
         }
+        return fanoutExecutor.getQueue().isEmpty() && fanoutExecutor.getActiveCount() == 0;
     }
 
     private void sendHeartbeats() {
         Map<String, String> heartbeatPayload = Map.of("ts", Instant.now().toString());
 
-        for (SseEmitter emitter : instructorEmitters) {
-            sendEvent(emitter, "heartbeat", heartbeatPayload, () -> instructorEmitters.remove(emitter));
-        }
-
-        for (Map.Entry<String, CopyOnWriteArrayList<SseEmitter>> entry : sessionEmittersBySessionId.entrySet()) {
-            String sessionId = entry.getKey();
-            for (SseEmitter emitter : entry.getValue()) {
-                sendEvent(emitter, "heartbeat", heartbeatPayload, () -> removeSessionEmitter(sessionId, emitter));
+        dispatchFanout(() -> {
+            for (SseEmitter emitter : instructorEmitters) {
+                sendEvent(emitter, "heartbeat", heartbeatPayload, () -> instructorEmitters.remove(emitter));
             }
+
+            for (Map.Entry<String, CopyOnWriteArrayList<SseEmitter>> entry : sessionEmittersBySessionId.entrySet()) {
+                String sessionId = entry.getKey();
+                for (SseEmitter emitter : entry.getValue()) {
+                    sendEvent(emitter, "heartbeat", heartbeatPayload, () -> removeSessionEmitter(sessionId, emitter));
+                }
+            }
+        });
+    }
+
+    private void dispatchFanout(Runnable task) {
+        if (!fanoutExecutor.isShutdown()) {
+            fanoutExecutor.execute(task);
         }
     }
 
@@ -101,7 +213,7 @@ public class LiveStreamService {
         emitter.onError(error -> cleanup.run());
     }
 
-    private void sendEvent(SseEmitter emitter, String eventName, Object payload, Runnable onFailure) {
+    protected void sendEvent(SseEmitter emitter, String eventName, Object payload, Runnable onFailure) {
         try {
             Object safePayload = (payload != null) ? payload : Map.of();
             emitter.send(SseEmitter.event().name(eventName).data(safePayload, MediaType.APPLICATION_JSON));
@@ -129,6 +241,7 @@ public class LiveStreamService {
         emitters.remove(emitter);
         if (emitters.isEmpty()) {
             sessionEmittersBySessionId.remove(sessionId, emitters);
+            lastSessionPayloadBySessionId.remove(sessionId);
         }
     }
 }

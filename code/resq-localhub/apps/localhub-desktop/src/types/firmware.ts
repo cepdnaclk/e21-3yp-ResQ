@@ -6,29 +6,7 @@
  * Do NOT render these on normal instructor/trainee screens.
  */
 
-export type FirmwareReadinessResponse = {
-  deviceId: string;
-  firmwareState: string | null;
-  calibrated: boolean;
-  readyForSession: boolean;
-  ready: boolean; // mapped from readyForSession
-  latestResult: string | null;
-  progressId: number | null;
-  reasonId: string | null;
-  actionId: number | null;
-  tsMs: number | null;
-  receivedAt: string | null;
-  sessionId?: string | null;
-  lastErrorId?: string | null;
-};
-
-export type FirmwareCalibrationCommandResponse = {
-  deviceId: string;
-  requestId: string;
-  topic: string;
-  status: string;
-  error: string | null;
-};
+import type { DeviceReadinessState } from "./manikin";
 
 export type FirmwareCommandRecord = {
   id: string;
@@ -72,7 +50,7 @@ export type CalibrationResultRecord = {
 
 export type FirmwareDeviceDiagnosticsResponse = {
   deviceId: string;
-  readiness: FirmwareReadinessResponse | null;
+  readiness: DeviceReadinessState | null;
   latestCalibration: CalibrationResultRecord | null;
   liveSummary: import("./manikin").ManikinLiveSummary | null;
   recentCommands: FirmwareCommandRecord[];
@@ -80,27 +58,35 @@ export type FirmwareDeviceDiagnosticsResponse = {
   debugSnapshots: FirmwareDebugSnapshotRecord[];
 };
 
+export type FirmwareCommandPublishResponse = {
+  deviceId: string;
+  requestId: string;
+  topic: string;
+  status: string;
+  message?: string | null;
+};
+
 export type CalibrationProfileRequest = {
   name: string;
-  depthTargetMm?: number | null;
-  rateTargetCpm?: number | null;
-  notes?: string | null;
+  hallDelta: number;
+  refPressure: number;
+  bladder1Pressure: number;
+  bladder2Pressure: number;
+  description?: string | null;
+  active?: boolean | null;
+  defaultProfile?: boolean | null;
 };
 
 export type CalibrationProfileResponse = {
   profileId: string;
   name: string;
-  depthTargetMm: number | null;
-  rateTargetCpm: number | null;
-  notes: string | null;
-  isDefault: boolean;
+  hallDelta: number;
+  refPressure: number;
+  bladder1Pressure: number;
+  bladder2Pressure: number;
+  description: string | null;
+  active: boolean;
+  defaultProfile: boolean;
   createdAt: string;
-};
-
-export type FirmwareCalibrationStartRequest = {
-  profileId?: string | null;
-  hallDelta?: number | null;
-  refPressure?: number | null;
-  bladder1Pressure?: number | null;
-  bladder2Pressure?: number | null;
+  updatedAt: string;
 };

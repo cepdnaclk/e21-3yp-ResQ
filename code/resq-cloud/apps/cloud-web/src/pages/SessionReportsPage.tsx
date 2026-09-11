@@ -13,6 +13,63 @@ import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { formatDate, formatNumber, shortId } from "../lib/format";
 import { navigate } from "../router";
 
+// Generic path-based field extractor
+function getField<T>(record: any, paths: string[], type: "number" | "string" | "boolean"): T | null {
+  for (const path of paths) {
+    const parts = path.split(".");
+    let current = record;
+    for (const part of parts) {
+      current = current?.[part];
+    }
+    if (current !== undefined && current !== null) {
+      if (typeof current === type) {
+        return current as unknown as T;
+      }
+      if (type === "number" && !isNaN(Number(current))) {
+        return Number(current) as unknown as T;
+      }
+    }
+  }
+  return null;
+}
+
+function getBestDate(record: any): Date | null {
+  const candidates = [
+    getField<string>(record, ["payload.endedAt", "endedAt", "payload.summary.endedAt", "summary.endedAt"], "string"),
+    getField<string>(record, ["payload.startedAt", "startedAt", "payload.summary.startedAt", "summary.startedAt"], "string"),
+    getField<string>(record, ["createdAt"], "string"),
+    getField<string>(record, ["syncedAt"], "string"),
+  ];
+  for (const c of candidates) {
+    if (c) {
+      const parsed = new Date(c);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function preventCsvInjection(value: string): string {
+  return /^[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
+function escapeCsvValue(value: unknown): string {
+  const raw = value == null ? "" : String(value);
+  const protectedValue = preventCsvInjection(raw);
+  const escaped = protectedValue.replace(/"/g, '""');
+  return /[",\r\n]/.test(escaped) ? `"${escaped}"` : escaped;
+}
+
+function localDateStamp(): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 interface SessionReportsPageProps {
   user: CloudUser;
 }
@@ -197,6 +254,159 @@ export function SessionReportsPage({ user }: SessionReportsPageProps) {
   // Instructors/Admins list
   const instructors = users.filter((u) => u.active && (u.role === "INSTRUCTOR" || u.role === "ADMIN"));
 
+  function exportCSV() {
+    if (summaries.length === 0) return;
+
+    const headers = [
+      "Session ID",
+      "Date",
+      "Course",
+      "Trainee",
+      "Instructor",
+      "Scenario",
+      "Score",
+      "Duration (s)",
+      "Compression Count",
+      "Average Rate (cpm)",
+      "Average Depth (mm)",
+      "Valid Compressions",
+      "Recoil OK Count",
+      "Incomplete Recoil Count",
+      "Synced At",
+      "LocalHub ID",
+      "Local Session ID",
+    ];
+
+    const rows = summaries.map((record) => {
+      const payload = record.payload || {};
+      const dateObj = getBestDate(record);
+      const dateStr = dateObj ? dateObj.toISOString() : "Unknown date";
+      
+      const courseIdVal = payload.courseId || "";
+      const courseObj = courses.find((c) => c.courseId === courseIdVal);
+      const courseLabel = courseObj ? `${courseObj.courseCode || ""} - ${courseObj.title}`.trim() : courseIdVal;
+
+      const traineeIdVal = payload.traineeId || "";
+      const traineeObj = users.find((u) => u.userId === traineeIdVal);
+      const traineeLabel = traineeObj ? `${traineeObj.displayName} (${traineeObj.email || "no email"})` : traineeIdVal;
+
+      const instructorIdVal = payload.instructorId || "";
+      const instructorObj = users.find((u) => u.userId === instructorIdVal);
+      const instructorLabel = instructorObj ? `${instructorObj.displayName} (${instructorObj.email || "no email"})` : instructorIdVal;
+
+      const score = getField<number>(
+        record,
+        ["payload.score", "score", "payload.summary.score", "summary.score", "metrics.score"],
+        "number"
+      );
+
+      const durationMs = getField<number>(
+        record,
+        ["payload.durationMs", "durationMs", "payload.summary.durationMs", "summary.durationMs"],
+        "number"
+      );
+      const durationSecs = durationMs
+        ? durationMs / 1000
+        : getField<number>(
+            record,
+            ["payload.durationSeconds", "durationSeconds", "payload.summary.durationSeconds", "summary.durationSeconds"],
+            "number"
+          );
+
+      const totalCompressions = getField<number>(
+        record,
+        ["payload.totalCompressions", "totalCompressions", "payload.summary.totalCompressions", "summary.totalCompressions"],
+        "number"
+      );
+
+      const avgRateCpm = getField<number>(
+        record,
+        ["payload.avgRateCpm", "avgRateCpm", "payload.summary.avgRateCpm", "summary.avgRateCpm", "metrics.avgRateCpm"],
+        "number"
+      );
+
+      const avgDepthMm = getField<number>(
+        record,
+        ["payload.avgDepthMm", "avgDepthMm", "payload.summary.avgDepthMm", "summary.avgDepthMm", "metrics.avgDepthMm"],
+        "number"
+      );
+
+      const validCompressions = getField<number>(
+        record,
+        ["payload.validCompressions", "validCompressions", "payload.summary.validCompressions", "summary.validCompressions"],
+        "number"
+      );
+
+      const recoilOkCount = getField<number>(
+        record,
+        ["payload.recoilOkCount", "recoilOkCount", "payload.summary.recoilOkCount", "summary.recoilOkCount"],
+        "number"
+      );
+
+      const incompleteRecoilCount = getField<number>(
+        record,
+        ["payload.incompleteRecoilCount", "incompleteRecoilCount", "payload.summary.incompleteRecoilCount", "summary.incompleteRecoilCount"],
+        "number"
+      );
+
+      const scenario = getField<string>(
+        record,
+        ["payload.scenario", "scenario", "payload.summary.scenario", "summary.scenario"],
+        "string"
+      );
+
+      const localHubId = getField<string>(
+        record,
+        ["payload.localHubId", "localHubId", "payload.summary.localHubId", "summary.localHubId"],
+        "string"
+      );
+
+      const localSessionId = getField<string>(
+        record,
+        ["payload.localSessionId", "localSessionId", "payload.summary.localSessionId", "summary.localSessionId"],
+        "string"
+      );
+
+      return [
+        record.cloudSessionId || "",
+        dateStr,
+        courseLabel,
+        traineeLabel,
+        instructorLabel,
+        scenario || "",
+        score !== null ? score : "",
+        durationSecs !== null ? durationSecs : "",
+        totalCompressions !== null ? totalCompressions : "",
+        avgRateCpm !== null ? avgRateCpm : "",
+        avgDepthMm !== null ? avgDepthMm : "",
+        validCompressions !== null ? validCompressions : "",
+        recoilOkCount !== null ? recoilOkCount : "",
+        incompleteRecoilCount !== null ? incompleteRecoilCount : "",
+        record.createdAt || "",
+        localHubId || "",
+        localSessionId || "",
+      ];
+    });
+
+    const csvContent = [
+      headers.map(escapeCsvValue).join(","),
+      ...rows.map((row) => row.map(escapeCsvValue).join(",")),
+    ].join("\r\n");
+
+    const blob = new Blob(["\uFEFF" + csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `resq-session-reports-${localDateStamp()}.csv`;
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section className="page-section">
       {/* Header */}
@@ -206,9 +416,20 @@ export function SessionReportsPage({ user }: SessionReportsPageProps) {
           <h2>Session Reports</h2>
           <p>Analyze performance metrics across CPR training sessions.</p>
         </div>
-        <span className="count-badge">
-          {totalSessions} session{totalSessions === 1 ? "" : "s"}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button
+            type="button"
+            className="button"
+            style={{ marginTop: 0 }}
+            disabled={summaries.length === 0}
+            onClick={exportCSV}
+          >
+            Export CSV
+          </button>
+          <span className="count-badge">
+            {totalSessions} session{totalSessions === 1 ? "" : "s"}
+          </span>
+        </div>
       </div>
 
       {/* Metric Cards */}

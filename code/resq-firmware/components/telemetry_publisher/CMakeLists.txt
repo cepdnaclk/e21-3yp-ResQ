@@ -10,6 +10,13 @@ idf_component_register(
         session_manager
         cpr_metrics
         runtime_helpers
+        config
+        hall_sensor
+        hx710
+        pressure_quality_filter
+        sensor_conversion
+        sensor_owner
+        io_mode_manager
         esp_timer
         freertos
 )

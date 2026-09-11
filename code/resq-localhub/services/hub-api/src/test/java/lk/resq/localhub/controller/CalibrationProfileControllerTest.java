@@ -9,6 +9,7 @@ import lk.resq.localhub.model.firmware.CalibrationProfileResponse;
 import lk.resq.localhub.service.AuthService;
 import lk.resq.localhub.service.CalibrationProfileRepository;
 import lk.resq.localhub.service.CalibrationProfileService;
+import lk.resq.localhub.service.CalibrationProfileFingerprintService;
 import lk.resq.localhub.service.LocalAuthRepository;
 import org.junit.jupiter.api.Test;
 
@@ -59,7 +60,7 @@ class CalibrationProfileControllerTest {
                 Path.of("target", "calibration-profile-controller-test-" + UUID.randomUUID() + ".sqlite").toString()
         );
         repository.initialize();
-        CalibrationProfileService service = new CalibrationProfileService(repository);
+        CalibrationProfileService service = new CalibrationProfileService(repository, new CalibrationProfileFingerprintService());
         CalibrationProfileController controller = new CalibrationProfileController(service, new AllowingAuthService(objectMapper));
         return new Fixture(controller);
     }

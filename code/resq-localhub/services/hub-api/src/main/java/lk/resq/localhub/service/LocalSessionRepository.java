@@ -1,5 +1,7 @@
 package lk.resq.localhub.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionSummary;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,7 +13,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -23,6 +24,8 @@ import java.util.Optional;
 
 @Service
 public class LocalSessionRepository {
+
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
 
     private final Path databasePath;
     private final String jdbcUrl;
@@ -60,10 +63,10 @@ public class LocalSessionRepository {
                                                     total_compressions INTEGER NOT NULL DEFAULT 0,
                                                     valid_compressions INTEGER NOT NULL DEFAULT 0,
                           duration_seconds INTEGER NOT NULL,
-                          avg_depth_mm REAL NOT NULL,
+                          avg_depth_mm REAL,
                                                     avg_depth_progress REAL,
-                          avg_rate_cpm REAL NOT NULL,
-                          recoil_pct REAL NOT NULL,
+                          avg_rate_cpm REAL,
+                          recoil_pct REAL,
                                                     recoil_ok_count INTEGER NOT NULL DEFAULT 0,
                                                     incomplete_recoil_count INTEGER NOT NULL DEFAULT 0,
                           pauses_count INTEGER NOT NULL,
@@ -78,9 +81,11 @@ public class LocalSessionRepository {
                 ensureColumn(connection, "session_metrics", "avg_depth_progress", "REAL");
                 ensureColumn(connection, "session_metrics", "recoil_ok_count", "INTEGER NOT NULL DEFAULT 0");
                 ensureColumn(connection, "session_metrics", "incomplete_recoil_count", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumn(connection, "session_metrics", "scoring_details", "TEXT");
                 ensureColumn(connection, "sessions", "trainee_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "course_id", "TEXT NULL");
                 ensureColumn(connection, "sessions", "instructor_id", "TEXT NULL");
+                migrateNullableEvidenceColumns(connection);
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Failed to initialize local SQLite store at " + databasePath, error);
@@ -106,8 +111,8 @@ public class LocalSessionRepository {
                     """);
                  PreparedStatement metricsStatement = connection.prepareStatement("""
                     INSERT INTO session_metrics (
-                                            session_id, sample_count, total_compressions, valid_compressions, duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm, recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count, score, latest_flags
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            session_id, sample_count, total_compressions, valid_compressions, duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm, recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count, score, latest_flags, scoring_details
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(session_id) DO UPDATE SET
                                             sample_count = excluded.sample_count,
                                             total_compressions = excluded.total_compressions,
@@ -121,7 +126,8 @@ public class LocalSessionRepository {
                                             incomplete_recoil_count = excluded.incomplete_recoil_count,
                       pauses_count = excluded.pauses_count,
                       score = excluded.score,
-                      latest_flags = excluded.latest_flags
+                      latest_flags = excluded.latest_flags,
+                      scoring_details = excluded.scoring_details
                     """)) {
 
                 sessionStatement.setString(1, session.sessionId());
@@ -141,19 +147,20 @@ public class LocalSessionRepository {
                 metricsStatement.setInt(3, summary.totalCompressions());
                 metricsStatement.setInt(4, summary.validCompressions());
                 metricsStatement.setLong(5, summary.durationSeconds());
-                metricsStatement.setDouble(6, summary.avgDepthMm());
+                setNullableDouble(metricsStatement, 6, summary.avgDepthMm());
                 if (summary.avgDepthProgress() == null) {
                     metricsStatement.setNull(7, java.sql.Types.REAL);
                 } else {
                     metricsStatement.setDouble(7, summary.avgDepthProgress());
                 }
-                metricsStatement.setDouble(8, summary.avgRateCpm());
-                metricsStatement.setDouble(9, summary.recoilPct());
+                setNullableDouble(metricsStatement, 8, summary.avgRateCpm());
+                setNullableDouble(metricsStatement, 9, summary.recoilPct());
                 metricsStatement.setInt(10, summary.recoilOkCount());
                 metricsStatement.setInt(11, summary.incompleteRecoilCount());
                 metricsStatement.setInt(12, summary.pausesCount());
                 metricsStatement.setInt(13, summary.score());
                 metricsStatement.setString(14, summary.latestFlags());
+                metricsStatement.setString(15, serializeSummary(summary));
                 metricsStatement.executeUpdate();
 
                 connection.commit();
@@ -191,7 +198,8 @@ public class LocalSessionRepository {
                        m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
-                       m.latest_flags
+                       m.latest_flags,
+                       m.scoring_details
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
                      WHERE s.session_id = ?
@@ -235,7 +243,8 @@ public class LocalSessionRepository {
                        m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
-                       m.latest_flags
+                       m.latest_flags,
+                       m.scoring_details
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
                      ORDER BY s.ended_at DESC
@@ -277,7 +286,8 @@ public class LocalSessionRepository {
                        m.incomplete_recoil_count,
                        m.pauses_count,
                        m.score,
-                       m.latest_flags
+                       m.latest_flags,
+                       m.scoring_details
                      FROM sessions s
                      JOIN session_metrics m ON m.session_id = s.session_id
                      WHERE 1=0
@@ -318,6 +328,8 @@ public class LocalSessionRepository {
     }
 
     private SessionEndResponse mapRow(ResultSet resultSet) throws SQLException {
+        String scoringDetails = resultSet.getString("scoring_details");
+        SessionSummary storedSummary = deserializeSummary(scoringDetails);
         SessionSummary summary = new SessionSummary(
                 resultSet.getString("session_id"),
                 resultSet.getString("device_id"),
@@ -338,6 +350,9 @@ public class LocalSessionRepository {
                 resultSet.getInt("score"),
                 resultSet.getString("latest_flags")
         );
+        if (storedSummary != null) {
+            summary = storedSummary;
+        }
 
         return new SessionEndResponse(
                 resultSet.getString("session_id"),
@@ -354,8 +369,98 @@ public class LocalSessionRepository {
         );
     }
 
+    /**
+     * SQLite cannot remove a NOT NULL constraint with ALTER COLUMN. Older
+     * databases therefore need a one-time table rebuild so an authoritative
+     * unavailable score can persist missing depth/rate/recoil evidence as
+     * NULL instead of inventing zero measurements.
+     */
+    private static void migrateNullableEvidenceColumns(Connection connection) throws SQLException {
+        boolean migrationRequired = false;
+        try (Statement statement = connection.createStatement();
+             ResultSet columns = statement.executeQuery("PRAGMA table_info(session_metrics)")) {
+            while (columns.next()) {
+                String name = columns.getString("name");
+                if (("avg_depth_mm".equals(name) || "avg_rate_cpm".equals(name) || "recoil_pct".equals(name))
+                        && columns.getInt("notnull") == 1) {
+                    migrationRequired = true;
+                }
+            }
+        }
+        if (!migrationRequired) return;
+
+        connection.setAutoCommit(false);
+        try (Statement statement = connection.createStatement()) {
+            statement.executeUpdate("DROP TABLE IF EXISTS session_metrics_nullable_migration");
+            statement.executeUpdate("""
+                    CREATE TABLE session_metrics_nullable_migration (
+                      session_id TEXT PRIMARY KEY,
+                      sample_count INTEGER NOT NULL DEFAULT 0,
+                      total_compressions INTEGER NOT NULL DEFAULT 0,
+                      valid_compressions INTEGER NOT NULL DEFAULT 0,
+                      duration_seconds INTEGER NOT NULL,
+                      avg_depth_mm REAL,
+                      avg_depth_progress REAL,
+                      avg_rate_cpm REAL,
+                      recoil_pct REAL,
+                      recoil_ok_count INTEGER NOT NULL DEFAULT 0,
+                      incomplete_recoil_count INTEGER NOT NULL DEFAULT 0,
+                      pauses_count INTEGER NOT NULL,
+                      score INTEGER NOT NULL,
+                      latest_flags TEXT,
+                      scoring_details TEXT,
+                      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                    )
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO session_metrics_nullable_migration (
+                      session_id, sample_count, total_compressions, valid_compressions,
+                      duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm,
+                      recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count,
+                      score, latest_flags, scoring_details
+                    )
+                    SELECT session_id, sample_count, total_compressions, valid_compressions,
+                      duration_seconds, avg_depth_mm, avg_depth_progress, avg_rate_cpm,
+                      recoil_pct, recoil_ok_count, incomplete_recoil_count, pauses_count,
+                      score, latest_flags, scoring_details
+                    FROM session_metrics
+                    """);
+            statement.executeUpdate("DROP TABLE session_metrics");
+            statement.executeUpdate("ALTER TABLE session_metrics_nullable_migration RENAME TO session_metrics");
+            connection.commit();
+        } catch (SQLException error) {
+            connection.rollback();
+            throw error;
+        } finally {
+            connection.setAutoCommit(true);
+        }
+    }
+
+    private static void setNullableDouble(PreparedStatement statement, int index, Double value)
+            throws SQLException {
+        if (value == null) statement.setNull(index, java.sql.Types.REAL);
+        else statement.setDouble(index, value);
+    }
+
+    private static String serializeSummary(SessionSummary summary) {
+        try {
+            return JSON.writeValueAsString(summary);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Failed to serialize scoring details", error);
+        }
+    }
+
+    private static SessionSummary deserializeSummary(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return JSON.readValue(json, SessionSummary.class);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("Failed to deserialize scoring details", error);
+        }
+    }
+
     private Connection openConnection() throws SQLException {
-        return DriverManager.getConnection(jdbcUrl);
+        return SqliteConnectionSupport.open(jdbcUrl);
     }
 
     private static Instant parseInstant(String value) {

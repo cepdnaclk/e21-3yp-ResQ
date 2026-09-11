@@ -18,6 +18,6 @@ public record FirmwareCalibrationResultRecord(
         Boolean calibrated,
         Long tsMs,
         Instant receivedAt,
-        String payloadJson
+        @com.fasterxml.jackson.annotation.JsonIgnore String payloadJson
 ) {
 }

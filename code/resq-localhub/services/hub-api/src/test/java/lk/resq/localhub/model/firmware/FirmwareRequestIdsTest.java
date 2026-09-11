@@ -16,6 +16,15 @@ class FirmwareRequestIdsTest {
     }
 
     @Test
+    void parsesRestartGlobalRequestIds() {
+        String requestId = FirmwareRequestIds.format(FirmwareCommandTypeId.SESSION_STOP.value(), "a4f18d2c", 2);
+
+        assertThat(requestId).isEqualTo("req-301-a4f18d2c-000002");
+        assertThat(FirmwareRequestIds.isValid(requestId)).isTrue();
+        assertThat(FirmwareRequestIds.parseCommandTypeId(requestId)).hasValue(FirmwareCommandTypeId.SESSION_STOP.value());
+    }
+
+    @Test
     void rejectsInvalidRequestIds() {
         assertThat(FirmwareRequestIds.isValid("req-300-1")).isFalse();
         assertThat(FirmwareRequestIds.isValid("bad-value")).isFalse();

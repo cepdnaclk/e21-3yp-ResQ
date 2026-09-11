@@ -7,6 +7,7 @@ idf_component_register(
 
     REQUIRES
         config
+        sensor_conversion
         freertos
         esp_timer
 )

@@ -1,5 +1,6 @@
 import type { LiveConnectionState, LiveMetricPayload, LiveMetricSourceMode } from "@resq/shared";
 import { normalizeFirmwareLivePayload } from "./firmwareLiveNormalizer";
+import { hasTelemetryMode } from "./sensorStreamTypes";
 
 export type LiveClientUpdate = {
   deviceId: string;
@@ -20,7 +21,6 @@ export type LiveClientUpdate = {
   actionId?: number | null;
   progressId?: number | null;
   eventId?: number | null;
-  debugRaw?: unknown;
 };
 
 export function isLiveUpdateForSelection(
@@ -41,6 +41,9 @@ export function isLiveUpdateForSelection(
 
 export function toLiveClientUpdate(raw: unknown): LiveClientUpdate | null {
   if (!isRecord(raw)) {
+    return null;
+  }
+  if (hasTelemetryMode(raw)) {
     return null;
   }
 
@@ -75,11 +78,10 @@ export function toLiveClientUpdate(raw: unknown): LiveClientUpdate | null {
     calibrated: booleanOrNull(raw.calibrated) ?? firmware?.calibrated ?? null,
     sessionActive: booleanOrNull(raw.sessionActive) ?? booleanOrNull(raw.session_active) ?? firmware?.sessionActive ?? null,
     lastErrorId: text(raw.lastErrorId) ?? text(raw.last_error_id) ?? firmware?.lastErrorId ?? null,
-    reasonId: text(raw.reasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
-    actionId: numberOrNull(raw.actionId) ?? numberOrNull(raw.action_id) ?? firmware?.actionId ?? null,
-    progressId: numberOrNull(raw.progressId) ?? numberOrNull(raw.progress_id) ?? firmware?.progressId ?? null,
+    reasonId: text(raw.reasonId) ?? text(raw.calibrationReasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
+    actionId: numberOrNull(raw.actionId) ?? numberOrNull(raw.calibrationActionId) ?? numberOrNull(raw.action_id) ?? firmware?.actionId ?? null,
+    progressId: numberOrNull(raw.progressId) ?? numberOrNull(raw.calibrationProgressId) ?? numberOrNull(raw.progress_id) ?? firmware?.progressId ?? null,
     eventId: numberOrNull(raw.eventId) ?? numberOrNull(raw.event_id) ?? firmware?.eventId ?? null,
-    debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
   };
 }
 
@@ -97,6 +99,9 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
   if (!isRecord(raw)) {
     return { ok: false, reason: "payload must be an object", warnings };
   }
+  if (hasTelemetryMode(raw)) {
+    return { ok: false, reason: "unsupported telemetry_mode for session telemetry", warnings };
+  }
 
   const firmware = normalizeFirmwareLivePayload(raw);
 
@@ -108,7 +113,7 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
 
   let depthMm = numberOrNull(raw.depthMm ?? raw.depth_mm);
   const depthProgress = numberOrNull(raw.depthProgress ?? raw.depth_progress ?? firmware?.depthProgress);
-  let sourceMode = sourceModeOrNull(raw.sourceMode ?? raw.source_mode);
+  let sourceMode = sourceModeOrNull(raw.sourceMode ?? raw.source_mode ?? raw.depthSource ?? raw.depth_source);
   if (depthMm === null) {
     depthMm = numberOrNull(raw.current_delta ?? raw.currentDelta);
     if (depthMm !== null) {
@@ -163,15 +168,19 @@ export function normalizeTelemetryPayload(raw: unknown): TelemetryNormalizationR
       calibrated: booleanOrNull(raw.calibrated) ?? firmware?.calibrated ?? null,
       lastErrorId: text(raw.lastErrorId) ?? text(raw.last_error_id) ?? firmware?.lastErrorId ?? null,
       eventId: numberOrNull(raw.eventId ?? raw.event_id ?? firmware?.eventId),
-      reasonId: text(raw.reasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
-      actionId: numberOrNull(raw.actionId ?? raw.action_id ?? firmware?.actionId),
-      progressId: numberOrNull(raw.progressId ?? raw.progress_id ?? firmware?.progressId),
+      reasonId: text(raw.reasonId) ?? text(raw.calibrationReasonId) ?? text(raw.reason_id) ?? firmware?.reasonId ?? null,
+      actionId: numberOrNull(raw.actionId ?? raw.calibrationActionId ?? raw.action_id ?? firmware?.actionId),
+      progressId: numberOrNull(raw.progressId ?? raw.calibrationProgressId ?? raw.progress_id ?? firmware?.progressId),
       validCompressionCount: numberOrNull(raw.validCompressionCount ?? raw.valid_compression_count ?? firmware?.validCompressionCount),
       recoilOkCount: numberOrNull(raw.recoilOkCount ?? raw.recoil_ok_count ?? firmware?.recoilOkCount),
       incompleteRecoilCount: numberOrNull(raw.incompleteRecoilCount ?? raw.incomplete_recoil_count ?? firmware?.incompleteRecoilCount),
-      pressureBalancePct: numberOrNull(raw.pressureBalancePct ?? raw.pressure_balance_pct ?? firmware?.pressureBalancePct),
-      rawPayload: raw,
-      debugRaw: raw.debugRaw ?? raw.debug_raw ?? firmware?.debugRaw,
+      pressureBalanceScorePct: numberOrNull(
+        raw.pressureBalanceScorePct ??
+          raw.pressure_balance_score_pct ??
+          raw.pressureBalancePct ??
+          raw.pressure_balance_pct ??
+          firmware?.pressureBalanceScorePct,
+      ),
     },
     warnings,
   };
@@ -230,8 +239,11 @@ function flagsOrNull(value: unknown): string | string[] | null {
 }
 
 function sourceModeOrNull(value: unknown): LiveMetricSourceMode | null {
-  if (value === "real" || value === "simulator" || value === "calibration" || value === "debug") {
+  if (value === "real" || value === "simulator" || value === "calibration" || value === "debug" || value === "hall") {
     return value;
+  }
+  if (typeof value === "string" && value.trim().toUpperCase() === "HALL") {
+    return "hall";
   }
   if (typeof value === "string" && value.trim()) {
     return "debug";

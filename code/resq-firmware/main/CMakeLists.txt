@@ -11,6 +11,7 @@ idf_component_register(
         runtime
         error_manager
         runtime_helpers
+        runtime_identity
         provisioning_manager
         wifi_manager
         backend_register_client
@@ -25,7 +26,11 @@ idf_component_register(
         calibration_fail_manager
         calibration_state_manager
         system_button_manager
+        io_mode_manager
+        hx710
+        sensor_owner
         firmware_state_machine
+        firmware_bootstrap
         nvs_flash
         esp_event
         esp_netif

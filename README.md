@@ -1,209 +1,222 @@
-# ResQ
+# ResQ – Smart CPR Training System
 
-**ResQ** is a smart CPR training system designed to make CPR practice more measurable, objective, and useful for both trainees and instructors.
+ResQ is a local-first CPR training platform that combines sensor-enabled manikins, ESP32-C3 firmware, MQTT communication, a Windows LocalHub desktop application, real-time feedback, and completed-session scoring.
 
-The project combines a sensor-enabled CPR manikin prototype with a local-first software platform that gives real-time feedback during CPR practice and supports after-session review. ResQ is built for training and education, not for clinical diagnosis, treatment, or real patient care.
+> ResQ is intended for training and education. It is not a medical device and must not be used for patient care, diagnosis, treatment, or emergency decision-making.
 
----
+## Project overview
 
-## Project Idea
+Effective CPR practice benefits from immediate, objective feedback, but instrumented training systems can be difficult to access or deploy. ResQ adds sensing and connected feedback to CPR manikins so trainees and instructors can observe compression quality during a session and review the result afterward.
 
-In many CPR training sessions, learners depend mainly on instructor observation to understand whether their compressions are deep enough, fast enough, properly released, and consistently performed. This can be difficult when one instructor supervises multiple trainees or when learners need repeated feedback to improve their technique.
+The ESP32-C3 firmware collects calibrated sensor measurements and sends them through a local Mosquitto broker. ResQ LocalHub manages devices, sessions, users, live dashboards, scoring, and history on the instructor's Windows PC. Core training remains available on the local network without an active internet connection.
 
-ResQ addresses this problem by turning a CPR manikin into a feedback-enabled training station. The system measures important CPR performance indicators during practice and presents them in a simple dashboard so trainees can correct mistakes and instructors can review performance more objectively.
+## Main capabilities
 
-The main idea is to provide a low-cost, locally buildable CPR training solution that supports practical learning environments such as university labs, skills labs, training centres, and outreach training sessions.
+- Compression-depth and compression-rate monitoring
+- Chest-recoil feedback
+- Hand-position and pressure-distribution feedback
+- Manikin pairing, readiness checks, and sensor calibration
+- Live instructor monitoring and trainee feedback
+- Completed-session scoring, history, and review
+- Local MQTT telemetry and command delivery
+- Concurrent registration and monitoring of multiple manikins
+- Local-first operation with SQLite persistence
+- Windows desktop packaging through Tauri
 
----
-
-## Vision
-
-Our vision is to create an affordable CPR training platform that helps improve the quality of CPR practice through real-time, objective feedback.
-
-ResQ aims to support:
-
-- Better trainee self-correction during practice
-- Easier instructor supervision
-- More consistent CPR performance assessment
-- Local-first training without depending on internet access
-- Session records for review, improvement tracking, and academic evaluation
-- A prototype that can be improved toward future pilot testing with medical education partners
-
-The long-term direction is to make ResQ useful not only as a final-year project prototype, but also as a practical foundation for future CPR training research, validation, and product development.
-
----
-
-## What ResQ Measures
-
-ResQ focuses on the core CPR performance areas that are important during training:
-
-- Compression depth
-- Compression rate
-- Compression count
-- Chest recoil or full release
-- Pauses and interruptions
-- Hand placement or placement drift
-- Overall session quality
-- Instructor review and feedback
-
-These measurements are intended to help learners understand their CPR technique in a clearer and more objective way.
-
----
-
-## System Overview
-
-At a high level, ResQ has three major parts:
-
-### 1. Sensor-Enabled Manikin Prototype
-
-The manikin prototype is designed to detect CPR compression behaviour using embedded sensing. The current concept includes a chest overlay or retrofit module that can be placed on or integrated with a training manikin.
-
-### 2. Local Hub Application
-
-The Local Hub is the instructor-side application. It supports local training sessions, live feedback, session control, and after-session review. The system is designed to work on a local network so CPR training can continue even without internet access.
-
-### 3. Dashboards for Feedback and Review
-
-The dashboard provides live CPR feedback during practice and session summaries after the session ends. The instructor can monitor trainee performance, review session results, and use the data for discussion or evaluation.
-
----
-
-## Project Scope
-
-### In Scope
-
-ResQ currently focuses on:
-
-- Building a working CPR training prototype
-- Measuring key CPR practice metrics from a manikin
-- Showing live feedback during a training session
-- Supporting instructor-led session start and end workflow
-- Saving and reviewing session summaries
-- Supporting local-first operation
-- Preparing the system for testing, demonstration, and academic evaluation
-- Designing the solution to be affordable and locally buildable
-
-### Out of Scope
-
-ResQ is not intended to be:
-
-- A certified medical device
-- A patient monitoring system
-- A clinical decision-making system
-- A replacement for certified CPR instructors
-- A final commercial product at the current prototype stage
-
-The current project focuses on building and validating a functional educational prototype.
-
----
-
-## Current Project Status
-
-ResQ is currently in the active implementation and integration stage.
-
-### Completed or Mostly Defined
-
-- Project concept and problem definition
-- Core CPR training feedback goals
-- Local-first system direction
-- Main software and firmware architecture direction
-- Dashboard role direction for instructor and trainee views
-- Manikin sensing concept using pressure/depth-related measurements
-- Safety and educational-use boundaries
-- Initial documentation and system requirements
-
-### In Progress
-
-- Firmware development for the sensor-enabled manikin
-- Local Hub application development
-- Instructor dashboard workflow
-- Live training session flow
-- Calibration and readiness workflow
-- Sensor hardware integration
-- Manikin chest overlay / prototype refinement
-- Session summary and export workflow
-- End-to-end testing between firmware, Local Hub, and dashboard
-
-### Planned Next
-
-- Complete stable calibration workflow
-- Improve live feedback accuracy and reliability
-- Finalize hardware prototype assembly
-- Validate sensor readings through repeated trials
-- Improve dashboard usability for demonstrations
-- Prepare final project evaluation and demonstration
-- Explore optional cloud sync and long-term session history after the local system is stable
-
----
-
-## Intended Users
-
-ResQ is mainly designed for:
-
-- CPR trainees
-- Medical and nursing students
-- First-aid learners
-- Instructors and trainers
-- Academic evaluators
-- Training centres or institutions interested in objective CPR practice feedback
-
----
-
-## Educational Value
-
-ResQ helps turn CPR training from only observation-based feedback into a more data-supported learning experience.
-
-For trainees, it gives clearer feedback on what they are doing well and what they need to improve.
-
-For instructors, it supports more consistent supervision, easier review, and better documentation of training sessions.
-
-For the project team, it provides a complete engineering challenge involving hardware prototyping, embedded systems, local networking, real-time dashboards, software architecture, data handling, and user-centred design.
-
----
-
-## Safety and Ethics
-
-ResQ is strictly a CPR training and education tool.
-
-- It must not be used for real patient care.
-- It must not be treated as a certified medical device.
-- CPR feedback rules should be reviewed with qualified medical educators.
-- Trainee data should be handled responsibly.
-- Sensitive information should not be stored in public repositories.
-- The system should be evaluated carefully before being used in any formal training workflow.
-
----
-
-## Project Direction
-
-The immediate goal is to complete a stable prototype that can demonstrate the full training flow:
+## System architecture
 
 ```text
-Prepare manikin
-Start local training session
-Perform CPR practice
-Show live feedback
-End session
-Review performance summary
-Use results for learning and improvement
+ResQ Manikin Sensors
+        |
+        v
+ESP32-C3 Firmware
+        | MQTT
+        v
+Mosquitto Broker
+        |
+        v
+Spring Boot LocalHub Backend
+        | REST / SSE
+        v
+React + TypeScript Frontend
+        |
+        v
+Tauri Desktop Application
 ```
 
-After the local prototype becomes stable, the project can be extended with better hardware refinement, improved scoring, pilot validation, optional cloud-based history, and broader training analytics.
+The firmware is built with ESP-IDF for the ESP32-C3. The local software stack uses Mosquitto and MQTT for device communication, a Java Spring Boot backend with SQLite storage, REST APIs and server-sent events (SSE), and a React/TypeScript interface built with Vite. Tauri and Rust package these parts as a Windows desktop application.
 
----
+## Repository structure
+
+```text
+e21-3yp-ResQ/
+|-- code/
+|   |-- resq-firmware/                 ESP32-C3 production and Unity firmware
+|   |-- resq-localhub/
+|   |   |-- apps/localhub-desktop/     React, TypeScript, Vite, and Tauri app
+|   |   |-- services/hub-api/          Spring Boot LocalHub backend
+|   |   |-- infra/                     Local MQTT configuration
+|   |   `-- scripts/                   Demo, validation, and support scripts
+|   |-- resq-cloud/                    Cloud-side integration resources
+|   `-- scripts/                       Repository utility scripts
+|-- docs/                              Design, validation, scoring, and website sources
+|-- casing_design/                     Mechanical enclosure design files
+|-- pcb_design/                        PCB design files
+|-- ResQ_User_Manual_v1.0.md           Version 1.0 user manual
+`-- README.md
+```
+
+## ResQ LocalHub desktop application
+
+The packaged Windows application brings together the Tauri desktop shell, React frontend, Spring Boot backend, Mosquitto broker, bundled Java runtime, release configuration, and local SQLite-backed data storage. End users should install a published release instead of manually assembling these runtime components.
+
+### Student tablet connection
+
+1. Start ResQ Local Hub and keep it running during training.
+2. Connect the instructor PC and tablet to the same Wi-Fi network or Windows mobile hotspot.
+3. Open **Student Tablet Access** on the LocalHub Overview page.
+4. Scan the displayed QR code or copy the dashboard link to the tablet.
+5. Sign in as the assigned trainee and open the active session.
+
+The dashboard uses port `1420`, browser REST/SSE traffic uses backend port `18080`, and MQTT port `1883` is used by devices and backend services—not tablet browsers. Internet access is not required for local training. See [Student tablet access](code/resq-localhub/docs/student-tablet-access.md) for firewall and network troubleshooting.
+
+## Installation
+
+[Download ResQ Local Hub v1.0.0](https://github.com/cepdnaclk/e21-3yp-ResQ/releases/tag/v1.0.0)
+
+The release provides:
+
+- `ResQ.Local.Hub_1.0.0_x64-setup.exe` — NSIS Windows installer
+- `ResQ.Local.Hub_1.0.0_x64_en-US.msi` — MSI Windows installer
+- `SHA256SUMS.txt` — SHA-256 checksums for release verification
+
+## Running from source
+
+### LocalHub frontend and desktop app
+
+Use Node.js, pnpm, Rust, and the Tauri prerequisites for Windows.
+
+```powershell
+cd code\resq-localhub\apps\localhub-desktop
+pnpm.cmd install
+pnpm.cmd tauri dev
+```
+
+Build only the web frontend:
+
+```powershell
+pnpm.cmd run build
+```
+
+Build the packaged Windows application after its release resources have been prepared:
+
+```powershell
+pnpm.cmd tauri build
+```
+
+### LocalHub backend
+
+Use the included Maven wrapper with Java 17:
+
+```powershell
+cd code\resq-localhub\services\hub-api
+.\mvnw.cmd package
+```
+
+### ESP32-C3 firmware
+
+Run these commands in an ESP-IDF shell:
+
+```powershell
+cd code\resq-firmware
+idf.py set-target esp32c3
+idf.py build
+```
+
+See the [firmware developer guide](code/resq-firmware/README.md) for flashing, provisioning, calibration, and hardware details.
+
+## Testing
+
+### Frontend
+
+The desktop frontend uses Vitest and React Testing Library.
+
+```powershell
+cd code\resq-localhub\apps\localhub-desktop
+pnpm.cmd run typecheck
+pnpm.cmd test
+```
+
+### Backend
+
+The backend test suite uses Spring Boot Test, JUnit, Mockito, and JaCoCo through Maven.
+
+```powershell
+cd code\resq-localhub\services\hub-api
+.\mvnw.cmd test
+```
+
+### Tauri/Rust
+
+```powershell
+cargo check --manifest-path code\resq-localhub\apps\localhub-desktop\src-tauri\Cargo.toml
+```
+
+### Firmware Unity tests
+
+The firmware test project builds a separate ESP-IDF Unity image. Tests marked for hardware require the corresponding board and sensors.
+
+```powershell
+cd code\resq-firmware\test
+idf.py set-target esp32c3
+idf.py build
+```
+
+See the [firmware Unity test guide](code/resq-firmware/test/README.md) for execution and hardware-test commands.
+
+## Documentation
+
+| Resource | Description |
+| --- | --- |
+| [ResQ v1.0 user manual](ResQ_User_Manual_v1.0.md) | Installation, roles, device setup, calibration, sessions, and troubleshooting |
+| [Firmware developer guide](code/resq-firmware/README.md) | Firmware architecture, build, flash, provisioning, calibration, and testing |
+| [Firmware Unity test guide](code/resq-firmware/test/README.md) | Deterministic and physical firmware test workflow |
+| [Firmware-to-LocalHub data flow](docs/integration-checkup/2026-07-28/phase-02-data-flow.md) | MQTT ingestion, persistence, session processing, and UI delivery |
+| [CPR scoring method](docs/CPR_SCORING_METHOD.md) | Authoritative score inputs, targets, weights, and formulas |
+| [MQTT security modes](code/resq-localhub/docs/mqtt-security.md) | Development and secured broker configurations |
+| [Local demo runbook](code/resq-localhub/docs/local-demo-runbook.md) | Windows-first LocalHub demonstration workflow |
+| [Student tablet access](code/resq-localhub/docs/student-tablet-access.md) | LAN dashboard, QR workflow, ports, firewall, and troubleshooting |
+| [Calibration hardening report](docs/calibration-hardening-report.md) | Calibration reliability findings and verification |
+| [Physical hardware validation](docs/integration-checkup/2026-07-28/phase-07-hardware-validation.md) | Retained firmware and hardware validation record |
+
+## Project website
+
+[View the ResQ project website](https://cepdnaclk.github.io/e21-3yp-ResQ/site/)
+
+## Release information
+
+Latest stable release: [v1.0.0](https://github.com/cepdnaclk/e21-3yp-ResQ/releases/tag/v1.0.0)
+
+The existing tag and release are the authoritative v1.0.0 distribution. Release binaries are hosted on GitHub and are not stored in this repository.
+
+## Team and institution
+
+ResQ is a third-year engineering project from the Department of Computer Engineering, Faculty of Engineering, University of Peradeniya.
+
+- E/21/148 — S. Ganathipan
+- E/21/152 — V. Amirsha
+- E/21/214 — K. Kartheepan
+- E/21/220 — S. Kavishanthan
+
+## Recognition
+
+- First place, EXITO 2026 Inter-University Robotics and Innovation Challenge
+- Third place, INNOVEXA 2026 Business Pitching Competition
+- Accepted for oral presentation at the iPURSE 2026 International Research Symposium
+- Selected among the Top 22 semifinalists in the NetX IoT Challenge 2026
+
+These milestones are documented on the [project website](https://cepdnaclk.github.io/e21-3yp-ResQ/site/).
 
 ## License
 
-License to be decided.
-
-Until a license is finalized, assume:
-
-```text
-All rights reserved.
-```
-
----
-
-## Contact
-
-For questions, collaboration, feedback, or issue reporting, contact the ResQ project team or open an issue in this repository.
+This repository does not currently include an explicit software or hardware license. Use, modification, and redistribution are subject to permission from the project owners.

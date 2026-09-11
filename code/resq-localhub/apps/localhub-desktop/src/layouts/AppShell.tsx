@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { AuthUser } from "../types/auth";
 
@@ -9,7 +9,13 @@ type AppShellProps = {
   onLogout: () => void;
   page: string;
   setPage: (page: any) => void;
+  contentMode?: "document" | "dashboard";
   children: ReactNode;
+};
+
+type NavItem = {
+  key: string;
+  label: string;
 };
 
 export function AppShell({
@@ -19,105 +25,103 @@ export function AppShell({
   onLogout,
   page,
   setPage,
+  contentMode = "document",
   children,
 }: AppShellProps) {
-  const [liveTime, setLiveTime] = useState(new Date());
   const [navOpen, setNavOpen] = useState(false);
-  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => setLiveTime(new Date()), 1000);
-    return () => window.clearInterval(interval);
-  }, []);
+  const navItems = useMemo<NavItem[]>(() => {
+    const instructorItems: NavItem[] = [
+      { key: "home", label: "Overview" },
+      { key: "instructor", label: "Manikins" },
+      { key: "start-session", label: "Training" },
+      { key: "sessions", label: "Sessions" },
+      { key: "courses", label: "Courses" },
+    ];
 
-  const navItems = useMemo(() => {
-    if (currentUser?.role === "ADMIN") {
-      return [
-        { key: "home" as const, label: "Home" },
-        { key: "users" as const, label: "Users" },
-        { key: "courses" as const, label: "Courses" },
-        { key: "sessions" as const, label: "Session History" },
-        { key: "admin-sync" as const, label: "Sync" },
-        { key: "demo-checklist" as const, label: "Demo Checklist" },
-        { key: "diagnostics" as const, label: "Diagnostics" },
+    if (currentUser.role === "ADMIN") {
+      const adminItems: NavItem[] = [
+        ...instructorItems,
+        { key: "users", label: "Users" },
+        { key: "diagnostics", label: "Diagnostics" },
       ];
-    } else if (currentUser?.role === "INSTRUCTOR") {
-      return [
-        { key: "home" as const, label: "Home" },
-        { key: "courses" as const, label: "My Courses" },
-        { key: "start-session" as const, label: "Start Training" },
-        { key: "live-sessions" as const, label: "Active Sessions" },
-        { key: "instructor" as const, label: "Manikins" },
-        { key: "sessions" as const, label: "Recent Sessions" },
-        { key: "demo-checklist" as const, label: "Demo Checklist" },
-      ];
-    } else {
-      return [
-        { key: "home" as const, label: "Home" },
-      ];
+
+      if (import.meta.env.DEV) {
+        adminItems.push({ key: "demo-checklist", label: "Demo Checklist" });
+      }
+
+      return adminItems;
     }
-  }, [currentUser]);
 
-  function copyDiagnostics() {
-    const payload = {
-      user: currentUser?.displayName ?? "unknown",
-      role: currentUser?.role ?? "unknown",
-      page,
-      time: liveTime.toISOString(),
-      connectionHealthy,
-      lastApiSuccessAt,
-    };
-    void navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    alert("Diagnostics snapshot copied to clipboard.");
+    if (currentUser.role === "INSTRUCTOR") {
+      if (import.meta.env.DEV) {
+        return [...instructorItems, { key: "demo-checklist", label: "Demo Checklist" }];
+      }
+
+      return instructorItems;
+    }
+
+    return [{ key: "home", label: "Overview" }];
+  }, [currentUser.role]);
+
+  const roleLabel =
+    currentUser.role === "ADMIN"
+      ? "Administrator"
+      : currentUser.role === "INSTRUCTOR"
+        ? "Instructor"
+        : currentUser.role;
+
+  function handleNavigate(key: string) {
+    setPage(key);
+    setNavOpen(false);
   }
 
+  const connectionLabel = connectionHealthy ? "LocalHub Connected" : "LocalHub Unavailable";
+
   return (
-    <div className="min-h-screen bg-[#f4f6f8] flex flex-col md:flex-row font-sans antialiased text-slate-800">
-      {/* Sidebar for Desktop */}
-      <aside className="hidden md:flex w-64 bg-[#0a232c] flex-col justify-between shrink-0 text-slate-300">
-        <div className="flex flex-col">
-          {/* Logo & Title area */}
-          <div className="p-6 border-b border-[#11313c] flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-teal-600 flex items-center justify-center p-1.5 shrink-0 shadow-md shadow-teal-500/20">
+    <div className="h-screen min-h-0 overflow-hidden bg-[#f5f7f8] flex flex-col md:flex-row font-sans antialiased text-slate-800">
+      <aside className="hidden md:flex h-full w-[232px] xl:w-[248px] bg-[#09242c] flex-col justify-between shrink-0 text-slate-300">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="px-5 py-5 border-b border-white/10 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-[10px] bg-teal-600 flex items-center justify-center p-1.5 shrink-0 shadow-sm">
               <img src="/resq-logo-dark-512.png" alt="ResQ Logo" className="w-full h-full object-contain brightness-0 invert" />
             </div>
-            <div>
-              <h1 className="text-sm font-black text-white tracking-tight leading-tight">ResQ Local Hub</h1>
-              <p className="text-[9px] text-teal-400 font-extrabold uppercase tracking-widest mt-0.5">CPR Training Suite</p>
+            <div className="min-w-0">
+              <h1 className="text-sm font-bold text-white tracking-tight leading-tight truncate">ResQ Local Hub</h1>
+              <p className="text-xs text-teal-300 font-medium mt-0.5">CPR Training Suite</p>
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="p-4 space-y-1.5 mt-4">
-            <div className="px-3.5 py-1 text-[9px] font-bold text-teal-500 uppercase tracking-widest mb-2">
-              Menu Directory
-            </div>
-            {navItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className={`w-full flex items-center px-4 py-3 text-xs font-bold rounded-xl transition-all duration-200 ${
-                  page === item.key
-                    ? "bg-teal-600 text-white font-extrabold shadow-md shadow-teal-500/10"
-                    : "text-slate-400 hover:bg-[#11313c] hover:text-white"
-                }`}
-                onClick={() => setPage(item.key)}
-              >
-                {item.label}
-              </button>
-            ))}
+          <nav className="px-3 py-5 space-y-1 overflow-y-auto" aria-label="Primary navigation">
+            {navItems.map((item) => {
+              const isActive = page === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-current={isActive ? "page" : undefined}
+                  className={`w-full flex items-center px-3 py-2.5 text-sm font-semibold rounded-[10px] transition-colors focus:outline-none focus:ring-2 focus:ring-teal-300/50 ${
+                    isActive
+                      ? "bg-teal-600 text-white shadow-sm"
+                      : "text-slate-300 hover:bg-white/8 hover:text-white"
+                  }`}
+                  onClick={() => handleNavigate(item.key)}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </nav>
         </div>
 
-        {/* User Card at bottom of Sidebar */}
-        <div className="p-4 border-t border-[#11313c] bg-[#081d25] flex flex-col gap-2">
-          <div className="px-2">
-            <div className="text-xs font-bold text-white truncate">{currentUser.displayName}</div>
-            <div className="text-[10px] text-teal-400 font-semibold uppercase tracking-wider">{currentUser.role}</div>
+        <div className="p-4 border-t border-white/10 bg-[#071d24] flex flex-col gap-3">
+          <div className="px-1">
+            <div className="text-sm font-semibold text-white truncate">{currentUser.displayName}</div>
+            <div className="text-xs text-teal-300 font-medium">{roleLabel}</div>
           </div>
           <button
             type="button"
-            className="w-full mt-1.5 py-2.5 text-center text-xs font-bold bg-[#11313c] hover:bg-rose-950/40 text-slate-300 hover:text-rose-400 rounded-xl transition-all duration-200"
+            className="w-full py-2.5 text-center text-sm font-semibold bg-white/8 hover:bg-white/12 text-slate-100 rounded-[10px] transition-colors focus:outline-none focus:ring-2 focus:ring-teal-300/50"
             onClick={onLogout}
           >
             Sign Out
@@ -125,155 +129,126 @@ export function AppShell({
         </div>
       </aside>
 
-      {/* Right Content Area Wrapper */}
-      <div className="flex-1 flex flex-col min-h-screen">
-        {/* Top Header */}
-        <header className="bg-white border-b border-slate-100 shadow-[0_2px_8px_rgba(15,23,42,0.01)] px-6 py-4.5 flex items-center justify-between">
-          <div className="flex items-center gap-3 md:hidden">
-            <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center p-1.5">
-              <img src="/resq-logo-dark-512.png" alt="ResQ Logo" className="w-full h-full object-contain brightness-0 invert" />
-            </div>
-            <h1 className="text-sm font-black text-slate-800">ResQ Local Hub</h1>
-          </div>
-
-          <div className="hidden md:block">
-            <span className="text-xs font-bold text-slate-400 bg-slate-50 border border-slate-100 rounded-full px-3 py-1">
-              Active Instructor Session
-            </span>
-          </div>
-
-          {/* Header Action Bar */}
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <header className="shrink-0 bg-white border-b border-slate-200/70 px-4 sm:px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Live Clock */}
-            <div className="hidden sm:flex items-center px-3 py-1 bg-slate-50 border border-slate-100 rounded-full text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              {liveTime.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-            </div>
-
-            {/* Connection badge */}
-            <div className="relative group flex items-center gap-1.5 px-3 py-1 bg-slate-50 border border-slate-100 rounded-full text-xs font-semibold text-slate-600">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  connectionHealthy ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
-                }`}
-              />
-              <span>{connectionHealthy ? "Live Connection" : "Service Offline"}</span>
-              <div className="absolute right-0 top-full mt-2 w-56 hidden group-hover:block bg-slate-800 text-white text-[10px] p-2.5 rounded-xl shadow-xl leading-relaxed pointer-events-none z-50">
-                {connectionHealthy
-                  ? `LocalHub API ready. Last verified: ${
-                      lastApiSuccessAt ? new Date(lastApiSuccessAt).toLocaleTimeString() : "Just now"
-                    }`
-                  : "Unable to reach training host. Check connection state."}
-              </div>
-            </div>
-
-            {/* Mobile Nav Toggle */}
             <button
               type="button"
-              className="md:hidden text-slate-500 hover:text-slate-800 p-1.5"
+              className="md:hidden text-slate-500 hover:text-slate-800 p-1.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/30"
               onClick={() => setNavOpen(true)}
+              aria-label="Open navigation"
             >
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
               </svg>
             </button>
+            <div className="md:hidden w-8 h-8 rounded-[10px] bg-teal-600 flex items-center justify-center p-1.5">
+              <img src="/resq-logo-dark-512.png" alt="ResQ Logo" className="w-full h-full object-contain brightness-0 invert" />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div
+              className="relative group flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-sm font-medium text-slate-700"
+              aria-live="polite"
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  connectionHealthy ? "bg-emerald-500" : "bg-rose-500"
+                }`}
+                aria-hidden="true"
+              />
+              <span>{connectionLabel}</span>
+              <div className="absolute right-0 top-full mt-2 w-60 hidden group-hover:block bg-slate-900 text-white text-xs p-3 rounded-[10px] shadow-lg leading-relaxed pointer-events-none z-50">
+                {connectionHealthy
+                  ? `LocalHub API ready. Last verified: ${
+                      lastApiSuccessAt ? new Date(lastApiSuccessAt).toLocaleTimeString() : "Just now"
+                    }`
+                  : "Unable to reach the LocalHub service."}
+              </div>
+            </div>
+
+            <div className="hidden sm:block text-right">
+              <div className="text-sm font-semibold text-slate-800 leading-tight truncate max-w-[160px]">
+                {currentUser.displayName}
+              </div>
+              <div className="text-xs text-slate-500 leading-tight">{roleLabel}</div>
+            </div>
           </div>
         </header>
 
-        {/* Content View */}
-        <main className="flex-1 p-6 sm:p-8 lg:p-10 max-w-7xl mx-auto w-full transition-all duration-300">
+        <main
+          data-content-mode={contentMode}
+          className={
+            contentMode === "dashboard"
+              ? "flex-1 min-h-0 min-w-0 overflow-hidden p-3 sm:p-4 w-full"
+              : "flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-4 sm:p-5 lg:p-6 w-full"
+          }
+        >
           {children}
         </main>
       </div>
 
-      {/* Drawer Overlay for Mobile */}
       {navOpen && (
         <div
-          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex justify-end"
+          className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-sm flex justify-end"
           onClick={() => setNavOpen(false)}
         >
           <div
-            className="w-64 bg-[#0a232c] text-slate-300 h-full p-6 flex flex-col justify-between shadow-2xl animate-slideLeft"
+            className="w-72 max-w-[86vw] bg-[#09242c] text-slate-300 h-full p-4 flex flex-col justify-between shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div>
-              <h2 className="text-xs font-bold text-teal-500 uppercase tracking-widest mb-6">Menu Directory</h2>
-              <div className="space-y-1.5">
-                {navItems.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className={`w-full text-left px-4 py-3 text-xs font-bold rounded-xl transition-all duration-150 ${
-                      page === item.key
-                        ? "bg-teal-600 text-white"
-                        : "text-slate-400 hover:bg-[#11313c] hover:text-white"
-                    }`}
-                    onClick={() => {
-                      setPage(item.key);
-                      setNavOpen(false);
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+            <div className="min-h-0">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-sm font-semibold text-white">Navigation</h2>
+                <button
+                  type="button"
+                  className="p-2 rounded-lg text-slate-300 hover:bg-white/8 hover:text-white focus:outline-none focus:ring-2 focus:ring-teal-300/50"
+                  onClick={() => setNavOpen(false)}
+                  aria-label="Close navigation"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
+              <nav className="space-y-1 overflow-y-auto" aria-label="Mobile primary navigation">
+                {navItems.map((item) => {
+                  const isActive = page === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      aria-current={isActive ? "page" : undefined}
+                      className={`w-full text-left px-3 py-2.5 text-sm font-semibold rounded-[10px] transition-colors focus:outline-none focus:ring-2 focus:ring-teal-300/50 ${
+                        isActive
+                          ? "bg-teal-600 text-white"
+                          : "text-slate-300 hover:bg-white/8 hover:text-white"
+                      }`}
+                      onClick={() => handleNavigate(item.key)}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </nav>
             </div>
-            <button
-              type="button"
-              className="w-full py-3 bg-[#11313c] hover:bg-[#184453] text-white text-xs font-bold rounded-xl transition-colors"
-              onClick={() => setNavOpen(false)}
-            >
-              Close Menu
-            </button>
+            <div className="space-y-3 pt-4 border-t border-white/10">
+              <div className="px-1">
+                <div className="text-sm font-semibold text-white truncate">{currentUser.displayName}</div>
+                <div className="text-xs text-teal-300 font-medium">{roleLabel}</div>
+              </div>
+              <button
+                type="button"
+                className="w-full py-2.5 bg-white/8 hover:bg-white/12 text-white text-sm font-semibold rounded-[10px] transition-colors focus:outline-none focus:ring-2 focus:ring-teal-300/50"
+                onClick={onLogout}
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Floating Assistive Ring (Diagnostics helper) */}
-      <div className="fixed bottom-6 right-6 z-40">
-        <button
-          type="button"
-          className="w-10 h-10 rounded-full bg-slate-800 hover:bg-slate-900 text-white shadow-lg flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 transition-all hover:scale-105"
-          onClick={() => setQuickActionsOpen(!quickActionsOpen)}
-          title="Quick Actions"
-        >
-          <span className="text-lg font-bold">⌘</span>
-        </button>
-
-        {quickActionsOpen && (
-          <div className="absolute bottom-12 right-0 bg-white border border-slate-100 rounded-2xl shadow-2xl p-3.5 w-52 flex flex-col gap-1 animate-fadeIn">
-            <button
-              type="button"
-              className="w-full text-left px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 rounded-lg transition-colors font-semibold"
-              onClick={() => {
-                setPage("home");
-                setQuickActionsOpen(false);
-              }}
-            >
-              Go to Home Page
-            </button>
-            <button
-              type="button"
-              className="w-full text-left px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 rounded-lg transition-colors font-semibold"
-              onClick={() => {
-                copyDiagnostics();
-                setQuickActionsOpen(false);
-              }}
-            >
-              Copy Technical Snapshot
-            </button>
-            <button
-              type="button"
-              className="w-full text-left px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-lg transition-colors font-semibold border-t border-slate-100 mt-2.5 pt-2"
-              onClick={() => {
-                onLogout();
-                setQuickActionsOpen(false);
-              }}
-            >
-              Sign Out
-            </button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

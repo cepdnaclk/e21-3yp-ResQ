@@ -19,6 +19,6 @@ public record FirmwareEventRecord(
         String sessionId,
         Long tsMs,
         Instant receivedAt,
-        String payloadJson
+        @com.fasterxml.jackson.annotation.JsonIgnore String payloadJson
 ) {
 }

@@ -17,10 +17,13 @@ idf_component_register(
         calibration_manager
         hx710
         hall_sensor
+        sensor_owner
         wifi_manager
         esp_timer
         freertos
         cjson
         system_button_manager
         error_manager
+        session_command_types
+        sensor_conversion
 )

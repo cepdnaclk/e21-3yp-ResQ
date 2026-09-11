@@ -1,0 +1,12 @@
+{
+  "event_id": 4002,
+  "reply_id": "req-200-phase0-0002",
+  "status": "NACK",
+  "result": "FAIL",
+  "progress_id": 12,
+  "reason_id": "08401",
+  "state": "CALIBRATION_FAIL",
+  "action_id": 3,
+  "profile_id": "adult-basic",
+  "ts_ms": 124500
+}

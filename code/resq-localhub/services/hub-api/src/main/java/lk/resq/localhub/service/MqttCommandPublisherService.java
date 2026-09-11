@@ -3,9 +3,9 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.SessionStartCommandPayload;
 import lk.resq.localhub.model.SessionStopCommandPayload;
+import lk.resq.localhub.model.firmware.CalibrationStartRequest;
 import lk.resq.localhub.model.firmware.FirmwareCommandRequestRecord;
 import lk.resq.localhub.model.firmware.FirmwareCommandTypeId;
-import lk.resq.localhub.model.firmware.FirmwareRequestIds;
 import lk.resq.localhub.model.firmware.FirmwareTopics;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
@@ -25,18 +25,21 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class MqttCommandPublisherService {
 
     private static final Logger logger = LoggerFactory.getLogger(MqttCommandPublisherService.class);
+    public static final int SENSOR_STREAM_MIN_INTERVAL_MS = SensorStreamService.SENSOR_STREAM_MIN_INTERVAL_MS;
+    public static final int SENSOR_STREAM_DEFAULT_INTERVAL_MS = SensorStreamService.SENSOR_STREAM_DEFAULT_INTERVAL_MS;
+    public static final int SENSOR_STREAM_MAX_INTERVAL_MS = SensorStreamService.SENSOR_STREAM_MAX_INTERVAL_MS;
 
     private final ObjectMapper objectMapper;
     private final String brokerUrl;
@@ -44,10 +47,11 @@ public class MqttCommandPublisherService {
     private final String username;
     private final String password;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
+    private final CommandRequestIdGenerator requestIdGenerator;
+    private final MqttQosPolicy qosPolicy;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor();
-    private final AtomicLong requestSequence = new AtomicLong(0L);
 
     private MqttClient mqttClient;
 
@@ -58,7 +62,9 @@ public class MqttCommandPublisherService {
             @Value("${resq.mqtt.broker-url:tcp://localhost:1883}") String brokerUrl,
             @Value("${resq.mqtt.command-client-id:hub-api-session-commands}") String clientId,
             @Value("${resq.mqtt.username:}") String username,
-            @Value("${resq.mqtt.password:}") String password
+            @Value("${resq.mqtt.password:}") String password,
+            CommandRequestIdGenerator requestIdGenerator,
+            MqttQosPolicy qosPolicy
     ) {
         this.objectMapper = objectMapper;
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
@@ -66,6 +72,28 @@ public class MqttCommandPublisherService {
         this.clientId = clientId;
         this.username = normalize(username);
         this.password = password;
+        this.requestIdGenerator = requestIdGenerator == null ? new CommandRequestIdGenerator() : requestIdGenerator;
+        this.qosPolicy = qosPolicy == null ? MqttQosPolicy.defaults() : qosPolicy;
+    }
+
+    public MqttCommandPublisherService(
+            ObjectMapper objectMapper,
+            FirmwarePersistenceRepository firmwarePersistenceRepository,
+            String brokerUrl,
+            String clientId,
+            String username,
+            String password
+    ) {
+        this(
+                objectMapper,
+                firmwarePersistenceRepository,
+                brokerUrl,
+                clientId,
+                username,
+                password,
+                new CommandRequestIdGenerator(),
+                MqttQosPolicy.defaults()
+        );
     }
 
     public MqttCommandPublisherService(
@@ -124,32 +152,46 @@ public class MqttCommandPublisherService {
         );
     }
 
-    public FirmwareCommandPublishResult publishCalibrationStartCommand(
+    public FirmwareCommandPublishResult publishCalibrationStart(
             String deviceId,
-            Integer hallDelta,
-            Integer refPressure,
-            Integer bladder1Pressure,
-            Integer bladder2Pressure
+            String requestId,
+            CalibrationStartRequest request
     ) {
-        return publishCalibrationStartCommand(deviceId, hallDelta, refPressure, bladder1Pressure, bladder2Pressure, null);
-    }
-
-    public FirmwareCommandPublishResult publishCalibrationStartCommand(
-            String deviceId,
-            Integer hallDelta,
-            Integer refPressure,
-            Integer bladder1Pressure,
-            Integer bladder2Pressure,
-            String profileId
-    ) {
-        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.CALIBRATION_START, null);
-        payload.put("hall_delta", hallDelta);
-        payload.put("ref_pressure", refPressure);
-        payload.put("bladder_1_pressure", bladder1Pressure);
-        payload.put("bladder_2_pressure", bladder2Pressure);
-        if (profileId != null && !profileId.isBlank()) {
-            payload.put("profile_id", profileId.trim());
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("request_id", requestId);
+        payload.put("issued_at_ms", Instant.now().toEpochMilli());
+        payload.put("hall_delta", request.hallDelta());
+        payload.put("ref_pressure", request.refPressure());
+        payload.put("bladder_1_pressure", request.bladder1Pressure());
+        payload.put("bladder_2_pressure", request.bladder2Pressure());
+        if (request.profileId() != null && !request.profileId().isBlank()) {
+            payload.put("profile_id", request.profileId().trim());
         }
+        if (request.profileVersion() != null) {
+            payload.put("profile_version", request.profileVersion());
+        }
+        if (request.profileHash() != null && !request.profileHash().isBlank()) {
+            payload.put("profile_hash", request.profileHash().trim());
+        }
+        if (request.sampleIntervalMs() != null) {
+            payload.put("sample_interval_ms", request.sampleIntervalMs());
+        }
+        if (request.calibrationWindowMs() != null) {
+            payload.put("calibration_window_ms", request.calibrationWindowMs());
+        }
+        if (request.fullDepthMm() != null && request.fullDepthMm() > 0.0) {
+            payload.put("full_depth_mm", request.fullDepthMm());
+        }
+        if (request.pressure0KpaPerCount() != null && request.pressure0KpaPerCount() > 0.0) {
+            payload.put("pressure_0_kpa_per_count", request.pressure0KpaPerCount());
+        }
+        if (request.pressure1KpaPerCount() != null && request.pressure1KpaPerCount() > 0.0) {
+            payload.put("pressure_1_kpa_per_count", request.pressure1KpaPerCount());
+        }
+        if (request.pressure2KpaPerCount() != null && request.pressure2KpaPerCount() > 0.0) {
+            payload.put("pressure_2_kpa_per_count", request.pressure2KpaPerCount());
+        }
+
         return publishFirmwareCommand(
                 FirmwareTopics.calibrationStartCommandTopic(deviceId),
                 payload,
@@ -158,10 +200,14 @@ public class MqttCommandPublisherService {
         );
     }
 
-    public FirmwareCommandPublishResult publishCalibrationCancelCommand(String deviceId) {
+    public FirmwareCommandPublishResult publishCalibrationCancel(String deviceId, String requestId) {
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("request_id", requestId);
+        payload.put("issued_at_ms", Instant.now().toEpochMilli());
+
         return publishFirmwareCommand(
                 FirmwareTopics.calibrationCancelCommandTopic(deviceId),
-                requestPayload(FirmwareCommandTypeId.CALIBRATION_CANCEL, null),
+                payload,
                 "calibration cancel",
                 FirmwareCommandTypeId.CALIBRATION_CANCEL
         );
@@ -173,9 +219,37 @@ public class MqttCommandPublisherService {
             String profileId,
             Instant startedAt
     ) {
-        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_START, startedAt);
+        return publishSessionStartCommand(deviceId, sessionId, profileId, null, null, startedAt, null);
+    }
+
+    public FirmwareCommandPublishResult publishSessionStartCommand(
+            String deviceId,
+            String sessionId,
+            String profileId,
+            Instant startedAt,
+            String requestId
+    ) {
+        return publishSessionStartCommand(deviceId, sessionId, profileId, null, null, startedAt, requestId);
+    }
+
+    public FirmwareCommandPublishResult publishSessionStartCommand(
+            String deviceId,
+            String sessionId,
+            String profileId,
+            Integer profileVersion,
+            String profileHash,
+            Instant startedAt,
+            String requestId
+    ) {
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_START, startedAt, requestId);
         payload.put("session_id", sessionId);
         payload.put("profile_id", profileId);
+        if (profileVersion != null) {
+            payload.put("profile_version", profileVersion);
+        }
+        if (profileHash != null && !profileHash.isBlank()) {
+            payload.put("profile_hash", profileHash.trim());
+        }
         return publishFirmwareCommand(
                 FirmwareTopics.sessionStartCommandTopic(deviceId),
                 payload,
@@ -185,13 +259,43 @@ public class MqttCommandPublisherService {
     }
 
     public FirmwareCommandPublishResult publishSessionStopCommand(String deviceId, String sessionId, Instant endedAt) {
-        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_STOP, endedAt);
+        return publishSessionStopCommand(deviceId, sessionId, endedAt, null);
+    }
+
+    public FirmwareCommandPublishResult publishSessionStopCommand(String deviceId, String sessionId, Instant endedAt, String requestId) {
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.SESSION_STOP, endedAt, requestId);
         payload.put("session_id", sessionId);
         return publishFirmwareCommand(
                 FirmwareTopics.sessionStopCommandTopic(deviceId),
                 payload,
                 "session stop",
                 FirmwareCommandTypeId.SESSION_STOP
+        );
+    }
+
+    public FirmwareCommandPublishResult publishTelemetryControl(String deviceId, String action, Integer intervalMs) {
+        String normalizedAction = normalize(action);
+        if (normalizedAction == null) {
+            throw new IllegalArgumentException("action must not be blank");
+        }
+
+        normalizedAction = normalizedAction.toUpperCase(Locale.ROOT);
+        if (!"START".equals(normalizedAction) && !"STOP".equals(normalizedAction)) {
+            throw new IllegalArgumentException("action must be START or STOP");
+        }
+
+        Map<String, Object> payload = requestPayload(FirmwareCommandTypeId.TELEMETRY_CONTROL, null);
+        payload.put("action", normalizedAction);
+        if ("START".equals(normalizedAction)) {
+            SensorStreamService.validateIntervalMs(intervalMs);
+            payload.put("interval_ms", intervalMs);
+        }
+
+        return publishFirmwareCommand(
+                FirmwareTopics.telemetryCommandTopic(deviceId),
+                payload,
+                "telemetry control",
+                FirmwareCommandTypeId.TELEMETRY_CONTROL
         );
     }
 
@@ -226,13 +330,16 @@ public class MqttCommandPublisherService {
         publishSessionStartCommand(
                 payload.deviceId(),
                 payload.sessionId(),
-                payload.scenario(),
-                payload.startedAt()
+                payload.profileId(),
+                payload.profileVersion(),
+                payload.profileHash(),
+                payload.startedAt(),
+                payload.requestId()
         );
     }
 
     public void publishSessionStop(SessionStopCommandPayload payload) {
-        publishSessionStopCommand(payload.deviceId(), payload.sessionId(), payload.endedAt());
+        publishSessionStopCommand(payload.deviceId(), payload.sessionId(), payload.endedAt(), payload.requestId());
     }
 
     protected void ensureConnected() {
@@ -327,12 +434,7 @@ public class MqttCommandPublisherService {
             publishToBroker(topic, json);
 
             firmwarePersistenceRepository.markCommandPublished(requestId, Instant.now());
-            logger.info(
-                    "Published MQTT {} command to {} for request {}",
-                    action,
-                    topic,
-                    requestId
-            );
+            logger.info("Published MQTT {} command to {} for request {} qos={}", action, topic, requestId, qosPolicy.commandQos());
             return new FirmwareCommandPublishResult(topic, requestId, normalizedPayload);
         } catch (Exception error) {
             if (requestId != null) {
@@ -348,19 +450,30 @@ public class MqttCommandPublisherService {
     }
 
     protected void publishToBroker(String topic, String jsonPayload) throws Exception {
+        publishToBroker(topic, jsonPayload, qosPolicy.commandQos(), false);
+    }
+
+    protected void publishToBroker(String topic, String jsonPayload, int qos, boolean retained) throws Exception {
         ensureConnected();
         if (mqttClient == null || !mqttClient.isConnected()) {
             throw new IllegalStateException("MQTT command publisher is not connected");
         }
 
         MqttMessage message = new MqttMessage(jsonPayload.getBytes(StandardCharsets.UTF_8));
-        message.setQos(0);
+        message.setQos(qos);
+        message.setRetained(retained);
         mqttClient.publish(topic, message);
     }
 
     private Map<String, Object> requestPayload(FirmwareCommandTypeId commandTypeId, Instant timestamp) {
+        return requestPayload(commandTypeId, timestamp, null);
+    }
+
+    private Map<String, Object> requestPayload(FirmwareCommandTypeId commandTypeId, Instant timestamp, String requestId) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("request_id", FirmwareRequestIds.format(commandTypeId.value(), Math.toIntExact(requestSequence.incrementAndGet())));
+        payload.put("request_id", requestId != null && !requestId.isBlank()
+                ? requestId.trim()
+                : requestIdGenerator.next(commandTypeId));
         payload.put("issued_at_ms", (timestamp == null ? Instant.now() : timestamp).toEpochMilli());
         return payload;
     }

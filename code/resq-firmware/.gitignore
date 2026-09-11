@@ -19,6 +19,7 @@
 # Build artifacts and directories
 build/
 **/build/
+build-*/
 *.o
 *.a
 *.out
@@ -81,6 +82,7 @@ Desktop.ini
 docs/*.local.md 
 
 test_files/test-evidence/*
+test/test-results/
 
 # Local test stack env and provisioning artifacts (developer-local, do not commit secrets)
 # The real .env used by the test stack should be kept out of the repo.

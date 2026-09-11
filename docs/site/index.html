@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="ResQ: Smart CPR Training Platform - Real-time analytics for objective CPR training">
+    <meta name="description" content="ResQ: Smart CPR Training Platform - Low-cost, local-first CPR training and assessment system by University of Peradeniya">
     <title>ResQ — CPR Training & Assessment Platform</title>
     <link rel="stylesheet" href="./assets/style.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap">
-        <link rel="icon" href="./assets/img/logo/favicon.ico" />
-        <link rel="icon" type="image/png" sizes="32x32" href="./assets/img/logo/favicon-32.png" />
-        <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/logo/apple-touch-icon.png" />
-        <meta name="theme-color" content="#12264C" />
+    <link rel="icon" href="./assets/img/logo/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/img/logo/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/logo/apple-touch-icon.png" />
+    <meta name="theme-color" content="#12264C" />
 </head>
 <body>
     <nav class="navbar">
@@ -22,7 +22,7 @@
                       class="brand-logo"
                       data-logo
                       data-logo-light="./assets/img/logo/resq-logo-256.png"
-                      data-logo-dark="./assets/img/logo/resq-logo-dark-256.png"
+                      data-logo-dark="./assets/img/logo/resq-logo-light-256.jpg"
                       src="./assets/img/logo/resq-logo-256.png"
                       alt="ResQ logo"
                     />
@@ -50,138 +50,155 @@
     <!-- Hero Section -->
     <section class="hero">
         <div class="container">
-                        <h1 class="hero-title">
-                            <a class="hero-logo-link" href="./" aria-label="ResQ">
-                                <picture>
-                                    <source srcset="./assets/img/logo/resq-logo-512.webp" type="image/webp" />
-                                    <img class="hero-logo" src="./assets/img/logo/resq-logo-256.png" alt="ResQ logo" />
-                                </picture>
-                            </a>
-                        </h1>
-            <h2>CPR Training & Assessment Platform</h2>
-            <p class="tagline">Real-time compression analytics • Objective performance metrics • Evidence-based feedback</p>
+            <h1 class="hero-title">
+                <a class="hero-logo-link" href="./" aria-label="ResQ">
+                    <picture>
+                        <source srcset="./assets/img/logo/resq-logo-512.webp" type="image/webp" />
+                        <img class="hero-logo" src="./assets/img/logo/resq-logo-256.png" alt="ResQ logo" />
+                    </picture>
+                </a>
+            </h1>
+            <h2>Smart CPR Training & Assessment System</h2>
+            <p class="tagline">Low-Cost • Local-First • Real-Time Objective Analytics • Explainable Feedback</p>
             <p class="hero-description">
-                High-quality CPR is a skill that needs feedback, not guesses. ResQ brings sensor-driven accuracy to CPR training 
-                by giving students instant guidance and giving instructors a clear view of everyone’s performance—making practice 
-                more effective, consistent, and confidence-building.
+                ResQ upgrades conventional training manikins using a sensor-equipped chest overlay, embedded firmware, 
+                and a Windows LocalHub desktop application. It measures CPR performance in real time and provides immediate, 
+                rule-based feedback to both trainees and instructors without requiring internet access.
             </p>
             <div class="hero-buttons">
-                <a href="./about/" class="btn btn-primary">Read the Project Overview</a>
+                <a href="./about/" class="btn btn-primary">Learn About the Project</a>
                 <a href="./specs/" class="btn btn-secondary">View Specifications</a>
             </div>
         </div>
     </section>
 
-    <!-- Quick Highlights Section -->
+    <!-- Training Notice
+    <section class="content-section" style="padding-bottom: 0;">
+        <div class="container">
+            <blockquote style="border-left: 4px solid #12264C; padding: 1rem; margin: 0; background: rgba(18, 38, 76, 0.05); border-radius: 4px;">
+                <strong>Training use only:</strong> ResQ is designed for manikin-based education and assessment. It is not intended for patient care, clinical diagnosis, treatment, or emergency decision-making.
+            </blockquote>
+        </div>
+    </section>-->
+
+    <!-- Key Features Section -->
     <section class="highlights">
         <div class="container">
             <h2>Key Features</h2>
             <div class="highlights-grid">
                 <div class="highlight-card">
-                    <h3>Manikin Overlay</h3>
-                    <p>TPU bladder array + pressure sensors + Hall-effect depth sensor for precise compression measurement.</p>
+                    <h3>Retrofit Manikin Overlay</h3>
+                    <p>Fits onto existing training manikins, eliminating the need for expensive new smart manikins.</p>
                 </div>
                 <div class="highlight-card">
                     <h3>Real-Time Metrics</h3>
-                    <p>Live compression rate (cpm), depth (mm), recoil rate, pause detection, and hand placement analysis.</p>
+                    <p>Live depth (mm), rate (cpm), full chest recoil, pause/interruption tracking, and hand-placement balance.</p>
                 </div>
                 <div class="highlight-card">
-                    <h3>Live Dashboard</h3>
-                    <p>Instructor dashboard & Student dashboard with real-time graphs, student performance indicators, and session scoring.</p>
+                    <h3>Multi-Manikin Dashboard</h3>
+                    <p>Supervise connection health, readiness, and live performance of multiple manikins simultaneously.</p>
                 </div>
                 <div class="highlight-card">
-                    <h3>Session Logging</h3>
-                    <p>Automatic session save with performance summaries, exportable reports (CSV/PDF), and progress tracking.</p>
+                    <h3>Local-First Operation</h3>
+                    <p>Embedded MQTT broker, backend, and database run locally on Windows. Training continues completely offline.</p>
                 </div>
                 <div class="highlight-card">
-                    <h3>Instructor Feedback</h3>
-                    <p>Built-in comments box for instructor notes, actionable coaching points, and improvement recommendations.</p>
+                    <h3>Guided Calibration</h3>
+                    <p>Pre-session checks verify zero rest position, sensor stability, reference pressure, and balance before scoring.</p>
                 </div>
                 <div class="highlight-card">
-                    <h3>Calibration System</h3>
-                    <p>Zero-load calibration, depth calibration steps, and pressure normalization for consistent measurements.</p>
+                    <h3>Session Review & Export</h3>
+                    <p>Automatic local storage with detailed post-session reviews, performance scoring, and CSV/JSON data export.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- System Snapshot -->
+    <!-- System Architecture Snapshot -->
     <section class="system-snapshot">
         <div class="container">
-            <h2>System Architecture</h2>
-            <p class="snapshot-intro">ResQ's hardware-to-dashboard pipeline:</p>
+            <h2>How the System Works - End to End Pipeline</h2>
+            
             
             <div class="data-flow">
                 <div class="flow-stage">
-                    <div class="flow-box">Instrumented Manikin</div>
+                    <div class="flow-box">1. Start LocalHub</div>
                     <div class="flow-arrow">→</div>
                 </div>
                 <div class="flow-stage">
-                    <div class="flow-box">ADC / Firmware</div>
+                    <div class="flow-box">2. Wi-Fi & MQTT Connect</div>
                     <div class="flow-arrow">→</div>
                 </div>
                 <div class="flow-stage">
-                    <div class="flow-box">Local Processing</div>
+                    <div class="flow-box">3. Guided Calibration</div>
                     <div class="flow-arrow">→</div>
                 </div>
                 <div class="flow-stage">
-                    <div class="flow-box">Live Dashboard</div>
+                    <div class="flow-box">4. Live Session & Analytics</div>
+                    <div class="flow-arrow">→</div>
+                </div>
+                <div class="flow-stage">
+                    <div class="flow-box">5. Store & Export Summary</div>
                 </div>
             </div>
 
             <div class="architecture-details">
                 <div class="arch-card">
-                    <h3>Hardware Layer</h3>
-                    <p>2×2 TPU bladder array under sternum plate + pressure sensor(s) + ADC. Hall-effect sensor and magnet 
-                    align with sternum movement for depth tracking. Sensors measure compression force, depth, and placement.</p>
+                    <h3>1. Sensor-Equipped Overlay</h3>
+                    <p>Pressure-sensitive TPU air-bladder structure and Hall-effect sensor capture displacement, force, and balance.</p>
                 </div>
                 <div class="arch-card">
-                    <h3>Firmware Layer</h3>
-                    <p>Real-time sensor reading and event detection. Computes: compression count, rate (cpm), depth estimate (mm), 
-                    pause time, and placement drift (left/right/up/down). Data processed locally and sent to dashboard.</p>
+                    <h3>2. ESP32-C3 Controller</h3>
+                    <p>Processes sensor data, manages non-volatile calibration config, calculates live metrics, and broadcasts telemetry over local MQTT.</p>
                 </div>
                 <div class="arch-card">
-                    <h3>Dashboard Layer</h3>
-                    <p>Live graphs and performance indicators. Session management with automatic save. Score summary and 
-                    instructor comments box. Exportable reports (CSV/PDF) for documentation and student feedback.</p>
+                    <h3>3. Windows LocalHub (Tauri)</h3>
+                    <p>Supervises local Spring Boot backend, embedded MQTT broker, and local SQLite database in a one-click desktop app.</p>
                 </div>
                 <div class="arch-card">
-                    <h3>Calibration System</h3>
-                    <p>Zero calibration at rest, depth calibration with known displacement steps, pressure calibration per bladder, 
-                    and threshold tuning for adult/child profiles.</p>
+                    <h3>4. Dashboards & Exports</h3>
+                    <p>Web-based instructor and trainee dashboards with live graphs, rule-based scoring, coaching tips, and CSV/JSON output.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Demo Preview Section -->
-    <section class="demo-preview">
+    <!-- Target Users / Designed For -->
+    <section class="highlights">
         <div class="container">
-            <h2>What You'll Experience in Demo</h2>
-            <p>When ResQ is demonstrated, you will see:</p>
-            
-            <div class="demo-grid">
-                <div class="demo-card">
-                    <div class="demo-placeholder-large">Live Compression Metrics</div>
-                    <h3>Real-Time Feedback</h3>
-                    <p>As a student performs CPR, watch the dashboard update in real-time with instant feedback on compression 
-                    depth (mm), rate (compressions/min), recoil quality (%), and pause detection—allowing immediate self-correction.</p>
+            <h2>Benefiting Entities</h2>
+            <div class="outcomes-grid grid-4-items">
+                <div class="user-card">
+                    <h3>Medical & Nursing Education</h3>
+                    <p>University departments and healthcare schools needing objective competency verification.</p>
                 </div>
-                <div class="demo-card">
-                    <div class="demo-placeholder-large">Performance Graphs</div>
-                    <h3>Session Analytics</h3>
-                    <p>View live time-series graphs showing compression depth and rate trends over the practice session. 
-                    Instructors can identify patterns and common errors (e.g., consistent shallow compressions) and provide targeted coaching.</p>
+                <div class="user-card">
+                    <h3>CPR Skills Laboratories</h3>
+                    <p>Dedicated training labs requiring concurrent supervision of multiple practice stations.</p>
                 </div>
-                <div class="demo-card">
-                    <div class="demo-placeholder-large">Session Summary & Export</div>
-                    <h3>Reports & Records</h3>
-                    <p>After practice, the dashboard generates a session summary with performance statistics, instructor comments, 
-                    and improvement recommendations. Export to CSV or PDF for certification records and student portfolio.</p>
+                <div class="user-card">
+                    <h3>First-Aid & Emergency Responders</h3>
+                    <p>Vocational centers and emergency service teams training responders to meet strict AHA standards.</p>
+                </div>
+                <div class="user-card">
+                    <h3>Community & Outreach Camps</h3>
+                    <p>Large-scale field training programs benefiting from offline, highly portable local setups.</p>
                 </div>
             </div>
         </div>
     </section>
+
+    <!-- Recognition 
+    <section class="content-section">
+        <div class="container">
+            <h2>Project Recognition</h2>
+            <p>ResQ has been recognized at university-level innovation and robotics competitions:</p>
+            <ul style="line-height: 2; list-style-type: '🏆 ';">
+                <li><strong>First Place:</strong> EXITO 2026 Inter-University Robotics and Innovation Challenge</li>
+                <li><strong>Third Place:</strong> INNOVEXA 2026 Business Pitching Competition</li>
+            </ul>
+        </div>
+    </section> -->
 
     <!-- Footer -->
     <footer class="footer">
@@ -189,28 +206,28 @@
             <div class="footer-content">
                 <div class="footer-section">
                     <h3>ResQ Project</h3>
-                    <p>University of Peradeniya,<br>Faculty of Engineering,<br>Computer Engineering Department<br>3rd Year Project (e21-3yp)</p>
+                    <p>Department of Computer Engineering,<br>Faculty of Engineering,<br>University of Peradeniya<br>3rd Year Engineering Project</p>
                 </div>
                 <div class="footer-section">
                     <h3>Quick Links</h3>
                     <ul>
-                        <li><a href="../">Home</a></li>
-                        <li><a href="../about/">About</a></li>
-                        <li><a href="../specs/">Specifications</a></li>
-                        <li><a href="../how-to-use/">How to Use</a></li>
+                        <li><a href="./">Home</a></li>
+                        <li><a href="./about/">About</a></li>
+                        <li><a href="./specs/">Specifications</a></li>
+                        <li><a href="./how-to-use/">How to Use</a></li>
                     </ul>
                 </div>
                 <div class="footer-section">
                     <h3>Resources</h3>
                     <ul>
-                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ">GitHub Repository</a></li>
+                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ" target="_blank" rel="noopener">GitHub Repository</a></li>
                         <li><a href="#" title="Project documentation">Documentation</a></li>
                         <li><a href="#" title="Download latest build">Latest Release</a></li>
                     </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; University of Peradeniya, Faculty of Engineering, Computer Engineering Department</p>
+                <p>&copy; Department of Computer Engineering, Faculty of Engineering, University of Peradeniya</p>
                 <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
             </div>
         </div>

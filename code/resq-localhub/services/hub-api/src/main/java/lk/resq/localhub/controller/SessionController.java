@@ -6,9 +6,11 @@ import lk.resq.localhub.model.SessionEndRequest;
 import lk.resq.localhub.model.SessionEndResponse;
 import lk.resq.localhub.model.SessionStartRequest;
 import lk.resq.localhub.model.SessionStartResponse;
+import lk.resq.localhub.model.SessionStopResponse;
 import lk.resq.localhub.model.UserRole;
 import lk.resq.localhub.service.ActiveSessionService;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.CalibrationProfileValidationException;
 import lk.resq.localhub.service.ForbiddenException;
 import lk.resq.localhub.service.MqttCommandPublishException;
 import lk.resq.localhub.service.ManikinRegistryService;
@@ -50,6 +52,22 @@ public class SessionController {
             SessionStartResponse response = activeSessionService.startSession(requestBody, actor);
             authService.audit(actor.id(), "SESSION_STARTED", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
             return ResponseEntity.ok(response);
+        } catch (lk.resq.localhub.service.CalibrationNotReadyException error) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of(
+                            "error", "CALIBRATION_NOT_READY",
+                            "message", error.getMessage(),
+                            "deviceId", error.getDeviceId()
+                    ));
+        } catch (CalibrationProfileValidationException error) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of(
+                            "error", error.getCode(),
+                            "message", error.getMessage(),
+                            "deviceId", error.getDeviceId(),
+                            "requestedProfileId", error.getRequestedProfileId() != null ? error.getRequestedProfileId() : "",
+                            "calibratedProfileId", error.getCalibratedProfileId() != null ? error.getCalibratedProfileId() : ""
+                    ));
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().body(new ApiErrorResponse(error.getMessage()));
         } catch (NoSuchElementException error) {
@@ -71,7 +89,7 @@ public class SessionController {
     public ResponseEntity<?> endSession(HttpServletRequest request, @RequestBody SessionEndRequest requestBody) {
         try {
             AuthUser actor = authService.requireRole(request, UserRole.INSTRUCTOR);
-            SessionEndResponse response = activeSessionService.endSession(requestBody);
+            SessionStopResponse response = activeSessionService.endSession(requestBody);
             authService.audit(actor.id(), "SESSION_ENDED", "session", response.sessionId(), Map.of("deviceId", response.deviceId()));
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException error) {
@@ -212,7 +230,7 @@ public class SessionController {
 
     private static String toCsv(SessionEndResponse session) {
         StringBuilder builder = new StringBuilder();
-        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress,avgRateCpm,recoilPct,recoilOkCount,incompleteRecoilCount,pausesCount,score,latestFlags\n");
+        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress,avgRateCpm,recoilPct,recoilOkCount,incompleteRecoilCount,pausesCount,score,scoringVersion,overallScore,grade,scoreCap,scoreCapReason,scoreProvisional,latestFlags\n");
         builder.append(csv(session.sessionId())).append(',')
                 .append(csv(session.deviceId())).append(',')
                 .append(csv(session.traineeId())).append(',')
@@ -230,6 +248,12 @@ public class SessionController {
                 .append(session.summary().incompleteRecoilCount()).append(',')
                 .append(session.summary().pausesCount()).append(',')
                 .append(session.summary().score()).append(',')
+                .append(csv(session.summary().scoringVersion())).append(',')
+                .append(session.summary().overallScore() == null ? "" : session.summary().overallScore()).append(',')
+                .append(csv(session.summary().grade())).append(',')
+                .append(session.summary().scoreCap() == null ? "" : session.summary().scoreCap()).append(',')
+                .append(csv(session.summary().scoreCapReason())).append(',')
+                .append(session.summary().scoreProvisional()).append(',')
                 .append(csv(session.summary().latestFlags()))
                 .append('\n');
         return builder.toString();

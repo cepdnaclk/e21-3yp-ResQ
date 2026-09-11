@@ -10,7 +10,7 @@ import {
   startSession,
 } from "../lib/browserSessionsApi";
 import { fetchCourses, fetchCourseStudents } from "../lib/browserCoursesApi";
-import { getReadiness } from "../lib/browserFirmwareApi";
+import { getDeviceReadiness } from "../api/manikinsApi";
 import { listCourses, listCourseStudents } from "../lib/browserRosterSyncApi";
 import { useLiveSession } from "../hooks/useLiveSession";
 
@@ -84,14 +84,22 @@ vi.mock("../lib/browserCoursesApi", () => ({
   fetchCourseStudents: vi.fn(),
 }));
 
-vi.mock("../lib/browserFirmwareApi", () => ({
-  getReadiness: vi.fn(),
+vi.mock("../api/manikinsApi", () => ({
+  getDeviceReadiness: vi.fn(),
   startCalibration: vi.fn(),
   cancelCalibration: vi.fn(),
 }));
 
+vi.mock("../lib/sensorStreamClient", () => ({
+  getLatestSensorStream: vi.fn(() => Promise.resolve(null)),
+  startSensorStream: vi.fn(),
+  stopSensorStream: vi.fn(),
+  createSensorStreamClient: vi.fn(() => ({ start: vi.fn(), stop: vi.fn() })),
+}));
+
 const baseManikin = {
   deviceId: "MAN-01",
+  profileId: "adult-basic",
   online: true,
   lastSeen: new Date().toISOString(),
   state: "ready",
@@ -108,7 +116,7 @@ const baseManikin = {
   lastEventType: "compression",
   latestForce1: 20,
   latestForce2: 20,
-  pressureBalancePct: 100,
+  pressureBalanceScorePct: 100,
   pressureSkewed: false,
   activeSessionId: null,
   activeTraineeId: null,
@@ -173,7 +181,7 @@ describe("InstructorDashboard", () => {
         enrolledAt: new Date().toISOString(),
       },
     ]);
-    vi.mocked(getReadiness).mockResolvedValue({
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
       deviceId: "MAN-01",
       firmwareState: null,
       calibrated: false,
@@ -199,33 +207,26 @@ describe("InstructorDashboard", () => {
     vi.mocked(endSession).mockResolvedValue({
       sessionId: "sess-001",
       deviceId: "MAN-01",
-      traineeId: "trainee-man-01",
+      requestId: "req-301-0001",
+      state: "STOP_PENDING",
+      active: true,
       startedAt: new Date(Date.now() - 15000).toISOString(),
-      ended: true,
-      endedAt: new Date().toISOString(),
-      scenario: null,
-      notes: null,
-      summary: {
-        sessionId: "sess-001",
-        deviceId: "MAN-01",
-        traineeId: "trainee-man-01",
-        startedAt: new Date(Date.now() - 15000).toISOString(),
-        endedAt: new Date().toISOString(),
-        durationSeconds: 15,
-        avgDepthMm: 55,
-        avgRateCpm: 110,
-        recoilPct: 98,
-        pausesCount: 0,
-        score: 95,
-        latestFlags: null,
-      },
+      stopRequestedAt: new Date().toISOString(),
+      completed: false,
+      reason: null,
+      reasonId: null,
+      actionId: null,
     });
   });
 
-  it("shows healthy status when health endpoint returns ok", async () => {
+  it("renders the embedded dashboard shell", async () => {
     render(<InstructorDashboard embeddedInDesktop />);
 
-    expect(await screen.findByText("Connecting")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Instructor Dashboard" })).toBeInTheDocument();
+    await waitFor(() => expect(fetchLiveManikins).toHaveBeenCalled());
+    await waitFor(() => expect(fetchCourses).toHaveBeenCalled());
+    await waitFor(() => expect(listCourses).toHaveBeenCalled());
+    await waitFor(() => expect(fetchCompletedSessions).toHaveBeenCalled());
   });
 
   // EventSource no longer used; stream client is fetch-based and requires a token.
@@ -247,6 +248,7 @@ describe("InstructorDashboard", () => {
         deviceId: "MAN-01",
         courseId: "course-101",
         traineeId: "trainee-man-01",
+        profileId: "adult-basic",
         scenario: null,
         notes: null,
       });
@@ -264,7 +266,7 @@ describe("InstructorDashboard", () => {
 
   it("enables session start when firmware is ready despite stale calibration status", async () => {
     vi.mocked(fetchLiveManikins).mockResolvedValue([{ ...baseManikin, state: "READY_FOR_SESSION" }]);
-    vi.mocked(getReadiness).mockResolvedValue({
+    vi.mocked(getDeviceReadiness).mockResolvedValue({
       deviceId: "MAN-01",
       firmwareState: "READY_FOR_SESSION",
       calibrated: false,
@@ -281,7 +283,7 @@ describe("InstructorDashboard", () => {
 
     render(<InstructorDashboard embeddedInDesktop />);
 
-    await waitFor(() => expect(getReadiness).toHaveBeenCalledWith("MAN-01"));
+    await waitFor(() => expect(getDeviceReadiness).toHaveBeenCalledWith("MAN-01"));
     await userEvent.selectOptions(screen.getByLabelText("Course"), "course-101");
     await screen.findByRole("option", { name: "Ami Trainee (ami.trainee@example.com)" });
     await userEvent.selectOptions(screen.getByLabelText("Enrolled Trainee"), "trainee-man-01");
@@ -332,26 +334,15 @@ describe("InstructorDashboard", () => {
     vi.mocked(endSession).mockResolvedValue({
       sessionId: "sess-active-1",
       deviceId: "MAN-01",
-      traineeId: "trainee-123",
+      requestId: "req-301-0002",
+      state: "STOP_PENDING",
+      active: true,
       startedAt: new Date(Date.now() - 30000).toISOString(),
-      ended: true,
-      endedAt: new Date().toISOString(),
-      scenario: null,
-      notes: null,
-      summary: {
-        sessionId: "sess-active-1",
-        deviceId: "MAN-01",
-        traineeId: "trainee-123",
-        startedAt: new Date(Date.now() - 30000).toISOString(),
-        endedAt: new Date().toISOString(),
-        durationSeconds: 30,
-        avgDepthMm: 56,
-        avgRateCpm: 112,
-        recoilPct: 97,
-        pausesCount: 1,
-        score: 93,
-        latestFlags: null,
-      },
+      stopRequestedAt: new Date().toISOString(),
+      completed: false,
+      reason: null,
+      reasonId: null,
+      actionId: null,
     });
 
     render(<InstructorDashboard embeddedInDesktop />);
@@ -363,6 +354,6 @@ describe("InstructorDashboard", () => {
       expect(endSession).toHaveBeenCalledWith({ sessionId: "sess-active-1" });
     });
 
-    expect(await screen.findByText(/Ended session sess-active-1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Stopping session sess-active-1/i)).toBeInTheDocument();
   });
 });

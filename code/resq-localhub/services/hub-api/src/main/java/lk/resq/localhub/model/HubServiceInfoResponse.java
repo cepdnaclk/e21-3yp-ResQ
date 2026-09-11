@@ -6,6 +6,8 @@ public record HubServiceInfoResponse(
         boolean ok,
         @JsonProperty("backend_base_url")
         String backendBaseUrl,
+        @JsonProperty("mqtt_broker_url")
+        String mqttBrokerUrl,
         @JsonProperty("mqtt_host")
         String mqttHost,
         @JsonProperty("mqtt_port")

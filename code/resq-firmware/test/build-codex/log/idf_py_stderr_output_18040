@@ -1,0 +1,34 @@
+Command: cmake -G Ninja -B D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test\build-codex -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Users\ganat\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=True D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test
+CMake Error at C:/Users/ganat/.espressif/tools/cmake/4.0.3/share/cmake-4.0/Modules/CMakeTestCCompiler.cmake:67 (message):
+  The C compiler
+
+    "C:/Users/ganat/.espressif/tools/riscv32-esp-elf/esp-15.2.0_20251204/riscv32-esp-elf/bin/riscv32-esp-elf-gcc.exe"
+
+  is not able to compile a simple test program.
+
+  It fails with the following output:
+
+    Change Dir: 'D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/build-codex/CMakeFiles/CMakeScratch/TryCompile-kvdij5'
+    
+    Run Build Command(s): C:/Users/ganat/.espressif/tools/ninja/1.12.1/ninja.exe -v cmTC_056f4
+    [1/2] C:\Users\ganat\.espressif\tools\riscv32-esp-elf\esp-15.2.0_20251204\riscv32-esp-elf\bin\riscv32-esp-elf-gcc.exe   @"D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/build-codex/toolchain/cflags" -o CMakeFiles\cmTC_056f4.dir\testCCompiler.c.obj -c D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test\build-codex\CMakeFiles\CMakeScratch\TryCompile-kvdij5\testCCompiler.c
+    FAILED: CMakeFiles/cmTC_056f4.dir/testCCompiler.c.obj 
+    C:\Users\ganat\.espressif\tools\riscv32-esp-elf\esp-15.2.0_20251204\riscv32-esp-elf\bin\riscv32-esp-elf-gcc.exe   @"D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/build-codex/toolchain/cflags" -o CMakeFiles\cmTC_056f4.dir\testCCompiler.c.obj -c D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test\build-codex\CMakeFiles\CMakeScratch\TryCompile-kvdij5\testCCompiler.c
+    
+    thread 'main' panicked at main.rs:69:9:
+    assertion `left != right` failed: Failed to get path name. Error code: 5
+      left: 0
+     right: 0
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    ninja: build stopped: subcommand failed.
+    
+    
+
+
+
+  CMake will not be able to correctly generate this project.
+Call Stack (most recent call first):
+  C:/esp/v6.0/esp-idf/tools/cmake/project.cmake:591 (__project)
+  CMakeLists.txt:32 (project)
+
+

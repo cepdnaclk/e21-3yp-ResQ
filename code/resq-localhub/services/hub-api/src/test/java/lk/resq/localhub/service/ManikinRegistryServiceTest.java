@@ -6,6 +6,11 @@ import lk.resq.localhub.model.ManikinLiveSummary;
 import lk.resq.localhub.model.SessionLiveView;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ManikinRegistryServiceTest {
@@ -37,6 +42,8 @@ class ManikinRegistryServiceTest {
         assertThat(device.latestMetric()).isNotNull();
         assertThat(device.latestMetric().sessionId()).isEqualTo("S-TEST-001");
         assertThat(device.latestMetric().depthMm()).isEqualTo(52.0);
+        assertThat(device.latestDepthProgress()).isNull();
+        assertThat(device.latestCompressionCount()).isEqualTo(18);
         assertThat(device.seq()).isEqualTo(1L);
         assertThat(device.connectionState()).isEqualTo("BACKEND_SSE_FALLBACK");
         assertThat(device.stale()).isFalse();
@@ -133,6 +140,43 @@ class ManikinRegistryServiceTest {
     }
 
     @Test
+    void statusAndHeartbeatAcceptSnakeCaseFieldsFromFirmwarePayloads() throws Exception {
+        ManikinRegistryService registry = new ManikinRegistryService(12);
+
+        registry.updateFromStatus(" M01 ", objectMapper.readTree("""
+                {
+                  "device_id": "M01",
+                  "session_id": "S-SNAKE",
+                  "state": "PAIRED_IDLE",
+                  "session_active": true,
+                  "ip_address": "192.168.1.55",
+                  "firmware_version": "1.2.3"
+                }
+                """));
+
+        registry.updateFromHeartbeat("M01", objectMapper.readTree("""
+                {
+                  "manikin_id": "MK-02",
+                  "session_id": "S-SNAKE",
+                  "state": "SESSION_ACTIVE",
+                  "rssi": -61,
+                  "battery": 88
+                }
+                """));
+
+        ManikinLiveSummary liveSummary = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(liveSummary.online()).isTrue();
+        assertThat(liveSummary.state()).isEqualTo("SESSION_ACTIVE");
+        assertThat(liveSummary.manikinId()).isEqualTo("MK-02");
+        assertThat(liveSummary.sessionId()).isEqualTo("S-SNAKE");
+        assertThat(liveSummary.ip()).isEqualTo("192.168.1.55");
+        assertThat(liveSummary.fw()).isEqualTo("1.2.3");
+        assertThat(liveSummary.sessionActive()).isTrue();
+        assertThat(liveSummary.rssi()).isEqualTo(-61);
+        assertThat(liveSummary.battery()).isEqualTo(88);
+    }
+
+    @Test
     void calibrationAndErrorEventsUseFirmwareEventIds() throws Exception {
         ManikinRegistryService registry = new ManikinRegistryService(12);
 
@@ -148,6 +192,10 @@ class ManikinRegistryServiceTest {
         assertThat(calibrated.state()).isEqualTo("READY_FOR_SESSION");
         assertThat(calibrated.lastEventType()).isEqualTo("4001");
         assertThat(calibrated.sessionActive()).isFalse();
+        ManikinLiveSummary liveCalibrated = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(liveCalibrated.calibrated()).isTrue();
+        assertThat(liveCalibrated.readyForSession()).isTrue();
+        assertThat(liveCalibrated.calibrationResult()).isEqualTo("pass");
 
         registry.updateFromErrorEvent("M01", objectMapper.readTree("""
                 {
@@ -160,5 +208,93 @@ class ManikinRegistryServiceTest {
         assertThat(errored.state()).isEqualTo("ERROR");
         assertThat(errored.lastEventType()).isEqualTo("5001");
         assertThat(errored.sessionActive()).isFalse();
+    }
+
+    @Test
+    void receiptTimeControlsStaleAndOfflineTransitionsWithoutHeartbeatFlapping() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-28T10:00:00Z"));
+        ManikinRegistryService registry = new ManikinRegistryService(12, 22, clock);
+
+        registry.updateFromHeartbeat("M01", objectMapper.readTree("""
+                {"uptime_ms":987654321,"ts_ms":987654321}
+                """));
+
+        ManikinLiveSummary first = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(first.lastSeen()).isEqualTo(clock.instant());
+        assertThat(first.online()).isTrue();
+        assertThat(first.stale()).isFalse();
+
+        clock.advance(Duration.ofSeconds(10));
+        ManikinLiveSummary oneMissedHeartbeat = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(oneMissedHeartbeat.online()).isTrue();
+        assertThat(oneMissedHeartbeat.stale()).isFalse();
+
+        clock.advance(Duration.ofSeconds(3));
+        ManikinLiveSummary stale = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(stale.online()).isTrue();
+        assertThat(stale.stale()).isTrue();
+        assertThat(stale.offline()).isFalse();
+        assertThat(stale.connectionState()).isEqualTo("STALE");
+
+        clock.advance(Duration.ofSeconds(10));
+        ManikinLiveSummary offline = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(offline.online()).isFalse();
+        assertThat(offline.stale()).isTrue();
+        assertThat(offline.offline()).isTrue();
+        assertThat(offline.connectionState()).isEqualTo("OFFLINE");
+
+        registry.updateFromHeartbeat("M01", objectMapper.readTree("""
+                {"uptime_ms":5,"ts_ms":5}
+                """));
+        ManikinLiveSummary restored = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(restored.lastSeen()).isEqualTo(clock.instant());
+        assertThat(restored.online()).isTrue();
+        assertThat(restored.stale()).isFalse();
+        assertThat(restored.offline()).isFalse();
+    }
+
+    @Test
+    void knownRegisteredDeviceStartsOfflineUntilCurrentEvidenceArrives() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-07-28T10:00:00Z"));
+        ManikinRegistryService registry = new ManikinRegistryService(12, 22, clock);
+
+        registry.registerDevice("M01");
+        ManikinLiveSummary restored = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(restored.online()).isFalse();
+        assertThat(restored.offline()).isTrue();
+
+        registry.updateFromStatus("M01", objectMapper.readTree("""
+                {"boot_id":"new-boot","state_seq":0,"state":"PAIRED_IDLE"}
+                """));
+        ManikinLiveSummary current = registry.getLiveSummary("M01").orElseThrow();
+        assertThat(current.online()).isTrue();
+        assertThat(current.lastSeen()).isEqualTo(clock.instant());
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        void advance(Duration duration) {
+            instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }

@@ -52,10 +52,6 @@ export function InstructorAiAssistantPanel({
     try {
       const res = await queryInstructorCoach({
         question: question.trim(),
-        traineeId: selectedTraineeId || undefined,
-        sessionId: selectedSessionId || undefined,
-        fromDate: fromDate ? new Date(fromDate).toISOString() : undefined,
-        toDate: toDate ? new Date(toDate).toISOString() : undefined,
       });
 
       setResponse(res);

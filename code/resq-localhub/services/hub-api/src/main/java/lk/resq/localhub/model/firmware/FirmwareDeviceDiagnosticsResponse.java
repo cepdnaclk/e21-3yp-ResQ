@@ -6,7 +6,7 @@ import java.util.List;
 
 public record FirmwareDeviceDiagnosticsResponse(
         String deviceId,
-        FirmwareReadinessResponse readiness,
+        DeviceReadinessState readiness,
         FirmwareCalibrationResultRecord latestCalibration,
         ManikinLiveSummary liveSummary,
         List<FirmwareCommandRequestRecord> recentCommands,

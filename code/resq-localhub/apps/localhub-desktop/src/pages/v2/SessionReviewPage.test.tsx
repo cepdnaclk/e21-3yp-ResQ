@@ -1,17 +1,11 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import SessionReviewPage from "./SessionReviewPage";
-import { fetchCompletedSession, queryCoach } from "../../api/sessionsApi";
-
-vi.mock("../../auth/AuthContext", () => ({
-  useAuth: () => ({
-    currentUser: { id: "trainee-1", role: "TRAINEE" },
-  }),
-}));
+import { fetchAuthoritativeCompletedSession } from "../../api/sessionsApi";
+import type { CompletedSession } from "../../types/session";
 
 vi.mock("../../api/sessionsApi", () => ({
-  fetchCompletedSession: vi.fn(),
-  queryCoach: vi.fn(),
+  fetchAuthoritativeCompletedSession: vi.fn(),
 }));
 
 vi.mock("../../api/exportsApi", () => ({
@@ -19,96 +13,81 @@ vi.mock("../../api/exportsApi", () => ({
   downloadSessionCsv: vi.fn(),
 }));
 
-describe("SessionReviewPage Ask ResQ Coach UI", () => {
-  const mockSession = {
-    sessionId: "session-123",
-    traineeId: "trainee-1",
-    startedAt: "2026-07-06T10:00:00Z",
-    endedAt: "2026-07-06T10:01:00Z",
-    scenario: "Standard CPR",
+vi.mock("../../auth/AuthContext", () => ({
+  useAuth: () => ({ currentUser: { role: "INSTRUCTOR" } }),
+}));
+
+function completed(overrides: Record<string, unknown> = {}): CompletedSession {
+  return {
+    sessionId: "S-1",
+    deviceId: "M01",
+    traineeId: "T01",
+    startedAt: "2026-08-01T10:00:00Z",
+    ended: true,
+    endedAt: "2026-08-01T10:01:00Z",
+    scenario: "Adult CPR",
+    notes: null,
     summary: {
-      score: 75,
-      avgDepthMm: 52,
-      avgRateCpm: 110,
-      recoilPct: 95,
-      pausesCount: 0,
-      durationSeconds: 60,
+      sessionId: "S-1", deviceId: "M01", traineeId: "T01",
+      startedAt: "2026-08-01T10:00:00Z", endedAt: "2026-08-01T10:01:00Z",
+      durationSeconds: 60, sampleCount: 20, totalCompressions: 12, validCompressions: 12,
+      avgDepthMm: 54, avgDepthProgress: 0.9, avgRateCpm: 110, recoilPct: 95,
+      recoilOkCount: 11, incompleteRecoilCount: 1, pausesCount: 0, score: 0, latestFlags: null,
+      scoringVersion: "moderate-v1", overallScore: 0, grade: "Needs practice",
+      depthScore: 0, rateScore: 0, recoilScore: 0, handPlacementScore: 0,
+      compressionFractionScore: 0, scoreProvisional: true, scoreValidCompressionCount: 12,
+      handPlacementPct: 90, compressionFractionPct: 88,
+      ...overrides,
     },
   };
+}
 
+describe("SessionReviewPage final scoring", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(fetchCompletedSession).mockResolvedValue(mockSession as any);
+    vi.mocked(fetchAuthoritativeCompletedSession).mockReset();
   });
 
-  it("renders suggested question buttons and form elements", async () => {
-    render(<SessionReviewPage sessionId="session-123" onBack={vi.fn()} />);
+  it("shows a valid zero score, every component, version, and provisional state", async () => {
+    vi.mocked(fetchAuthoritativeCompletedSession).mockResolvedValue(completed());
+    render(<SessionReviewPage sessionId="S-1" onBack={vi.fn()} />);
 
-    expect(await screen.findByText("Ask ResQ Coach")).toBeInTheDocument();
-
-    expect(screen.getByText("List my bad performances in the last 3 weeks")).toBeInTheDocument();
-    expect(screen.getByText("What mistakes do I repeat most?")).toBeInTheDocument();
-    expect(screen.getByText("Am I improving?")).toBeInTheDocument();
-    expect(screen.getByText("Compare my last session with my best session")).toBeInTheDocument();
-    expect(screen.getByText("What should I practice next?")).toBeInTheDocument();
-
-    expect(screen.getByPlaceholderText(/Type your question/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ask Coach" })).toBeInTheDocument();
+    expect(await screen.findByText("0%")).toBeInTheDocument();
+    expect(screen.getByText(/Needs practice · Provisional/)).toBeInTheDocument();
+    expect(screen.getByText("moderate-v1")).toBeInTheDocument();
+    expect(screen.getByText("Depth")).toBeInTheDocument();
+    expect(screen.getByText("Rate")).toBeInTheDocument();
+    expect(screen.getByText("Recoil")).toBeInTheDocument();
+    expect(screen.getByText("Hand placement")).toBeInTheDocument();
+    expect(screen.getByText("Compression fraction")).toBeInTheDocument();
+    expect(screen.getAllByText("0/100")).toHaveLength(5);
+    expect(fetchAuthoritativeCompletedSession).toHaveBeenCalledWith("S-1", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
-  it("submits question when typing and clicking submit, showing loading and results", async () => {
-    const mockCoachResponse = {
-      answer: "Based on your training session data: you are doing well, but keep consistent.",
-      mainIssues: ["Slight depth drop"],
-      recommendations: ["Ensure complete release"],
-      badSessions: [
-        {
-          sessionId: "bad-1",
-          sessionDateTime: "2026-07-05T08:00:00Z",
-          overallScore: 65,
-          shortReason: "Shallow compressions",
-          recommendation: "Focus on pushing deeper",
-        },
-      ],
-      trendDirection: "STABLE",
-    };
+  it("shows the specific unavailable reason instead of an empty score", async () => {
+    vi.mocked(fetchAuthoritativeCompletedSession).mockResolvedValue(completed({
+      overallScore: null,
+      grade: "Unavailable",
+      depthScore: null,
+      rateScore: null,
+      recoilScore: null,
+      handPlacementScore: null,
+      compressionFractionScore: null,
+      scoreCapReason: "required hand-placement evidence is unavailable",
+    }));
+    render(<SessionReviewPage sessionId="S-1" onBack={vi.fn()} />);
 
-    vi.mocked(queryCoach).mockResolvedValue(mockCoachResponse as any);
-
-    render(<SessionReviewPage sessionId="session-123" onBack={vi.fn()} />);
-    expect(await screen.findByText("Ask ResQ Coach")).toBeInTheDocument();
-
-    const input = screen.getByPlaceholderText(/Type your question/);
-    fireEvent.change(input, { target: { value: "Am I improving?" } });
-    expect(input).toHaveValue("Am I improving?");
-
-    const submitBtn = screen.getByRole("button", { name: "Ask Coach" });
-    fireEvent.click(submitBtn);
-
-    expect(screen.getByText(/Generating local clinical insights/)).toBeInTheDocument();
-
-    expect(queryCoach).toHaveBeenCalledWith({
-      userId: "trainee-1",
-      question: "Am I improving?",
-    });
-
-    expect(await screen.findByText("you are doing well, but keep consistent", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText("STABLE")).toBeInTheDocument();
-    expect(screen.getByText("Slight depth drop")).toBeInTheDocument();
-    expect(screen.getByText("Ensure complete release")).toBeInTheDocument();
-    expect(screen.getByText("Shallow compressions")).toBeInTheDocument();
-    expect(screen.getByText("Score: 65%")).toBeInTheDocument();
+    expect(await screen.findAllByText(/Score unavailable: required hand-placement evidence is unavailable/)).toHaveLength(2);
+    expect(screen.getByText("Unavailable · Provisional")).toBeInTheDocument();
   });
 
-  it("shows error boundary message when the API fails", async () => {
-    vi.mocked(queryCoach).mockRejectedValue(new Error("API network failure"));
-
-    render(<SessionReviewPage sessionId="session-123" onBack={vi.fn()} />);
-    expect(await screen.findByText("Ask ResQ Coach")).toBeInTheDocument();
-
-    const suggestedBtn = screen.getByText("What mistakes do I repeat most?");
-    fireEvent.click(suggestedBtn);
-
-    expect(await screen.findByText("API network failure")).toBeInTheDocument();
+  it("renders an actionable bounded-read error", async () => {
+    let rejectRead: ((reason: Error) => void) | null = null;
+    vi.mocked(fetchAuthoritativeCompletedSession).mockImplementation(() => new Promise((_, reject) => {
+      rejectRead = reject;
+    }));
+    render(<SessionReviewPage sessionId="S-1" onBack={vi.fn()} />);
+    await waitFor(() => expect(rejectRead).not.toBeNull());
+    rejectRead!(new Error("The session ended, but its final score was not readable within 10 seconds."));
+    expect(await screen.findByText(/not readable within 10 seconds/)).toBeInTheDocument();
   });
 });

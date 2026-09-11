@@ -8,11 +8,30 @@ public record SessionStartResponse(
         String traineeId,
         Instant startedAt,
         boolean active,
+        String profileId,
         String scenario,
         String notes,
         String courseId,
-        String instructorId
+        String instructorId,
+        String requestId,
+        SessionLifecycleState state,
+        SessionRecoveryStatus recoveryStatus
 ) {
+    public SessionStartResponse(
+            String sessionId,
+            String deviceId,
+            String traineeId,
+            Instant startedAt,
+            boolean active,
+            String scenario,
+            String notes,
+            String courseId,
+            String instructorId
+    ) {
+        this(sessionId, deviceId, traineeId, startedAt, active, null, scenario, notes, courseId, instructorId, null,
+                active ? SessionLifecycleState.ACTIVE : null, SessionRecoveryStatus.NONE);
+    }
+
     public SessionStartResponse(
             String sessionId,
             String deviceId,

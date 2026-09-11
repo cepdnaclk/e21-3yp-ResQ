@@ -5,35 +5,44 @@
 /**
  * @brief Reset network config to safe defaults.
  */
-void network_config_set_defaults(network_config_t *config)
-{
-    if (config == NULL) {
-        return;
-    }
+void network_config_set_defaults(network_config_t *config) {
+  if (config == NULL) {
+    return;
+  }
 
-    memset(config, 0, sizeof(network_config_t));
+  memset(config, 0, sizeof(network_config_t));
 
-    config->provisioned = false;
+  config->provisioned = false;
 }
 
 /**
  * @brief Reset calibration config to safe defaults.
  */
-void calibration_config_set_defaults(calibration_config_t *config)
-{
-    if (config == NULL) {
-        return;
-    }
+void calibration_config_set_defaults(calibration_config_t *config) {
+  if (config == NULL) {
+    return;
+  }
 
-    memset(config, 0, sizeof(calibration_config_t));
+  memset(config, 0, sizeof(calibration_config_t));
 
-    /* Preserve explicit safe defaults for new adaptive fields */
-    config->calibrated = false;
-    config->hall_direction = 0;
-    config->pressure_balance_allowed_pct = 25; /* default 25% */
-    config->calibration_sample_count = 60;
-    config->calibration_window_ms = 2000;
-    config->calibrated_at_ms = 0;
+  /* Preserve explicit safe defaults for new adaptive fields */
+  config->calibrated = false;
+  config->hall_direction = 0;
+  config->pressure_balance_allowed_pct = 25; /* default 25% */
+  config->pressure_policy = CALIBRATION_PRESSURE_OPTIONAL;
+  config->pressure_0_kpa_per_count = 0.0f;
+  config->pressure_1_kpa_per_count = 0.0f;
+  config->pressure_2_kpa_per_count = 0.0f;
+  config->full_depth_mm = 50.0f;
+  config->calibration_sample_count = 60;
+  config->calibration_window_ms = 2000;
+  config->calibrated_at_ms = 0;
+  config->calibration_schema_version = 0;
+  config->calibration_generation = 0;
+  strcpy(config->calibration_storage_status, "MISSING");
+  config->recalibration_required = true;
+  config->profile_version = 0;
+  config->profile_hash[0] = '\0';
 }
 
 /**
@@ -41,108 +50,152 @@ void calibration_config_set_defaults(calibration_config_t *config)
  *
  * This function also updates config->provisioned.
  */
-bool network_config_validate(network_config_t *config)
-{
-    if (config == NULL) {
-        return false;
-    }
+bool network_config_validate(network_config_t *config) {
+  if (config == NULL) {
+    return false;
+  }
 
-    bool valid = true;
+  bool valid = true;
 
-    if (config->wifi_ssid[0] == '\0') {
-        valid = false;
-    }
-    if (config->backend_base_url[0] == '\0') {
-        valid = false;
-    }
+  if (config->wifi_ssid[0] == '\0') {
+    valid = false;
+  }
+  if (config->backend_base_url[0] == '\0') {
+    valid = false;
+  }
 
-    /* Backend/device MAC are runtime values and are not required
-     * for validation of the persisted network configuration.
-     */
+  /* Backend/device MAC are runtime values and are not required
+   * for validation of the persisted network configuration.
+   */
 
-    config->provisioned = valid;
+  config->provisioned = valid;
 
-    return valid;
+  return valid;
 }
 
 /**
  * @brief Validate calibration configuration.
  *
- * This function also updates config->calibrated.
+ * This function is intentionally pure. Workflow code is responsible for
+ * setting or clearing the trusted `calibrated` marker.
  */
-bool calibration_config_validate(calibration_config_t *config)
-{
-    if (config == NULL) {
-        return false;
-    }
+bool calibration_config_is_valid(const calibration_config_t *config) {
+  if (config == NULL) {
+    return false;
+  }
 
-    bool valid = true;
+  bool valid = true;
 
-    const int32_t MIN_HALL_RANGE = 30;
-    const int32_t MIN_PRESSURE_RANGE = 300;
+  const int32_t MIN_HALL_RANGE = 30;
+  const int32_t MIN_PRESSURE_RANGE = 300;
 
-    if (config->hall_baseline <= 0) {
-        valid = false;
-    }
+  if (config->hall_baseline <= 0) {
+    valid = false;
+  }
 
-    if (config->hall_full_press <= 0) {
-        valid = false;
-    }
+  if (config->hall_full_press <= 0) {
+    valid = false;
+  }
 
-    /* derived/collected hall range */
-    if (config->hall_range_raw <= MIN_HALL_RANGE) {
-        valid = false;
-    }
+  /* derived/collected hall range */
+  if (config->hall_range_raw <= MIN_HALL_RANGE) {
+    valid = false;
+  }
 
-    if (!(config->hall_direction == 1 || config->hall_direction == -1)) {
-        valid = false;
-    }
+  if (!(config->hall_direction == 1 || config->hall_direction == -1)) {
+    valid = false;
+  }
 
-    if (config->hall_start_delta <= 0) {
-        valid = false;
-    }
+  if (config->hall_start_delta <= 0) {
+    valid = false;
+  }
 
-    if (config->hall_full_delta_threshold <= config->hall_start_delta) {
-        valid = false;
-    }
+  if (config->hall_full_delta_threshold <= config->hall_start_delta) {
+    valid = false;
+  }
 
-    if (config->hall_recoil_delta <= 0) {
-        valid = false;
-    }
+  if (config->hall_recoil_delta <= 0) {
+    valid = false;
+  }
 
-    if (config->ref_pressure <= 0) {
-        valid = false;
-    }
+  if (config->pressure_policy < CALIBRATION_PRESSURE_REQUIRED ||
+      config->pressure_policy > CALIBRATION_HALL_ONLY) {
+    valid = false;
+  }
 
-    if (config->bladder_1_pressure <= 0 || config->bladder_2_pressure <= 0) {
-        valid = false;
-    }
+  bool pressure_required =
+      config->pressure_policy == CALIBRATION_PRESSURE_REQUIRED;
+  bool pressure_usable =
+      config->pressure_policy != CALIBRATION_HALL_ONLY;
 
-    if (config->bladder_1_full_press <= 0 || config->bladder_2_full_press <= 0) {
-        valid = false;
-    }
+  if (config->pressure_saturation_hall_delta < 0) {
+    valid = false;
+  }
 
-    if (config->pressure_1_range_raw <= MIN_PRESSURE_RANGE || config->pressure_2_range_raw <= MIN_PRESSURE_RANGE) {
-        valid = false;
-    }
+  if (config->pressure_policy == CALIBRATION_HALL_ONLY &&
+      config->pressure_saturation_hall_delta != 0) {
+    valid = false;
+  }
 
-    if (config->pressure_contact_threshold <= 0) {
-        valid = false;
-    }
+  if (pressure_usable && config->pressure_saturation_hall_delta != 0 &&
+      (config->pressure_saturation_hall_delta <= config->hall_start_delta ||
+       config->pressure_saturation_hall_delta >
+           config->hall_range_raw)) {
+    valid = false;
+  }
 
-    if (config->pressure_valid_threshold <= config->pressure_contact_threshold) {
-        valid = false;
-    }
+  if (pressure_required &&
+      (config->ref_pressure <= 0 || config->bladder_1_pressure <= 0 ||
+       config->bladder_2_pressure <= 0)) {
+    valid = false;
+  }
 
-    if (config->pressure_balance_allowed_pct < 5 || config->pressure_balance_allowed_pct > 60) {
-        valid = false;
-    }
+  if (pressure_usable && (config->bladder_1_full_press <= 0 ||
+                          config->bladder_2_full_press <= 0)) {
+    valid = false;
+  }
 
-    if (config->calibrated && config->calibrated_at_ms <= 0) {
-        valid = false;
-    }
+  if (pressure_usable && (config->pressure_1_range_raw <= MIN_PRESSURE_RANGE ||
+                          config->pressure_2_range_raw <= MIN_PRESSURE_RANGE)) {
+    valid = false;
+  }
 
-    config->calibrated = valid;
+  if (pressure_usable && config->pressure_contact_threshold <= 0) {
+    valid = false;
+  }
 
-    return valid;
+  if (pressure_usable &&
+      config->pressure_valid_threshold <= config->pressure_contact_threshold) {
+    valid = false;
+  }
+
+  if (config->pressure_balance_allowed_pct < 5 ||
+      config->pressure_balance_allowed_pct > 60) {
+    valid = false;
+  }
+
+  if (config->full_depth_mm <= 0.0f) {
+    valid = false;
+  }
+
+  if (config->calibrated && config->calibrated_at_ms <= 0) {
+    valid = false;
+  }
+
+  return valid;
+}
+
+bool calibration_config_validate(calibration_config_t *config) {
+  return calibration_config_is_valid(config);
+}
+
+bool calibration_profile_matches(const calibration_config_t *config,
+                                 const char *profile_id) {
+  if (config == NULL) {
+    return false;
+  }
+
+  return config->profile_id[0] != '\0' && profile_id != NULL &&
+         profile_id[0] != '\0' &&
+         strcmp(profile_id, config->profile_id) == 0;
 }

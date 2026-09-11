@@ -12,6 +12,23 @@ export type ManikinLiveSummary = {
   sessionActive: boolean | null;
   firmwareState?: string | null;
   calibrated?: boolean | null;
+  readyForSession?: boolean | null;
+  calibrationState?: string | null;
+  progressId?: number | null;
+  reasonId?: string | null;
+  actionId?: number | null;
+  calibrationProgressId?: number | null;
+  calibrationReasonId?: string | null;
+  calibrationActionId?: number | null;
+  calibrationResult?: string | null;
+  profileId?: string | null;
+  pressureMode?: string | null;
+  pressureDegraded?: boolean | null;
+  usingLastStablePressure?: boolean | null;
+  pressureValid?: boolean | null;
+  hallValid?: boolean | null;
+  depthSource?: string | null;
+  warnings?: string | null;
   lastErrorId?: string | null;
   latestDepthMm: number | null;
   latestDepthProgress?: number | null;
@@ -23,12 +40,13 @@ export type ManikinLiveSummary = {
   lastEventType: string | null;
   latestForce1: number | null;
   latestForce2: number | null;
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
   pressureSkewed: boolean | null;
   activeSessionId: string | null;
   activeTraineeId: string | null;
   activeSessionStartedAt: string | null;
   activeSessionScenario: string | null;
+  activeSessionLifecycleState?: string | null;
 };
 
 export type ManikinInventoryStatus = "paired" | "pending" | "online" | "offline" | "stale" | "unknown";
@@ -43,7 +61,7 @@ function getLiveManikinsUrl(): string {
 }
 
 function getManikinInventoryUrl(): string {
-  return `http://${getLocalServiceHost()}:8080/api/manikins`;
+  return `${getHubApiBaseUrl()}/api/manikins`;
 }
 
 export function getLiveManikinsStreamUrl(): string {
@@ -103,6 +121,23 @@ function normalizeLiveSummary(value: unknown): ManikinLiveSummary | null {
     sessionActive: asBoolean(record.sessionActive),
     firmwareState: asString(record.firmwareState),
     calibrated: asBoolean(record.calibrated),
+    readyForSession: asBoolean(record.readyForSession),
+    calibrationState: asString(record.calibrationState),
+    progressId: asNumber(record.progressId),
+    reasonId: asString(record.reasonId),
+    actionId: asNumber(record.actionId),
+    calibrationProgressId: asNumber(record.calibrationProgressId),
+    calibrationReasonId: asString(record.calibrationReasonId),
+    calibrationActionId: asNumber(record.calibrationActionId),
+    calibrationResult: asString(record.calibrationResult),
+    profileId: asString(record.profileId),
+    pressureMode: asString(record.pressureMode),
+    pressureDegraded: asBoolean(record.pressureDegraded),
+    usingLastStablePressure: asBoolean(record.usingLastStablePressure),
+    pressureValid: asBoolean(record.pressureValid),
+    hallValid: asBoolean(record.hallValid),
+    depthSource: asString(record.depthSource),
+    warnings: asString(record.warnings),
     lastErrorId: asString(record.lastErrorId),
     latestDepthMm: asNumber(record.latestDepthMm),
     latestDepthProgress: asNumber(record.latestDepthProgress),
@@ -114,12 +149,13 @@ function normalizeLiveSummary(value: unknown): ManikinLiveSummary | null {
     lastEventType: asString(record.lastEventType),
     latestForce1: asNumber(record.latestForce1),
     latestForce2: asNumber(record.latestForce2),
-    pressureBalancePct: asNumber(record.pressureBalancePct),
+    pressureBalanceScorePct: asNumber(record.pressureBalanceScorePct),
     pressureSkewed: asBoolean(record.pressureSkewed),
     activeSessionId: asString(record.activeSessionId),
     activeTraineeId: asString(record.activeTraineeId),
     activeSessionStartedAt: asString(record.activeSessionStartedAt),
     activeSessionScenario: asString(record.activeSessionScenario),
+    activeSessionLifecycleState: asString(record.activeSessionLifecycleState),
   };
 }
 

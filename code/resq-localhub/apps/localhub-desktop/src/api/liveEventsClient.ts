@@ -32,6 +32,19 @@ export type SessionLiveSubscription = {
   stop: () => void;
 };
 
+export function isEndedSessionPayload(
+  value: unknown,
+): value is null | undefined | Record<string, never> {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  return (
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value as Record<string, unknown>).length === 0
+  );
+}
+
 // ─────────────────────────────────────────────
 // Manikins live stream
 // ─────────────────────────────────────────────
@@ -114,7 +127,9 @@ export function subscribeToSessionLive(
     if (stopped) return;
     try {
       const parsed: unknown = JSON.parse(event.data);
-      if (parsed === null || parsed === undefined) {
+      if (isEndedSessionPayload(parsed)) {
+        stopped = true;
+        eventSource.close();
         onEnded();
         return;
       }
@@ -141,3 +156,50 @@ export function subscribeToSessionLive(
 // Re-export the existing low-level client in case V2 pages need it directly.
 export { createSseLiveClient };
 export type { SseLiveClient, SseLiveClientCallbacks };
+
+import type { CalibrationStreamEvent } from "../types/manikin";
+
+export function connectCalibrationStream(
+  deviceId: string,
+  handlers: {
+    onSnapshot: (event: CalibrationStreamEvent) => void;
+    onUpdate: (event: CalibrationStreamEvent) => void;
+    onFinal: (event: CalibrationStreamEvent) => void;
+    onError: (error: Error) => void;
+  },
+): EventSource {
+  const backendBaseUrl = getHubApiBaseUrl();
+  const url = `${backendBaseUrl}/api/stream/manikins/${encodeURIComponent(deviceId)}/calibration`;
+  const eventSource = new EventSource(url, { withCredentials: true });
+
+  const handleMessage = (event: MessageEvent<string>) => {
+    try {
+      const parsed = JSON.parse(event.data) as CalibrationStreamEvent;
+      
+      // Safely handle calibration_keepalive events
+      if (parsed.type === "calibration_keepalive") {
+        return;
+      }
+
+      if (parsed.type === "calibration_snapshot") {
+        handlers.onSnapshot(parsed);
+      } else if (parsed.type === "calibration_update") {
+        handlers.onUpdate(parsed);
+      } else if (parsed.type === "calibration_final" || parsed.eventId === 4002) {
+        handlers.onFinal(parsed);
+      }
+    } catch (e) {
+      // ignore JSON parse failures
+    }
+  };
+
+  eventSource.addEventListener("calibration_snapshot", handleMessage);
+  eventSource.addEventListener("calibration_update", handleMessage);
+  eventSource.addEventListener("calibration_final", handleMessage);
+
+  eventSource.onerror = () => {
+    handlers.onError(new Error("Calibration stream connection error"));
+  };
+
+  return eventSource;
+}

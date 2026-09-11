@@ -1,0 +1,370 @@
+package lk.resq.localhub.service;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lk.resq.localhub.model.LiveMetricPayload;
+import lk.resq.localhub.model.ManikinLiveSummary;
+import lk.resq.localhub.model.firmware.CalibrationCommandResponse;
+import lk.resq.localhub.model.firmware.CalibrationStartRequest;
+import lk.resq.localhub.model.firmware.CalibrationState;
+import lk.resq.localhub.model.firmware.DeviceReadinessState;
+import lk.resq.localhub.model.firmware.SensorStreamCommandUpdate;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class CalibrationCommandServiceTest {
+
+    private CapturingPublisher publisher;
+    private DeviceReadinessService readinessService;
+    private ManikinRegistryService registryService;
+    private CommandRequestIdGenerator idGenerator;
+    private CapturingCalibrationStreamService streamService;
+    private CalibrationCommandService service;
+    private PermissiveSensorStreamService sensorStreamService;
+
+    private CalibrationPersistenceRepository calRepo;
+
+    @BeforeEach
+    void setUp() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        FirmwarePersistenceRepository repository = new FirmwarePersistenceRepository(
+                Path.of("target", "calibration-service-test-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        repository.initialize();
+
+        calRepo = new CalibrationPersistenceRepository(
+                Path.of("target", "calibration-service-test-cal-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        calRepo.initialize();
+
+        publisher = new CapturingPublisher(objectMapper, repository);
+        TestIdentityValidator identityValidator = new TestIdentityValidator();
+        readinessService = new DeviceReadinessService(new DeviceRuntimeStateService(), identityValidator);
+        registryService = new ManikinRegistryService(12);
+        idGenerator = new CommandRequestIdGenerator("a4f18d2c");
+        streamService = new CapturingCalibrationStreamService(readinessService);
+        sensorStreamService = new PermissiveSensorStreamService();
+        CalibrationProfileRepository profileRepository = new CalibrationProfileRepository(
+                Path.of("target", "calibration-service-test-profile-" + UUID.randomUUID() + ".sqlite").toString()
+        );
+        profileRepository.initialize();
+        CalibrationProfileFingerprintService fingerprintService = new CalibrationProfileFingerprintService();
+        CalibrationProfileService profileService = new CalibrationProfileService(profileRepository, fingerprintService);
+        service = new CalibrationCommandService(publisher, readinessService, registryService, idGenerator, streamService, calRepo, profileService, fingerprintService, sensorStreamService);
+    }
+
+    @Test
+    void startCalibrationThrowsIfDeviceNotRegistered() {
+        CalibrationStartRequest request = new CalibrationStartRequest(240, 1_320_000, 4_150_000, 4_150_000, null, null, null);
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not registered");
+
+        assertThat(publisher.lastDeviceId).isNull();
+    }
+
+    @Test
+    void startCalibrationThrowsIfRequiredFieldMissing() {
+        registerDevice("M01");
+
+        CalibrationStartRequest request1 = new CalibrationStartRequest(null, 1_320_000, 4_150_000, 4_150_000, null, null, null);
+        assertThatThrownBy(() -> service.startCalibration("M01", request1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("hall_delta is required");
+
+        CalibrationStartRequest request2 = new CalibrationStartRequest(240, -5, 4_150_000, 4_150_000, null, null, null);
+        assertThatThrownBy(() -> service.startCalibration("M01", request2))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ref_pressure must be positive");
+    }
+
+    @Test
+    void cancelCalibrationThrowsIfDeviceNotRegistered() {
+        assertThatThrownBy(() -> service.cancelCalibration("M01"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not registered");
+
+        assertThat(publisher.lastDeviceId).isNull();
+    }
+
+    @Test
+    void successfulStartPublishTransitionsReadinessImmediatelyToStarting() {
+        registerDevice("M01");
+
+        CalibrationStartRequest request = new CalibrationStartRequest(240, 1_320_000, 4_150_000, 4_150_000, "adult-basic", 20, 3000);
+
+        CalibrationCommandResponse response = service.startCalibration("M01", request);
+
+        assertThat(response.status()).isEqualTo("PUBLISHED");
+        assertThat(response.requestId()).startsWith("req-200-a4f18d2c-");
+
+        assertThat(publisher.lastDeviceId).isEqualTo("M01");
+        assertThat(publisher.lastRequestId).isEqualTo(response.requestId());
+        assertThat(publisher.lastTelemetryAction).isEqualTo("START");
+        assertThat(publisher.lastTelemetryRequestId).isNotBlank();
+        CalibrationStartRequest expectedRequest = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000, "adult-basic", 20, 3000,
+                null, null, null, null,
+                1, "a82453dd6c8100d280a5b711dceca20b8df17fe45ec7dfc6fbfd0d2ad257068f"
+        );
+        assertThat(publisher.lastStartRequest).isEqualTo(expectedRequest);
+
+        DeviceReadinessState state = readinessService.getReadiness("M01");
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.STARTING);
+        assertThat(state.currentProgressId()).isEqualTo(1);
+        assertThat(state.readyForSession()).isFalse();
+        assertThat(state.lastReplyId()).isEqualTo(response.requestId());
+
+        // Verify that SSE snapshot broadcast was called
+        assertThat(streamService.lastPublishedDeviceId).isEqualTo("M01");
+        assertThat(streamService.lastReadiness).isNotNull();
+        assertThat(streamService.lastReadiness.calibrationState()).isEqualTo(CalibrationState.STARTING);
+    }
+
+    @Test
+    void calibratedIdleDeviceCanStartRecalibration() {
+        registerDevice("M01", "READY_FOR_SESSION", true, false);
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        CalibrationCommandResponse response = service.startCalibration("M01", request);
+
+        assertThat(response.status()).isEqualTo("PUBLISHED");
+        assertThat(publisher.startPublishCount).isEqualTo(1);
+    }
+
+    @Test
+    void activeSessionBlocksCalibrationBeforeMqttPublish() {
+        registerDevice("M01", "SESSION_ACTIVE", true, true);
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("active session");
+        assertThat(publisher.startPublishCount).isZero();
+    }
+
+    @Test
+    void duplicatePendingStartReturnsOriginalRequestWithoutRepublishing() {
+        registerDevice("M01");
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        CalibrationCommandResponse first = service.startCalibration("M01", request);
+        CalibrationCommandResponse duplicate = service.startCalibration("M01", request);
+
+        assertThat(first.status()).isEqualTo("PUBLISHED");
+        assertThat(duplicate.status()).isEqualTo("ALREADY_PENDING");
+        assertThat(duplicate.requestId()).isEqualTo(first.requestId());
+        assertThat(publisher.startPublishCount).isEqualTo(1);
+    }
+
+    @Test
+    void mqttPublishFailureDoesNotTransitionReadinessState() {
+        registerDevice("M01");
+
+        CalibrationStartRequest request = new CalibrationStartRequest(240, 1_320_000, 4_150_000, 4_150_000, null, null, null);
+        publisher.shouldThrowOnPublish = true;
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(MqttCommandPublishException.class);
+
+        DeviceReadinessState state = readinessService.getReadiness("M01");
+        assertThat(state.calibrationState()).isEqualTo(CalibrationState.UNKNOWN);
+        assertThat(streamService.lastPublishedDeviceId).isNull();
+    }
+
+    @Test
+    void startCalibrationDoesNotPublishCalibrationWhenSensorModeStartIsRejected() {
+        registerDevice("M01");
+        sensorStreamService.rejectStart = true;
+
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                240, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Sensor acquisition mode could not start")
+                .hasMessageContaining("SENSOR_MODE_REQUIRED");
+
+        assertThat(publisher.lastTelemetryAction).isEqualTo("START");
+        assertThat(publisher.lastRequestId).isNull();
+        assertThat(publisher.lastStartRequest).isNull();
+        assertThat(streamService.lastPublishedDeviceId).isNull();
+    }
+
+    @Test
+    void cancelCalibrationPublishesCommandSuccessfully() {
+        registerDevice("M01");
+
+        CalibrationCommandResponse response = service.cancelCalibration("M01");
+
+        assertThat(response.status()).isEqualTo("PUBLISHED");
+        assertThat(response.requestId()).startsWith("req-201-a4f18d2c-");
+
+        assertThat(publisher.lastDeviceId).isEqualTo("M01");
+        assertThat(publisher.lastRequestId).isEqualTo(response.requestId());
+    }
+
+    @Test
+    void rejectsTargetsThatDoNotMatchTheSelectedProfile() {
+        registerDevice("M01");
+
+        CalibrationStartRequest request = new CalibrationStartRequest(
+                241, 1_320_000, 4_150_000, 4_150_000,
+                "adult-basic", 20, 3000
+        );
+
+        assertThatThrownBy(() -> service.startCalibration("M01", request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must exactly match profile adult-basic");
+        assertThat(publisher.lastDeviceId).isNull();
+    }
+
+    private void registerDevice(String deviceId) {
+        registerDevice(deviceId, "paired_idle", false, false);
+    }
+
+    private void registerDevice(String deviceId, String state, boolean calibrated, boolean sessionActive) {
+        com.fasterxml.jackson.databind.node.ObjectNode payload = new ObjectMapper().createObjectNode();
+        payload.put("state", state);
+        payload.put("calibrated", calibrated);
+        payload.put("session_active", sessionActive);
+        if (sessionActive) {
+            payload.put("session_id", "S-01");
+        }
+        registryService.updateFromStatus(deviceId, payload);
+    }
+
+    private static final class CapturingCalibrationStreamService extends CalibrationStreamService {
+        private String lastPublishedDeviceId;
+        private DeviceReadinessState lastReadiness;
+
+        private CapturingCalibrationStreamService(DeviceReadinessService readinessService) {
+            super(readinessService);
+        }
+
+        @Override
+        public void publishReadinessSnapshot(String deviceId, DeviceReadinessState readiness) {
+            this.lastPublishedDeviceId = deviceId;
+            this.lastReadiness = readiness;
+        }
+    }
+
+    private static final class CapturingPublisher extends MqttCommandPublisherService {
+        private String lastDeviceId;
+        private String lastRequestId;
+        private String lastTelemetryRequestId;
+        private String lastTelemetryAction;
+        private CalibrationStartRequest lastStartRequest;
+        private boolean shouldThrowOnPublish = false;
+        private int startPublishCount;
+
+        private CapturingPublisher(ObjectMapper objectMapper, FirmwarePersistenceRepository repository) {
+            super(objectMapper, repository, "tcp://127.0.0.1:1", "test-publisher");
+        }
+
+        @Override
+        protected void ensureConnected() {
+        }
+
+        @Override
+        protected void publishToBroker(String topic, String jsonPayload) {
+        }
+
+        @Override
+        public FirmwareCommandPublishResult publishCalibrationStart(
+                String deviceId,
+                String requestId,
+                CalibrationStartRequest request
+        ) {
+            if (shouldThrowOnPublish) {
+                throw new MqttCommandPublishException("Publish failed", new RuntimeException());
+            }
+            this.lastDeviceId = deviceId;
+            this.lastRequestId = requestId;
+            this.lastStartRequest = request;
+            this.startPublishCount++;
+            return new FirmwareCommandPublishResult("topic", requestId, Map.of());
+        }
+
+        @Override
+        public FirmwareCommandPublishResult publishCalibrationCancel(
+                String deviceId,
+                String requestId
+        ) {
+            if (shouldThrowOnPublish) {
+                throw new MqttCommandPublishException("Publish failed", new RuntimeException());
+            }
+            this.lastDeviceId = deviceId;
+            this.lastRequestId = requestId;
+            return new FirmwareCommandPublishResult("topic", requestId, Map.of());
+        }
+
+        @Override
+        public FirmwareCommandPublishResult publishTelemetryControl(String deviceId, String action, Integer intervalMs) {
+            this.lastTelemetryAction = action;
+            this.lastTelemetryRequestId = "telemetry-start-1";
+            return new FirmwareCommandPublishResult("resq/" + deviceId + "/cmd/telemetry", lastTelemetryRequestId, Map.of("action", action));
+        }
+    }
+
+    private static final class PermissiveSensorStreamService extends SensorStreamService {
+        private boolean rejectStart;
+
+        @Override
+        public SensorStreamCommandUpdate awaitCommandReply(String deviceId, String requestId, Duration timeout) {
+            if (rejectStart) {
+                return new SensorStreamCommandUpdate(
+                        "sensor_stream_command",
+                        deviceId,
+                        requestId,
+                        "START",
+                        "NACK",
+                        "SENSOR_MODE_REQUIRED",
+                        "PAIRED_IDLE",
+                        "ERROR",
+                        Instant.now()
+                );
+            }
+            return new SensorStreamCommandUpdate(
+                    "sensor_stream_command",
+                    deviceId,
+                    requestId,
+                    "START",
+                    "ACK",
+                    null,
+                    "PAIRED_IDLE",
+                    "RUNNING",
+                    Instant.now()
+            );
+        }
+
+        @Override
+        public boolean awaitFreshSnapshot(String deviceId, Instant notBefore, Duration timeout, Duration maxAge) {
+            return true;
+        }
+    }
+}

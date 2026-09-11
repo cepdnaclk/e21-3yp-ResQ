@@ -13,10 +13,12 @@ testing the firmware.
 - [What the firmware does](#what-the-firmware-does)
 - [Requirements](#requirements)
 - [Hardware connections](#hardware-connections)
+- [Persistent I/O modes](#persistent-io-modes)
 - [Build and flash](#build-and-flash)
 - [First-boot provisioning](#first-boot-provisioning)
 - [Runtime state machine](#runtime-state-machine)
 - [MQTT interface](#mqtt-interface)
+- [Pressure saturation handling](#pressure-saturation-handling)
 - [Testing](#testing)
 - [Project structure](#project-structure)
 - [Important operational notes](#important-operational-notes)
@@ -26,8 +28,8 @@ testing the firmware.
 
 The firmware coordinates the complete device lifecycle:
 
-1. Initializes NVS, sensors, networking, indicators, buttons, session services,
-   telemetry, and the firmware state machine.
+1. Initializes NVS, loads the persistent I/O mode, and starts only the services
+   that are safe in that mode.
 2. Loads saved network and calibration data from NVS.
 3. Starts a provisioning SoftAP when no valid network configuration exists.
 4. Connects to Wi-Fi and registers the device with the configured backend.
@@ -95,9 +97,57 @@ The production pin assignment is defined in
 | BUTTON_1 | GPIO4 |
 | BUTTON_2 | GPIO5 |
 
-All three HX710 devices share one clock line and must be sampled as one
-synchronized transaction. Do not rewrite the pressure path to read the devices
-sequentially using the shared clock.
+All three HX710 devices share one clock line and production pressure sampling
+uses one synchronized transaction. In `SENSOR` mode the HX710 driver detaches
+the native USB pad, preloads GPIO19 LOW, configures output with pulls disabled,
+and verifies LOW once before DOUT initialization. Normal reads never reset or
+remux GPIO19. Software-selected single-DOUT reads are rejected because they
+cannot electrically isolate converters sharing the clock.
+
+GPIO18 and GPIO19 are also the ESP32-C3 native USB D- and D+ pins. The firmware
+therefore treats native USB and the ResQ pressure/buzzer wiring as mutually
+exclusive runtime configurations; it never switches those pins live.
+
+## Persistent I/O modes
+
+The device has two persistent, reboot-applied modes:
+
+| Mode | Behavior |
+|---|---|
+| `SENSOR` | Normal ResQ operation. GPIO19 is the shared HX710 clock and is held LOW while idle; GPIO18 is available to the buzzer. Calibration, pressure debug, manual sensor streaming, and CPR sessions are enabled. |
+| `USB` | GPIO18/GPIO19 are reserved for native USB Serial/JTAG. HX710, pressure acquisition, calibration/session sensor services, and the buzzer are not initialized. Wi-Fi, provisioning, backend registration, MQTT, status, heartbeat, events, and logs remain active. |
+
+`SENSOR` is the safe default when the NVS `io_mode` key is absent or invalid.
+The selected mode survives ordinary restarts, soft-off, and network-only config
+clears. Factory reset and `erase-flash` remove it, so the next boot uses
+`SENSOR`.
+
+I/O-mode selection is available only while the device is in `PROVISIONING`:
+
+| Input | Action |
+|---|---|
+| Short BUTTON_1 press | Select `USB` in RAM; do not save or restart yet |
+| Short BUTTON_2 press | Select `SENSOR` in RAM; do not save or restart yet |
+| Either button for at least 3 seconds while a different mode is pending | Save the pending mode and restart |
+| BUTTON_1 for at least 3 seconds with no pending mode | `TURN_OFF` |
+| BUTTON_2 for at least 3 seconds with no pending mode | Factory reset |
+
+Both LEDs remain continuously ON while a different mode awaits confirmation.
+Selecting the already-active mode is a no-op and also cancels any pending
+change. If network provisioning completes while a selection is pending, the
+device stays in provisioning until the selection is confirmed or cancelled.
+The mode is written to NVS only after long-press confirmation and is applied on
+the next boot. No GPIO ownership is changed live. Outside provisioning, short
+presses retain their state-specific recovery behavior and never change the I/O
+mode.
+
+The application console is UART-only; USB Serial/JTAG secondary console output
+is disabled so it cannot disturb GPIO19 in `SENSOR` mode. Selecting `USB` is a
+reboot-only transition: the state machine first rejects active sensor work,
+forces GPIO19 LOW, releases HX710 ownership, persists the mode, and restarts.
+Native USB may then own GPIO18/GPIO19 while all pressure-dependent services
+remain disabled. Use the board's ROM download procedure described under
+troubleshooting if the running application is not reachable.
 
 ## Build and flash
 
@@ -207,13 +257,44 @@ The HTTP API is:
 }
 ```
 
+The provisioning page also accepts URL-encoded QR query parameters. Canonical
+names are `wifi_ssid`, `wifi_pass`, and `backend_base_url`. Compatibility
+aliases are `ssid`; `wifi_password` or `password`; and `backend_url` or
+`hub_url`, respectively. Canonical names take precedence when both forms are
+present. For example, using placeholder values:
+
+```text
+http://192.168.4.1/?wifi_ssid=ExampleLab&wifi_pass=example%26password%3D123&backend_base_url=http%3A%2F%2F192.0.2.10%3A18080
+```
+
+The page decodes each value once with `URLSearchParams`. A QR-populated
+password remains editable and visually masked. It is optional: an empty value
+represents an open network, and provisioning adds no minimum length or
+complexity rules. Password characters, including leading/trailing spaces, are
+preserved and the password is not logged, echoed in HTTP responses, published
+to MQTT, or included in backend registration.
+
 The device saves the configuration only after the second acknowledgement
 request succeeds. It then stops the SoftAP, joins the configured Wi-Fi network,
 registers at `<backend_base_url>/api/devices/register`, and uses the returned
 device ID, MQTT host, and MQTT port.
 
-Network and valid calibration data persist in NVS across ordinary restarts and
-soft-off. A factory reset or `erase-flash` removes them.
+Every configured startup advances from `WIFI_CONNECTING` to
+`BACKEND_REGISTERING`, in both `USB` and `SENSOR` modes. Registration sends the
+hardware `device_mac` and `firmware_version`; returned `device_id`, `mqtt_host`,
+and `mqtt_port` remain runtime-only and are passed to MQTT setup. USB mode skips
+pressure-dependent services only—it still registers, connects to MQTT, and
+publishes identity, status, and heartbeat data.
+
+Network, valid calibration data, and the I/O mode persist in NVS across ordinary
+restarts and soft-off. Clearing only network configuration preserves the I/O
+mode. A factory reset or `erase-flash` removes all three and restores the
+default `SENSOR` mode.
+
+Saving a confirmed I/O-mode change writes only `io_mode`; it does not erase the
+SSID, optional password, backend URL, provisioning state, or calibration. If a
+mode selection is pending, completed network provisioning remains saved but the
+FSM stays in `PROVISIONING` until that selection is confirmed or cancelled.
 
 ## Runtime state machine
 
@@ -275,6 +356,37 @@ Commands use a non-empty `request_id`. Legacy `command_id` is accepted in a
 small number of parsing paths for compatibility, but new clients should send
 `request_id`.
 
+The firmware subscribes to `cmd/#` at QoS 1. ESP-MQTT DATA fragments are
+reassembled by `total_data_len` and `current_data_offset`; payloads larger than
+the bounded command buffer are rejected rather than truncated.
+
+In `USB` mode, `cmd/debug`, `cmd/calibration/start`, `cmd/session/start`, and a
+manual sensor-stream `START` receive a normal correlated NACK with reason
+`SENSOR_MODE_REQUIRED`. These rejections occur before any pressure GPIO or
+sensor-owner access. Commands that stop already-idle sensor work remain safe and
+idempotent.
+
+`cmd/calibration/start` stores `hall_delta` internally as
+`hall_delta_adc_counts`: the absolute Hall movement from the captured baseline
+in averaged raw ADC counts. New clients should send the averaged value directly,
+for example `"hall_delta":675`. If a client sends an accumulated value, it must
+also send the sample count, either as `"hall_delta_sum":13500,
+"hall_delta_sample_count":20` or the compatible `"hall_delta":13500,
+"hall_delta_sample_count":20` form. The firmware converts that explicit sum to
+`675` once at parse time. Values outside the raw or declared accumulated range
+are NACKed and are never clamped.
+
+The optional `pressure_mode` field accepts `REQUIRED`, `OPTIONAL`, or
+`HALL_ONLY` (or the matching numeric enum values 0, 1, and 2). Required mode
+needs positive reference and bladder pressure targets. Optional mode attempts
+pressure validation when usable targets and sensors are available, then falls
+back to Hall-only data if pressure is saturated or unavailable. Hall-only mode
+skips all pressure target waits.
+
+`cmd/session/start` must use the same `profile_id` as the saved calibration
+profile when a calibration profile is present. A mismatch returns a NACK before
+session resources are acquired.
+
 There is no MQTT turn-off command. TURN_OFF is owned by BUTTON_1 long press.
 The `cmd/system/*` commands are ERROR-state recovery controls, not general
 commands for healthy idle states.
@@ -283,8 +395,8 @@ commands for healthy idle states.
 
 | Topic suffix | Contents |
 |---|---|
-| `status` | Retained state, session, calibration, profile, thresholds, and IP |
-| `heartbeat` | Connectivity, registration, session, sensor, RSSI, and uptime |
+| `status` | Retained state, I/O mode, pressure-sensor enablement, session, calibration, profile, thresholds, and IP |
+| `heartbeat` | I/O mode, pressure-sensor enablement, connectivity, registration, session, sensor, RSSI, and uptime |
 | `telemetry` | Live CPR measurements and quality metrics |
 | `debug` | Raw pressure and hall readings |
 | `events` | Identity, command replies, and session events |
@@ -295,6 +407,57 @@ The heartbeat task publishes every five seconds while MQTT is connected.
 Session telemetry is more frequent and is emitted only while a valid session
 is active.
 
+Both status and heartbeat payloads include `io_mode` (`SENSOR` or `USB`) and
+`pressure_sensor_enabled`. In USB mode, pressure validity/running and calibrated
+or ready-for-session fields are reported false rather than implying that sensor
+hardware is available.
+
+## Pressure saturation handling
+
+CPR depth is always calculated from the Hall sensor. The pressure bladders are
+used for contact, left/right hand balance, and pressure-based confidence while
+their raw HX710 readings remain valid. Once either balance bladder saturates,
+the firmware stops trusting the pressure magnitude for current hand-balance
+calculation, keeps the last reliable hand-placement decision, and continues
+depth, recoil, and rate evaluation from Hall readings.
+
+Runtime pressure saturation uses the same raw HX710 guard used by calibration:
+values above `8300000` or below `-8300000` are treated as saturated. A failed
+HX710 transaction is marked separately from saturation, and a failed Hall read
+does not advance the compression state machine; the previous Hall-derived
+depth/state is held until the next valid Hall sample.
+
+Session telemetry now includes these additional quality fields:
+
+| Field | Meaning |
+|---|---|
+| `pressure_balance_reliable` | `true` when current P1/P2 balance is calculated from non-saturated pressure readings |
+| `pressure_saturation_mask` | Bit mask of saturated pressure channels: bit 0 = P0, bit 1 = P1, bit 2 = P2 |
+| `sensor_quality_flags` | Numeric firmware quality bit mask for pressure missed, Hall missed, pressure saturated, and held balance |
+| `missed_pressure_samples` | Session count of failed pressure read transactions |
+| `missed_hall_samples` | Session count of failed Hall ADC reads |
+
+The `flags` string may also include `PRESSURE_MISSED`, `HALL_MISSED`,
+`PRESSURE_SATURATED`, and `PRESSURE_BALANCE_HELD`. When
+`PRESSURE_BALANCE_HELD` is present, `hand_placement` and
+`pressure_balance_pct` are the last reliable pre-saturation values, not a fresh
+pressure calculation. If both balance bladders saturate shortly after a
+centered pre-saturation pressure sample, a full Hall-depth compression may still
+count as valid, but telemetry keeps the pressure confidence warning visible.
+One-sided saturation, stale balance data, or missed pressure does not get this
+fallback.
+
+LocalHub and frontend changes to consider later:
+
+- Extend shared firmware telemetry types to include the new optional fields.
+- Normalize snake-case firmware fields into camel-case live metrics, for
+  example `pressureBalanceReliable`, `pressureSaturationMask`,
+  `sensorQualityFlags`, `missedPressureSamples`, and `missedHallSamples`.
+- Display `PRESSURE_SATURATED` and `PRESSURE_BALANCE_HELD` as a pressure
+  confidence warning, while keeping Hall depth visible.
+- Treat `pressure_balance_reliable=false` as "hand balance estimated from last
+  reliable pressure sample" instead of hiding depth or stopping the session.
+
 ## Testing
 
 There are two separate test layers. They use different firmware images and
@@ -303,9 +466,13 @@ serve different purposes.
 ### 1. ESP-IDF Unity component tests
 
 The Unity application under `test/` covers deterministic behavior without
-using real Wi-Fi, MQTT transport, ADC, HX710 devices, or buttons. It tests the
-state machine, configuration boundaries, error/calibration mappings, topics,
-request IDs, session lifecycle, and CPR metrics.
+using real Wi-Fi, MQTT transport, ADC, HX710 devices, or buttons. Explicit
+`[hardware]` cases additionally provide raw-sensor and staged HX710 electrical
+diagnostics for a connected board. The deterministic suite tests the
+state machine, provisioning-only I/O-mode selection and confirmation,
+I/O-mode persistence and fallback, long-press button mappings, USB
+sensor-command gating, configuration boundaries, error/calibration mappings,
+topics, request IDs, session lifecycle, and CPR metrics.
 
 Build the Unity image:
 
@@ -414,18 +581,23 @@ This table contains one factory application partition and no OTA slots.
 
 - **Real sensors are required.** Floating or disconnected HX710/hall inputs
   cannot produce a meaningful calibration or hardware qualification.
-- **HX710 timeout sentinel:** `-999999` indicates that a pressure ADC did not
-  become ready. Treat it as a wiring, power, clock, or sensor problem.
+- **HX710 validity:** a failed group read clears its validity mask and does not
+  overwrite or publish previous raw values. Treat stuck-HIGH, stuck-LOW,
+  protocol, or cadence errors as wiring, power, clock, or sensor faults.
 - **Calibration persistence:** successful calibration is stored in NVS. The
   TURN_OFF path saves calibration only when it is valid.
 - **Recovery deadline:** an active session attempts to recover connectivity for
   30 seconds. Once that deadline expires, runtime services stop and a terminal
   session interruption is retained for deferred publication.
-- **BUTTON_1:** a long press of at least three seconds requests TURN_OFF in
-  normal states. Some internal failure states give short presses specialized
-  retry behavior.
-- **BUTTON_2:** a long press of at least three seconds requests factory reset
-  in normal states. Reset clears network and calibration data before restart.
+- **Provisioning buttons:** short BUTTON_1 selects USB; short BUTTON_2 selects
+  SENSOR. Both LEDs continuously ON means a different mode awaits confirmation.
+  Long-press either button to save and restart. A short press never writes NVS.
+- **No pending mode:** in provisioning, long BUTTON_1 requests TURN_OFF and long
+  BUTTON_2 requests factory reset. Reset clears network, calibration, and
+  I/O-mode data before restarting in SENSOR mode.
+- **Other states:** short presses keep their state-specific behavior; they do
+  not select an I/O mode. Existing long BUTTON_1 TURN_OFF and long BUTTON_2
+  factory-reset actions remain available where supported.
 - **Soft-off is not deep sleep or power isolation.** The current implementation
   stops runtime work and remains in a delay loop. Reset or power-cycle the
   device to start it again.
@@ -494,6 +666,8 @@ Do not manually edit generated files under `build/`.
 
 ### Sensor debug or calibration fails
 
+- Confirm status reports `"io_mode":"SENSOR"`; pressure-dependent commands are
+  intentionally rejected with `SENSOR_MODE_REQUIRED` in USB mode.
 - Check the shared GPIO19 HX710 clock and all three DOUT connections.
 - Check sensor power and common ground.
 - Send `cmd/debug` with a valid `request_id` and inspect all raw values.

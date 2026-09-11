@@ -5,21 +5,20 @@ import {
   deactivateCalibrationProfile,
   getCalibrationProfiles,
   getDefaultCalibrationProfile,
-  getReadiness,
   setDefaultCalibrationProfile,
   updateCalibrationProfile,
   type CalibrationProfileRequest,
   type CalibrationProfileResponse,
-  type FirmwareCalibrationStartPayload,
-  type FirmwareReadinessResponse,
 } from "../lib/browserFirmwareApi";
+import { getDeviceReadiness } from "../api/manikinsApi";
+import type { CalibrationStartRequest, DeviceReadinessState } from "../types/manikin";
 
 type CalibrationSettingsPanelProps = {
   devices: ManikinLiveSummary[];
   selectedDeviceId: string | null;
   onSelectedDeviceChange: (deviceId: string) => void;
   calibrationAction: "idle" | "starting" | "cancelling";
-  onRunCalibration: (deviceId: string, payload: FirmwareCalibrationStartPayload) => Promise<void>;
+  onRunCalibration: (deviceId: string, payload: CalibrationStartRequest) => Promise<void>;
 };
 
 type FormState = {
@@ -110,7 +109,7 @@ export function CalibrationSettingsPanel({
   const [saveAcknowledged, setSaveAcknowledged] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [liveReadiness, setLiveReadiness] = useState<FirmwareReadinessResponse | null>(null);
+  const [liveReadiness, setLiveReadiness] = useState<DeviceReadinessState | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.profileId === selectedProfileId) ?? null,
@@ -124,7 +123,7 @@ export function CalibrationSettingsPanel({
 
   const activeProfileCount = profiles.filter((profile) => profile.active).length;
   const formValidity = validateForm(form);
-  const calibrationProgress = progressFromId(liveReadiness?.progressId ?? null);
+  const calibrationProgress = progressFromId(liveReadiness?.currentProgressId ?? null);
   const calibrationRunning = liveReadiness?.firmwareState === "CALIBRATING";
   const canRunCalibration = Boolean(
     selectedDeviceId &&
@@ -232,7 +231,7 @@ export function CalibrationSettingsPanel({
       }
 
       try {
-        const readiness = await getReadiness(selectedDeviceId);
+        const readiness = await getDeviceReadiness(selectedDeviceId);
         if (!cancelled) {
           setLiveReadiness(readiness);
         }
@@ -394,7 +393,13 @@ export function CalibrationSettingsPanel({
     setMessage(null);
 
     try {
-      await onRunCalibration(selectedDeviceId, { profileId: selectedProfile.profileId });
+      await onRunCalibration(selectedDeviceId, {
+        profile_id: selectedProfile.profileId,
+        hall_delta: selectedProfile.hallDelta,
+        ref_pressure: selectedProfile.refPressure,
+        bladder_1_pressure: selectedProfile.bladder1Pressure,
+        bladder_2_pressure: selectedProfile.bladder2Pressure,
+      });
       setMessage(`Requested calibration for ${selectedDeviceId} using ${selectedProfile.name}.`);
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : "Failed to start calibration.");

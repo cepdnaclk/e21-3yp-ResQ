@@ -90,11 +90,25 @@ export interface FirmwareCalibrationEventPayload {
   event_id: 4000 | 4001 | 4002;
   reply_id?: string;
   status?: "ACK" | "NACK";
-  result?: "PASS" | "FAIL" | "CANCELLED";
+  result?: "PASS" | "PASS_WITH_WARNINGS" | "FAIL" | "CANCELLED";
   progress_id?: ProgressId;
   reason_id?: ReasonId;
   action_id?: ActionId;
   state?: FirmwareState;
+  pressure_0_kpa?: number;
+  pressure_0_kpa_valid?: boolean;
+  pressure_1_kpa?: number;
+  pressure_1_kpa_valid?: boolean;
+  pressure_2_kpa?: number;
+  pressure_2_kpa_valid?: boolean;
+  pressure_kpa_valid?: boolean;
+  hall_mm?: number;
+  hall_progress?: number;
+  hall_mm_valid?: boolean;
+  sample_pressure_kpa_valid?: boolean;
+  sample_hall_mm_valid?: boolean;
+  pressure_saturation_mask?: number;
+  full_depth_mm?: number;
   ts_ms: number;
 }
 

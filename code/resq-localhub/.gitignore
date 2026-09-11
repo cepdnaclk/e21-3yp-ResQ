@@ -2,8 +2,19 @@
 *.log
 logs/
 prompt_change.txt
-scripts/
-docs/
+scripts/*
+!scripts/telemetry-e2e/
+!scripts/telemetry-e2e/validate-sensor-stream.ps1
+!scripts/phase7-scaling/
+!scripts/phase7-scaling/**
+docs/*
+!docs/telemetry-api-update/
+docs/telemetry-api-update/*
+!docs/telemetry-api-update/phase-5-frontend-sensor-stream.md
+!docs/telemetry-api-update/phase-6-end-to-end-validation.md
+!docs/telemetry-api-update/phase-7-hardware-validation.md
+!docs/telemetry-api-update/fixtures/
+!docs/telemetry-api-update/fixtures/sensor-stream-contract-fixtures.json
 
 # Environment files
 .env
@@ -17,6 +28,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+**/__pycache__/
+*.py[cod]
 
 # Tauri / Rust
 src-tauri/target/

@@ -1,4 +1,4 @@
-export type LiveMetricSourceMode = "real" | "simulator" | "calibration" | "debug";
+export type LiveMetricSourceMode = "real" | "simulator" | "calibration" | "debug" | "hall";
 
 export const LIVE_CONNECTION_STATES = [
   "CONNECTING",
@@ -40,6 +40,7 @@ export type LiveSessionStatus = {
   active: boolean;
   startedAt?: string | number | null;
   endedAt?: string | number | null;
+  profileId?: string | null;
   scenario?: string | null;
   notes?: string | null;
 };
@@ -52,17 +53,29 @@ export type LiveMetricPayload = {
   tsMs?: number | null;
   timestamp?: string | number | null;
   depthMm: number | null;
+  /** Stable five-sample mean followed by EMA; scoring only. */
+  depthMmScored?: number | null;
   depthProgress?: number | null;
   depthOk?: boolean | null;
   rateCpm: number | null;
   recoilOk: boolean | null;
+  recoilPct?: number | null;
+  /** Stable five-compression mean followed by EMA; scoring only. */
+  recoilPctScored?: number | null;
   recoilOkCount?: number | null;
   incompleteRecoilCount?: number | null;
   pauseS: number | null;
   compressionCount: number | null;
+  completedCompressionCount?: number | null;
+  depthOkCompressionCount?: number | null;
   validCompressionCount?: number | null;
+  lastCompressionPeakDepthMm?: number | null;
+  averageCompletedCompressionPeakDepthMm?: number | null;
+  /** Deprecated firmware compatibility aliases. */
+  lastCompressionDepthMm?: number | null;
+  averageCompressionDepthMm?: number | null;
   handPlacement: string | null;
-  pressureBalancePct?: number | null;
+  pressureBalanceScorePct?: number | null;
   flags: string | string[] | null;
   sessionActive?: boolean | null;
   firmwareState?: string | null;
@@ -73,8 +86,6 @@ export type LiveMetricPayload = {
   actionId?: number | null;
   progressId?: number | null;
   sourceMode?: LiveMetricSourceMode;
-  rawPayload?: unknown;
-  debugRaw?: unknown;
 };
 
 export type LiveFallbackSnapshot = {

@@ -130,10 +130,52 @@ static const calibration_reason_entry_t REASON_TABLE[] = {
         CAL_ACTION_CHECK_SENSOR_AND_RETRY
     },
     {
+        CAL_REASON_PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE,
+        "PRESSURE_SENSOR_SATURATED_USING_LAST_STABLE",
+        "Pressure sensor saturated or unusable; continuing with last stable pressure state and Hall sensor",
+        CAL_ACTION_NONE
+    },
+    {
         CAL_REASON_NVS_SAVE_FAILED,
         "NVS_SAVE_FAILED",
         "Calibration values were captured but could not be saved to NVS",
         CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_CORRUPT,
+        "CORRUPT",
+        "Calibration storage is corrupt and cannot be loaded",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_UNSUPPORTED_SCHEMA,
+        "UNSUPPORTED_SCHEMA",
+        "Calibration storage schema version is not supported",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_IO_ERROR,
+        "IO_ERROR",
+        "Calibration NVS I/O error occurred",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_COMMIT_VERIFICATION_FAILED,
+        "COMMIT_VERIFICATION_FAILED",
+        "Calibration commit succeeded but committed record could not be verified",
+        CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE
+    },
+    {
+        CAL_REASON_GENERATION_EXHAUSTED,
+        "GENERATION_EXHAUSTED",
+        "Calibration generation counter has been exhausted",
+        CAL_ACTION_MOVE_TO_ERROR
+    },
+    {
+        CAL_REASON_PROFILE_HASH_MISMATCH,
+        "PROFILE_HASH_MISMATCH",
+        "Calibration profile hash does not match the committed record",
+        CAL_ACTION_SEND_VALID_PAYLOAD
     },
     {
         CAL_REASON_MQTT_DISCONNECTED_DURING_CALIBRATION,
@@ -173,8 +215,8 @@ static const calibration_action_entry_t ACTION_TABLE[] = {
     },
     {
         CAL_ACTION_BUTTON_1_RETRY_BUTTON_2_IDLE,
-        "BUTTON_1_RETRY_BUTTON_2_IDLE",
-        "Press BUTTON_1 to retry calibration, or BUTTON_2 to return to paired idle"
+        "RETRY_OR_RETURN_IDLE_VIA_MQTT",
+        "Send cmd/calibration/start to retry, or cmd/calibration/cancel to return to paired idle"
     },
     {
         CAL_ACTION_CHECK_SENSOR_AND_RETRY,
@@ -183,8 +225,8 @@ static const calibration_action_entry_t ACTION_TABLE[] = {
     },
     {
         CAL_ACTION_BUTTON_1_CONTINUE_BUTTON_2_IDLE,
-        "BUTTON_1_CONTINUE_BUTTON_2_IDLE",
-        "Press BUTTON_1 to continue or retry from the last safe process, or BUTTON_2 to return to paired idle"
+        "CONTINUE_OR_RETURN_IDLE_VIA_MQTT",
+        "Use the correlated MQTT calibration commands to continue, retry, or return to paired idle"
     },
     {
         CAL_ACTION_MOVE_TO_PAIRED_IDLE_DROP_TEMP,

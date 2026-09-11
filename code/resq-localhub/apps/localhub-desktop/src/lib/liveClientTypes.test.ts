@@ -17,7 +17,6 @@ describe("live telemetry normalization", () => {
       handPlacement: "CENTER",
       flags: ["DEPTH_OK", "RATE_OK", "RECOIL_OK"],
       sourceMode: "simulator",
-      debugRaw: { hallRaw: 3420 },
     });
 
     expect(result.ok).toBe(true);
@@ -37,8 +36,9 @@ describe("live telemetry normalization", () => {
       handPlacement: "CENTER",
       flags: ["DEPTH_OK", "RATE_OK", "RECOIL_OK"],
       sourceMode: "simulator",
-      debugRaw: { hallRaw: 3420 },
     });
+    expect(result.value).not.toHaveProperty("debugRaw");
+    expect(result.value).not.toHaveProperty("rawPayload");
   });
 
   it("converts safe legacy simulator fields without requiring raw values in the UI", () => {
@@ -80,6 +80,25 @@ describe("live telemetry normalization", () => {
     }
     expect(result.reason).toContain("required metric-first fields");
     expect(toLiveMetric({ deviceId: "M01", sessionId: "S-TEST-001" })).toBeNull();
+  });
+
+  it("maps Hall depth source from pressure-degraded firmware telemetry", () => {
+    const metric = toLiveMetric({
+      device_id: "M01",
+      session_id: "S-HALL-1",
+      depth_progress: 0.64,
+      depth_source: "HALL",
+      rate_cpm: 109,
+      pressure_valid: false,
+      pressure_degraded: true,
+    });
+
+    expect(metric).toMatchObject({
+      deviceId: "M01",
+      sessionId: "S-HALL-1",
+      depthProgress: 0.64,
+      sourceMode: "hall",
+    });
   });
 
   it("keeps strict selected device and session filtering", () => {

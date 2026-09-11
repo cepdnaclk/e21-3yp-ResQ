@@ -1,0 +1,14 @@
+Command: cmake -G Ninja -B D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test\build-codex3 -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Users\ganat\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=0 -DCCACHE_ENABLE=False D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test
+-- IDF_TARGET is not set, guessed 'esp32c3' from sdkconfig 'D:/Academics/SEM6/3YP/e21-3yp-ResQ/code/resq-firmware/test/sdkconfig'
+-- Found Git: C:/Program Files/Git/cmd/git.exe (found version "2.53.0.windows.2")
+-- Component directory C:/esp/v6.0/esp-idf/components/mqtt does not contain a CMakeLists.txt file. No component will be added
+-- git rev-parse returned 'fatal: detected dubious ownership in repository at 'C:/esp/v6.0/esp-idf'
+'C:/esp/v6.0/esp-idf' is owned by:
+	GanaLap/ganat (S-1-5-21-1898813726-705144253-279196215-1001)
+but the current user is:
+	GanaLap/CodexSandboxOffline (S-1-5-21-1898813726-705144253-279196215-1004)
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory C:/esp/v6.0/esp-idf'
+-- Minimal build - ON
+-- Configuring incomplete, errors occurred!

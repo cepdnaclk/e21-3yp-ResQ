@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lk.resq.localhub.model.LiveMetricPayload;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 final class TelemetryPayloadNormalizer {
 
@@ -44,30 +47,85 @@ final class TelemetryPayloadNormalizer {
             return TelemetryNormalizationResult.rejected("payload sessionId is missing", warnings);
         }
 
-        Double depthMm = firstDouble(payload, "depthMm", "depth_mm");
+        Boolean depthMmValid = firstBoolean(payload, "depthMmValid", "depth_mm_valid");
+        Double depthMm = firstDouble(payload, "depthMmLive", "depth_mm_live", "depthMm", "depth_mm");
+        Double depthMmScored = firstDouble(payload, "depthMmScored", "depth_mm_scored");
         Double depthProgress = firstDouble(payload, "depthProgress", "depth_progress");
-        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "mode"));
-        if (depthMm == null) {
+        String sourceMode = normalizeSourceMode(firstText(payload, "sourceMode", "source_mode", "depthSource", "depth_source", "mode"));
+
+        Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
+
+        Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
+        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
+        Double recoilPct = firstDouble(payload, "recoilPercentLive", "recoil_percent_live", "recoilPct", "recoil_pct");
+        Double recoilPctScored = firstDouble(payload, "recoilPercentScored", "recoil_percent_scored", "recoilPctScored", "recoil_pct_scored");
+        Double pauseS = firstDouble(payload, "pauseS", "pause_s");
+        if (depthMm == null && !Boolean.FALSE.equals(depthMmValid)) {
             depthMm = firstDouble(payload, "current_delta", "currentDelta");
             if (depthMm != null) {
                 warnings.add("used raw current_delta/currentDelta as fallback depthMm");
                 if (sourceMode == null || "real".equals(sourceMode)) {
                     sourceMode = "simulator";
                 }
+            } else if (depthProgress != null) {
+                depthMm = depthProgress * 50.0;
+                warnings.add("derived depthMm = depthProgress * 50.0 because depthMm is missing");
             }
         }
 
-        Double rateCpm = firstDouble(payload, "rateCpm", "rate_cpm");
-
-        Boolean depthOk = firstBoolean(payload, "depthOk", "depth_ok");
-        Boolean recoilOk = firstBoolean(payload, "recoilOk", "recoil_ok", "recoil");
-        Double pauseS = firstDouble(payload, "pauseS", "pause_s");
         Integer compressionCount = firstInt(payload, "compressionCount", "compression_count", "total_compressions", "totalCompressions");
+        Integer completedCompressionCount = firstInt(
+                payload,
+                "completedCompressionCount",
+                "completed_compression_count"
+        );
+        Integer depthOkCompressionCount = firstInt(
+                payload,
+                "depthOkCompressionCount",
+                "depth_ok_compression_count"
+        );
         Integer validCompressionCount = firstInt(payload, "validCompressionCount", "valid_compression_count");
+        Double lastCompressionPeakDepthMm = firstDouble(
+                payload,
+                "lastCompressionPeakDepthMm",
+                "last_compression_peak_depth_mm",
+                "lastCompressionDepthMm",
+                "last_compression_depth_mm"
+        );
+        Double averageCompletedCompressionPeakDepthMm = firstDouble(
+                payload,
+                "averageCompletedCompressionPeakDepthMm",
+                "average_completed_compression_peak_depth_mm",
+                "averageCompressionDepthMm",
+                "average_compression_depth_mm"
+        );
         Integer recoilOkCount = firstInt(payload, "recoilOkCount", "recoil_ok_count");
         Integer incompleteRecoilCount = firstInt(payload, "incompleteRecoilCount", "incomplete_recoil_count");
         String handPlacement = firstText(payload, "handPlacement", "hand_placement");
-        Double pressureBalancePct = firstDouble(payload, "pressureBalancePct", "pressure_balance_pct");
+        Double canonicalPressureBalanceScorePct = firstDouble(
+                payload,
+                "pressureBalanceScorePct",
+                "pressure_balance_score_pct"
+        );
+        Double legacyPressureBalanceScorePct = firstDouble(
+                payload,
+                "pressureBalancePct",
+                "pressure_balance_pct"
+        );
+        if (canonicalPressureBalanceScorePct != null
+                && legacyPressureBalanceScorePct != null
+                && Math.abs(canonicalPressureBalanceScorePct - legacyPressureBalanceScorePct) > 0.0100001) {
+            return TelemetryNormalizationResult.rejected(
+                    "pressure balance canonical field conflicts with legacy alias",
+                    warnings
+            );
+        }
+        Double pressureBalanceScorePct = canonicalPressureBalanceScorePct != null
+                ? canonicalPressureBalanceScorePct
+                : legacyPressureBalanceScorePct;
+        if (canonicalPressureBalanceScorePct == null && legacyPressureBalanceScorePct != null) {
+            warnings.add("normalized legacy pressure_balance_pct alias");
+        }
         Object flags = jsonValue(payload.get("flags"));
         if (flags == null) {
             flags = jsonValue(payload.get("quality_flags"));
@@ -83,7 +141,13 @@ final class TelemetryPayloadNormalizer {
             }
         }
 
-        if (depthMm == null && depthProgress == null && depthOk == null && rateCpm == null && recoilOk == null) {
+        String contradiction = metricContradiction(depthOk, recoilOk, pauseS, handPlacement, flags);
+        if (contradiction != null) {
+            return TelemetryNormalizationResult.rejectedContradiction(contradiction, warnings);
+        }
+
+        if (depthMm == null && depthProgress == null && depthOk == null && rateCpm == null
+                && recoilOk == null && recoilPct == null) {
             return TelemetryNormalizationResult.rejected("payload is missing required metric-first fields", warnings);
         }
 
@@ -91,11 +155,6 @@ final class TelemetryPayloadNormalizer {
             rateCpm = rateEstimatorRegistry.getOrEstimateRate(deviceId, sessionId, depthProgress, depthMm, firstLong(payload, "tsMs", "ts_ms"), rateCpm);
         } else if (rateEstimatorRegistry != null) {
             rateEstimatorRegistry.getOrEstimateRate(deviceId, sessionId, depthProgress, depthMm, firstLong(payload, "tsMs", "ts_ms"), rateCpm);
-        }
-
-        Object debugRaw = jsonValue(payload.get("debugRaw"));
-        if (debugRaw == null && looksLikeFirmwareTelemetry(payload)) {
-            debugRaw = jsonValue(payload);
         }
 
         LiveMetricPayload metric = new LiveMetricPayload(
@@ -106,20 +165,26 @@ final class TelemetryPayloadNormalizer {
                 firstLong(payload, "tsMs", "ts_ms"),
                 jsonValue(payload.get("timestamp")),
                 depthMm,
+                depthMmScored,
                 depthProgress,
                 depthOk,
                 rateCpm,
                 recoilOk,
+                recoilPct,
+                recoilPctScored,
                 pauseS,
                 compressionCount,
+                completedCompressionCount,
+                depthOkCompressionCount,
                 validCompressionCount,
+                lastCompressionPeakDepthMm,
+                averageCompletedCompressionPeakDepthMm,
                 recoilOkCount,
                 incompleteRecoilCount,
                 handPlacement,
                 flags,
-                pressureBalancePct,
-                sourceMode,
-                debugRaw
+                pressureBalanceScorePct,
+                sourceMode
         );
 
         String rangeError = validateRanges(metric);
@@ -127,7 +192,10 @@ final class TelemetryPayloadNormalizer {
             return TelemetryNormalizationResult.rejected(rangeError, warnings);
         }
 
-        return TelemetryNormalizationResult.accepted(metric, warnings);
+        MetricConsistency consistency = flags == null
+                ? MetricConsistency.VALID
+                : MetricConsistency.VALID_WITH_LEGACY_FLAGS;
+        return TelemetryNormalizationResult.accepted(metric, warnings, consistency);
     }
 
     private static boolean isInvalidRate(Double rate) {
@@ -147,11 +215,44 @@ final class TelemetryPayloadNormalizer {
         if (metric.pauseS() != null && (metric.pauseS() < 0.0 || metric.pauseS() > 600.0)) {
             return "pauseS is outside the accepted range";
         }
+        if (metric.depthMmScored() != null && (!Double.isFinite(metric.depthMmScored()) ||
+                metric.depthMmScored() < 0.0 || metric.depthMmScored() > 120.0)) {
+            return "depthMmScored is outside the accepted range";
+        }
+        if (metric.recoilPct() != null
+                && (metric.recoilPct().isNaN()
+                || metric.recoilPct().isInfinite()
+                || metric.recoilPct() < 0.0
+                || metric.recoilPct() > 100.0)) {
+            return "recoilPct is outside the accepted range";
+        }
+        if (metric.recoilPctScored() != null && (!Double.isFinite(metric.recoilPctScored()) ||
+                metric.recoilPctScored() < 0.0 || metric.recoilPctScored() > 100.0)) {
+            return "recoilPctScored is outside the accepted range";
+        }
         if (metric.compressionCount() != null && metric.compressionCount() < 0) {
             return "compressionCount cannot be negative";
         }
+        if (metric.completedCompressionCount() != null
+                && metric.completedCompressionCount() < 0) {
+            return "completedCompressionCount cannot be negative";
+        }
+        if (metric.depthOkCompressionCount() != null
+                && metric.depthOkCompressionCount() < 0) {
+            return "depthOkCompressionCount cannot be negative";
+        }
         if (metric.validCompressionCount() != null && metric.validCompressionCount() < 0) {
             return "validCompressionCount cannot be negative";
+        }
+        if (metric.lastCompressionPeakDepthMm() != null
+                && (metric.lastCompressionPeakDepthMm() < 0.0
+                || metric.lastCompressionPeakDepthMm() > 120.0)) {
+            return "lastCompressionPeakDepthMm is outside the accepted range";
+        }
+        if (metric.averageCompletedCompressionPeakDepthMm() != null
+                && (metric.averageCompletedCompressionPeakDepthMm() < 0.0
+                || metric.averageCompletedCompressionPeakDepthMm() > 120.0)) {
+            return "averageCompletedCompressionPeakDepthMm is outside the accepted range";
         }
         if (metric.recoilOkCount() != null && metric.recoilOkCount() < 0) {
             return "recoilOkCount cannot be negative";
@@ -159,9 +260,9 @@ final class TelemetryPayloadNormalizer {
         if (metric.incompleteRecoilCount() != null && metric.incompleteRecoilCount() < 0) {
             return "incompleteRecoilCount cannot be negative";
         }
-        if (metric.pressureBalancePct() != null
-                && (metric.pressureBalancePct() < 0.0 || metric.pressureBalancePct() > 100.0)) {
-            return "pressureBalancePct is outside the accepted range";
+        if (metric.pressureBalanceScorePct() != null
+                && (metric.pressureBalanceScorePct() < 0.0 || metric.pressureBalanceScorePct() > 100.0)) {
+            return "pressureBalanceScorePct is outside the accepted range";
         }
         if (metric.seq() != null && metric.seq() < 0) {
             return "seq cannot be negative";
@@ -184,7 +285,7 @@ final class TelemetryPayloadNormalizer {
         }
         String normalized = value.toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "real", "simulator", "calibration", "debug" -> normalized;
+            case "real", "simulator", "calibration", "debug", "hall" -> normalized;
             default -> "debug";
         };
     }
@@ -202,16 +303,6 @@ final class TelemetryPayloadNormalizer {
             case "HAND_PLACEMENT_WARNING", "BAD_HAND_PLACEMENT" -> "HAND_PLACEMENT_WARNING";
             default -> null;
         };
-    }
-
-    private static boolean looksLikeFirmwareTelemetry(JsonNode payload) {
-        return payload.has("depth_progress")
-                || payload.has("depthProgress")
-                || payload.has("depth_ok")
-                || payload.has("valid_compression_count")
-                || payload.has("quality_flags")
-                || payload.has("hand_placement")
-                || payload.has("pressure_balance_pct");
     }
 
     private static String firstText(JsonNode payload, String... keys) {
@@ -279,6 +370,63 @@ final class TelemetryPayloadNormalizer {
         return null;
     }
 
+    private static String metricContradiction(
+            Boolean depthOk,
+            Boolean recoilOk,
+            Double pauseS,
+            String handPlacement,
+            Object flags
+    ) {
+        Set<String> values = flagSet(flags);
+        if (Boolean.FALSE.equals(depthOk) && values.contains("DEPTH_OK")) {
+            return "depth_ok=false contradicts DEPTH_OK";
+        }
+        if (Boolean.TRUE.equals(depthOk)
+                && (values.contains("DEPTH_LOW") || values.contains("DEPTH_HIGH"))) {
+            return "depth_ok=true contradicts a depth failure flag";
+        }
+        if (Boolean.FALSE.equals(recoilOk) && values.contains("RECOIL_OK")) {
+            return "recoil_ok=false contradicts RECOIL_OK";
+        }
+        if (Boolean.TRUE.equals(recoilOk) && values.contains("RECOIL_INCOMPLETE")) {
+            return "recoil_ok=true contradicts RECOIL_INCOMPLETE";
+        }
+        if (pauseS != null && pauseS <= 0.0 && values.contains("PAUSE_DETECTED")) {
+            return "pause_s indicates no pause but flags contains PAUSE_DETECTED";
+        }
+        if ("CENTER".equalsIgnoreCase(handPlacement) && values.contains("HAND_PLACEMENT_WARNING")) {
+            return "centered hand placement contradicts HAND_PLACEMENT_WARNING";
+        }
+        return null;
+    }
+
+    private static Set<String> flagSet(Object flags) {
+        Set<String> values = new HashSet<>();
+        if (flags == null) {
+            return values;
+        }
+        if (flags instanceof String string) {
+            for (String value : string.split(",")) {
+                addFlag(values, value);
+            }
+            return values;
+        }
+        if (flags instanceof JsonNode node && node.isArray()) {
+            node.forEach(value -> addFlag(values, value.asText()));
+            return values;
+        }
+        if (flags instanceof Collection<?> collection) {
+            collection.forEach(value -> addFlag(values, String.valueOf(value)));
+        }
+        return values;
+    }
+
+    private static void addFlag(Set<String> values, String value) {
+        if (value != null && !value.isBlank()) {
+            values.add(value.trim().toUpperCase(Locale.ROOT));
+        }
+    }
+
     private static Object jsonValue(JsonNode node) {
         if (node == null || node.isNull()) {
             return null;
@@ -298,13 +446,39 @@ final class TelemetryPayloadNormalizer {
         return node;
     }
 
-    record TelemetryNormalizationResult(boolean ok, LiveMetricPayload value, String reason, List<String> warnings) {
-        private static TelemetryNormalizationResult accepted(LiveMetricPayload value, List<String> warnings) {
-            return new TelemetryNormalizationResult(true, value, null, List.copyOf(warnings));
+    enum MetricConsistency {
+        VALID,
+        VALID_WITH_LEGACY_FLAGS,
+        INVALID_CONTRADICTORY_METRICS
+    }
+
+    record TelemetryNormalizationResult(
+            boolean ok,
+            LiveMetricPayload value,
+            String reason,
+            List<String> warnings,
+            MetricConsistency consistency
+    ) {
+        private static TelemetryNormalizationResult accepted(
+                LiveMetricPayload value,
+                List<String> warnings,
+                MetricConsistency consistency
+        ) {
+            return new TelemetryNormalizationResult(true, value, null, List.copyOf(warnings), consistency);
         }
 
         private static TelemetryNormalizationResult rejected(String reason, List<String> warnings) {
-            return new TelemetryNormalizationResult(false, null, reason, List.copyOf(warnings));
+            return new TelemetryNormalizationResult(false, null, reason, List.copyOf(warnings), null);
+        }
+
+        private static TelemetryNormalizationResult rejectedContradiction(String reason, List<String> warnings) {
+            return new TelemetryNormalizationResult(
+                    false,
+                    null,
+                    reason,
+                    List.copyOf(warnings),
+                    MetricConsistency.INVALID_CONTRADICTORY_METRICS
+            );
         }
     }
 }

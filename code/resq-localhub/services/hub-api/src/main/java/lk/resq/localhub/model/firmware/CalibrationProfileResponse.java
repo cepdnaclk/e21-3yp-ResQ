@@ -11,6 +11,8 @@ public record CalibrationProfileResponse(
         boolean active,
         boolean defaultProfile,
         String createdAt,
-        String updatedAt
+        String updatedAt,
+        int version,
+        String profileHash
 ) {
 }

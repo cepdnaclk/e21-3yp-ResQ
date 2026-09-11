@@ -20,7 +20,7 @@ import lk.resq.localhub.model.cpr.CprTrendAnalysis;
 
 class CprInstructorCoachServiceTest {
 
-    private LocalSessionRepository sessionRepository;
+    private CprAiSessionRepository sessionRepository;
     private CprPerformanceAnalyzer performanceAnalyzer;
     private CprTrendAnalyzer trendAnalyzer;
     private LocalAuthRepository authRepository;
@@ -29,7 +29,7 @@ class CprInstructorCoachServiceTest {
 
     @BeforeEach
     void setUp() {
-        sessionRepository = mock(LocalSessionRepository.class);
+        sessionRepository = mock(CprAiSessionRepository.class);
         performanceAnalyzer = mock(CprPerformanceAnalyzer.class);
         trendAnalyzer = mock(CprTrendAnalyzer.class);
         authRepository = mock(LocalAuthRepository.class);

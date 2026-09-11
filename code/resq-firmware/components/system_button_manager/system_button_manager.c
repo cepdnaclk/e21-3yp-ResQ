@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 
 #include "driver/gpio.h"
 #include "esp_attr.h"
@@ -49,6 +50,8 @@ static bool s_initialized = false;
 static QueueHandle_t s_edge_queue = NULL;
 static QueueHandle_t s_event_queue = NULL;
 static TaskHandle_t s_button_task_handle = NULL;
+static _Atomic uint32_t s_missed_edge_mask;
+static _Atomic uint32_t s_dropped_edge_count;
 
 static button_runtime_t s_button_1 = {
     .gpio = BUTTON_1,
@@ -123,7 +126,9 @@ static bool turn_off_allowed_in_state(resq_state_t state)
     case RESQ_STATE_PAIRED_IDLE:
     case RESQ_STATE_READY_FOR_SESSION:
     case RESQ_STATE_CALIBRATING:
+    case RESQ_STATE_CALIBRATION_FAIL:
     case RESQ_STATE_SESSION_ACTIVE:
+    case RESQ_STATE_ERROR:
         return true;
 
     default:
@@ -134,10 +139,13 @@ static bool turn_off_allowed_in_state(resq_state_t state)
 static bool factory_reset_allowed_in_state(resq_state_t state)
 {
     switch (state) {
+    case RESQ_STATE_PROVISIONING:
     case RESQ_STATE_PAIRED_IDLE:
     case RESQ_STATE_READY_FOR_SESSION:
     case RESQ_STATE_CALIBRATING:
+    case RESQ_STATE_CALIBRATION_FAIL:
     case RESQ_STATE_SESSION_ACTIVE:
+    case RESQ_STATE_ERROR:
         return true;
 
     default:
@@ -169,7 +177,14 @@ static void IRAM_ATTR button_gpio_isr(void *arg)
     BaseType_t higher_priority_task_woken = pdFALSE;
 
     if (s_edge_queue != NULL) {
-        xQueueSendFromISR(s_edge_queue, &event, &higher_priority_task_woken);
+        if (xQueueSendFromISR(s_edge_queue, &event,
+                              &higher_priority_task_woken) != pdTRUE) {
+            uint32_t bit = gpio == BUTTON_1 ? BIT0 : BIT1;
+            atomic_fetch_or_explicit(&s_missed_edge_mask, bit,
+                                     memory_order_relaxed);
+            atomic_fetch_add_explicit(&s_dropped_edge_count, 1,
+                                      memory_order_relaxed);
+        }
     }
 
     if (higher_priority_task_woken == pdTRUE) {
@@ -191,9 +206,7 @@ static void publish_event_for_button(button_runtime_t *button, TickType_t releas
     uint32_t duration_ms = (uint32_t)((now - button->press_start_tick) * portTICK_PERIOD_MS);
 
     system_button_press_type_t press_type =
-        (duration_ms >= SYSTEM_BUTTON_LONG_PRESS_MS)
-            ? SYSTEM_BUTTON_PRESS_LONG
-            : SYSTEM_BUTTON_PRESS_SHORT;
+        system_button_manager_classify_duration(duration_ms);
 
     system_button_event_t event = {
         .button_id = button->button_id,
@@ -217,6 +230,14 @@ static void publish_event_for_button(button_runtime_t *button, TickType_t releas
     }
 
     button->press_start_tick = 0;
+}
+
+system_button_press_type_t system_button_manager_classify_duration(
+    uint32_t duration_ms)
+{
+    return duration_ms >= SYSTEM_BUTTON_LONG_PRESS_MS
+               ? SYSTEM_BUTTON_PRESS_LONG
+               : SYSTEM_BUTTON_PRESS_SHORT;
 }
 
 static void update_button_state_from_edge(gpio_num_t gpio)
@@ -262,7 +283,34 @@ static void system_button_task(void *arg)
         if (xQueueReceive(s_edge_queue, &edge, pdMS_TO_TICKS(SYSTEM_BUTTON_TASK_POLL_MS)) == pdTRUE) {
             update_button_state_from_edge(edge.gpio);
         }
+
+        uint32_t missed = atomic_exchange_explicit(
+            &s_missed_edge_mask, 0, memory_order_acq_rel);
+        if ((missed & BIT0) != 0) update_button_state_from_edge(BUTTON_1);
+        if ((missed & BIT1) != 0) update_button_state_from_edge(BUTTON_2);
     }
+}
+
+system_button_action_t system_button_manager_action_for_event(
+    const system_button_event_t *event)
+{
+    if (event == NULL) {
+        return SYSTEM_BUTTON_ACTION_NONE;
+    }
+    if (event->press_type == SYSTEM_BUTTON_PRESS_LONG) {
+        if (event->button_id == SYSTEM_BUTTON_ID_1) {
+            return SYSTEM_BUTTON_ACTION_TURN_OFF;
+        }
+        if (event->button_id == SYSTEM_BUTTON_ID_2) {
+            return SYSTEM_BUTTON_ACTION_FACTORY_RESET;
+        }
+    }
+    return SYSTEM_BUTTON_ACTION_NONE;
+}
+
+uint32_t system_button_manager_get_dropped_edge_count(void)
+{
+    return atomic_load_explicit(&s_dropped_edge_count, memory_order_relaxed);
 }
 
 esp_err_t system_button_manager_init(void)
@@ -376,7 +424,7 @@ void system_button_manager_drain_events(resq_state_t current_state)
 
 void system_button_manager_drain_actions(resq_state_t current_state)
 {
-    system_button_manager_drain_events(current_state);
+    (void)system_button_manager_poll(current_state);
 }
 
 system_button_action_t system_button_manager_poll(resq_state_t current_state)
@@ -389,25 +437,12 @@ system_button_action_t system_button_manager_poll(resq_state_t current_state)
     system_button_action_t selected_action = SYSTEM_BUTTON_ACTION_NONE;
 
     while (system_button_manager_take_event(&event)) {
-        if (event.press_type != SYSTEM_BUTTON_PRESS_LONG) {
-            ESP_LOGI(TAG,
-                     "Ignoring short press in global action path button=%s state=%s",
-                     system_button_id_to_string(event.button_id),
-                     resq_state_to_string(current_state));
-            continue;
-        }
-
-        system_button_action_t action = SYSTEM_BUTTON_ACTION_NONE;
-
-        if (event.button_id == SYSTEM_BUTTON_ID_1) {
-            action = SYSTEM_BUTTON_ACTION_TURN_OFF;
-        } else if (event.button_id == SYSTEM_BUTTON_ID_2) {
-            action = SYSTEM_BUTTON_ACTION_FACTORY_RESET;
-        }
+        system_button_action_t action =
+            system_button_manager_action_for_event(&event);
 
         if (!action_allowed_in_state(current_state, action)) {
             ESP_LOGW(TAG,
-                     "Ignoring long press action=%s in state=%s",
+                     "Ignoring button action=%s in state=%s",
                      system_button_action_to_string(action),
                      resq_state_to_string(current_state));
             continue;

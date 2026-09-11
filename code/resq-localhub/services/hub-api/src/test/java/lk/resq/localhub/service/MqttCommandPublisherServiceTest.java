@@ -36,13 +36,15 @@ class MqttCommandPublisherServiceTest {
         );
 
         assertThat(result.topic()).isEqualTo(FirmwareTopics.sessionStartCommandTopic("M01"));
-        assertThat(result.requestId()).isEqualTo("req-300-0001");
-        assertThat(result.payload()).containsEntry("request_id", "req-300-0001");
+        assertThat(result.requestId()).startsWith("req-300-a4f18d2c-");
+        assertThat(result.payload()).containsEntry("request_id", result.requestId());
         assertThat(result.payload()).containsEntry("session_id", "S-100");
         assertThat(result.payload()).containsEntry("profile_id", "ChestCompressions");
         assertThat(result.payload()).containsEntry("issued_at_ms", 1704067200000L);
         assertThat(publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.SESSION_START);
-        FirmwareCommandRequestRecord stored = repository.findCommandByRequestId("req-300-0001").orElseThrow();
+        assertThat(publisher.lastQos).isEqualTo(1);
+        assertThat(publisher.lastRetained).isFalse();
+        FirmwareCommandRequestRecord stored = repository.findCommandByRequestId(result.requestId()).orElseThrow();
         assertThat(stored.status()).isEqualTo("PUBLISHED");
         assertThat(stored.topic()).isEqualTo(FirmwareTopics.sessionStartCommandTopic("M01"));
         assertThat(stored.deviceId()).isEqualTo("M01");
@@ -62,20 +64,82 @@ class MqttCommandPublisherServiceTest {
                 Instant.parse("2024-01-01T00:05:00Z")
         )).isInstanceOf(MqttCommandPublishException.class);
 
-        FirmwareCommandRequestRecord stored = repository.findCommandByRequestId("req-301-0001").orElseThrow();
+        FirmwareCommandRequestRecord stored = repository.findCommandByRequestId(publisher.lastRequestId).orElseThrow();
         assertThat(stored.status()).isEqualTo("FAILED");
         assertThat(stored.topic()).isEqualTo(FirmwareTopics.sessionStopCommandTopic("M01"));
         assertThat(stored.publishedAt()).isNull();
         assertThat(stored.completedAt()).isNotNull();
     }
 
+    @Test
+    void publishesTelemetryControlStartCommandWithValidatedInterval() {
+        FirmwarePersistenceRepository repository = newRepository();
+        CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository, false);
+
+        MqttCommandPublisherService.FirmwareCommandPublishResult result =
+                publisher.publishTelemetryControl("M01", "start", 200);
+
+        assertThat(result.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+        assertThat(result.requestId()).startsWith("req-151-a4f18d2c-");
+        assertThat(result.payload()).containsEntry("request_id", result.requestId());
+        assertThat(result.payload()).containsEntry("action", "START");
+        assertThat(result.payload()).containsEntry("interval_ms", 200);
+        assertThat(publisher.lastCommandTypeId).isEqualTo(FirmwareCommandTypeId.TELEMETRY_CONTROL);
+
+        FirmwareCommandRequestRecord stored = repository.findCommandByRequestId(result.requestId()).orElseThrow();
+        assertThat(stored.status()).isEqualTo("PUBLISHED");
+        assertThat(stored.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+        assertThat(stored.commandTypeId()).isEqualTo(FirmwareCommandTypeId.TELEMETRY_CONTROL.value());
+    }
+
+    @Test
+    void rejectsTelemetryControlStartWithoutValidInterval() {
+        FirmwarePersistenceRepository repository = newRepository();
+        CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository, false);
+
+        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("interval_ms is required");
+        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", 49))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("between 50 and 1000");
+        assertThatThrownBy(() -> publisher.publishTelemetryControl("M01", "START", 1001))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("between 50 and 1000");
+    }
+
+    @Test
+    void publishesTelemetryControlStopWithoutIntervalOrSessionFields() {
+        FirmwarePersistenceRepository repository = newRepository();
+        CapturingPublisher publisher = new CapturingPublisher(objectMapper, repository, false);
+
+        MqttCommandPublisherService.FirmwareCommandPublishResult result =
+                publisher.publishTelemetryControl("M01", "stop", 200);
+
+        assertThat(result.topic()).isEqualTo(FirmwareTopics.telemetryCommandTopic("M01"));
+        assertThat(result.payload()).containsEntry("action", "STOP");
+        assertThat(result.payload()).doesNotContainKeys("interval_ms", "session_id", "sessionId");
+    }
+
     private static final class CapturingPublisher extends MqttCommandPublisherService {
         private String lastTopic;
+        private String lastRequestId;
+        private int lastQos = -1;
+        private boolean lastRetained = true;
         private FirmwareCommandTypeId lastCommandTypeId;
         private final boolean failPublish;
 
         private CapturingPublisher(ObjectMapper objectMapper, FirmwarePersistenceRepository repository, boolean failPublish) {
-            super(objectMapper, repository, "tcp://127.0.0.1:1", "test-publisher");
+            super(
+                    objectMapper,
+                    repository,
+                    "tcp://127.0.0.1:1",
+                    "test-publisher",
+                    null,
+                    null,
+                    new CommandRequestIdGenerator("a4f18d2c"),
+                    MqttQosPolicy.defaults()
+            );
             this.failPublish = failPublish;
         }
 
@@ -85,7 +149,14 @@ class MqttCommandPublisherServiceTest {
 
         @Override
         protected void publishToBroker(String topic, String jsonPayload) throws Exception {
+            publishToBroker(topic, jsonPayload, 1, false);
+        }
+
+        @Override
+        protected void publishToBroker(String topic, String jsonPayload, int qos, boolean retained) throws Exception {
             lastTopic = topic;
+            lastQos = qos;
+            lastRetained = retained;
             if (failPublish) {
                 throw new IllegalStateException("forced publish failure");
             }
@@ -96,9 +167,10 @@ class MqttCommandPublisherServiceTest {
                 String topic,
                 Map<String, Object> payload,
                 String action,
-                FirmwareCommandTypeId commandTypeId
+            FirmwareCommandTypeId commandTypeId
         ) {
             lastCommandTypeId = commandTypeId;
+            lastRequestId = String.valueOf(payload.get("request_id"));
             return super.publishFirmwareCommand(topic, payload, action, commandTypeId);
         }
     }

@@ -1,0 +1,10 @@
+{
+  "event_id": 2002,
+  "reply_id": "req-301-phase0-0002",
+  "status": "ACK",
+  "result": "INTERRUPTED",
+  "reason_id": "08701",
+  "state": "PAIRED_IDLE",
+  "session_id": "session-phase0-0003",
+  "ts_ms": 161000
+}

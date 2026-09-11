@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -28,7 +27,7 @@ public class TraineeRecordsRepository {
     }
 
     private Connection openConnection() throws SQLException {
-        return DriverManager.getConnection("jdbc:sqlite:" + databasePath);
+        return SqliteConnectionSupport.open("jdbc:sqlite:" + databasePath);
     }
 
     /**

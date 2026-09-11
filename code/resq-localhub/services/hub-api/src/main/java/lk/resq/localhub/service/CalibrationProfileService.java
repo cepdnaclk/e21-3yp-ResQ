@@ -14,10 +14,15 @@ import java.util.UUID;
 public class CalibrationProfileService {
 
     private final CalibrationProfileRepository calibrationProfileRepository;
+    private final CalibrationProfileFingerprintService fingerprintService;
 
-    public CalibrationProfileService(CalibrationProfileRepository calibrationProfileRepository) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public CalibrationProfileService(CalibrationProfileRepository calibrationProfileRepository, CalibrationProfileFingerprintService fingerprintService) {
         this.calibrationProfileRepository = calibrationProfileRepository;
+        this.fingerprintService = fingerprintService;
     }
+
+
 
     public List<CalibrationProfileResponse> listProfiles() {
         return calibrationProfileRepository.findAll().stream().map(this::toResponse).toList();
@@ -65,7 +70,8 @@ public class CalibrationProfileService {
                 true,
                 true,
                 existing.createdAt(),
-                now
+                now,
+                existing.version()
         );
         calibrationProfileRepository.setDefaultProfile(normalizedProfileId, now);
         return toResponse(updated);
@@ -98,7 +104,8 @@ public class CalibrationProfileService {
                 false,
                 existing.defaultProfile(),
                 existing.createdAt(),
-                now
+                now,
+                existing.version()
         ));
     }
 
@@ -134,6 +141,14 @@ public class CalibrationProfileService {
             throw new IllegalArgumentException("Default calibration profiles must remain active");
         }
 
+        boolean parametersChanged = (request != null) && (
+                (request.hallDelta() != null && !request.hallDelta().equals(existing.hallDelta()))
+                || (request.refPressure() != null && !request.refPressure().equals(existing.refPressure()))
+                || (request.bladder1Pressure() != null && !request.bladder1Pressure().equals(existing.bladder1Pressure()))
+                || (request.bladder2Pressure() != null && !request.bladder2Pressure().equals(existing.bladder2Pressure()))
+        );
+        int nextVersion = parametersChanged ? existing.version() + 1 : existing.version();
+
         return new CalibrationProfileRecord(
                 existing.profileId(),
                 name,
@@ -145,7 +160,8 @@ public class CalibrationProfileService {
                 active,
                 defaultProfile,
                 existing.createdAt(),
-                updatedAt
+                updatedAt,
+                nextVersion
         );
     }
 
@@ -177,7 +193,8 @@ public class CalibrationProfileService {
                 active,
                 resolvedDefault,
                 createdAt,
-                updatedAt
+                updatedAt,
+                1
         );
     }
 
@@ -213,6 +230,7 @@ public class CalibrationProfileService {
     }
 
     private CalibrationProfileResponse toResponse(CalibrationProfileRecord record) {
+        String hash = fingerprintService.computeHash(record);
         return new CalibrationProfileResponse(
                 record.profileId(),
                 record.name(),
@@ -224,7 +242,9 @@ public class CalibrationProfileService {
                 record.active(),
                 record.defaultProfile(),
                 record.createdAt(),
-                record.updatedAt()
+                record.updatedAt(),
+                record.version(),
+                hash
         );
     }
 }

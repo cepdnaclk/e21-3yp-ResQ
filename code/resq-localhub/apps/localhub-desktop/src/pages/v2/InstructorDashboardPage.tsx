@@ -1,10 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
-import { fetchLiveManikins } from "../../api/manikinsApi";
+import { useEffect, useState, useMemo, useRef } from "react";
+import { fetchLiveManikins, getDeviceReadiness } from "../../api/manikinsApi";
 import { fetchCourses } from "../../api/coursesApi";
 import { fetchTrainees } from "../../api/traineesApi";
 import { startSession, fetchCompletedSessions } from "../../api/sessionsApi";
 import { subscribeToManikinsLive } from "../../api/liveEventsClient";
-import type { ManikinLiveSummary } from "../../types/manikin";
+import type { ManikinLiveSummary, DeviceReadinessState } from "../../types/manikin";
 import type { Course } from "../../types/course";
 import type { TraineeRecord } from "../../types/trainee";
 import type { CompletedSession } from "../../types/session";
@@ -22,14 +22,14 @@ import { isDeviceReady, isSessionActive } from "../../utils/userFriendlyLabels";
 
 type InstructorDashboardPageProps = {
   onStartSession: (sessionId: string) => void;
-  onRunReadinessCheck: (deviceId: string) => void;
+  onRunCalibration: (deviceId: string) => void;
   onPairNewManikin: () => void;
   onViewRecentSessions: () => void;
 };
 
 export function InstructorDashboardPage({
   onStartSession,
-  onRunReadinessCheck,
+  onRunCalibration,
   onPairNewManikin,
   onViewRecentSessions,
 }: InstructorDashboardPageProps) {
@@ -47,6 +47,14 @@ export function InstructorDashboardPage({
   const [notes, setNotes] = useState("");
   const [startError, setStartError] = useState<string | null>(null);
   const [startLoading, setStartLoading] = useState(false);
+
+  // Device readiness states
+  const [readinessByDeviceId, setReadinessByDeviceId] = useState<Record<string, DeviceReadinessState>>({});
+  const [readinessLoading, setReadinessLoading] = useState<Record<string, boolean>>({});
+  const [readinessErrors, setReadinessErrors] = useState<Record<string, string | null>>({});
+  
+  // Track ongoing or completed fetches per deviceId to avoid infinite render/fetch loops
+  const fetchingTracker = useRef<Record<string, boolean>>({});
 
   // Load initial data
   async function loadInitialData() {
@@ -83,6 +91,33 @@ export function InstructorDashboardPage({
     };
   }, []);
 
+  // Fetch readiness for new devices
+  useEffect(() => {
+    if (manikins.length === 0) return;
+
+    manikins.forEach((m) => {
+      const devId = m.deviceId;
+      if (fetchingTracker.current[devId]) return;
+      fetchingTracker.current[devId] = true;
+
+      setReadinessLoading((prev) => ({ ...prev, [devId]: true }));
+      getDeviceReadiness(devId)
+        .then((res) => {
+          setReadinessByDeviceId((prev) => ({ ...prev, [devId]: res }));
+          setReadinessErrors((prev) => ({ ...prev, [devId]: null }));
+        })
+        .catch((err) => {
+          setReadinessErrors((prev) => ({
+            ...prev,
+            [devId]: err instanceof Error ? err.message : "Failed to fetch readiness",
+          }));
+        })
+        .finally(() => {
+          setReadinessLoading((prev) => ({ ...prev, [devId]: false }));
+        });
+    });
+  }, [manikins]);
+
   const counts = useMemo(() => {
     let ready = 0;
     let active = 0;
@@ -114,12 +149,20 @@ export function InstructorDashboardPage({
 
     setStartLoading(true);
     setStartError(null);
+    const selectedDevice = manikins.find((m) => m.deviceId === startingForDevice);
+    const profileId = selectedDevice?.profileId ?? null;
+    if (!profileId) {
+      setStartError("Calibrated profile is unavailable. Run calibration before starting.");
+      setStartLoading(false);
+      return;
+    }
 
     try {
       const res = await startSession({
         deviceId: startingForDevice,
         courseId: selectedCourseId,
         traineeId: selectedTraineeId,
+        profileId,
         scenario: selectedScenario,
         notes: notes,
       });
@@ -135,8 +178,13 @@ export function InstructorDashboardPage({
     return <LoadingState message="Loading instructor dashboard..." />;
   }
 
+  const isModalDeviceReady = startingForDevice ? (readinessByDeviceId[startingForDevice]?.readyForSession === true) : false;
+  const modalProfileId = startingForDevice
+    ? manikins.find((m) => m.deviceId === startingForDevice)?.profileId ?? null
+    : null;
+
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="app-page space-y-6">
       {/* Header */}
       <PageHeader
         title="Instructor Dashboard"
@@ -202,12 +250,31 @@ export function InstructorDashboardPage({
               <DeviceCard
                 key={m.deviceId}
                 manikin={m}
-                onRunReadinessCheck={onRunReadinessCheck}
+                onRunCalibration={onRunCalibration}
                 onOpenStartModal={(did) => {
                   setStartingForDevice(did);
                   setStartError(null);
+                  // Force fresh fetch on open modal
+                  setReadinessLoading((prev) => ({ ...prev, [did]: true }));
+                  getDeviceReadiness(did)
+                    .then((res) => {
+                      setReadinessByDeviceId((prev) => ({ ...prev, [did]: res }));
+                      setReadinessErrors((prev) => ({ ...prev, [did]: null }));
+                    })
+                    .catch((err) => {
+                      setReadinessErrors((prev) => ({
+                        ...prev,
+                        [did]: err instanceof Error ? err.message : "Failed to load",
+                      }));
+                    })
+                    .finally(() => {
+                      setReadinessLoading((prev) => ({ ...prev, [did]: false }));
+                    });
                 }}
                 onViewSession={onStartSession}
+                readiness={readinessByDeviceId[m.deviceId]}
+                readinessLoading={readinessLoading[m.deviceId]}
+                readinessError={readinessErrors[m.deviceId]}
               />
             ))}
           </div>
@@ -263,6 +330,15 @@ export function InstructorDashboardPage({
 
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Calibration Profile
+                </label>
+                <div className="block w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 bg-slate-50/50">
+                  {modalProfileId ?? "Unavailable"}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                   Scenario
                 </label>
                 <input
@@ -291,6 +367,12 @@ export function InstructorDashboardPage({
                 </div>
               )}
 
+              {!isModalDeviceReady && (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700 leading-normal text-center">
+                  {modalProfileId ? "Run calibration before starting a CPR session." : "Run calibration before starting a CPR session so the profile is available."}
+                </div>
+              )}
+
               <div className="flex gap-2.5 justify-end pt-4 border-t border-slate-100 mt-2">
                 <Button
                   type="button"
@@ -299,7 +381,11 @@ export function InstructorDashboardPage({
                 >
                   Cancel
                 </Button>
-                <Button type="submit" loading={startLoading}>
+                <Button
+                  type="submit"
+                  loading={startLoading}
+                  disabled={startLoading || !isModalDeviceReady || !modalProfileId}
+                >
                   Start Live Session
                 </Button>
               </div>

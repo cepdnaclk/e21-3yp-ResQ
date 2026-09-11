@@ -11,6 +11,8 @@ idf_component_register(
         runtime
         runtime_helpers
         mqtt_manager
+        telemetry_publisher
+        io_mode_manager
         esp_driver_gpio
         system_button_manager
         esp_timer

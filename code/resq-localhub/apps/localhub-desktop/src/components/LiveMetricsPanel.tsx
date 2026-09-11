@@ -80,7 +80,7 @@ export function LiveMetricsPanel({
         <MetricCard label="Recoil OK Count" value={formatCount(state.latestMetric?.recoilOkCount, unavailable)} muted={muted} />
         <MetricCard label="Incomplete Recoil" value={formatCount(state.latestMetric?.incompleteRecoilCount, unavailable)} muted={muted} />
         <MetricCard label="Hand Placement" value={unavailable ? "Offline" : state.latestMetric?.handPlacement ?? "-"} muted={muted} />
-        <MetricCard label="Pressure Balance" value={formatPercentage(state.latestMetric?.pressureBalancePct, unavailable)} muted={muted} />
+        <MetricCard label="Pressure Balance" value={formatPercentage(state.latestMetric?.pressureBalanceScorePct, unavailable)} muted={muted} />
       </div>
 
       <div style={{ display: "grid", gap: "6px" }}>

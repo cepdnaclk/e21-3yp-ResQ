@@ -39,6 +39,9 @@ typedef struct {
 
 esp_err_t system_button_manager_init(void);
 
+/** Number of ISR edges recovered after the bounded edge queue was full. */
+uint32_t system_button_manager_get_dropped_edge_count(void);
+
 /*
  * New centralized API.
  * Use this in state managers that need state-specific button behavior.
@@ -54,12 +57,22 @@ esp_err_t system_button_manager_wait_event(system_button_event_t *event,
  */
 bool system_button_manager_take_event(system_button_event_t *event);
 
+/** Pure duration classifier used by release-based event generation and tests. */
+system_button_press_type_t system_button_manager_classify_duration(
+    uint32_t duration_ms);
+
+/**
+ * Pure event-to-action mapping used by the global dispatcher.
+ * Short presses intentionally remain state-owned and map to NONE here.
+ */
+system_button_action_t system_button_manager_action_for_event(
+    const system_button_event_t *event);
+
 /*
- * Backward-compatible API for existing global long-press actions.
- * This should only return:
+ * Centralized API for global long-press actions:
  *   BUTTON_1 long press -> TURN_OFF
  *   BUTTON_2 long press -> FACTORY_RESET
- * Short presses return SYSTEM_BUTTON_ACTION_NONE.
+ * State managers that own short-press behavior consume raw events instead.
  */
 system_button_action_t system_button_manager_poll(resq_state_t current_state);
 

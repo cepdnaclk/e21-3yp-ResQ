@@ -23,6 +23,7 @@ export type SessionLiveView = {
   traineeId: string | null;
   active: boolean;
   startedAt: string | null;
+  profileId?: string | null;
   scenario: string | null;
   notes: string | null;
   lastSeen: string | null;
@@ -51,11 +52,15 @@ export type SessionLiveView = {
   /** @diagnostic */
   latestForce2: number | null;
 
-  pressureBalancePct: number | null;
+  pressureBalanceScorePct: number | null;
   pressureSkewed: boolean | null;
   latestMetric: import("@resq/shared").LiveMetricPayload | null;
   seq: number | null;
   connectionState: string | null;
   stale: boolean;
   offline: boolean;
+  lifecycleState?: import("./session").SessionLifecycleState | null;
+  requestId?: string | null;
+  recoveryStatus?: import("./session").SessionRecoveryStatus | null;
+  recoveryReason?: string | null;
 };

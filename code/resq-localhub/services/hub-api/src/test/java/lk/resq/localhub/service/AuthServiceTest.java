@@ -3,6 +3,7 @@ package lk.resq.localhub.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import lk.resq.localhub.model.CreateFirstAdminRequest;
 import lk.resq.localhub.model.AuthTokenIssue;
 import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.LoginRequest;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.io.IOException;
@@ -171,5 +173,134 @@ class AuthServiceTest {
         // 3. Login attempt must fail now despite shadow row existing
         assertThatThrownBy(() -> authService.login(request))
                 .isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void loginRejectsMissingCredentials() {
+        assertThatThrownBy(() -> authService.login(new LoginRequest(" ", "")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Username and password are required");
+    }
+
+    @Test
+    void setupFirstAdminRejectsExistingUsers() {
+        authRepository.createUser("u-10", "existing", "Existing User", encoder.encode("password123"), UserRole.ADMIN, Instant.now());
+
+        assertThatThrownBy(() -> authService.setupFirstAdmin(new CreateFirstAdminRequest("admin2", "Second Admin", "password123")))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("First-run setup is no longer available");
+    }
+
+    @Test
+    void setupFirstAdminRejectsShortPassword() {
+        assertThatThrownBy(() -> authService.setupFirstAdmin(new CreateFirstAdminRequest("admin2", "Second Admin", "short")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Password must be at least 8 characters long");
+    }
+
+    @Test
+    void requireAuthWorksForBearerHeader() {
+        AuthTokenIssue issue = createLocalLogin("u-20", "bearer", "Bearer User", "password123", UserRole.ADMIN);
+
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        when(request.getCookies()).thenReturn(null);
+        when(request.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + issue.token());
+
+        AuthUser user = authService.requireAuth(request);
+
+        assertThat(user.id()).isEqualTo("u-20");
+        assertThat(user.username()).isEqualTo("bearer");
+    }
+
+    @Test
+    void requireAuthRejectsMissingToken() {
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        when(request.getCookies()).thenReturn(null);
+        when(request.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn(null);
+
+        assertThatThrownBy(() -> authService.requireAuth(request))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("Authentication is required");
+    }
+
+    @Test
+    void requireRoleRejectsUnauthorizedRole() {
+        AuthTokenIssue issue = createLocalLogin("u-30", "trainee", "Trainee User", "password123", UserRole.TRAINEE);
+
+        HttpServletRequest request = requestWithToken(issue.token());
+
+        assertThatThrownBy(() -> authService.requireRole(request, UserRole.ADMIN))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("You do not have access to this resource");
+    }
+
+    @Test
+    void logoutRevokesTokenAndPreventsReuse() {
+        AuthTokenIssue issue = createLocalLogin("u-40", "logout", "Logout User", "password123", UserRole.ADMIN);
+        HttpServletRequest request = requestWithToken(issue.token());
+
+        authService.logout(request);
+
+        assertThatThrownBy(() -> authService.requireAuth(request))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("Authentication session expired");
+    }
+
+    @Test
+    void setCloudUserPasswordRejectsMissingCloudUser() {
+        AuthTokenIssue issue = createLocalLogin("u-50", "admin2", "Admin Two", "password123", UserRole.ADMIN);
+
+        assertThatThrownBy(() -> authService.setCloudUserPassword(requestWithToken(issue.token()), "missing-cloud-user", "password123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Synced cloud user missing-cloud-user was not found");
+    }
+
+    @Test
+    void setCloudUserPasswordRejectsShortPassword() {
+        AuthTokenIssue issue = createLocalLogin("u-60", "admin3", "Admin Three", "password123", UserRole.ADMIN);
+
+        assertThatThrownBy(() -> authService.setCloudUserPassword(requestWithToken(issue.token()), "missing-cloud-user", "short"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Password must be at least 8 characters long");
+    }
+
+    @Test
+    void disableUserRejectsSelfDisable() {
+        AuthTokenIssue issue = createLocalLogin("u-70", "admin4", "Admin Four", "password123", UserRole.ADMIN);
+
+        assertThatThrownBy(() -> authService.disableUser(requestWithToken(issue.token()), "u-70"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot disable your own active admin account");
+    }
+
+    @Test
+    void disableUserRejectsMissingUser() {
+        AuthTokenIssue issue = createLocalLogin("u-80", "admin5", "Admin Five", "password123", UserRole.ADMIN);
+
+        assertThatThrownBy(() -> authService.disableUser(requestWithToken(issue.token()), "missing-user"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("was not found");
+    }
+
+    @Test
+    void enableUserRejectsMissingUser() {
+        AuthTokenIssue issue = createLocalLogin("u-90", "admin6", "Admin Six", "password123", UserRole.ADMIN);
+
+        assertThatThrownBy(() -> authService.enableUser(requestWithToken(issue.token()), "missing-user"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("was not found");
+    }
+
+    private AuthTokenIssue createLocalLogin(String id, String username, String displayName, String password, UserRole role) {
+        authRepository.createUser(id, username, displayName, encoder.encode(password), role, Instant.now());
+        return authService.login(new LoginRequest(username, password));
+    }
+
+    private HttpServletRequest requestWithToken(String token) {
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Cookie cookie = new Cookie("RESQ_LOCALHUB_AUTH", token);
+        when(request.getCookies()).thenReturn(new Cookie[]{cookie});
+        when(request.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn(null);
+        return request;
     }
 }

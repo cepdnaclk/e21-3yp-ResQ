@@ -5,6 +5,7 @@ import java.util.Optional;
 
 public enum FirmwareCommandTypeId {
     DEBUG(100),
+    TELEMETRY_CONTROL(151),
     CALIBRATION_START(200),
     CALIBRATION_CANCEL(201),
     SESSION_START(300),

@@ -4,12 +4,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import lk.resq.localhub.model.ApiErrorResponse;
 import lk.resq.localhub.model.AuthUser;
 import lk.resq.localhub.model.UserRole;
+import lk.resq.localhub.model.firmware.DeviceReadinessState;
 import lk.resq.localhub.model.firmware.FirmwareCommandPublishResponse;
 import lk.resq.localhub.model.firmware.FirmwareDeviceDiagnosticsResponse;
-import lk.resq.localhub.model.firmware.FirmwareReadinessResponse;
 import lk.resq.localhub.service.AuthService;
+import lk.resq.localhub.service.DeviceReadinessService;
 import lk.resq.localhub.service.ForbiddenException;
-import lk.resq.localhub.service.FirmwareCalibrationService;
 import lk.resq.localhub.service.FirmwarePersistenceRepository;
 import lk.resq.localhub.service.MqttCommandPublishException;
 import lk.resq.localhub.service.MqttCommandPublisherService;
@@ -26,24 +26,24 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/firmware/devices/{deviceId}")
+@RequestMapping("/api/devices/{deviceId}/firmware")
 public class FirmwareDiagnosticsController {
 
     private final AuthService authService;
-    private final FirmwareCalibrationService firmwareCalibrationService;
+    private final DeviceReadinessService deviceReadinessService;
     private final FirmwarePersistenceRepository firmwarePersistenceRepository;
     private final MqttCommandPublisherService mqttCommandPublisherService;
     private final ManikinRegistryService manikinRegistryService;
 
     public FirmwareDiagnosticsController(
             AuthService authService,
-            FirmwareCalibrationService firmwareCalibrationService,
+            DeviceReadinessService deviceReadinessService,
             FirmwarePersistenceRepository firmwarePersistenceRepository,
             MqttCommandPublisherService mqttCommandPublisherService,
             ManikinRegistryService manikinRegistryService
     ) {
         this.authService = authService;
-        this.firmwareCalibrationService = firmwareCalibrationService;
+        this.deviceReadinessService = deviceReadinessService;
         this.firmwarePersistenceRepository = firmwarePersistenceRepository;
         this.mqttCommandPublisherService = mqttCommandPublisherService;
         this.manikinRegistryService = manikinRegistryService;
@@ -79,7 +79,7 @@ public class FirmwareDiagnosticsController {
     @GetMapping("/diagnostics")
     public ResponseEntity<?> diagnostics(HttpServletRequest request, @PathVariable String deviceId) {
         return runWithAuth(request, () -> {
-            FirmwareReadinessResponse readiness = firmwareCalibrationService.getLatestReadiness(deviceId);
+            DeviceReadinessState readiness = deviceReadinessService.getReadiness(deviceId);
             return ResponseEntity.ok(new FirmwareDeviceDiagnosticsResponse(
                     deviceId,
                     readiness,

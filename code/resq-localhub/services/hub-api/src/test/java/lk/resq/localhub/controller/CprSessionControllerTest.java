@@ -52,7 +52,7 @@ class CprSessionControllerTest {
         assertThat(saved.createdAt()).isNotNull();
 
         var listResponse = fixture.controller.listSessions("user-1", null,
-                saved.createdAt().minusSeconds(1).toString(), saved.createdAt().plusSeconds(1).toString(), "manikin-1");
+                saved.startedAt().minusSeconds(1).toString(), saved.startedAt().plusSeconds(1).toString(), "manikin-1");
         assertThat(listResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         List<CprSessionSummaryResponse> sessions = requireBody(listResponse.getBody());
         assertThat(sessions).hasSize(1);

@@ -19,10 +19,10 @@ class CalibrationProfileRepositoryTest {
         CalibrationProfileRecord defaultProfile = repository.findDefaultProfile().orElseThrow();
         assertThat(defaultProfile.profileId()).isEqualTo("adult-basic");
         assertThat(defaultProfile.name()).isEqualTo("Adult Basic");
-        assertThat(defaultProfile.hallDelta()).isEqualTo(620);
-        assertThat(defaultProfile.refPressure()).isEqualTo(20100);
-        assertThat(defaultProfile.bladder1Pressure()).isEqualTo(15000);
-        assertThat(defaultProfile.bladder2Pressure()).isEqualTo(15000);
+        assertThat(defaultProfile.hallDelta()).isEqualTo(240);
+        assertThat(defaultProfile.refPressure()).isEqualTo(1_320_000);
+        assertThat(defaultProfile.bladder1Pressure()).isEqualTo(4_150_000);
+        assertThat(defaultProfile.bladder2Pressure()).isEqualTo(4_150_000);
         assertThat(defaultProfile.active()).isTrue();
         assertThat(defaultProfile.defaultProfile()).isTrue();
     }
@@ -35,9 +35,9 @@ class CalibrationProfileRepositoryTest {
                 profile.profileId(),
                 profile.name(),
                 13500,
-                profile.refPressure(),
-                profile.bladder1Pressure(),
-                profile.bladder2Pressure(),
+                20100,
+                15000,
+                15000,
                 profile.description(),
                 profile.active(),
                 profile.defaultProfile(),
@@ -47,7 +47,38 @@ class CalibrationProfileRepositoryTest {
 
         repository.initialize();
 
-        assertThat(repository.findDefaultProfile().orElseThrow().hallDelta()).isEqualTo(620);
+        CalibrationProfileRecord migrated = repository.findDefaultProfile().orElseThrow();
+        assertThat(migrated.hallDelta()).isEqualTo(240);
+        assertThat(migrated.refPressure()).isEqualTo(1_320_000);
+        assertThat(migrated.bladder1Pressure()).isEqualTo(4_150_000);
+        assertThat(migrated.bladder2Pressure()).isEqualTo(4_150_000);
+    }
+
+    @Test
+    void initializeFinishesPartiallyAppliedLegacyDefaultMigration() {
+        CalibrationProfileRepository repository = newRepository();
+        CalibrationProfileRecord profile = repository.findDefaultProfile().orElseThrow();
+        repository.updateProfile(new CalibrationProfileRecord(
+                profile.profileId(),
+                profile.name(),
+                620,
+                20100,
+                15000,
+                15000,
+                profile.description(),
+                profile.active(),
+                profile.defaultProfile(),
+                profile.createdAt(),
+                profile.updatedAt()
+        ));
+
+        repository.initialize();
+
+        CalibrationProfileRecord migrated = repository.findDefaultProfile().orElseThrow();
+        assertThat(migrated.hallDelta()).isEqualTo(240);
+        assertThat(migrated.refPressure()).isEqualTo(1_320_000);
+        assertThat(migrated.bladder1Pressure()).isEqualTo(4_150_000);
+        assertThat(migrated.bladder2Pressure()).isEqualTo(4_150_000);
     }
 
     @Test

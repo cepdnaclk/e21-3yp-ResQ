@@ -1,18 +1,40 @@
 package lk.resq.localhub.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lk.resq.localhub.model.DeviceRegistrationRequest;
 import lk.resq.localhub.model.DeviceRegistrationResponse;
 import lk.resq.localhub.model.HubServiceInfoResponse;
 import lk.resq.localhub.service.DeviceRegistrationService;
 import lk.resq.localhub.service.HubServiceInfoService;
+import lk.resq.localhub.service.ManikinRegistryService;
 import lk.resq.localhub.service.MqttSubscriberService;
+import lk.resq.localhub.service.LiveStreamService;
+import lk.resq.localhub.service.CalibrationStreamService;
+import lk.resq.localhub.service.SensorStreamService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class DeviceRegistrationControllerTest {
+
+    @Test
+    void firmwareDeviceMacFieldMapsToCanonicalMac() throws Exception {
+        DeviceRegistrationRequest request = new ObjectMapper().readValue(
+                "{\"device_mac\":\"A0:B1:C2:D3:E4:F5\",\"firmware_version\":\"0.1.0\"}",
+                DeviceRegistrationRequest.class
+        );
+
+        assertThat(request.mac()).isEqualTo("A0:B1:C2:D3:E4:F5");
+        DeviceRegistrationResponse response = newFixture().deviceController
+                .registerDevice(request)
+                .getBody();
+        assertThat(response).isNotNull();
+        assertThat(response.deviceId()).startsWith("M");
+        assertThat(response.deviceId()).isNotEqualTo("M-DEV");
+    }
 
     @Test
     void registerDeviceAcceptsMinimalBodyWithoutManikinId() {
@@ -28,6 +50,10 @@ class DeviceRegistrationControllerTest {
         assertThat(response.getBody().deviceId()).startsWith("M");
         assertThat(response.getBody().mqttHost()).isEqualTo("192.168.8.187");
         assertThat(response.getBody().mqttPort()).isEqualTo(1883);
+
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId())).isPresent();
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId()).orElseThrow().online()).isTrue();
+        assertThat(fixture.registry.getLiveSummary(response.getBody().deviceId()).orElseThrow().state()).isEqualTo("ONLINE");
     }
 
     @Test
@@ -89,9 +115,9 @@ class DeviceRegistrationControllerTest {
                 false,
                 false
         );
-
-        DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService);
-
+            ManikinRegistryService registry = new ManikinRegistryService(12);
+            DeviceRegistrationService registrationService = new DeviceRegistrationService(serviceInfoService, registry);
+        @SuppressWarnings("unchecked")
         ObjectProvider<MqttSubscriberService> mqttProvider = new ObjectProvider<>() {
             @Override
             public MqttSubscriberService getObject(Object... args) {
@@ -121,13 +147,18 @@ class DeviceRegistrationControllerTest {
 
         return new Fixture(
                 new DeviceRegistrationController(registrationService),
-                new HubHealthController(serviceInfoService, mqttProvider)
+                new HubHealthController(
+                        serviceInfoService,
+                        mqttProvider,
+                        registry,
+                        mock(LiveStreamService.class),
+                        mock(CalibrationStreamService.class),
+                        mock(SensorStreamService.class)
+                ),
+                registry
         );
     }
 
-    private record Fixture(
-            DeviceRegistrationController deviceController,
-            HubHealthController hubController
-    ) {
+    private record Fixture(DeviceRegistrationController deviceController, HubHealthController hubController, ManikinRegistryService registry) {
     }
 }

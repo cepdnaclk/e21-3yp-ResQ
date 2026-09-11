@@ -19,6 +19,8 @@ extern "C" {
 
 typedef struct {
     esp_err_t (*initialize_components)(void);
+    firmware_error_reason_id_t (*initialization_error_reason)(void);
+    bool (*sensor_mode_enabled)(void);
 
     void (*network_set_defaults)(network_config_t *config);
     void (*calibration_set_defaults)(calibration_config_t *config);
@@ -28,13 +30,16 @@ typedef struct {
     esp_err_t (*load_network)(network_config_t *config);
     esp_err_t (*load_calibration)(calibration_config_t *config);
     esp_err_t (*save_network)(network_config_t *config);
-    esp_err_t (*save_calibration)(const calibration_config_t *config);
     esp_err_t (*clear_network)(void);
     esp_err_t (*clear_all)(void);
 
     esp_err_t (*provisioning_start)(void);
     esp_err_t (*provisioning_stop)(void);
     bool (*provisioning_has_saved_config)(void);
+    esp_err_t (*provisioning_take_saved_config)(network_config_t *out_config,
+                                                bool *out_available);
+    resq_io_mode_t (*io_mode_get)(void);
+    esp_err_t (*io_mode_request)(resq_io_mode_t mode);
 
     esp_err_t (*wifi_connect)(const char *ssid,
                               const char *password,
@@ -69,6 +74,7 @@ typedef struct {
                                         const char *ip_address,
                                         int wifi_rssi);
     esp_err_t (*start_heartbeat)(void);
+    esp_err_t (*stop_heartbeat)(void);
 
     resq_state_t (*paired_idle_run)(network_config_t *network_config,
                                     calibration_config_t *calibration_config,
@@ -96,7 +102,8 @@ typedef struct {
 
     bool (*session_is_active)(void);
     esp_err_t (*session_get_state)(session_state_t *state);
-    const char *(*session_get_id)(void);
+    esp_err_t (*session_get_id)(char *out_session_id,
+                                size_t out_session_id_len);
     esp_err_t (*session_stop)(const char *session_id);
 
     esp_err_t (*buzzer_stop)(void);
@@ -104,7 +111,11 @@ typedef struct {
     esp_err_t (*calibration_cancel)(void);
 
     void (*status_set_state)(resq_state_t state);
+    void (*status_set_both_leds_on)(bool enabled);
+    void (*status_stop)(void);
     system_button_action_t (*button_poll)(resq_state_t state);
+    bool (*button_take_event)(system_button_event_t *event);
+    void (*button_drain_events)(resq_state_t state);
     void (*button_drain_actions)(resq_state_t state);
 
     void (*delay_ms)(uint32_t delay_ms);
@@ -113,12 +124,19 @@ typedef struct {
 } resq_fsm_ops_t;
 
 typedef struct {
+    bool pending;
+    resq_io_mode_t target;
+    bool confirmation_in_progress;
+} provisioning_io_mode_request_t;
+
+typedef struct {
     resq_state_t current_state;
     bool has_entered_state;
     network_config_t network_config;
     calibration_config_t calibration_config;
     backend_registration_result_t backend_result;
     char ip_address[16];
+    provisioning_io_mode_request_t provisioning_io_mode_request;
     const resq_fsm_ops_t *ops;
 } resq_fsm_t;
 

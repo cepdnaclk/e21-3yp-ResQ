@@ -48,9 +48,9 @@ static const firmware_error_reason_entry_t REASON_TABLE[] = {
 
 static const firmware_error_action_entry_t ACTION_TABLE[] = {
     { FW_ACTION_NONE, "NO_ACTION", "No action required" },
-    { FW_ACTION_BUTTON_1_RETRY_BUTTON_2_PROVISIONING, "BUTTON_1_RETRY_BUTTON_2_PROVISIONING", "Press BUTTON_1 to retry, or BUTTON_2 to clear config and go provisioning" },
-    { FW_ACTION_BUTTON_1_RECONNECT_BUTTON_2_PROVISIONING, "BUTTON_1_RECONNECT_BUTTON_2_PROVISIONING", "Press BUTTON_1 to reconnect, or BUTTON_2 to clear config and go provisioning" },
-    { FW_ACTION_BUTTON_1_RESTART_BUTTON_2_PROVISIONING, "BUTTON_1_RESTART_BUTTON_2_PROVISIONING", "Press BUTTON_1 to restart firmware, or BUTTON_2 to clear config and go provisioning" },
+    { FW_ACTION_BUTTON_1_RETRY_BUTTON_2_PROVISIONING, "RETRY_OR_PROVISION_VIA_MQTT", "Use cmd/system/retry, or cmd/system/flush-config to clear network config and provision" },
+    { FW_ACTION_BUTTON_1_RECONNECT_BUTTON_2_PROVISIONING, "RECONNECT_OR_PROVISION_VIA_MQTT", "Use cmd/system/retry to reconnect, or cmd/system/flush-config to provision" },
+    { FW_ACTION_BUTTON_1_RESTART_BUTTON_2_PROVISIONING, "RESTART_OR_PROVISION_VIA_MQTT", "Use cmd/system/retry, cmd/system/reset, or cmd/system/flush-config as appropriate" },
     { FW_ACTION_CHECK_HARDWARE_AND_RETRY, "CHECK_HARDWARE_AND_RETRY", "Check sensor hardware and retry" },
     { FW_ACTION_CHECK_BACKEND_AND_RETRY, "CHECK_BACKEND_AND_RETRY", "Check backend URL/server and retry" },
     { FW_ACTION_CHECK_MQTT_AND_RETRY, "CHECK_MQTT_AND_RETRY", "Check MQTT broker and retry" },

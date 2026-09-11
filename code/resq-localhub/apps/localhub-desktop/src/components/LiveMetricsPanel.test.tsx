@@ -51,7 +51,7 @@ describe("LiveMetricsPanel", () => {
         recoilOkCount: 8,
         incompleteRecoilCount: 1,
         handPlacement: "CENTER",
-        pressureBalancePct: 91,
+        pressureBalanceScorePct: 91,
         flags: "DEPTH_OK,INCOMPLETE_RECOIL,HAND_CENTERED",
       },
       lastSeenAt: "2026-06-12T00:00:00Z",
@@ -90,7 +90,7 @@ describe("LiveMetricsPanel", () => {
           ...state,
           latestMetric: {
             ...state.latestMetric!,
-            pressureBalancePct: 19,
+            pressureBalanceScorePct: 19,
             tsMs: 260971,
           },
         }}

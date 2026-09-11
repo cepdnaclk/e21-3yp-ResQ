@@ -16,11 +16,11 @@ static const char *TAG = "buzzer_manager";
 static TaskHandle_t s_task = NULL;
 static SemaphoreHandle_t s_mutex = NULL;
 static EventGroupHandle_t s_task_events = NULL;
-static volatile bool s_running = false;
 static int s_target_cpm = 110;
 
 #define BUZZER_TASK_STARTED_BIT BIT0
 #define BUZZER_TASK_STOPPED_BIT BIT1
+#define BUZZER_TASK_STOP_REQUESTED_BIT BIT2
 #define BUZZER_TASK_START_TIMEOUT_MS 1000
 #define BUZZER_TASK_STOP_TIMEOUT_MS 1500
 
@@ -33,7 +33,8 @@ static void buzzer_task(void *arg)
 
     xEventGroupSetBits(s_task_events, BUZZER_TASK_STARTED_BIT);
 
-    while (s_running) {
+    while ((xEventGroupGetBits(s_task_events) &
+            BUZZER_TASK_STOP_REQUESTED_BIT) == 0) {
         gpio_set_level(BOARD_BUZZER_GPIO, 1);
         if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(pulse_ms)) > 0) {
             break;
@@ -49,7 +50,6 @@ static void buzzer_task(void *arg)
     gpio_set_level(BOARD_BUZZER_GPIO, 0);
 
     xSemaphoreTake(s_mutex, portMAX_DELAY);
-    s_running = false;
     s_task = NULL;
     xSemaphoreGive(s_mutex);
 
@@ -80,7 +80,6 @@ esp_err_t buzzer_manager_init(void)
     gpio_config(&io_conf);
     gpio_set_level(BOARD_BUZZER_GPIO, 0);
 
-    s_running = false;
     s_task = NULL;
     s_target_cpm = 110;
     xEventGroupSetBits(s_task_events, BUZZER_TASK_STOPPED_BIT);
@@ -97,19 +96,23 @@ esp_err_t buzzer_manager_start_metronome(int target_cpm)
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     if (s_task != NULL) {
-        esp_err_t result = s_running ? ESP_OK : ESP_ERR_INVALID_STATE;
+        EventBits_t bits = xEventGroupGetBits(s_task_events);
+        esp_err_t result =
+            (bits & BUZZER_TASK_STARTED_BIT) != 0 &&
+                    (bits & BUZZER_TASK_STOP_REQUESTED_BIT) == 0
+                ? ESP_OK
+                : ESP_ERR_INVALID_STATE;
         xSemaphoreGive(s_mutex);
         return result;
     }
 
     xEventGroupClearBits(s_task_events,
-                         BUZZER_TASK_STARTED_BIT | BUZZER_TASK_STOPPED_BIT);
+                         BUZZER_TASK_STARTED_BIT | BUZZER_TASK_STOPPED_BIT |
+                             BUZZER_TASK_STOP_REQUESTED_BIT);
     s_target_cpm = target_cpm > 0 ? target_cpm : 110;
-    s_running = true;
 
     BaseType_t ok = xTaskCreate(buzzer_task, "buzzer_task", 2048, NULL, 5, &s_task);
     if (ok != pdPASS) {
-        s_running = false;
         xSemaphoreGive(s_mutex);
         xEventGroupSetBits(s_task_events, BUZZER_TASK_STOPPED_BIT);
         return ESP_FAIL;
@@ -134,18 +137,17 @@ esp_err_t buzzer_manager_start_metronome(int target_cpm)
 
 esp_err_t buzzer_manager_stop(void)
 {
-    if (s_mutex == NULL || s_task_events == NULL) return ESP_ERR_INVALID_STATE;
+    if (s_mutex == NULL || s_task_events == NULL) return ESP_OK;
 
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return ESP_ERR_TIMEOUT;
 
     if (s_task == NULL) {
-        s_running = false;
         xSemaphoreGive(s_mutex);
         return ESP_OK;
     }
 
-    s_running = false;
     TaskHandle_t task = s_task;
+    xEventGroupSetBits(s_task_events, BUZZER_TASK_STOP_REQUESTED_BIT);
     xTaskNotifyGive(task);
 
     xSemaphoreGive(s_mutex);
@@ -165,12 +167,33 @@ esp_err_t buzzer_manager_stop(void)
     return ESP_OK;
 }
 
+esp_err_t buzzer_manager_beep_once(uint32_t duration_ms)
+{
+    if (s_mutex == NULL) return ESP_ERR_INVALID_STATE;
+    if (duration_ms == 0 || duration_ms > 1000) return ESP_ERR_INVALID_ARG;
+    if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_task != NULL) {
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    gpio_set_level(BOARD_BUZZER_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(duration_ms));
+    gpio_set_level(BOARD_BUZZER_GPIO, 0);
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
+}
+
 bool buzzer_manager_is_running(void)
 {
     bool running = false;
     if (s_mutex == NULL) return false;
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
-    running = s_running && s_task != NULL;
+    EventBits_t bits = xEventGroupGetBits(s_task_events);
+    running = s_task != NULL && (bits & BUZZER_TASK_STARTED_BIT) != 0 &&
+              (bits & BUZZER_TASK_STOP_REQUESTED_BIT) == 0;
     xSemaphoreGive(s_mutex);
     return running;
 }

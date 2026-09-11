@@ -8,6 +8,14 @@ import java.time.Instant;
 public record SessionStopCommandPayload(
         String sessionId,
         String deviceId,
-        Instant endedAt
+        Instant endedAt,
+        String requestId
 ) {
+    public SessionStopCommandPayload(
+            String sessionId,
+            String deviceId,
+            Instant endedAt
+    ) {
+        this(sessionId, deviceId, endedAt, null);
+    }
 }

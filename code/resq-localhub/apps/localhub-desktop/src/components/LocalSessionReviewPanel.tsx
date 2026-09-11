@@ -116,13 +116,13 @@ export function LocalSessionReviewPanel({
             {latestEndedSession.deviceId} • {latestEndedSession.sessionId}
           </div>
           <div style={styles.bannerMeta}>
-            Trainee {latestEndedSession.traineeId ?? "-"} • {formatDateTime(latestEndedSession.endedAt)} • Score {latestEndedSession.summary.score}
+            Trainee {latestEndedSession.traineeId ?? "-"} • {formatDateTime(latestEndedSession.endedAt)} • {formatScore(latestEndedSession.summary)}
           </div>
           <div style={styles.metricRow}>
             <Metric label="Samples" value={String(latestEndedSession.summary.sampleCount)} />
             <Metric label="Compressions" value={`${latestEndedSession.summary.validCompressions}/${latestEndedSession.summary.totalCompressions}`} />
             <Metric label="Depth" value={formatDepth(latestEndedSession.summary)} />
-            <Metric label="Rate" value={`${latestEndedSession.summary.avgRateCpm.toFixed(1)} cpm`} />
+            <Metric label="Rate" value={latestEndedSession.summary.avgRateCpm == null ? "—" : `${latestEndedSession.summary.avgRateCpm.toFixed(1)} cpm`} />
           </div>
         </div>
       ) : null}
@@ -156,7 +156,7 @@ export function LocalSessionReviewPanel({
                   <RadialProgress valid={session.summary.validCompressions} total={session.summary.totalCompressions} />
                 </div>
                 <div style={styles.sessionMetaRow}>
-                  <span>Avg rate {session.summary.avgRateCpm.toFixed(1)} cpm</span>
+                  <span>Avg rate {session.summary.avgRateCpm == null ? "—" : `${session.summary.avgRateCpm.toFixed(1)} cpm`}</span>
                   <span>{session.summary.validCompressions}/{session.summary.totalCompressions} compressions</span>
                 </div>
                 {session.summary.sampleCount === 0 ? (
@@ -190,8 +190,9 @@ export function LocalSessionReviewPanel({
               <Metric label="Duration" value={`${selectedSession.summary.durationSeconds}s`} />
               <Metric label="Samples" value={String(selectedSession.summary.sampleCount)} />
               <Metric label="Compressions" value={`${selectedSession.summary.validCompressions}/${selectedSession.summary.totalCompressions}`} />
-              <Metric label="Depth mm" value={selectedSession.summary.avgDepthMm.toFixed(1)} />
-              <Metric label="Rate" value={`${selectedSession.summary.avgRateCpm.toFixed(1)} cpm`} />
+              <Metric label="Score" value={formatScore(selectedSession.summary)} />
+              <Metric label="Depth mm" value={selectedSession.summary.avgDepthMm == null ? "—" : selectedSession.summary.avgDepthMm.toFixed(1)} />
+              <Metric label="Rate" value={selectedSession.summary.avgRateCpm == null ? "—" : `${selectedSession.summary.avgRateCpm.toFixed(1)} cpm`} />
             </div>
 
             <div style={styles.chartCard}>
@@ -390,10 +391,16 @@ function formatDepth(summary: CompletedSession["summary"]): string {
   }
 
   if (summary.avgDepthProgress != null) {
-    return `${summary.avgDepthMm.toFixed(1)} mm / ${formatProgress(summary.avgDepthProgress)}`;
+    return `${summary.avgDepthMm == null ? "—" : summary.avgDepthMm.toFixed(1)} mm / ${formatProgress(summary.avgDepthProgress)}`;
   }
 
-  return `${summary.avgDepthMm.toFixed(1)} mm`;
+  return summary.avgDepthMm == null ? "—" : `${summary.avgDepthMm.toFixed(1)} mm`;
+}
+
+function formatScore(summary: CompletedSession["summary"]): string {
+  const score = summary.overallScore;
+  if (score === null || score === undefined) return "Score unavailable";
+  return `Score ${score}%${summary.grade ? ` · ${summary.grade}` : ""}${summary.scoreProvisional ? " · Provisional" : ""}`;
 }
 
 function buildCompressionSeries(session: CompletedSession | null): Array<{ label: string; value: number }> {

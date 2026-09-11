@@ -11,10 +11,12 @@ idf_component_register(
         runtime_helpers
         mqtt_manager
         calibration_manager
+        telemetry_publisher
         wifi_manager
         esp_driver_gpio
         system_button_manager
         freertos
+
     PRIV_REQUIRES
         system_button_manager
 )

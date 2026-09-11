@@ -1,0 +1,9 @@
+idf_component_register(
+    SRCS
+        "test_backend_register_client.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        unity
+        backend_register_client
+)

@@ -10,6 +10,41 @@ public record SessionStartCommandPayload(
         String deviceId,
         String traineeId,
         Instant startedAt,
-        String scenario
+        String profileId,
+        String scenario,
+        String requestId,
+        Integer profileVersion,
+        String profileHash
 ) {
+    public SessionStartCommandPayload(
+            String sessionId,
+            String deviceId,
+            String traineeId,
+            Instant startedAt,
+            String profileId,
+            String scenario,
+            String requestId
+    ) {
+        this(sessionId, deviceId, traineeId, startedAt, profileId, scenario, requestId, null, null);
+    }
+    public SessionStartCommandPayload(
+            String sessionId,
+            String deviceId,
+            String traineeId,
+            Instant startedAt,
+            String scenario,
+            String requestId
+    ) {
+        this(sessionId, deviceId, traineeId, startedAt, null, scenario, requestId, null, null);
+    }
+
+    public SessionStartCommandPayload(
+            String sessionId,
+            String deviceId,
+            String traineeId,
+            Instant startedAt,
+            String scenario
+    ) {
+        this(sessionId, deviceId, traineeId, startedAt, null, scenario, null, null, null);
+    }
 }

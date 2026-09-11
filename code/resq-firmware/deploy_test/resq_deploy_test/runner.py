@@ -270,8 +270,7 @@ class QualificationRunner:
                 self.report.add("hardware", f"{field} changed", "FAIL", f"value remained {baseline[field]}")
             else:
                 self.report.add("hardware", f"{field} changed", "PASS", f"{baseline[field]} -> {stimulated[field]}")
-        self._guided("hardware", "button debounce", "Short-press BUTTON_1 (GPIO4) and BUTTON_2 (GPIO5); confirm no global reset or turn-off occurs.")
-        return "guided LEDs/buttons and objective sensor snapshot changes recorded"
+        return "guided LEDs and objective sensor snapshot changes recorded; mode-switch buttons require the separate reboot-aware acceptance check"
 
     def _calibration(self) -> str:
         if not self.config.qualification.run_calibration:

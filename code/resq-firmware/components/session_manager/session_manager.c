@@ -149,19 +149,29 @@ esp_err_t session_manager_get_state(session_state_t *out_state)
     return ESP_OK;
 }
 
-const char *session_manager_get_session_id(void)
+esp_err_t session_manager_get_session_id(char *out_session_id,
+                                         size_t out_session_id_len)
 {
-    static char empty[] = "";
+    if (out_session_id == NULL || out_session_id_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    out_session_id[0] = '\0';
 
-    if (s_mutex == NULL) return empty;
+    if (s_mutex == NULL) return ESP_ERR_INVALID_STATE;
 
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-        return empty;
+        return ESP_ERR_TIMEOUT;
     }
 
-    const char *ret = s_state.active ? s_state.session_id : empty;
+    if (s_state.active) {
+        size_t len = strnlen(s_state.session_id, sizeof(s_state.session_id));
+        if (len >= out_session_id_len) {
+            xSemaphoreGive(s_mutex);
+            return ESP_ERR_INVALID_SIZE;
+        }
+        memcpy(out_session_id, s_state.session_id, len + 1);
+    }
 
     xSemaphoreGive(s_mutex);
-
-    return ret;
+    return ESP_OK;
 }

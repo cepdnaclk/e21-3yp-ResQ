@@ -115,7 +115,7 @@ export function TechnicianDiagnosticsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="app-page space-y-6">
       <PageHeader
         title="Technician Diagnostics Console"
         subtitle="Troubleshoot wireless signal strength, firmware flags, and raw sensor readings."
@@ -262,7 +262,7 @@ export function TechnicianDiagnosticsPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
                   <Stat label="Force Sensor 1 (Raw)" value={diagnostics.liveSummary?.latestForce1 !== null ? String(diagnostics.liveSummary?.latestForce1) : "N/A"} />
                   <Stat label="Force Sensor 2 (Raw)" value={diagnostics.liveSummary?.latestForce2 !== null ? String(diagnostics.liveSummary?.latestForce2) : "N/A"} />
-                  <Stat label="Pressure Balance" value={diagnostics.liveSummary?.pressureBalancePct !== null ? `${diagnostics.liveSummary?.pressureBalancePct}%` : "N/A"} />
+                  <Stat label="Pressure Balance" value={diagnostics.liveSummary?.pressureBalanceScorePct !== null ? `${diagnostics.liveSummary?.pressureBalanceScorePct}%` : "N/A"} />
                   <Stat label="Pressure Skewed" value={diagnostics.liveSummary?.pressureSkewed ? "True (Skewed)" : "False"} />
                 </div>
               </Card>

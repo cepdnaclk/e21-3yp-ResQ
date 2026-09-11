@@ -1,0 +1,11 @@
+{
+  "event_id": 4002,
+  "reply_id": "req-200-phase0-0001",
+  "status": "ACK",
+  "result": "PASS",
+  "reason_id": "00000",
+  "state": "READY_FOR_SESSION",
+  "action_id": 0,
+  "profile_id": "adult-basic",
+  "ts_ms": 124000
+}

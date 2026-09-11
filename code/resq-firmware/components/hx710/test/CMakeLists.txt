@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "test_hx710.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        unity
+        hx710
+        io_mode_manager
+)

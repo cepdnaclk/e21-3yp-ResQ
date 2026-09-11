@@ -79,7 +79,7 @@ public class SessionExportController {
 
     private static String toCsv(List<SessionEndResponse> sessions) {
         StringBuilder builder = new StringBuilder();
-        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress,avgRateCpm,recoilPct,recoilOkCount,incompleteRecoilCount,pausesCount,score,latestFlags\n");
+        builder.append("sessionId,deviceId,traineeId,startedAt,endedAt,durationSeconds,sampleCount,totalCompressions,validCompressions,avgDepthMm,avgDepthProgress,avgRateCpm,recoilPct,recoilOkCount,incompleteRecoilCount,pausesCount,score,scoringVersion,overallScore,grade,depthScore,rateScore,recoilScore,handPlacementScore,compressionFractionScore,scoreCap,scoreCapReason,scoreProvisional,latestFlags\n");
 
         for (SessionEndResponse session : sessions) {
             builder.append(csv(session.sessionId())).append(',')
@@ -99,6 +99,17 @@ public class SessionExportController {
                     .append(session.summary().incompleteRecoilCount()).append(',')
                     .append(session.summary().pausesCount()).append(',')
                     .append(session.summary().score()).append(',')
+                    .append(csv(session.summary().scoringVersion())).append(',')
+                    .append(session.summary().overallScore() == null ? "" : session.summary().overallScore()).append(',')
+                    .append(csv(session.summary().grade())).append(',')
+                    .append(session.summary().depthScore() == null ? "" : session.summary().depthScore()).append(',')
+                    .append(session.summary().rateScore() == null ? "" : session.summary().rateScore()).append(',')
+                    .append(session.summary().recoilScore() == null ? "" : session.summary().recoilScore()).append(',')
+                    .append(session.summary().handPlacementScore() == null ? "" : session.summary().handPlacementScore()).append(',')
+                    .append(session.summary().compressionFractionScore() == null ? "" : session.summary().compressionFractionScore()).append(',')
+                    .append(session.summary().scoreCap() == null ? "" : session.summary().scoreCap()).append(',')
+                    .append(csv(session.summary().scoreCapReason())).append(',')
+                    .append(session.summary().scoreProvisional()).append(',')
                     .append(csv(session.summary().latestFlags()))
                     .append('\n');
         }

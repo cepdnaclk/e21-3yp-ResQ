@@ -5,53 +5,28 @@
 
 import { getJson, postJson } from "./localHubClient";
 import type {
-  FirmwareReadinessResponse,
-  FirmwareCalibrationCommandResponse,
+  FirmwareCommandPublishResponse,
   FirmwareDeviceDiagnosticsResponse,
-  FirmwareCalibrationStartRequest,
+  CalibrationProfileResponse,
 } from "../types/firmware";
 
-function devicePath(deviceId: string, suffix: string): string {
-  return `/api/firmware/devices/${encodeURIComponent(deviceId)}${suffix}`;
+/** GET /api/firmware/calibration-profiles */
+export async function getCalibrationProfiles(): Promise<CalibrationProfileResponse[]> {
+  return getJson<CalibrationProfileResponse[]>("/api/firmware/calibration-profiles");
 }
 
-/** GET /api/firmware/devices/{deviceId}/readiness */
-export async function fetchDeviceReadiness(deviceId: string): Promise<FirmwareReadinessResponse> {
-  const res = await getJson<any>(devicePath(deviceId, "/readiness"));
-  return {
-    ...res,
-    ready: res.readyForSession,
-  };
+/** GET /api/firmware/calibration-profiles/default */
+export async function getDefaultCalibrationProfile(): Promise<CalibrationProfileResponse | null> {
+  return getJson<CalibrationProfileResponse | null>("/api/firmware/calibration-profiles/default");
 }
 
-/** GET /api/firmware/devices/{deviceId}/calibration/latest */
-export async function fetchLatestCalibration(deviceId: string): Promise<FirmwareReadinessResponse> {
-  const res = await getJson<any>(devicePath(deviceId, "/calibration/latest"));
-  return {
-    ...res,
-    ready: res.readyForSession,
-  };
+function firmwareDevicePath(deviceId: string, suffix: string): string {
+  return `/api/devices/${encodeURIComponent(deviceId)}/firmware${suffix}`;
 }
 
-/** POST /api/firmware/devices/{deviceId}/calibration/start */
-export async function startCalibration(
-  deviceId: string,
-  request?: FirmwareCalibrationStartRequest,
-): Promise<FirmwareCalibrationCommandResponse> {
-  return postJson<FirmwareCalibrationCommandResponse>(
-    devicePath(deviceId, "/calibration/start"),
-    request ?? {},
-  );
-}
-
-/** POST /api/firmware/devices/{deviceId}/calibration/cancel */
-export async function cancelCalibration(deviceId: string): Promise<FirmwareCalibrationCommandResponse> {
-  return postJson<FirmwareCalibrationCommandResponse>(devicePath(deviceId, "/calibration/cancel"));
-}
-
-/** GET /api/firmware/devices/{deviceId}/diagnostics — full diagnostics bundle */
+/** GET /api/devices/{deviceId}/firmware/diagnostics — full diagnostics bundle */
 export async function fetchDeviceDiagnostics(deviceId: string): Promise<FirmwareDeviceDiagnosticsResponse> {
-  const res = await getJson<any>(devicePath(deviceId, "/diagnostics"));
+  const res = await getJson<any>(firmwareDevicePath(deviceId, "/diagnostics"));
   
   const rawSnapshots = res.recentDebugSnapshots || [];
   const debugSnapshots = rawSnapshots.map((snap: any) => {
@@ -84,7 +59,7 @@ export async function fetchDeviceDiagnostics(deviceId: string): Promise<Firmware
   };
 }
 
-/** POST /api/firmware/devices/{deviceId}/debug — request a debug snapshot from device */
-export async function requestDebugSnapshot(deviceId: string): Promise<FirmwareCalibrationCommandResponse> {
-  return postJson<FirmwareCalibrationCommandResponse>(devicePath(deviceId, "/debug"));
+/** POST /api/devices/{deviceId}/firmware/debug — request a debug snapshot from device */
+export async function requestDebugSnapshot(deviceId: string): Promise<FirmwareCommandPublishResponse> {
+  return postJson<FirmwareCommandPublishResponse>(firmwareDevicePath(deviceId, "/debug"));
 }

@@ -1,4 +1,4 @@
-import { fetchLocalHubApi } from "../lib/apiClient";
+import { postJson } from "./localHubClient";
 
 export interface CprCoachQueryRequest {
   userId: string;
@@ -41,35 +41,9 @@ export interface CprInstructorCoachQueryResponse {
 }
 
 export async function queryCoach(payload: CprCoachQueryRequest): Promise<CprCoachQueryResponse> {
-  const response = await fetchLocalHubApi("/api/coach/query", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || errorData.error || "Failed to query ResQ Coach.");
-  }
-
-  return response.json();
+  return postJson<CprCoachQueryResponse>("/api/coach/query", payload);
 }
 
 export async function queryInstructorCoach(request: CprInstructorCoachQueryRequest): Promise<CprInstructorCoachQueryResponse> {
-  const response = await fetchLocalHubApi("/api/instructor/coach/query", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(request)
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || errorData.error || "Failed to query instructor coach.");
-  }
-
-  return response.json();
+  return postJson<CprInstructorCoachQueryResponse>("/api/instructor/coach/query", request);
 }

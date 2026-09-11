@@ -36,13 +36,8 @@ import {
   fetchManikinRegistry,
   type ManikinRegistryEntry,
 } from "../lib/browserManikinRegistryApi";
-import {
-  cancelCalibration,
-  getReadiness,
-  startCalibration,
-  type FirmwareCalibrationStartPayload,
-  type FirmwareReadinessResponse,
-} from "../lib/browserFirmwareApi";
+import { cancelCalibration, getDeviceReadiness, startCalibration } from "../api/manikinsApi";
+import type { CalibrationStartRequest, DeviceReadinessState } from "../types/manikin";
 import { FirmwareDiagnosticsPanel } from "../components/FirmwareDiagnosticsPanel";
 import { CalibrationSettingsPanel } from "../components/CalibrationSettingsPanel";
 import { LocalSessionReviewPanel } from "../components/LocalSessionReviewPanel";
@@ -398,7 +393,7 @@ export default function InstructorDashboard({
   const [sessionCache, setSessionCache] = useState<Record<string, SessionStartResponse>>({});
   const [sessionActionByDevice, setSessionActionByDevice] = useState<Record<string, SessionActionState>>({});
   const [calibrationActionByDevice, setCalibrationActionByDevice] = useState<Record<string, CalibrationActionState>>({});
-  const [readinessByDevice, setReadinessByDevice] = useState<Record<string, FirmwareReadinessResponse | null>>({});
+  const [readinessByDevice, setReadinessByDevice] = useState<Record<string, DeviceReadinessState | null>>({});
   const [sessionMessageByDevice, setSessionMessageByDevice] = useState<Record<string, string | null>>({});
   const [recentSessions, setRecentSessions] = useState<CompletedSession[]>([]);
   const [recentSessionsLoading, setRecentSessionsLoading] = useState(true);
@@ -662,7 +657,7 @@ export default function InstructorDashboard({
       const entries = await Promise.all(
         deviceIds.map(async (deviceId) => {
           try {
-            const readiness = await getReadiness(deviceId);
+            const readiness = await getDeviceReadiness(deviceId);
             return [deviceId, readiness] as const;
           } catch {
             return [deviceId, null] as const;
@@ -722,11 +717,11 @@ export default function InstructorDashboard({
     return `${value.toFixed(1)} ${suffix}`;
   }
 
-  function readinessKnown(readiness: FirmwareReadinessResponse | null | undefined): boolean {
-    return Boolean(readiness?.firmwareState || readiness?.latestResult);
+  function readinessKnown(readiness: DeviceReadinessState | null | undefined): boolean {
+    return Boolean(readiness?.firmwareState || readiness?.lastResult);
   }
 
-  function startBlockedByReadiness(readiness: FirmwareReadinessResponse | null | undefined): boolean {
+  function startBlockedByReadiness(readiness: DeviceReadinessState | null | undefined): boolean {
     if (!readinessKnown(readiness)) {
       return false;
     }
@@ -832,6 +827,7 @@ export default function InstructorDashboard({
           active: true,
           scenario: manikin.activeSessionScenario,
           notes: null,
+          lifecycleState: manikin.activeSessionLifecycleState,
         }
       : null;
 
@@ -904,6 +900,15 @@ export default function InstructorDashboard({
       return;
     }
 
+    const profileId = manikin.profileId ?? null;
+    if (!profileId) {
+      setSessionMessageByDevice((current) => ({
+        ...current,
+        [deviceId]: "Run calibration before starting so the calibrated profile is available.",
+      }));
+      return;
+    }
+
     const actionState = sessionActionByDevice[deviceId] ?? "idle";
     if (actionState !== "idle") {
       return;
@@ -917,6 +922,7 @@ export default function InstructorDashboard({
         deviceId,
         courseId: draft.courseId,
         traineeId: draft.traineeId,
+        profileId,
         scenario: manikin.activeSessionScenario ?? null,
         notes: null,
       });
@@ -946,16 +952,33 @@ export default function InstructorDashboard({
 
     try {
       const response = await endSession({ sessionId });
-      setLatestEndedSession(response);
-      setSessionCache((current) => {
-        const next = { ...current };
-        delete next[deviceId];
-        return next;
-      });
-      setRecentSessions((current) => [response, ...current.filter((session) => session.sessionId !== response.sessionId)]);
+      setSessionCache((current) => ({
+        ...current,
+        [deviceId]: {
+          ...(current[deviceId] ?? {
+            sessionId,
+            deviceId,
+            traineeId: null,
+            startedAt: response.startedAt ?? new Date().toISOString(),
+            active: response.active,
+            scenario: null,
+            notes: null,
+          }),
+          active: response.active,
+          lifecycleState: response.state,
+          requestId: response.requestId,
+        },
+      }));
       setSessionMessageByDevice((current) => ({
         ...current,
-        [deviceId]: `Ended session ${sessionId}`,
+        [deviceId]:
+          response.state === "STOP_REJECTED"
+            ? `Stop rejected for session ${sessionId}. Retry is available.`
+            : response.state === "STOP_TIMEOUT"
+              ? `Stop confirmation timed out for session ${sessionId}.`
+              : response.state === "INTERRUPTED"
+                ? `Session ${sessionId} was interrupted by firmware.`
+                : `Stopping session ${sessionId}. Waiting for firmware confirmation.`,
       }));
     } catch (error) {
       setSessionMessageByDevice((current) => ({
@@ -969,14 +992,14 @@ export default function InstructorDashboard({
 
   async function refreshDeviceReadiness(deviceId: string) {
     try {
-      const readiness = await getReadiness(deviceId);
+      const readiness = await getDeviceReadiness(deviceId);
       setReadinessByDevice((current) => ({ ...current, [deviceId]: readiness }));
     } catch {
       setReadinessByDevice((current) => ({ ...current, [deviceId]: null }));
     }
   }
 
-  async function handleRunCalibration(deviceId: string, payload: FirmwareCalibrationStartPayload) {
+  async function handleRunCalibration(deviceId: string, payload: CalibrationStartRequest) {
     setCalibrationActionByDevice((current) => ({ ...current, [deviceId]: "starting" }));
     setSessionMessageByDevice((current) => ({ ...current, [deviceId]: null }));
 
@@ -1666,6 +1689,8 @@ export default function InstructorDashboard({
               {manikins.map((manikin) => {
                 const activeSession = getEffectiveSession(manikin.deviceId, manikin);
                 const active = Boolean(activeSession?.sessionId);
+                const activeLifecycleState = activeSession?.lifecycleState ?? manikin.activeSessionLifecycleState ?? null;
+                const stopPending = activeLifecycleState === "STOP_PENDING";
                 const traineeLink = activeSession?.sessionId ? buildTraineeUrl(activeSession.sessionId) : null;
                 const actionState = sessionActionByDevice[manikin.deviceId] ?? "idle";
                 const calibrationAction = calibrationActionByDevice[manikin.deviceId] ?? "idle";
@@ -1689,7 +1714,7 @@ export default function InstructorDashboard({
                   || !sessionDraft.traineeId;
                 const effectiveFirmwareState = readiness?.firmwareState ?? manikin.firmwareState ?? manikin.state ?? "unknown";
                 const isExpanded = expandedDeviceDetails[manikin.deviceId] ?? false;
-                const calibrationProgress = progressFromId(readiness?.progressId);
+                const calibrationProgress = progressFromId(readiness?.currentProgressId);
                 const isCalibrating = effectiveFirmwareState === "CALIBRATING";
 
                 return (
@@ -1706,7 +1731,7 @@ export default function InstructorDashboard({
                         <div className="device-card__chips">
                           <Chip icon={<DeviceMetricIcon kind="id" />}>{manikin.ip ?? "No IP"} · FW {manikin.fw ?? "unknown"}</Chip>
                           <Chip icon={<DeviceMetricIcon kind="seen" />}>{manikin.lastSeen ? `Last seen ${new Date(manikin.lastSeen).toLocaleTimeString()}` : "Never seen"}</Chip>
-                          <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.calibrated ? "Calibrated" : "Not calibrated"}</Chip>
+                          <Chip icon={<DeviceMetricIcon kind="calibrated" />}>{readiness?.readyForSession ? "Calibrated" : "Not calibrated"}</Chip>
                         </div>
                       </div>
                       <div className="device-card__status-row">
@@ -1739,11 +1764,11 @@ export default function InstructorDashboard({
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "4px 10px", color: "#475569", fontSize: "0.82rem" }}>
                         <span>Firmware: {readiness?.firmwareState ?? "-"}</span>
-                        <span>Calibrated: {readiness ? readiness.calibrated ? "Yes" : "No" : "-"}</span>
-                        <span>Result: {readiness?.latestResult ?? "-"}</span>
-                        <span>Progress: {readiness?.progressId ?? "-"}</span>
-                        <span>Reason: {readiness?.reasonId ?? "-"}</span>
-                        <span>Action: {readiness?.actionId ?? "-"}</span>
+                        <span>Calibrated: {readiness ? readiness.readyForSession ? "Yes" : "No" : "-"}</span>
+                        <span>Result: {readiness?.lastResult ?? "-"}</span>
+                        <span>Progress: {readiness?.currentProgressId ?? "-"}</span>
+                        <span>Reason: {readiness?.lastReasonId ?? "-"}</span>
+                        <span>Action: {readiness?.lastActionId ?? "-"}</span>
                       </div>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                         <button
@@ -1885,18 +1910,18 @@ export default function InstructorDashboard({
                           <button
                             type="button"
                             onClick={() => handleEndSession(manikin.deviceId, activeSession!.sessionId)}
-                            disabled={actionState !== "idle"}
+                            disabled={actionState !== "idle" || stopPending}
                             style={{
                               padding: "8px 12px",
                               borderRadius: "6px",
                               border: "1px solid #991b1b",
-                              background: actionState !== "idle" ? "#e2e8f0" : "#991b1b",
-                              color: actionState !== "idle" ? "#64748b" : "#ffffff",
-                              cursor: actionState !== "idle" ? "not-allowed" : "pointer",
+                              background: actionState !== "idle" || stopPending ? "#e2e8f0" : "#991b1b",
+                              color: actionState !== "idle" || stopPending ? "#64748b" : "#ffffff",
+                              cursor: actionState !== "idle" || stopPending ? "not-allowed" : "pointer",
                               fontWeight: 600,
                             }}
                           >
-                            End Session
+                            {stopPending ? "Stopping..." : "End Session"}
                           </button>
                         )
                       ) : (
@@ -1922,11 +1947,11 @@ export default function InstructorDashboard({
                         <div style={{ display: "grid", gap: 4, fontSize: "0.84rem", color: "#334155" }}>
                           <div>Device ID: {manikin.deviceId}</div>
                           <div>Last seen: {manikin.lastSeen ? new Date(manikin.lastSeen).toLocaleString() : "Never seen"}</div>
-                          <div>Calibrated: {readiness?.calibrated ? "Yes" : "No"}</div>
-                          <div>Progress ID: {readiness?.progressId ?? "-"}</div>
+                          <div>Calibrated: {readiness?.readyForSession ? "Yes" : "No"}</div>
+                          <div>Progress ID: {readiness?.currentProgressId ?? "-"}</div>
                           <div>Firmware state: {readiness?.firmwareState ?? "-"}</div>
-                          <div>Reason: {readiness?.reasonId ?? "-"}</div>
-                          <div>Action: {readiness?.actionId ?? "-"}</div>
+                          <div>Reason: {readiness?.lastReasonId ?? "-"}</div>
+                          <div>Action: {readiness?.lastActionId ?? "-"}</div>
                         </div>
                       </div>
                     </div>

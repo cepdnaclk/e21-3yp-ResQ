@@ -14,17 +14,28 @@ import java.util.concurrent.ConcurrentMap;
 public class DeviceRegistrationService {
 
     private final HubServiceInfoService hubServiceInfoService;
+    private final ManikinRegistryService manikinRegistryService;
     private final ConcurrentMap<String, String> deviceIdsByRegistrationKey = new ConcurrentHashMap<>();
     private static final Logger LOG = LoggerFactory.getLogger(DeviceRegistrationService.class);
 
-    public DeviceRegistrationService(HubServiceInfoService hubServiceInfoService) {
+    public DeviceRegistrationService(HubServiceInfoService hubServiceInfoService, ManikinRegistryService manikinRegistryService) {
         this.hubServiceInfoService = hubServiceInfoService;
+        this.manikinRegistryService = manikinRegistryService;
     }
 
     public DeviceRegistrationResponse register(DeviceRegistrationRequest request) {
-        String deviceId = resolveDeviceId(request == null ? new DeviceRegistrationRequest(null, null, null, null) : request);
+        DeviceRegistrationRequest resolvedRequest = request == null ? new DeviceRegistrationRequest(null, null, null, null) : request;
+        String deviceId = resolveDeviceId(resolvedRequest);
+        manikinRegistryService.seedFromRegistration(deviceId, resolvedRequest);
         var serviceInfo = hubServiceInfoService.serviceInfo();
         LOG.info("Registering device {} -> advertising MQTT {}:{}", deviceId, serviceInfo.mqttHost(), serviceInfo.mqttPort());
+        manikinRegistryService.registerDevice(deviceId);
+        LOG.info(
+                "Device registration successful for {}. MQTT advertised host: {}, port: {}",
+                deviceId,
+                serviceInfo.mqttHost(),
+                serviceInfo.mqttPort()
+        );
         return new DeviceRegistrationResponse(
                 true,
                 deviceId,

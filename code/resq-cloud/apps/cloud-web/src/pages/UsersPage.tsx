@@ -4,11 +4,13 @@ import {
   fetchCloudUsers,
   updateCloudUser,
   updateCloudUserPassword,
+  setLocalHubPassword,
   type CloudUser,
   type CloudUserRole,
 } from "../api/cloudApi";
 import { EmptyState, ErrorState, LoadingState } from "../components/AsyncState";
 import { formatDate } from "../lib/format";
+import { loadAuthSession } from "../auth/authStorage";
 
 const EMPTY_FORM = {
   displayName: "",
@@ -18,12 +20,21 @@ const EMPTY_FORM = {
 };
 
 export function UsersPage() {
+  const currentUserRole = loadAuthSession()?.user.role;
   const [users, setUsers] = useState<CloudUser[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // States for LocalHub PIN/Password reset modal
+  const [pinUser, setPinUser] = useState<CloudUser | null>(null);
+  const [pinPassword, setPinPassword] = useState("");
+  const [pinConfirmPassword, setPinConfirmPassword] = useState("");
+  const [isSavingPin, setIsSavingPin] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   async function load() {
     setIsLoading(true);
@@ -93,6 +104,49 @@ export function UsersPage() {
     }
   }
 
+  function openPinModal(user: CloudUser) {
+    setPinUser(user);
+    setPinPassword("");
+    setPinConfirmPassword("");
+    setPinError(null);
+    setNotification(null);
+  }
+
+  function closePinModal() {
+    setPinUser(null);
+    setPinPassword("");
+    setPinConfirmPassword("");
+    setPinError(null);
+  }
+
+  async function submitPin(event: FormEvent) {
+    event.preventDefault();
+    if (!pinUser) return;
+    if (pinPassword.length < 4) {
+      setPinError("Password/PIN must be at least 4 characters.");
+      return;
+    }
+    if (pinPassword !== pinConfirmPassword) {
+      setPinError("Passwords do not match.");
+      return;
+    }
+    setIsSavingPin(true);
+    setPinError(null);
+    try {
+      await setLocalHubPassword(pinUser.userId, pinPassword);
+      setNotification({
+        type: "success",
+        message: "LocalHub password updated. Run roster sync on LocalHub to apply it.",
+      });
+      closePinModal();
+      await load();
+    } catch (saveError) {
+      setPinError(message(saveError));
+    } finally {
+      setIsSavingPin(false);
+    }
+  }
+
   if (isLoading && users.length === 0) return <LoadingState message="Loading cloud users..." />;
 
   return (
@@ -104,6 +158,13 @@ export function UsersPage() {
           <p>Create and maintain local cloud administrators, instructors, and trainees.</p>
         </div>
       </div>
+
+      {notification ? (
+        <div className={`notification-banner notification-banner--${notification.type}`}>
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)}>&times;</button>
+        </div>
+      ) : null}
 
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
 
@@ -181,6 +242,11 @@ export function UsersPage() {
                   <span className={user.active ? "active-badge" : "inactive-badge"}>
                     {user.active ? "Active" : "Inactive"}
                   </span>
+                  {user.localLoginHash !== undefined && (
+                    <span className={user.localLoginHash ? "active-badge" : "inactive-badge"} style={{ marginLeft: "8px" }}>
+                      {user.localLoginHash ? "LocalHub login set" : "LocalHub login not set"}
+                    </span>
+                  )}
                 </div>
                 <p>{user.email || "No email"} | Updated {formatDate(user.updatedAt)}</p>
               </div>
@@ -189,11 +255,88 @@ export function UsersPage() {
                 <button className="text-button" onClick={() => void toggleActive(user)}>
                   {user.active ? "Deactivate" : "Activate"}
                 </button>
+                {currentUserRole === "ADMIN" && (
+                  <button className="text-button" onClick={() => openPinModal(user)}>Set LocalHub PIN</button>
+                )}
               </div>
             </article>
           ))}
         </div>
       </div>
+
+      {pinUser ? (
+        <div className="modal-overlay" onClick={closePinModal}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">LocalHub Security</p>
+                <h3>Set LocalHub PIN</h3>
+              </div>
+              <button className="modal-close-button" onClick={closePinModal}>&times;</button>
+            </div>
+            <form onSubmit={submitPin} style={{ display: "grid", gap: "16px" }}>
+              <div>
+                <p style={{ margin: "0 0 6px", fontSize: "0.85rem", color: "var(--muted)" }}>
+                  User: <strong>{pinUser.displayName}</strong> ({pinUser.email || "No email"})
+                </p>
+                <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--muted)" }}>
+                  Role: <span className="role-badge" style={{ verticalAlign: "middle" }}>{pinUser.role}</span>
+                </p>
+              </div>
+              <label className="form-card" style={{ padding: 0, border: 0, boxShadow: "none", gap: "6px" }}>
+                New PIN / Password
+                <input
+                  type="password"
+                  value={pinPassword}
+                  onChange={(e) => setPinPassword(e.target.value)}
+                  minLength={4}
+                  maxLength={64}
+                  required
+                  placeholder="Min 4, max 64 characters"
+                />
+              </label>
+              <label className="form-card" style={{ padding: 0, border: 0, boxShadow: "none", gap: "6px" }}>
+                Confirm PIN / Password
+                <input
+                  type="password"
+                  value={pinConfirmPassword}
+                  onChange={(e) => setPinConfirmPassword(e.target.value)}
+                  minLength={4}
+                  maxLength={64}
+                  required
+                  placeholder="Confirm your entry"
+                />
+              </label>
+
+              {pinError ? <div className="login-error" style={{ marginBottom: 0 }}>{pinError}</div> : null}
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={closePinModal}
+                  disabled={isSavingPin}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="button"
+                  disabled={
+                    isSavingPin ||
+                    !pinPassword ||
+                    pinPassword.length < 4 ||
+                    pinPassword.length > 64 ||
+                    pinPassword !== pinConfirmPassword
+                  }
+                >
+                  {isSavingPin ? "Saving..." : "Set PIN"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

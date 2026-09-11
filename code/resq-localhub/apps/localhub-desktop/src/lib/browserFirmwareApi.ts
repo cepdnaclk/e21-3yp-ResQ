@@ -1,12 +1,5 @@
 import { getHubApiBaseUrl } from "./hubApiUrl";
-
-export type FirmwareCalibrationStartPayload = {
-  hallDelta?: number | null;
-  refPressure?: number | null;
-  bladder1Pressure?: number | null;
-  bladder2Pressure?: number | null;
-  profileId?: string | null;
-};
+import type { DeviceReadinessState } from "../types/manikin";
 
 export type CalibrationProfileRequest = {
   name: string;
@@ -31,29 +24,6 @@ export type CalibrationProfileResponse = {
   defaultProfile: boolean;
   createdAt: string;
   updatedAt: string;
-};
-
-export type FirmwareCalibrationCommandResponse = {
-  deviceId: string;
-  requestId: string;
-  topic: string;
-  status: string;
-  message?: string | null;
-};
-
-export type FirmwareReadinessResponse = {
-  deviceId: string;
-  firmwareState: string | null;
-  calibrated: boolean;
-  readyForSession: boolean;
-  latestResult: string | null;
-  progressId: number | null;
-  reasonId: string | null;
-  actionId: number | null;
-  tsMs: number | null;
-  receivedAt: string | null;
-  sessionId?: string | null;
-  lastErrorId?: string | null;
 };
 
 export type FirmwareCommandRequestRecord = {
@@ -120,7 +90,7 @@ export type FirmwareCommandPublishResponse = {
 
 export type FirmwareDeviceDiagnosticsResponse = {
   deviceId: string;
-  readiness: FirmwareReadinessResponse;
+  readiness: DeviceReadinessState;
   latestCalibration: {
     id: number;
     deviceId: string;
@@ -151,6 +121,23 @@ export type FirmwareDeviceDiagnosticsResponse = {
     sessionActive: boolean | null;
     firmwareState?: string | null;
     calibrated?: boolean | null;
+    readyForSession?: boolean | null;
+    calibrationState?: string | null;
+    progressId?: number | null;
+    reasonId?: string | null;
+    actionId?: number | null;
+    calibrationProgressId?: number | null;
+    calibrationReasonId?: string | null;
+    calibrationActionId?: number | null;
+    calibrationResult?: string | null;
+    profileId?: string | null;
+    pressureMode?: string | null;
+    pressureDegraded?: boolean | null;
+    usingLastStablePressure?: boolean | null;
+    pressureValid?: boolean | null;
+    hallValid?: boolean | null;
+    depthSource?: string | null;
+    warnings?: string | null;
     lastErrorId?: string | null;
     latestDepthMm: number | null;
     latestDepthProgress?: number | null;
@@ -162,7 +149,7 @@ export type FirmwareDeviceDiagnosticsResponse = {
     lastEventType: string | null;
     latestForce1: number | null;
     latestForce2: number | null;
-    pressureBalancePct: number | null;
+    pressureBalanceScorePct: number | null;
     pressureSkewed: boolean | null;
     activeSessionId: string | null;
     activeTraineeId: string | null;
@@ -175,7 +162,7 @@ export type FirmwareDeviceDiagnosticsResponse = {
 };
 
 function getFirmwareDeviceUrl(deviceId: string): string {
-  return `${getHubApiBaseUrl()}/api/firmware/devices/${encodeURIComponent(deviceId)}`;
+  return `${getHubApiBaseUrl()}/api/devices/${encodeURIComponent(deviceId)}/firmware`;
 }
 
 function getCalibrationProfilesUrl(): string {
@@ -237,30 +224,6 @@ export function deactivateCalibrationProfile(profileId: string): Promise<Calibra
   return requestJson<CalibrationProfileResponse>(`${getCalibrationProfilesUrl()}/${encodeURIComponent(profileId)}`, {
     method: "DELETE",
   });
-}
-
-export function startCalibration(
-  deviceId: string,
-  payload: FirmwareCalibrationStartPayload = {},
-): Promise<FirmwareCalibrationCommandResponse> {
-  return requestJson<FirmwareCalibrationCommandResponse>(`${getFirmwareDeviceUrl(deviceId)}/calibration/start`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function cancelCalibration(deviceId: string): Promise<FirmwareCalibrationCommandResponse> {
-  return requestJson<FirmwareCalibrationCommandResponse>(`${getFirmwareDeviceUrl(deviceId)}/calibration/cancel`, {
-    method: "POST",
-  });
-}
-
-export function getLatestCalibration(deviceId: string): Promise<FirmwareReadinessResponse> {
-  return requestJson<FirmwareReadinessResponse>(`${getFirmwareDeviceUrl(deviceId)}/calibration/latest`);
-}
-
-export function getReadiness(deviceId: string): Promise<FirmwareReadinessResponse> {
-  return requestJson<FirmwareReadinessResponse>(`${getFirmwareDeviceUrl(deviceId)}/readiness`);
 }
 
 export function getFirmwareCommands(deviceId: string, limit?: number): Promise<FirmwareCommandRequestRecord[]> {

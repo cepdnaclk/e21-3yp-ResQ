@@ -3,8 +3,8 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import PageHeader from "../../components/ui/PageHeader";
 import LoadingState from "../../components/ui/LoadingState";
-import { queryInstructorCoach } from "../../api/sessionsApi";
-import type { CprInstructorCoachQueryResponse } from "../../api/sessionsApi";
+import { queryInstructorCoach } from "../../api/cprCoachApi";
+import type { CprInstructorCoachQueryResponse } from "../../api/cprCoachApi";
 import { fetchTrainees } from "../../api/traineesApi";
 import { fetchCompletedSessions } from "../../api/sessionsApi";
 import type { TraineeRecord } from "../../types/trainee";
@@ -66,10 +66,6 @@ export default function InstructorAiAssistantPage({ onBack }: InstructorAiAssist
     try {
       const res = await queryInstructorCoach({
         question: question.trim(),
-        traineeId: selectedTraineeId || undefined,
-        sessionId: selectedSessionId || undefined,
-        fromDate: fromDate ? new Date(fromDate).toISOString() : undefined,
-        toDate: toDate ? new Date(toDate).toISOString() : undefined,
       });
 
       setResponse(res);
@@ -270,7 +266,7 @@ export default function InstructorAiAssistantPage({ onBack }: InstructorAiAssist
                   <div className="space-y-2 border-t border-slate-100/60 pt-4">
                     <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-rose-500">Priority Trainees</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {response.priorityTrainees.map((pt, idx) => (
+                      {response.priorityTrainees.map((pt: any, idx: number) => (
                         <div key={idx} className="p-3.5 bg-rose-50/30 border border-rose-100/60 rounded-xl space-y-1">
                           <div className="flex justify-between items-center text-xs">
                             <span className="font-bold text-slate-800">{pt.name}</span>
@@ -293,7 +289,7 @@ export default function InstructorAiAssistantPage({ onBack }: InstructorAiAssist
                   <div className="space-y-2 border-t border-slate-100/60 pt-4">
                     <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Common Issues</h4>
                     <div className="flex flex-wrap gap-2">
-                      {response.commonIssues.map((issue, idx) => (
+                      {response.commonIssues.map((issue: string, idx: number) => (
                         <span
                           key={idx}
                           className="text-[11px] font-medium text-slate-600 bg-slate-50 px-3 py-1 rounded-xl border border-slate-200/60"
@@ -310,7 +306,7 @@ export default function InstructorAiAssistantPage({ onBack }: InstructorAiAssist
                   <div className="space-y-2 border-t border-slate-100/60 pt-4">
                     <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-600">Suggested Instructor Actions</h4>
                     <ul className="space-y-2">
-                      {response.suggestedInstructorActions.map((action, idx) => (
+                      {response.suggestedInstructorActions.map((action: string, idx: number) => (
                         <li key={idx} className="text-xs text-slate-600 flex items-start gap-2.5 font-medium bg-emerald-50/20 px-3.5 py-2.5 rounded-xl border border-emerald-100/60">
                           <span className="text-emerald-500 font-bold shrink-0 mt-0.5">✓</span>
                           <span>{action}</span>
@@ -325,7 +321,7 @@ export default function InstructorAiAssistantPage({ onBack }: InstructorAiAssist
                   <div className="space-y-2 border-t border-slate-100/60 pt-4">
                     <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Related Session IDs</h4>
                     <div className="flex flex-wrap gap-1.5">
-                      {response.relatedSessionIds.map((id, idx) => (
+                      {response.relatedSessionIds.map((id: string, idx: number) => (
                         <span
                           key={idx}
                           className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100/80 px-2 py-0.5 rounded-md"

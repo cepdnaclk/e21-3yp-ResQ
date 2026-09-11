@@ -1,11 +1,15 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import InstructorAiAssistantPage from "./InstructorAiAssistantPage";
-import { queryInstructorCoach, fetchCompletedSessions } from "../../api/sessionsApi";
+import { queryInstructorCoach } from "../../api/cprCoachApi";
+import { fetchCompletedSessions } from "../../api/sessionsApi";
 import { fetchTrainees } from "../../api/traineesApi";
 
-vi.mock("../../api/sessionsApi", () => ({
+vi.mock("../../api/cprCoachApi", () => ({
   queryInstructorCoach: vi.fn(),
+}));
+
+vi.mock("../../api/sessionsApi", () => ({
   fetchCompletedSessions: vi.fn(),
 }));
 

@@ -1,4 +1,5 @@
 server:
+  address: ${HUB_API_ADDRESS:0.0.0.0}
   port: ${HUB_API_PORT:18080}
 
 spring:
@@ -6,8 +7,6 @@ spring:
     name: hub-api
 
 resq:
-  sample-data:
-    enabled: ${RESQ_SAMPLE_DATA_ENABLED:false}
   localhub:
     backend:
       advertised-host: ${RESQ_BACKEND_ADVERTISED_HOST:}
@@ -24,6 +23,7 @@ resq:
     password: ${RESQ_MQTT_PASSWORD:}
   live:
     stale-after-seconds: ${RESQ_LIVE_STALE_AFTER_SECONDS:12}
+    offline-after-seconds: ${RESQ_LIVE_OFFLINE_AFTER_SECONDS:22}
     stale-check-interval-ms: ${RESQ_LIVE_STALE_CHECK_INTERVAL_MS:2000}
   cloud-sync:
     enabled: ${RESQ_CLOUD_SYNC_ENABLED:true}
@@ -42,16 +42,3 @@ resq:
     hub-key: ${RESQ_ROSTER_SYNC_HUB_KEY:dev-localhub-key-2026}
     fixed-delay-ms: ${RESQ_ROSTER_SYNC_FIXED_DELAY_MS:60000}
     timeout-ms: ${RESQ_ROSTER_SYNC_TIMEOUT_MS:10000}
-  cpr-performance:
-    compression-depth-min-mm: ${RESQ_CPR_COMPRESSION_DEPTH_MIN_MM:50}
-    compression-depth-max-mm: ${RESQ_CPR_COMPRESSION_DEPTH_MAX_MM:60}
-    compression-rate-min-cpm: ${RESQ_CPR_COMPRESSION_RATE_MIN_CPM:100}
-    compression-rate-max-cpm: ${RESQ_CPR_COMPRESSION_RATE_MAX_CPM:120}
-    bad-performance-overall-score-threshold: ${RESQ_CPR_BAD_PERFORMANCE_OVERALL_SCORE_THRESHOLD:70}
-    bad-performance-depth-accuracy-threshold: ${RESQ_CPR_BAD_PERFORMANCE_DEPTH_ACCURACY_THRESHOLD:70}
-    bad-performance-rate-accuracy-threshold: ${RESQ_CPR_BAD_PERFORMANCE_RATE_ACCURACY_THRESHOLD:70}
-    recoil-error-threshold-percent: ${RESQ_CPR_RECOIL_ERROR_THRESHOLD_PERCENT:15}
-    consistency-score-threshold: ${RESQ_CPR_CONSISTENCY_SCORE_THRESHOLD:70}
-    fatigue-drop-threshold-percent: ${RESQ_CPR_FATIGUE_DROP_THRESHOLD_PERCENT:10}
-    excessive-pause-count-threshold: ${RESQ_CPR_EXCESSIVE_PAUSE_COUNT_THRESHOLD:2}
-    excessive-longest-pause-seconds-threshold: ${RESQ_CPR_EXCESSIVE_LONGEST_PAUSE_SECONDS_THRESHOLD:2.5}

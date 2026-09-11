@@ -1,30 +1,33 @@
 {
   "name": "localhub-desktop",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --port 1420",
     "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
     "prepare:release": "node tools/prepare-release.mjs",
-    "build:release": "npm run prepare:release && npm run build",
+    "build:release": "npm run prepare:release",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "mqtt": "^5.15.1",
-    "recharts": "^2.12.7",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-json-view": "^1.21.3"
+    "react-json-view": "^1.21.3",
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.4",
@@ -35,6 +38,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/coverage-v8": "^3.2.4",
     "autoprefixer": "^10.5.0",
     "jsdom": "^29.1.0",
     "postcss": "^8.5.14",

@@ -1,14 +1,22 @@
 # OS and editor files
 .DS_Store
 Thumbs.db
-.vscode/
 .vs/
 .idea/
+
+# Local development and deployment configuration
+.ebextensions/
+.github/workflows/
+.vscode/
+
+# Local release artifacts
+release/
 
 # Logs and temp files
 *.log
 *.tmp
 *.temp
+.codex-tmp/
 
 # Dependencies and package manager caches
 node_modules/
@@ -37,6 +45,7 @@ __pycache__/
 
 # Embedded firmware/build outputs
 code/resq-firmware/build/
+code/resq-firmware/build-codex-prod/
 code/resq-firmware/test/build/
 code/resq-firmware/test/build-test/
 code/resq-firmware/test/resq_firmware_unity_junit.xml
@@ -44,20 +53,27 @@ code/resq-firmware/test/resq_firmware_unity_report.json
 code/resq-firmware/deploy_test/.venv/
 code/resq-firmware/deploy_test/config.toml
 code/resq-firmware/deploy_test/evidence/
+code/resq-localhub/apps/localhub-desktop/src-tauri/resources/web-dashboard/*
+!code/resq-localhub/apps/localhub-desktop/src-tauri/resources/web-dashboard/.gitkeep
 
 # Java/Maven build artifacts
 **/target/
 
 # Local runtime data
+*.db
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 code/resq-localhub/mosquitto/data/
 code/resq-localhub/mosquitto/log/
+docs/integration-checkup/**/phase-07-runs/**/*.sqlite
+docs/integration-checkup/**/phase-07-runs/**/*.sqlite-shm
+docs/integration-checkup/**/phase-07-runs/**/*.sqlite-wal
+docs/integration-checkup/**/phase-07-runs/**/mosquitto.conf
 
-node_modules/
 .next/
 .env*.local
 out/
-build/
-*.log
 node_modules copy/
 
 # Graphify output and Copilot files

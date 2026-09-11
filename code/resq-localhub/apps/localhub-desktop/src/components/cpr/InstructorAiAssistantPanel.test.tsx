@@ -1,14 +1,14 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { InstructorAiAssistantPanel } from "./InstructorAiAssistantPanel";
-import { queryInstructorCoach } from "../../api/sessionsApi";
+import { queryInstructorCoach } from "../../api/cprCoachApi";
 import { useAuth } from "../../auth/AuthContext";
 
 vi.mock("../../auth/AuthContext", () => ({
   useAuth: vi.fn(),
 }));
 
-vi.mock("../../api/sessionsApi", () => ({
+vi.mock("../../api/cprCoachApi", () => ({
   queryInstructorCoach: vi.fn(),
 }));
 
@@ -103,10 +103,6 @@ describe("InstructorAiAssistantPanel", () => {
 
     expect(queryInstructorCoach).toHaveBeenCalledWith({
       question: "Which trainees need attention today?",
-      traineeId: undefined,
-      sessionId: undefined,
-      fromDate: undefined,
-      toDate: undefined
     });
 
     // Check custom response sections

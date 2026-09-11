@@ -1,0 +1,9 @@
+Command: cmake -G Ninja -B D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test\build-codex -DPYTHON_DEPS_CHECKED=1 -DPYTHON=C:\Users\ganat\.espressif\python_env\idf6.0_py3.14_env\Scripts\python.exe -DESP_PLATFORM=1 -DCCACHE_ENABLE=True D:\Academics\SEM6\3YP\e21-3yp-ResQ\code\resq-firmware\test
+Configuration Report               
+ ───────────────────────────────── 
+   Parser Version: 1               
+   Verbosity: default              
+   Defaults policy: sdkconfig      
+   Status: Finished successfully   
+                                   
+ ───────────────────────────────── 

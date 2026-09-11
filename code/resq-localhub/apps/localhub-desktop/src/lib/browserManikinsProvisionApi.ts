@@ -94,7 +94,7 @@ export function buildEspProvisioningUrl({
   const url = new URL(`${base}${path}`);
 
   url.searchParams.set("wifi_ssid", wifiSsid.trim());
-  url.searchParams.set("wifi_pass", wifiPassword.trim());
+  url.searchParams.set("wifi_pass", wifiPassword);
   url.searchParams.set("backend_base_url", backendBaseUrl.trim());
 
   if (autoSave) {
