@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import StudentTabletAccessPanel, { buildSessionDashboardUrl } from "./StudentTabletAccessPanel";
 import {
@@ -51,6 +51,24 @@ describe("StudentTabletAccessPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy Link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("http://192.168.8.100:1420"));
     expect(await screen.findByRole("button", { name: "Link copied" })).toBeInTheDocument();
+  });
+
+  it("cancels the copy notification timer when unmounted", async () => {
+    const { unmount } = render(<StudentTabletAccessPanel backendAvailable />);
+    await screen.findByText("http://192.168.8.100:1420");
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy Link" }));
+      });
+      expect(screen.getByRole("button", { name: "Link copied" })).toBeInTheDocument();
+      expect(vi.getTimerCount()).toBe(1);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      unmount();
+      vi.useRealTimers();
+    }
   });
 
   it("refreshes the LAN address through the Tauri command", async () => {

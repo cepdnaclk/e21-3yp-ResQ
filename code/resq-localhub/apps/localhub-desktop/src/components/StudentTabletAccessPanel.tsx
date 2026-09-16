@@ -32,6 +32,12 @@ export function StudentTabletAccessPanel({
   const inTauri = isTauriRuntime();
 
   useEffect(() => {
+    if (!copied) return;
+    const timeout = window.setTimeout(() => setCopied(null), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [copied]);
+
+  useEffect(() => {
     if (!inTauri) {
       setLoading(false);
       return;
@@ -70,7 +76,6 @@ export function StudentTabletAccessPanel({
     try {
       await navigator.clipboard.writeText(url);
       setCopied(kind);
-      window.setTimeout(() => setCopied(null), 2000);
     } catch {
       setPanelError("The link could not be copied. Select and copy the displayed URL manually.");
     }
