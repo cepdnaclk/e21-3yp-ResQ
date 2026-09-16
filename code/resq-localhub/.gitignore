@@ -35,6 +35,7 @@ coverage/
 src-tauri/target/
 **/target/
 Cargo.lock
+!apps/localhub-desktop/src-tauri/Cargo.lock
 
 # Java / Maven
 *.class
