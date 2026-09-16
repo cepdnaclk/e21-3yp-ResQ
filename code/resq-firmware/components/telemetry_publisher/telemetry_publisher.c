@@ -439,7 +439,21 @@ static void sensor_stream_task(void *arg)
         }
 
         cpr_sensor_sample_t sample = {0};
-        esp_err_t read_err = sensor_stream_read_sample(&sample, pressure_enabled);
+
+        int64_t read_start_us = esp_timer_get_time();
+
+        esp_err_t read_err =
+            sensor_stream_read_sample(&sample, pressure_enabled);
+
+        int64_t read_duration_us =
+            esp_timer_get_time() - read_start_us;
+
+        if (read_duration_us > 80000) {
+            ESP_LOGW("telemetry_publisher",
+                    "Manual stream sensor read slow: %lld us",
+                    (long long)read_duration_us);
+        }
+
         pressure_quality_result_t pressure_quality = {0};
         if (pressure_filter_ready) {
             pressure_raw_frame_t frame = {
@@ -511,7 +525,30 @@ static void sensor_stream_task(void *arg)
             break;
         }
 
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(interval_ms));
+        TickType_t period_ticks = pdMS_TO_TICKS(interval_ms);
+
+        if (period_ticks == 0) {
+            period_ticks = 1;
+        }
+
+        TickType_t now = xTaskGetTickCount();
+
+        /*
+        * If sensor acquisition + processing + MQTT publishing already consumed
+        * the complete requested period, resynchronise the periodic schedule.
+        *
+        * Without this, vTaskDelayUntil() can repeatedly return immediately when
+        * the task is behind schedule, allowing sensor_stream to starve IDLE.
+        */
+        if ((now - last_wake) >= period_ticks) {
+            ESP_LOGW("telemetry_publisher",
+                    "Manual stream overrun: interval=%" PRIu32 " ms",
+                    interval_ms);
+
+            last_wake = now;
+        }
+
+        vTaskDelayUntil(&last_wake, period_ticks);
     }
 
 task_exit:
