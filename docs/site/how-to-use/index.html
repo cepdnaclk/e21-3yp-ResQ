@@ -1,307 +1,46 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="How to Use ResQ: Comprehensive user guide for the ResQ CPR Training Overlay and LocalHub platform.">
-    <title>How to Use — ResQ CPR Training Platform</title>
-    <link rel="stylesheet" href="../assets/style.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap">
-    <link rel="icon" href="../assets/img/logo/favicon.ico" />
-    <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/logo/favicon-32.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="../assets/img/logo/apple-touch-icon.png" />
-    <meta name="theme-color" content="#12264C" />
-</head>
-<body>
-    <!-- Main Navigation -->
-    <nav class="navbar">
-        <div class="container">
-            <div class="navbar-brand">
-                <a class="brand" href="../" aria-label="ResQ">
-                  <span class="brand-mark">
-                    <img
-                      class="brand-logo"
-                      data-logo
-                      data-logo-light="../assets/img/logo/resq-logo-256.png"
-                      data-logo-dark="../assets/img/logo/resq-logo-light-256.jpg"
-                      src="../assets/img/logo/resq-logo-256.png"
-                      alt="ResQ logo"
-                    />
-                  </span>
-                </a>
-            </div>
-            <ul class="nav-menu">
-                <li><a href="../">Home</a></li>
-                <li><a href="../about/">About</a></li>
-                <li><a href="../blog/">Development Blog</a></li>
-                <li><a href="../specs/">Specifications</a></li>
-                <li><a href="./">How to Use</a></li>
-            </ul>
-            <div class="nav-actions">
-                <button class="theme-toggle" type="button" aria-pressed="false">Dark Mode</button>
-                <div class="hamburger">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            </div>
-        </div>
-    </nav>
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="How to set up, calibrate, run, monitor, review, and troubleshoot a ResQ CPR training session."><meta name="theme-color" content="#071426"><link rel="canonical" href="https://cepdnaclk.github.io/e21-3yp-ResQ/site/how-to-use/"><link rel="icon" href="../assets/img/logo/favicon.ico"><link rel="stylesheet" href="../assets/style.css"><title>How to Use ResQ</title>
+</head><body data-page="how-to-use" data-site-root="../" data-asset-root="../assets/"><header class="site-header" data-site-header></header><main id="main-content">
+<section class="page-hero"><div class="shell page-hero__grid"><div data-reveal><span class="eyebrow">How to use</span><h1>From setup to session review</h1><p class="lede">A practical, instructor-led workflow for preparing the local station, pairing a manikin, calibrating sensors, running training, and reviewing results.</p></div><aside class="page-hero__aside" data-reveal><span class="badge badge--success">Offline training supported</span><p style="margin-top:1rem">A working local Wi-Fi network is required. Internet access is not required for live training.</p></aside></div></section>
 
-    <!-- Header Banner -->
-    <section class="page-header">
-        <div class="container">
-            <h1>How to Use ResQ</h1>
-            <p>User guide for the ResQ CPR Training Overlay and LocalHub</p>
-        </div>
-    </section>
+<section class="section--compact"><div class="shell"><aside class="notice" data-reveal><div class="notice__icon">!</div><div><h2>Use only with a CPR training manikin</h2><p>Inspect the equipment before use. Do not use ResQ on a person. Follow institutional training protocols and operate protected functions only with an authorized account.</p></div></aside></div></section>
 
-    <!-- Safety Banner-->
-    <section class="content-section" style="padding-bottom: 0;">
-        <div class="container">
-            <blockquote style="border-left: 4px solid #12264C; padding: 1rem; margin: 0; background: rgba(18, 38, 76, 0.05); border-radius: 4px;">
-                <strong>Training use only:</strong> ResQ supports CPR education on a training manikin. It must not be used for patient care, diagnosis, treatment, or emergency decision-making.
-            </blockquote>
-        </div>
-    </section>
+<section class="section"><div class="shell"><div class="section-header" data-reveal><div><span class="eyebrow">Before you begin</span><h2>Station requirements</h2></div><p>Normal operation uses SENSOR mode. USB mode is reserved for maintenance and testing.</p></div><div class="grid-3">
+  <article class="card" data-reveal><h3>Hardware</h3><ul class="check-list"><li>CPR training manikin and fitted ResQ overlay</li><li>ESP32-C3 controller and power</li><li>Intact sensor, pneumatic, and cable connections</li></ul></article>
+  <article class="card" data-reveal><h3>Instructor station</h3><ul class="check-list"><li>Windows PC with ResQ LocalHub installed</li><li>Authorized instructor or administrator account</li><li>Enough local storage for session history</li></ul></article>
+  <article class="card" data-reveal><h3>Local network</h3><ul class="check-list"><li>Instructor PC and manikin on the same Wi-Fi</li><li>LocalHub services allowed through the firewall</li><li>Optional trainee tablet on the same network</li></ul></article>
+</div></div></section>
 
-    <!-- 1. Requirements Section -->
-    <section class="content-section">
-        <div class="container">
-            <h2>System Requirements</h2>
-            <div class="requirements-box">
-                <h3>Hardware & Infrastructure Needed</h3>
-                <ul>
-                    <li>Training manikin fitted with the ResQ overlay</li>
-                    <li>ResQ ESP32-C3 controller with power connection</li>
-                    <li>Windows PC with <strong>ResQ LocalHub</strong> installed</li>
-                    <li>Local Wi-Fi router or reliable mobile hotspot (no internet required)</li>
-                    <li>Trainee display device (tablet, laptop, or monitor) connected to the local network</li>
-                </ul>
-            </div>
-        </div>
-    </section>
+<section class="section section--soft"><div class="shell"><div class="section-header" data-reveal><div><span class="eyebrow">Instructor workflow</span><h2>Ten steps to a complete training session</h2></div><p>LocalHub remains the preferred control surface. Physical buttons are primarily for recovery and maintenance actions.</p></div><div class="steps">
+  <article class="step" data-reveal><div><h3>Inspect the equipment</h3><p>Check the overlay, bladder, sensors, cables, controller, manikin, and power supply for visible damage or disconnection.</p></div></article>
+  <article class="step" data-reveal><div><h3>Start ResQ LocalHub</h3><p>Open the Windows application, select <strong>Start Services</strong>, and confirm that the MQTT broker, local backend, and dashboard report Running/Healthy.</p></div></article>
+  <article class="step" data-reveal><div><h3>Power the controller</h3><p>Select SENSOR mode for normal CPR use and wait for the device to complete its startup and connectivity sequence.</p></div></article>
+  <article class="step" data-reveal><div><h3>Pair or confirm the manikin</h3><p>For first-time setup, open <strong>Pair Manikin</strong>, scan the device QR code, review the Wi-Fi and LocalHub details, then save the configuration. Otherwise confirm the device is Online/Paired.</p></div></article>
+  <article class="step" data-reveal><div><h3>Prepare for calibration</h3><p>Remove all pressure from the overlay, stabilize the manikin, and verify the physical setup before opening Calibration / Pre-Check.</p></div></article>
+  <article class="step" data-reveal><div><h3>Run calibration</h3><p>Select the calibration profile, choose <strong>Start Calibration</strong>, follow the guided rest and reference steps, and wait for strict readiness.</p></div></article>
+  <article class="step" data-reveal><div><h3>Start the session</h3><p>Select the trainee, course or training profile, and a manikin showing <strong>Ready for Session</strong>. Then select <strong>Start Session</strong>.</p></div></article>
+  <article class="step" data-reveal><div><h3>Monitor live training</h3><p>Use the instructor dashboard to review depth, rate, recoil, interruptions, pressure balance, connection state, and coaching cues. Trainees can use the permitted LAN dashboard.</p></div></article>
+  <article class="step" data-reveal><div><h3>End the session</h3><p>Select <strong>End Session</strong> in LocalHub. Wait for the firmware acknowledgement and completed-session processing.</p></div></article>
+  <article class="step" data-reveal><div><h3>Review and export</h3><p>Open the completed session to inspect the authoritative score and metric summary. Authorized users can export CSV or JSON session reports.</p></div></article>
+</div></div></section>
 
-    <!-- 2. System Roles -->
-    <section class="content-section alt">
-        <div class="container">
-            <h2>User Roles & Access Permissions</h2>
-            <div class="users-grid grid-5-items">
-                <div class="user-card">
-                    <h3>Administrator</h3>
-                    <p>Manage accounts, system roles, platform settings, connected hardware, and compliance audit logs.</p>
-                </div>
-                <div class="user-card">
-                    <h3>Instructor</h3>
-                    <p>Pair manikins, run calibration checks, manage live training sessions, provide coaching, and export reports.</p>
-                </div>
-                <div class="user-card">
-                    <h3>Trainee</h3>
-                    <p>Perform compression practice, monitor real-time visual feedback, and review personal performance history.</p>
-                </div>
-                <div class="user-card">
-                    <h3>Technician</h3>
-                    <p>Run hardware diagnostics, perform sensor calibration, configure local Wi-Fi, and perform maintenance.</p>
-                </div>
-                <div class="user-card">
-                    <h3>Viewer / Evaluator</h3>
-                    <p>Access assigned performance dashboards and review session analytics without modifying configuration.</p>
-                </div>
-            </div>
-        </div>
-    </section>
+<section class="section"><div class="shell"><div class="dashboard-preview dashboard-preview--ui" data-reveal><img src="../assets/img/project/dashboard.png" alt="ResQ real-time CPR monitoring dashboard" loading="lazy"><div class="dashboard-preview__content"><span class="eyebrow">During the session</span><h2>Use live feedback as coaching—not diagnosis</h2><p>The dashboard exposes training measurements and device state. The instructor remains responsible for the teaching context and for interpreting the results within the institution’s selected training standard.</p><ul class="check-list"><li>Confirm the live stream remains connected</li><li>Watch for interruption and recoil cues</li><li>Respond to device or calibration warnings</li><li>Do not expose trainee records to unauthorized users</li></ul></div></div></div></section>
 
-    <!-- 3. System Operational Setup -->
-    <section class="content-section">
-        <div class="container">
-            <h2>Initial Setup & System Initialization</h2>
-            <div class="setup-steps">
-                <div class="step">
-                    <div class="step-number">1</div>
-                    <h3>Inspect Equipment</h3>
-                    <p>Ensure the overlay is securely strapped, check the TPU bladder for leaks, inspect sensor wiring, and verify that the Hall-effect sensor and magnet are aligned with the chest unloaded.</p>
-                </div>
-                <div class="step">
-                    <div class="step-number">2</div>
-                    <h3>Start ResQ LocalHub</h3>
-                    <p>Launch <strong>ResQ LocalHub</strong> on the instructor's Windows PC. Click <strong>Start Services</strong> and confirm that the MQTT Broker, Backend, and Dashboard service display <em>Healthy/Running</em> status.</p>
-                </div>
-                <div class="step">
-                    <div class="step-number">3</div>
-                    <h3>Power Controller</h3>
-                    <p>Connect power to the ESP32-C3 controller. Ensure <strong>SENSOR mode</strong> is active for normal training operations (USB mode is reserved for diagnostics).</p>
-                </div>
-                <div class="step">
-                    <div class="step-number">4</div>
-                    <h3>Network Pairing</h3>
-                    <p>If unconfigured, open <strong>Add/Pair Manikin</strong> in LocalHub, scan the device QR code, connect to the setup Wi-Fi, and save local network credentials to pair the device.</p>
-                </div>
-                <div class="step">
-                    <div class="step-number">5</div>
-                    <h3>Run Pre-Session Calibration</h3>
-                    <p>In the Instructor Dashboard, select <strong>Run Calibration</strong> with the chest completely unloaded. Follow prompts to verify baseline rest position $P_0$, recoil, and pressure balance.</p>
-                </div>
-            </div>
-        </div>
-    </section>
+<section class="section section--navy"><div class="shell"><div class="section-header" data-reveal><div><span class="eyebrow">Device reference</span><h2>LEDs, buttons, and buzzer</h2></div><p>Always identify LEDs by the <strong>State</strong> and <strong>Activity</strong> labels rather than by color alone.</p></div><div class="grid-2">
+  <article class="card card--dark" data-reveal><h3>Main LED patterns</h3><ul class="check-list"><li><strong>State on · Activity off:</strong> connected, calibration required</li><li><strong>State off · Activity on:</strong> ready for session</li><li><strong>Both on:</strong> session active</li><li><strong>State on · Activity medium blink:</strong> calibrating</li><li><strong>Both fast blink:</strong> firmware or system error</li><li><strong>Slow blink:</strong> startup, connection, shutdown, or transition</li></ul></article>
+  <article class="card card--dark" data-reveal><h3>Physical controls</h3><ul class="check-list"><li><strong>Button 1 short:</strong> retry or continue a recoverable operation</li><li><strong>Button 2 short:</strong> cancel, return to idle, or clear network when instructed</li><li><strong>Button 1 long:</strong> safe software turn-off</li><li><strong>Button 2 long:</strong> factory reset and return to provisioning</li><li><strong>Buzzer:</strong> session cadence assistance</li></ul><p>A long press is held for at least three seconds and released. Behavior depends on the current firmware state.</p></article>
+</div></div></section>
 
-    <!-- 4. Workflows -->
-    <section class="content-section alt">
-        <div class="container">
-            <h2>Operational Workflows</h2>
-            
-            <div class="proposal-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem;">
-                <div class="proposal-card">
-                    <h3>Instructor Workflow</h3>
-                    <ol style="line-height: 1.8; padding-left: 1.2rem;">
-                        <li>Verify manikin status is <strong>Online</strong> and <strong>Calibrated</strong> in LocalHub.</li>
-                        <li>Select trainee profile and target performance standard (e.g., AHA Adult).</li>
-                        <li>Click <strong>Start Session</strong> to initiate active telemetry and buzzer metronome (110 cpm).</li>
-                        <li>Monitor live compression rate, depth, recoil, pause time, and balance metrics.</li>
-                        <li>Click <strong>Stop Session</strong> upon completion, enter coaching feedback, and export CSV/JSON reports.</li>
-                    </ol>
-                </div>
-                
-                <div class="proposal-card">
-                    <h3>Trainee Workflow</h3>
-                    <ol style="line-height: 1.8; padding-left: 1.2rem;">
-                        <li>Position yourself at the manikin once the instructor confirms calibration is complete.</li>
-                        <li>Deliver compressions aiming for target depth (50–60 mm) and rate (100–120 cpm).</li>
-                        <li>Observe live dashboard visual feedback to correct posture, depth, or speed.</li>
-                        <li>Ensure full chest recoil between compressions without leaning on the overlay.</li>
-                        <li>Review post-practice score summaries to identify areas for skill improvement.</li>
-                    </ol>
-                </div>
-            </div>
-        </div>
-    </section>
+<section class="section"><div class="shell"><div class="section-header" data-reveal><div><span class="eyebrow">Troubleshooting</span><h2>Recover safely and visibly</h2></div><p>Use the LocalHub message, device state, LED pattern, and network status together. Avoid guessing from one signal alone.</p></div><div class="accordion">
+  <article class="accordion__item" data-reveal><button class="accordion__button" type="button" data-accordion-button aria-expanded="false" aria-controls="trouble-services">LocalHub services do not start</button><div class="accordion__panel" id="trouble-services" hidden><p>Close duplicate instances, check for port conflicts, restart LocalHub, and choose <strong>Start Services</strong> again. Record any error shown by the application.</p></div></article>
+  <article class="accordion__item" data-reveal><button class="accordion__button" type="button" data-accordion-button aria-expanded="false" aria-controls="trouble-offline">The manikin appears offline</button><div class="accordion__panel" id="trouble-offline" hidden><p>Check power, SENSOR mode, shared Wi-Fi, router coverage, LocalHub service health, and MQTT connectivity. Retry pairing only after confirming the network path.</p></div></article>
+  <article class="accordion__item" data-reveal><button class="accordion__button" type="button" data-accordion-button aria-expanded="false" aria-controls="trouble-calibration">Calibration repeatedly fails</button><div class="accordion__panel" id="trouble-calibration" hidden><p>Remove all chest pressure, inspect bladder and sensor connections, stabilize the manikin, follow the displayed reason and recovery action, then retry. Contact a technician if damage is suspected.</p></div></article>
+  <article class="accordion__item" data-reveal><button class="accordion__button" type="button" data-accordion-button aria-expanded="false" aria-controls="trouble-start">Start Session is unavailable</button><div class="accordion__panel" id="trouble-start" hidden><p>Confirm the device is paired, online, in SENSOR mode, not already in a session, and strictly ready after successful calibration.</p></div></article>
+  <article class="accordion__item" data-reveal><button class="accordion__button" type="button" data-accordion-button aria-expanded="false" aria-controls="trouble-live">No live measurements appear</button><div class="accordion__panel" id="trouble-live" hidden><p>Confirm a session is active, the sensors are connected, firmware telemetry is publishing, the SSE stream is connected, and no firewall or LAN issue separates the browser from LocalHub.</p></div></article>
+  <article class="accordion__item" data-reveal><button class="accordion__button" type="button" data-accordion-button aria-expanded="false" aria-controls="trouble-interrupted">The session stops unexpectedly</button><div class="accordion__panel" id="trouble-interrupted" hidden><p>Restore power, network, and LocalHub services. Review the interrupted session record and device fault reason. Start a new session only after readiness is restored.</p></div></article>
+</div></div></section>
 
-    <!-- 5. Hardware Diagnostics UI Guide -->
-    <section class="content-section">
-        <div class="container">
-            <h2>Hardware Reference Guide</h2>
+<section class="section section--soft"><div class="shell"><div class="grid-2"><article class="card" data-reveal><span class="eyebrow">Trainee access</span><h2 style="font-size:1.8rem">Connect a tablet locally</h2><p>Keep LocalHub running, connect the tablet to the same Wi-Fi or Windows hotspot, open Student Tablet Access, and scan the displayed QR code. Tablet browsers use REST and SSE—not MQTT.</p></article><article class="card" data-reveal><span class="eyebrow">Support information</span><h2 style="font-size:1.8rem">Record useful evidence</h2><p>When requesting help, include the device ID, LocalHub and firmware versions, current LED pattern, displayed reason code, Wi-Fi/MQTT/backend status, and the steps immediately before the issue.</p></article></div></div></section>
 
-            <div class="architecture-details">
-                <div class="arch-card" style="grid-column: span 3;">
-                    <h3>LED Status Indicators</h3>
-                    <table style="width:100%; border-collapse: collapse; margin-top: 1rem; text-align: left; font-size: 0.9rem;">
-                        <thead>
-                            <tr style="border-bottom: 2px solid rgba(255,255,255,0.2);">
-                                <th style="padding: 0.5rem;">State LED</th>
-                                <th style="padding: 0.5rem;">Activity LED</th>
-                                <th style="padding: 0.5rem;">Status & Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                                <td style="padding: 0.5rem;">ON</td>
-                                <td style="padding: 0.5rem;">OFF</td>
-                                <td style="padding: 0.5rem;">Connected but uncalibrated → <em>Run Calibration</em></td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                                <td style="padding: 0.5rem;">OFF</td>
-                                <td style="padding: 0.5rem;">ON</td>
-                                <td style="padding: 0.5rem;">Ready for Session → <em>Start from LocalHub</em></td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                                <td style="padding: 0.5rem;">ON</td>
-                                <td style="padding: 0.5rem;">ON</td>
-                                <td style="padding: 0.5rem;">Session Active → <em>Perform CPR & Monitor</em></td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                                <td style="padding: 0.5rem;">ON</td>
-                                <td style="padding: 0.5rem;">Medium Blink</td>
-                                <td style="padding: 0.5rem;">Calibration Running → <em>Follow on-screen instructions</em></td>
-                            </tr>
-                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">
-                                <td style="padding: 0.5rem;">ON</td>
-                                <td style="padding: 0.5rem;">Fast Blink</td>
-                                <td style="padding: 0.5rem;">Calibration Failed / Interrupted → <em>Check load and retry</em></td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 0.5rem;">Fast Blink</td>
-                                <td style="padding: 0.5rem;">Fast Blink</td>
-                                <td style="padding: 0.5rem;">Firmware Fault → <em>Reset controller or contact technician</em></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="arch-card" style="grid-column: span 3;">
-                    <h3>Device Control Buttons</h3>
-                    <ul style="line-height: 2;">
-                        <li><strong>Button 1 (Short Press):</strong> Retry or resume recoverable operations.</li>
-                        <li><strong>Button 2 (Short Press):</strong> Cancel, clear prompt, or return to idle state.</li>
-                        <li><strong>Button 1 (Long Press >3s):</strong> Safely power down device into software off mode.</li>
-                        <li><strong>Button 2 (Long Press >3s):</strong> Perform factory reset and re-enter network setup mode.</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 6. Troubleshooting -->
-    <section class="content-section alt">
-        <div class="container">
-            <h2>Troubleshooting & Recovery</h2>
-            
-            <div class="troubleshoot-section">
-                <div class="troubleshoot-item">
-                    <h3>❌ LocalHub Services Fail to Start</h3>
-                    <p><strong>Fix:</strong> Close any duplicate instances of LocalHub in Windows Task Manager, check for local port conflicts, restart the desktop application, and select <em>Start Services</em> again.</p>
-                </div>
-
-                <div class="troubleshoot-item">
-                    <h3>❌ Manikin Appears Offline</h3>
-                    <p><strong>Fix:</strong> Verify controller power supply, confirm PC and controller are on the same local Wi-Fi router subnet, and re-check MQTT connection status in LocalHub.</p>
-                </div>
-
-                <div class="troubleshoot-item">
-                    <h3>❌ Calibration Repeatedly Fails</h3>
-                    <p><strong>Fix:</strong> Ensure no external pressure or hands are resting on the chest overlay, inspect Hall sensor alignment (~5mm gap), verify air bladder seating, and retry pre-check.</p>
-                </div>
-
-                <div class="troubleshoot-item">
-                    <h3>❌ Unexpected Session Disconnection</h3>
-                    <p><strong>Fix:</strong> Check power cable stability and local Wi-Fi signal. Restore connection—LocalHub automatically flags partial session records so you can safely recalibrate and resume.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h3>ResQ Project</h3>
-                    <p>Department of Computer Engineering,<br>Faculty of Engineering,<br>University of Peradeniya<br>3rd Year Project (e21-3yp)</p>
-                </div>
-                <div class="footer-section">
-                    <h3>Quick Links</h3>
-                    <ul>
-                        <li><a href="../">Home</a></li>
-                        <li><a href="../about/">About</a></li>
-                        <li><a href="../specs/">Specifications</a></li>
-                        <li><a href="./">How to Use</a></li>
-                    </ul>
-                </div>
-                <div class="footer-section">
-                    <h3>Resources</h3>
-                    <ul>
-                        <li><a href="https://github.com/cepdnaclk/e21-3yp-ResQ" target="_blank" rel="noopener">GitHub Repository</a></li>
-                        <li><a href="#" title="Project documentation">Documentation</a></li>
-                        <li><a href="#" title="Download latest build">Latest Release</a></li>
-                    </ul>
-                </div>
-            </div>
-            <div class="footer-bottom">
-                <p>&copy; Department of Computer Engineering, Faculty of Engineering, University of Peradeniya</p>
-                <p><a href="#top" class="scroll-to-top">↑ Back to Top</a></p>
-            </div>
-        </div>
-    </footer>
-
-    <script src="../assets/script.js"></script>
-</body>
-</html>
+<section class="section section--compact"><div class="shell"><div class="cta-panel" data-reveal><div><span class="eyebrow">Need deeper detail?</span><h2>Read the project user manual</h2><p>The repository includes the maintained ResQ User Manual v1.0 and technical documentation for firmware, networking, and validation.</p></div><a class="button button--light" href="https://github.com/cepdnaclk/e21-3yp-ResQ/blob/main/ResQ_User_Manual_v1.0.md" target="_blank">Open user manual</a></div></div></section>
+</main><footer class="site-footer" data-site-footer></footer><script src="../assets/script.js"></script></body></html>

@@ -1,0 +1,28 @@
+ResQ Milestone 1 Proposal Presentation
+
+As part of the initial evaluation phase of the ResQ project, the Milestone 1 Proposal Presentation was conducted before lecturers Ms. Yasodha Vimukthi and Mr. Thilina Gunarathne.
+
+The purpose of this milestone was to evaluate the clarity, feasibility, and overall direction of ResQ – Smart CPR Training System before progressing further into design and implementation.
+
+The presentation began by establishing the real-world context behind the project. Cardiac arrest was introduced as a time-critical medical emergency, followed by an explanation of the fundamentals of Cardiopulmonary Resuscitation (CPR) and the importance of performing CPR correctly and without unnecessary delay. Relevant statistical insights were used to highlight the significance of timely and effective CPR and to clearly communicate why improved CPR training can have meaningful real-world value.
+
+After establishing the background and motivation, the team presented the key elements of the proposed system. These included the problem statement, the proposed ResQ solution, the initial technical architecture, the projected development budget, and the planned project timeline.
+
+ResQ is being developed as a smart CPR training system intended to make CPR practice more objective, measurable, and accessible. The project aims to combine sensing, embedded processing, connectivity, and software-based feedback to support both trainees and instructors during CPR training and evaluation.
+
+During the evaluation, the lecturers acknowledged the relevance of the problem and the potential impact of the proposed solution. At the same time, they provided important feedback that helped the team identify practical considerations that needed further attention.
+
+One of the main areas highlighted was budget feasibility. Since affordability is a key objective of ResQ, the team was advised to carefully evaluate component selection, development costs, and the overall cost-effectiveness of the proposed system.
+
+The evaluators also emphasized the importance of aligning ResQ with recognized CPR training standards. This feedback reinforced the need to ensure that the measurements, feedback logic, and evaluation criteria used by the system are based on accepted training practices rather than only technical assumptions.
+
+Another important recommendation was to consult domain experts from the Faculty of Allied Health Sciences. Their input would help the team better understand practical and clinical training requirements, validate the relevance of the selected CPR performance metrics, and ensure that the system is designed around realistic training workflows.
+
+The Milestone 1 Proposal Presentation therefore became more than an initial assessment. It helped the team identify critical areas that would influence the next stages of development, including cost control, technical validation, medical guidance, and alignment with accepted CPR training practices.
+
+Overall, the session provided a strong foundation for the continued development of ResQ. The feedback received from the evaluators has supported the refinement of the project scope and has encouraged the team to approach the system not only as an engineering prototype, but as a practical training solution that must be technically sound, cost-effective, and relevant to real users.
+
+Milestone 1 marked the beginning of ResQ's formal development journey and helped shape the direction for the design, implementation, and validation phases that followed.
+
+Tags:
+ResQ, Milestone 1, Proposal Presentation, University of Peradeniya, Computer Engineering, CPR Training, Smart CPR Training, Healthcare Innovation, Engineering Project, Third Year Project, Project Evaluation

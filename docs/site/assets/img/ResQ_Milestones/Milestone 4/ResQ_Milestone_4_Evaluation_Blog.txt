@@ -1,0 +1,34 @@
+ResQ Milestone 4 Evaluation – Refined End-to-End System Demonstration
+
+The ResQ team successfully completed the Milestone 4 Evaluation, presenting a refined and fully working version of ResQ – Smart CPR Training System.
+
+At this stage, the project had progressed beyond core implementation and integration into a more complete product-level demonstration. The evaluation focused on showing how the entire system operates as one connected workflow, from the physical CPR training manikin to the Local Hub and onward to cloud synchronization.
+
+During the evaluation, the team demonstrated the complete end-to-end process beginning with connecting the ResQ manikin to the Local Hub. The manikin hardware, embedded firmware, communication layer, Local Hub application, dashboards, session workflow, and cloud synchronization were presented as part of one continuous system.
+
+This end-to-end demonstration showed how ResQ can support a realistic CPR training environment rather than functioning only as a collection of separate technical components.
+
+A major highlight of Milestone 4 was the role-play based demonstration. Instead of presenting the system only from a technical perspective, the team simulated how ResQ would be used in an actual CPR training laboratory.
+
+The demonstration followed a realistic training workflow in which the instructor prepares the system, connects and checks the manikin, manages the training session through the Local Hub, monitors CPR performance through the live dashboards, reviews the session results, and synchronizes relevant data with the cloud.
+
+This approach made it possible to demonstrate not only whether individual features worked, but also how instructors and trainees could interact with the complete ResQ platform in practice.
+
+The Milestone 4 system included the refined manikin hardware, firmware integration, device connectivity, Local Hub functionality, calibration and readiness flow, real-time CPR monitoring, session management, dashboard interaction, local data handling, and cloud synchronization.
+
+The Local Hub continued to act as the central control point for the training environment, coordinating communication with the manikin, managing sessions, and providing access to live and after-session information. Cloud synchronization extended the workflow by allowing session data to move beyond the local training environment for longer-term access and management.
+
+Compared with earlier milestones, the system presented at Milestone 4 reflected substantial refinement in integration, usability, workflow consistency, and overall product readiness.
+
+The evaluators provided highly positive feedback regarding the progress of the project and the overall operation of the system. The successful end-to-end demonstration confirmed that the major planned components were now working together as a unified platform.
+
+The role-play demonstration was particularly important because it allowed the project to be evaluated in the context of its intended use. By simulating an actual training lab environment, the team was able to demonstrate how ResQ could fit into a practical CPR training session rather than limiting the evaluation to technical test cases.
+
+Milestone 4 therefore represented a significant transition for ResQ. The project had evolved from a concept, through prototype and MVP stages, into a fully working integrated system capable of demonstrating the complete user journey.
+
+With the major implementation and integration work completed, the remaining focus is on final validation, testing, documentation, and further refinement based on feedback.
+
+The successful Milestone 4 Evaluation strengthens the team's confidence in ResQ as a practical smart CPR training platform and marks an important step toward the final stage of the project.
+
+Tags:
+ResQ, Milestone 4, Smart CPR Training System, CPR Training, University of Peradeniya, Computer Engineering, Local Hub, Cloud Sync, End-to-End Workflow, Real-Time Dashboard, Embedded Systems, Firmware, System Integration, Healthcare Innovation, Engineering Project, Third Year Project, Training Lab, Product Refinement

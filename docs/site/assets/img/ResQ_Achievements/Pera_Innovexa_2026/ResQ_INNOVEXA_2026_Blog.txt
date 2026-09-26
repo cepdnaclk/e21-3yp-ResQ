@@ -1,0 +1,30 @@
+ResQ Secures 3rd Place at INNOVEXA 2026 Business Ideation Summit
+
+July 2026
+
+The ResQ team proudly secured 3rd Place (Second Runner-Up) at INNOVEXA 2026, the Open Business Ideation Summit 2026 organized by the Business Incubation and Innovation Ecosystem Services (BIIES) Unit of the Faculty of Management, University of Peradeniya.
+
+The competition was held on 22 July 2026 at the Conference Hall of the Faculty of Management as part of Innovation Day 2026. Bringing together more than 20 business proposals from across the University of Peradeniya, INNOVEXA 2026 provided a platform for students to transform innovative ideas into potential real-world ventures while strengthening their business pitching, entrepreneurship, and public-speaking skills.
+
+Representing the Department of Computer Engineering, Faculty of Engineering, University of Peradeniya, our team presented ResQ: Smart CPR Training System.
+
+ResQ is being developed as a practical and accessible CPR training solution that combines engineering, embedded systems, sensing, and software to support objective CPR performance assessment. The project aims to make CPR training more measurable and effective by providing trainees and instructors with useful performance feedback rather than relying only on visual observation.
+
+Participating in INNOVEXA 2026 gave the team an opportunity to present ResQ from a different perspective. Beyond explaining the technical implementation, the competition challenged us to communicate the problem we are addressing, the practical value of the solution, its potential users, and how an engineering project can be developed into a sustainable real-world product.
+
+Securing 3rd Place was an important recognition of ResQ's potential and encouraged us to continue transforming the knowledge gained through Computer Engineering into a solution with meaningful social and practical impact.
+
+The event also marked a notable achievement for PeraCom. The Championship, First Runner-Up, and Second Runner-Up positions at INNOVEXA 2026 were all secured by third-year projects from the Department of Computer Engineering, University of Peradeniya.
+
+This result highlights an important aspect of engineering education: strong technical knowledge is only one part of developing impactful solutions. Innovation also requires problem identification, teamwork, communication, entrepreneurship, user awareness, and the ability to translate technology into something that can operate effectively in the real world.
+
+For the ResQ team, the recognition at INNOVEXA 2026 represents another important milestone in the project's journey. It reinforces our goal of continuing to refine the Smart CPR Training System, improve its technical capabilities, validate its practical use, and move closer toward an affordable and effective platform for CPR education and training.
+
+We extend our appreciation to ResQ team members Kavishanthan Sarvaloganayagam, Amirsha Vincent George, and Kartheepan Ketheeswaran for their dedication, creativity, and teamwork throughout the project and competition journey.
+
+We are also grateful to our project mentors, lecturers, competition organizers, judges, the Faculty of Management, the Department of Computer Engineering, PeraCom, ACES, and everyone who has supported and guided the team.
+
+Achievements such as INNOVEXA 2026 motivate us to continue developing ResQ not only as an academic engineering project, but as a practical innovation with the potential to contribute to better CPR training and wider healthcare education.
+
+Tags:
+ResQ, INNOVEXA 2026, Open Business Ideation Summit, University of Peradeniya, Faculty of Management, Faculty of Engineering, Computer Engineering, PeraCom, ACES, CPR Training, Healthcare Innovation, Engineering Innovation, Entrepreneurship, Third Year Project, Teamwork

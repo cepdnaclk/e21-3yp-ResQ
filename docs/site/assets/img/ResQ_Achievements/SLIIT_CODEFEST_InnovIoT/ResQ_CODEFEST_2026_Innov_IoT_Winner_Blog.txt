@@ -1,0 +1,40 @@
+ResQ Wins 1st Place in Innov IoT at SLIIT CODEFEST 2026
+
+September 2026
+
+Team ResQ proudly secured 1st Place in the Innov IoT competition at SLIIT CODEFEST 2026, marking another major milestone in the development journey of ResQ – Smart CPR Training System.
+
+CODEFEST 2026 is the 15th consecutive edition of the Faculty of Computing, SLIIT's national ICT competition. The event brings together students from across Sri Lanka to demonstrate creativity, technical capability, and innovation through a range of technology-focused competitions.
+
+Innov IoT is a national-level Internet of Things innovation challenge for university undergraduates. The competition focuses on developing practical IoT solutions that address real societal and industrial problems through connected devices, sensors, communication technologies, and working prototypes.
+
+The competition was conducted in two rounds. In the first stage, teams presented their proposed IoT concepts, including the problem, proposed solution, system overview, and expected outcomes. Shortlisted teams then progressed to the physical prototype stage, where they were required to demonstrate a working solution and respond to questions from the judging panel.
+
+Representing the Department of Computer Engineering, Faculty of Engineering, University of Peradeniya, Team ResQ presented ResQ – Smart CPR Training System.
+
+ResQ is designed to make CPR training more objective, accessible, and effective by combining sensing, embedded systems, IoT communication, real-time processing, and user-facing feedback. During CPR practice, the system captures relevant performance information and provides real-time feedback to support trainees while also giving instructors useful data for monitoring and evaluation.
+
+The project reflects the core objectives of the Innov IoT challenge by integrating connected hardware and software into a practical solution for a real-world problem. ResQ combines sensor-equipped CPR training hardware, embedded processing, local communication, real-time dashboards, and session-level analysis to create a connected training environment.
+
+Winning 1st Place at Innov IoT provided strong recognition for both the technical implementation and the practical impact of the project. The competition evaluated teams based on factors including innovation, technical execution, real-world impact, and prototype quality, making the achievement especially meaningful to the team.
+
+The Innov IoT competition also highlighted an important part of the ResQ development process: transforming individual hardware and software components into a reliable connected system. From sensors and embedded firmware to communication protocols and dashboard interfaces, each layer must operate together effectively to deliver useful feedback during a CPR training session.
+
+The experience at CODEFEST 2026 gave the team an opportunity to demonstrate the working system, explain the engineering decisions behind ResQ, answer technical questions, and receive valuable feedback from judges and technology professionals. It also provided exposure to innovative IoT projects developed by other university teams from around the country.
+
+As the winner of Innov IoT 2026, Team ResQ was recognized with the competition's top award. According to the official competition structure, the winning team receives a cash prize of LKR 75,000 in recognition of an innovative and impactful IoT solution.
+
+Team Members:
+Ganathipan Sivasakthynathan
+Amirsha Vincent George
+Kavishanthan Sarvaloganayagam
+Kartheepan Ketheeswaran
+
+This achievement reflects the dedication, creativity, technical problem-solving, and teamwork contributed by every member throughout the design, development, integration, and testing of ResQ.
+
+We also extend our sincere appreciation to our project mentors, lecturers, the Department of Computer Engineering, PeraCom, ACES, the SLIIT CODEFEST organizing team, the Innov IoT judges, and everyone who supported us throughout the project and competition journey.
+
+Securing 1st Place at Innov IoT is another important step toward our broader goal of developing ResQ into an affordable, reliable, and practical smart CPR training platform. The recognition motivates us to continue refining the system, improving its performance, validating its measurements, and exploring how connected technologies can contribute to more effective CPR education.
+
+Tags:
+ResQ, CODEFEST 2026, Innov IoT, SLIIT, University of Peradeniya, Computer Engineering, PeraCom, ACES, IoT, Internet of Things, CPR Training, Healthcare Innovation, Embedded Systems, Smart Healthcare, Real-Time Feedback, Engineering Innovation, Third Year Project

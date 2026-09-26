@@ -1,0 +1,34 @@
+ResQ Research Selected for Oral Presentation at iPURSE 2026
+
+August 2026
+
+The ResQ team reached another important academic milestone when our research abstract was accepted for an Oral Presentation at the Peradeniya University International Research Symposium and Exposition (iPURSE 2026), one of the University of Peradeniya's flagship research events.
+
+Our accepted work was titled:
+
+“Digitalizing CPR Skills Training: A Low-Cost Smart Manikin System with Real-Time Feedback”
+
+Following the evaluation of our revised abstract by the iPURSE 2026 Technical Programme Committee, the submission was formally accepted for an oral presentation. This recognition provided an opportunity to present the research direction behind ResQ – Smart CPR Training System to a wider academic audience and receive feedback from researchers, academics, and professionals.
+
+iPURSE 2026 was held on 20 and 21 August 2026 at the Faculty of Agriculture, University of Peradeniya, under the theme “Transformative Synergies: Integrating Knowledge Across Borders for Tomorrow.” The symposium brought together research from multiple disciplines and created a platform for knowledge exchange, collaboration, and discussion around emerging scientific and technological challenges.
+
+We presented our ResQ research on 20 August 2026.
+
+ResQ is being developed as a low-cost smart CPR training system designed to make CPR skills training more objective, accessible, and data-driven. The system combines a sensor-equipped training manikin, embedded processing, local connectivity, and real-time feedback to evaluate important aspects of CPR performance and provide meaningful information to trainees and instructors.
+
+The research focuses on addressing a practical challenge in CPR education: conventional training can depend heavily on visual observation and instructor judgement. By introducing objective measurements and immediate feedback, ResQ aims to support more consistent practice, improve self-correction during training, and provide useful information for post-session evaluation.
+
+Presenting at iPURSE 2026 gave us the opportunity to communicate not only the engineering implementation of ResQ but also the research motivation behind the system. Discussions and feedback from the academic community helped us consider the project from broader perspectives, including validation, usability, system reliability, measurement quality, and the potential role of technology in improving healthcare education.
+
+This experience was particularly valuable as ResQ continues to evolve from a third-year engineering project into a more thoroughly evaluated research and development effort. Academic presentation allows us to examine the project beyond implementation alone and places greater emphasis on evidence, methodology, measurable outcomes, and meaningful evaluation.
+
+The symposium also provided an opportunity to engage with research beyond our own field. iPURSE 2026 brought together work spanning health sciences, engineering and technology, agriculture, management, social sciences, and physical and biological sciences, reinforcing the importance of interdisciplinary thinking when developing solutions to real-world problems.
+
+Having our work accepted for an oral presentation represents an important step in the ResQ journey. It demonstrates that the project is developing not only as an engineering prototype, but also as a research contribution that can be discussed, evaluated, refined, and shared within the wider academic community.
+
+We are grateful to our project mentors, lecturers, reviewers, the iPURSE 2026 organizing and technical programme committees, and everyone who has supported the development of ResQ. Their guidance and feedback continue to help us improve both the technical system and the research surrounding it.
+
+The experience at iPURSE 2026 motivates us to continue validating and refining ResQ while working toward our broader goal of developing an affordable, practical, and effective smart CPR training platform.
+
+Tags:
+ResQ, iPURSE 2026, University of Peradeniya, Research, Oral Presentation, CPR Training, Smart CPR Training, Healthcare Innovation, Biomedical Engineering, Computer Engineering, Embedded Systems, Real-Time Feedback, Engineering Research, Third Year Project
