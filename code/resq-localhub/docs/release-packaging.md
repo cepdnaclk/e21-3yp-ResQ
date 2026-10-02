@@ -15,20 +15,36 @@ Push-Location src-tauri
 cargo test
 Pop-Location
 pnpm tauri:build
-node ../../scripts/release/smoke-runtime.mjs
 ```
 
 Do not run Maven tests concurrently with release preparation: preparation runs
 `clean package`, which replaces target/. Do not package a manually copied old JAR.
 The normal Tauri beforeBuildCommand runs tools/prepare-release.mjs, which checks
-the broker distribution, rebuilds the JAR, runs scripts/release/prepare-release.ps1
-to generate Java, and builds/copies the Vite assets. Java's legal notices remain
+the broker distribution, runs Maven clean package including tests, stages and verifies
+the JAR SHA256, runs scripts/release/prepare-release.ps1 to generate Java, and
+builds/copies the Vite assets. It then runs the runtime smoke test before Rust and
+installer compilation. Java's legal notices remain
 in the runtime. The jlink script deliberately retains all JDK modules for reflection,
 TLS and JNI compatibility. The builder needs jlink, not just a JRE.
 
 The release script directory must remain unignored. Previously scripts/* excluded
 the required Java preparation script from Git. Generated resources are not source
 changes: review the diff and exclude rebuilt JAR/dashboard/runtime binaries from commits.
+The generated backend JAR is no longer tracked in Git. Do not restore an old JAR
+from Git after staging; keep the freshly verified artifact in the resources directory.
+
+To run service verification independently (with Java/Mosquitto already staged):
+
+```powershell
+node ../../scripts/release/smoke-runtime.mjs
+```
+
+This command clean-builds/tests the backend and stages it before starting services.
+Release preparation uses `--staged` immediately after its own clean build; this mode
+rejects missing JARs or a staged SHA256 different from the Maven output before any
+service starts. It is not a source freshness check; use the default command after
+source changes. Status remains available at `/api/sync/cloud/status` with cloud sync
+disabled. A 404 from an old artifact is a packaging failure, not a reason to skip it.
 
 ## Configuration and storage
 

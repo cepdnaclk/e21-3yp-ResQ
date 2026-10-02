@@ -32,6 +32,7 @@ dist/
 coverage/
 *.tsbuildinfo
 apps/localhub-desktop/src-tauri/resources/jre/
+apps/localhub-desktop/src-tauri/resources/hub-api/*.jar
 **/__pycache__/
 *.py[cod]
 
@@ -44,7 +45,6 @@ Cargo.lock
 # Java / Maven
 *.class
 *.jar
-!apps/localhub-desktop/src-tauri/resources/hub-api/resq-hub-api.jar
 apps/localhub-desktop/src-tauri/resources/jre/
 *.war
 *.ear

@@ -6,6 +6,11 @@ import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
 import assert from "node:assert/strict";
+import { buildAndStageBackend, verifyStagedBackend } from "../../apps/localhub-desktop/tools/backend-release.mjs";
+// Direct invocations must never silently test the old tracked release JAR.
+// --staged is for release preparation, immediately after its clean build.
+if (process.argv.includes("--staged")) verifyStagedBackend();
+else buildAndStageBackend();
 const desktop = resolve(dirname(fileURLToPath(import.meta.url)), "../../apps/localhub-desktop");
 const resources = join(desktop, "src-tauri/resources");
 const require = createRequire(join(desktop, "package.json"));
@@ -88,9 +93,10 @@ try {
   const headers = { Authorization: `Bearer ${token}`, Origin: "http://tauri.localhost" };
   const me = await fetch(base + "/api/auth/me", { headers }); assert.equal(me.status, 200);
   const syncStatus = await fetch(base + "/api/sync/cloud/status", { headers });
-  assert.equal(syncStatus.status, 200);
+  assert.equal(syncStatus.status, 200, "GET /api/sync/cloud/status must remain available with cloud sync disabled");
   const sync = await syncStatus.json();
   assert.equal(sync.enabled, false); assert.equal(sync.pendingCount, 0);
+  console.log("PASS cloud status endpoint returns 200 with sync disabled and pendingCount=0");
   assert.equal(me.headers.get("access-control-allow-origin"), "http://tauri.localhost");
   const denied = await fetch(base + "/api/stream/manikins/live"); assert.ok([401, 403].includes(denied.status));
   for (const route of ["manikins/live", "sessions/live/smoke-session"]) {

@@ -1,9 +1,7 @@
+import { buildAndStageBackend } from "./backend-release.mjs";
 import {
   cpSync,
-  copyFileSync,
   existsSync,
-  mkdirSync,
-  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -13,10 +11,7 @@ import { fileURLToPath } from "node:url";
 
 const toolsDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(toolsDir, "..");
-const backendDir = resolve(desktopDir, "../../services/hub-api");
-const backendTargetDir = join(backendDir, "target");
 const resourcesDir = join(desktopDir, "src-tauri", "resources");
-const packagedJarPath = join(resourcesDir, "hub-api", "resq-hub-api.jar");
 const packagedRuntimeDir = join(resourcesDir, "jre");
 const frontendDistDir = join(desktopDir, "dist");
 const packagedWebDashboardDir = join(resourcesDir, "web-dashboard");
@@ -35,29 +30,6 @@ function run(command, args, cwd) {
   if (result.status !== 0) {
     throw new Error(`${command} exited with status ${result.status}`);
   }
-}
-
-function buildBackendJar() {
-  if (process.platform === "win32") {
-    run(
-      "cmd.exe",
-      ["/d", "/s", "/c", "mvnw.cmd", "clean", "package", "-DskipTests"],
-      backendDir,
-    );
-  } else {
-    run("./mvnw", ["clean", "package", "-DskipTests"], backendDir);
-  }
-
-  const jarName = readdirSync(backendTargetDir).find(
-    (name) => name.startsWith("hub-api-") && name.endsWith(".jar") && !name.endsWith(".jar.original"),
-  );
-  if (!jarName) {
-    throw new Error(`No packaged hub-api JAR was produced in ${backendTargetDir}`);
-  }
-
-  mkdirSync(dirname(packagedJarPath), { recursive: true });
-  copyFileSync(join(backendTargetDir, jarName), packagedJarPath);
-  console.log(`Packaged backend: ${packagedJarPath}`);
 }
 
 function buildJavaRuntime() {
@@ -93,9 +65,10 @@ try {
       throw new Error(`Missing release broker resource: ${name}`);
     }
   }
-  buildBackendJar();
+  buildAndStageBackend();
   buildJavaRuntime();
   buildWebDashboard();
+  run(process.execPath, [resolve(desktopDir, "../../scripts/release/smoke-runtime.mjs"), "--staged"], desktopDir);
 } catch (error) {
   console.error(`Release preparation failed: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
