@@ -316,7 +316,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const [guidanceAnnouncement, setGuidanceAnnouncement] = useState("");
   const [lastSampleAtMs, setLastSampleAtMs] = useState<number | null>(null);
 
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<{ close(): void } | null>(null);
   const streamStartedRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const announcementRef = useRef({ text: "", at: 0 });

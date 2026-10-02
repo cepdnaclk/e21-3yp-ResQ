@@ -19,128 +19,91 @@ export function createSseClient<T>(
   parser: SseEventParser<T>,
 ): SseClient {
   let controller: AbortController | null = null;
-  let stopped = false;
+  let stopped = true;
   let reconnectTimer: number | null = null;
+  let retryDelayMs = 2000;
 
   function start(): void {
-    void startAsync();
+    if (!stopped) return;
+    stopped = false;
+    void connect();
   }
 
-  async function startAsync(): Promise<void> {
-    stopped = false;
-    if (controller) return;
-
+  async function connect(): Promise<void> {
+    if (stopped || controller) return;
     const token = getStoredToken();
     if (!token) {
+      stop();
       callbacks.onError(new Error("AUTH_REQUIRED"));
       return;
     }
-
-    controller = new AbortController();
-    const signal = controller.signal;
-
+    const attempt = new AbortController();
+    controller = attempt;
+    const active = () => !stopped && controller === attempt;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
       const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "text/event-stream",
-        },
-        signal,
+        headers: { Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
+        cache: "no-store",
+        signal: attempt.signal,
       });
-
+      if (!active()) return;
       if (response.status === 401 || response.status === 403) {
+        stop();
         callbacks.onError(new Error(`AUTH_${response.status}`));
-        stop();
         return;
       }
-
-      if (!response.ok || !response.body) {
-        callbacks.onError(new Error(`HTTP_${response.status || 0}`));
-        stop();
-        if (!reconnectTimer) {
-          reconnectTimer = window.setTimeout(() => {
-            reconnectTimer = null;
-            if (!stopped) {
-              startAsync();
-            }
-          }, 2000);
-        }
-        return;
+      if (!response.ok || !response.body) throw new Error(`HTTP_${response.status}`);
+      if (!response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) {
+        throw new Error("SSE_INVALID_CONTENT_TYPE");
       }
-
       callbacks.onOpen();
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder("utf-8");
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
       let buffer = "";
-
-      while (!stopped) {
+      while (active()) {
         const { value, done } = await reader.read();
-        if (done) {
-          if (!stopped) {
-            callbacks.onError(new Error("STREAM_CLOSED"));
-            if (!reconnectTimer) {
-              reconnectTimer = window.setTimeout(() => {
-                reconnectTimer = null;
-                if (!stopped) {
-                  startAsync();
-                }
-              }, 2000);
-            }
-          }
-          break;
+        if (!active()) return;
+        if (done) throw new Error("STREAM_CLOSED");
+        buffer += decoder.decode(value, { stream: true });
+        let boundary: RegExpExecArray | null;
+        while ((boundary = /\r?\n\r?\n/.exec(buffer)) !== null) {
+          const chunk = buffer.slice(0, boundary.index);
+          buffer = buffer.slice(boundary.index + boundary[0].length);
+          retryDelayMs = 2000;
+          parseSseChunk(chunk);
+          if (!active()) return;
         }
-
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const chunk = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
-            parseSseChunk(chunk);
-            boundary = buffer.indexOf("\n\n");
-          }
-        }
-      }
-
-      if (!stopped && buffer.trim()) {
-        parseSseChunk(buffer.trim());
       }
     } catch (error) {
-      if (stopped) return;
-      const err = error as Error & { name?: string };
-      if (err.name === "AbortError") {
-        return;
-      }
-
-      callbacks.onError(new Error("SSE_FETCH_FAILED"));
-      if (!reconnectTimer) {
-        reconnectTimer = window.setTimeout(() => {
-          reconnectTimer = null;
-          if (!stopped) {
-            startAsync();
-          }
-        }, 2000);
-      }
+      if (active()) callbacks.onError(error instanceof Error ? error : new Error("SSE_FETCH_FAILED"));
     } finally {
-      if (controller) {
+      attempt.abort();
+      if (reader) {
+        try { await reader.cancel(); } catch { /* already aborted */ }
+        reader.releaseLock();
+      }
+      // An older request must never clear or reconnect a replacement subscription.
+      if (controller === attempt) {
         controller = null;
+        if (!stopped) {
+          reconnectTimer = window.setTimeout(() => {
+            reconnectTimer = null;
+            void connect();
+          }, retryDelayMs);
+          retryDelayMs = Math.min(30_000, retryDelayMs * 2);
+        }
       }
     }
   }
 
   function stop(): void {
     stopped = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    if (controller) {
-      try {
-        controller.abort();
-      } catch {}
-      controller = null;
-    }
+    if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    controller?.abort();
+    controller = null;
+    retryDelayMs = 2000;
   }
 
   function parseSseChunk(chunk: string): void {

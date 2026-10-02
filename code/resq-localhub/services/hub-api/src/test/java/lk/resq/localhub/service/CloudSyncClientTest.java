@@ -69,8 +69,7 @@ class CloudSyncClientTest {
 
         assertThatThrownBy(() -> clientForServer().uploadSessionSummary("{}"))
                 .isInstanceOf(CloudSyncClient.CloudSyncException.class)
-                .hasMessageContaining("HTTP 400")
-                .hasMessageContaining("invalid payload");
+                .hasMessage("Cloud API returned HTTP 400");
     }
 
     private CloudSyncClient clientForServer() {

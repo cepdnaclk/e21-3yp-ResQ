@@ -15,6 +15,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 class CloudSyncWorkerTest {
+    @Test
+    void offlineItemSurvivesRetryLimitAndRepositoryRestartThenUploads() throws Exception {
+        Fixture fixture = fixtureWithRetryCount(8);
+        fixture.properties.setEnabled(true);
+        fixture.properties.setMaxRetryCount(3);
+        fixture.client.failure = new CloudSyncClient.CloudSyncException("offline", true);
+        fixture.worker.processSafely(fixture.item());
+        assertThat(fixture.item().syncStatus()).isEqualTo(SyncStatus.RETRY_LATER);
+        Instant attemptedAt = fixture.item().lastAttemptAt();
+        assertThat(fixture.repository.findRetryableItems(attemptedAt.plusSeconds(899), 10)).isEmpty();
+        assertThat(fixture.repository.findRetryableItems(attemptedAt.plusSeconds(900), 10)).hasSize(1);
+        fixture.repository.initialize();
+        assertThat(fixture.item().retryCount()).isEqualTo(9);
+        fixture.client.failure = null;
+        fixture.worker.processSafely(fixture.item());
+        assertThat(fixture.item().syncStatus()).isEqualTo(SyncStatus.SYNCED);
+    }
 
     @Test
     void cloudSyncIsDisabledByDefaultAndDoesNotProcessItems() throws Exception {

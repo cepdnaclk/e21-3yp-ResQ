@@ -3,11 +3,14 @@
 logs/
 prompt_change.txt
 scripts/*
+!scripts/release/
+!scripts/release/**
 !scripts/telemetry-e2e/
 !scripts/telemetry-e2e/validate-sensor-stream.ps1
 !scripts/phase7-scaling/
 !scripts/phase7-scaling/**
 docs/*
+!docs/release-*.md
 !docs/telemetry-api-update/
 docs/telemetry-api-update/*
 !docs/telemetry-api-update/phase-5-frontend-sensor-stream.md
@@ -28,6 +31,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+apps/localhub-desktop/src-tauri/resources/jre/
 **/__pycache__/
 *.py[cod]
 

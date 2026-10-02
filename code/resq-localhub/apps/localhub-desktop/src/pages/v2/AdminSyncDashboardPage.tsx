@@ -17,6 +17,15 @@ type ServiceInfo = {
   roster_sync_enabled?: boolean;
 };
 
+type CloudStatus = {
+  enabled: boolean;
+  configured: boolean;
+  pendingCount: number;
+  lastSuccessAt: string | null;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+};
+
 type SyncQueueItem = {
   id: string;
   entityType: string;
@@ -31,6 +40,7 @@ type SyncQueueItem = {
 
 export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string) => void }) {
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
+  const [cloudStatus, setCloudStatus] = useState<CloudStatus | null>(null);
   const [rosterSync, setRosterSync] = useState<SyncStateRecord | null>(null);
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,14 +81,16 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
 
   async function loadData() {
     try {
-      const [infoRes, rosterRes, queueRes] = await Promise.all([
+      const [infoRes, rosterRes, queueRes, cloudRes] = await Promise.all([
         getJson<ServiceInfo>("/api/hub/service-info"),
         getRosterSyncStatus().catch(() => null),
         getJson<SyncQueueItem[]>("/api/sync-queue").catch(() => []),
+        getJson<CloudStatus>("/api/sync/cloud/status"),
       ]);
       setServiceInfo(infoRes);
       setRosterSync(rosterRes);
       setSyncQueue(queueRes);
+      setCloudStatus(cloudRes);
     } catch (err) {
       setError("Failed to load sync dashboard metrics. Please check LocalHub connectivity.");
     } finally {
@@ -128,6 +140,13 @@ export function V2AdminSyncDashboardPage({ navigate }: { navigate: (path: string
         title="Cloud Sync Dashboard"
         subtitle="Manage cloud roster replication, synchronization logs, and telemetry upload queue."
       />
+      <Card padding="lg">
+        <p>Cloud uploads: {cloudStatus?.configured ? (cloudStatus.enabled ? "Configured and enabled" : "Disabled") : "Not configured"}</p>
+        <p>Pending uploads: {cloudStatus?.pendingCount ?? 0}</p>
+        <p>Last successful upload: {cloudStatus?.lastSuccessAt ? new Date(cloudStatus.lastSuccessAt).toLocaleString() : "Never"}</p>
+        <p>Last connection attempt: {cloudStatus?.lastAttemptAt ? new Date(cloudStatus.lastAttemptAt).toLocaleString() : "Not yet checked"}</p>
+        {cloudStatus?.lastError && <p role="status">Last upload error: {cloudStatus.lastError}. Local training remains available.</p>}
+      </Card>
 
       {error && (
         <Card className="border-rose-100 bg-rose-50 text-rose-800 rounded-3xl p-6">

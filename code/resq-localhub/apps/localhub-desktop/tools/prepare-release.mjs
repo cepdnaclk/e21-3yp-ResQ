@@ -88,6 +88,11 @@ function buildWebDashboard() {
 }
 
 try {
+  for (const name of ["mosquitto.exe", "mosquitto.conf", "mosquitto_common.dll", "libcrypto-3-x64.dll", "libssl-3-x64.dll", "cjson.dll", "pthreadVC3.dll", "libmicrohttpd-dll.dll"]) {
+    if (!existsSync(join(resourcesDir, "mosquitto", name))) {
+      throw new Error(`Missing release broker resource: ${name}`);
+    }
+  }
   buildBackendJar();
   buildJavaRuntime();
   buildWebDashboard();
