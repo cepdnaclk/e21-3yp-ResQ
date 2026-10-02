@@ -11,6 +11,8 @@ Thumbs.db
 
 # Local release artifacts
 release/
+.release/
+code/resq-firmware/out.txt
 
 # Logs and temp files
 *.log

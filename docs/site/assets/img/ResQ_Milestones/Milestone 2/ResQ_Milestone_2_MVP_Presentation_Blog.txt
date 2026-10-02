@@ -1,0 +1,28 @@
+ResQ Milestone 2 MVP Presentation Successfully Completed
+
+The ResQ team successfully completed the Milestone 2 MVP Presentation, marking an important step forward in the development of ResQ – Smart CPR Training System.
+
+This milestone focused on demonstrating the progress of the Minimum Viable Product and showing how the major hardware and software components of the system are beginning to work together as an integrated solution.
+
+During the presentation, the team demonstrated the current working prototype and highlighted several key developments achieved since the previous milestone.
+
+These included firmware integration, Local Hub connectivity, real-time dashboard updates, and the prototype manikin overlay system.
+
+The firmware integration demonstrated the ability of the embedded system to work together with the sensing and communication layers required for CPR training. The Local Hub connectivity showed how the manikin-side system can communicate with the instructor-side software environment, while the real-time dashboard demonstrated how live data can be presented to users during training sessions.
+
+The team also presented the current prototype overlay system, which represents the physical CPR training interface placed over the manikin. This component is important because it connects the technical sensing system with the physical experience of performing CPR.
+
+The evaluators responded positively to the MVP implementation and the overall functionality demonstrated during the session. Their feedback confirmed that the major system components were progressing in the intended direction and that the project had moved beyond the conceptual stage into a working integrated prototype.
+
+The main area identified for further improvement was the realism of the manikin overlay.
+
+The evaluators recommended giving greater attention to how closely the overlay can reproduce the physical feel and response of an actual CPR training manikin. Improving the realism of the compression surface, resistance, recoil behavior, and overall user experience will be important in making the system more suitable for realistic training scenarios.
+
+This feedback gives the team a clear direction for the next stage of development. While the current MVP demonstrates the core technical functionality of ResQ, the next phase will focus on refining the physical training experience while continuing to improve reliability, integration, and overall system performance.
+
+The Milestone 2 MVP Presentation was therefore an important validation point for the project. It demonstrated that the main embedded, connectivity, software, and interface components can operate together as part of a working system, while also identifying the key physical design improvements required before progressing toward a more complete prototype.
+
+The team will continue refining ResQ with particular emphasis on improving the realism of the manikin overlay, strengthening system integration, and preparing the platform for further testing and validation.
+
+Tags:
+ResQ, Milestone 2, MVP Presentation, Smart CPR Training System, CPR Training, University of Peradeniya, Computer Engineering, Embedded Systems, Local Hub, Real-Time Dashboard, Healthcare Innovation, Engineering Project, Third Year Project, Prototype Development

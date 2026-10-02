@@ -1,0 +1,30 @@
+ResQ Selected Among the Top 10 at NetX IoT Challenge 2026
+
+September 2026
+
+ResQ – Smart CPR Training System reached another important milestone by being selected among the Top 10 teams at the NetX IoT Challenge 2026, organized by the IEEE Communications Society Student Branch Chapter at the University of Sri Jayewardenepura.
+
+NetX 2026 provided a competitive platform for undergraduate teams to develop and present Internet of Things (IoT) solutions addressing meaningful real-world problems. The competition began with 58 registered teams and included an initial proposal evaluation focused on the clarity and relevance of the identified problem, innovation and originality of the proposed solution, and its technical feasibility using resources accessible to undergraduate teams. Following the first stage, 44 teams advanced to the next round before the competition ultimately narrowed down to the Top 10 finalists.
+
+The Grand Finale was held on 13 September 2026 at the Faculty of Engineering, University of Sri Jayewardenepura, bringing together the ten finalist teams to showcase their solutions and demonstrate how IoT technologies could be applied to practical challenges.
+
+Representing the Department of Computer Engineering, Faculty of Engineering, University of Peradeniya, our team presented ResQ – Smart CPR Training System.
+
+ResQ is being developed to make CPR training more objective, accessible, and effective through the integration of sensing, embedded systems, IoT communication, real-time feedback, and performance analysis. The system is designed to capture important aspects of CPR practice and provide useful information to both trainees and instructors, helping reduce dependence on visual assessment alone.
+
+The NetX IoT Challenge was especially relevant to ResQ because connectivity and real-time data exchange are important parts of the system. Sensor data collected by the CPR training manikin can be processed and communicated to local software interfaces, allowing instructors and trainees to observe performance information during training and review session results afterward.
+
+Being selected among the Top 10 provided us with the opportunity to present ResQ before an experienced judging panel, explain both the technical architecture and real-world motivation behind the project, and receive valuable feedback on how the system could be improved further.
+
+The competition also allowed us to interact with other student innovators, observe a wide range of IoT applications, exchange ideas, and learn how different teams approached real-world engineering problems. Experiences such as these are valuable because they challenge us to look beyond whether a system simply works technically and consider usability, reliability, scalability, accessibility, and the value it can create for its intended users.
+
+Reaching the Grand Finale is another meaningful step in the development journey of ResQ. It recognizes the progress made by the team while also highlighting areas where the system can continue to evolve through further implementation, testing, validation, and feedback.
+
+We extend our appreciation to team members Kavishanthan Sarvaloganayagam, Amirsha Vincent George, and Kartheepan Ketheeswaran for their continued dedication, technical contribution, and teamwork throughout the project.
+
+We are also grateful to our project mentors, lecturers, the NetX organizing team, judges, volunteers, and everyone who supported the team and created an opportunity for students to develop and showcase practical IoT-based innovations.
+
+Being selected among the Top 10 at NetX IoT Challenge 2026 motivates us to continue improving ResQ and advancing our goal of developing an affordable, practical, and data-driven CPR training system with meaningful real-world impact.
+
+Tags:
+ResQ, NetX 2026, NetX IoT Challenge, IoT, University of Peradeniya, University of Sri Jayewardenepura, Computer Engineering, PeraCom, ACES, CPR Training, Healthcare Innovation, Embedded Systems, Internet of Things, Engineering Innovation, Smart Healthcare, Third Year Project

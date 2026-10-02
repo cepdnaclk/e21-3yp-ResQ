@@ -189,9 +189,19 @@ See the [firmware Unity test guide](code/resq-firmware/test/README.md) for execu
 | [Calibration hardening report](docs/calibration-hardening-report.md) | Calibration reliability findings and verification |
 | [Physical hardware validation](docs/integration-checkup/2026-07-28/phase-07-hardware-validation.md) | Retained firmware and hardware validation record |
 
-## Project website
+## Project resources
 
-[View the ResQ project website](https://cepdnaclk.github.io/e21-3yp-ResQ/site/)
+| Resource | Link |
+| --- | --- |
+| Project website | [ResQ Smart CPR Training](https://cepdnaclk.github.io/e21-3yp-ResQ/) |
+| Source repository | [GitHub](https://github.com/cepdnaclk/e21-3yp-ResQ) |
+| Development blog | [Build notes and field updates](https://cepdnaclk.github.io/e21-3yp-ResQ/site/blog/) |
+| Overall project presentation | [View on Canva](https://canva.link/b83ww3cxndx37ii) |
+| Milestone 1 presentation | [View on Canva](https://canva.link/rs7rl50etg91qa7) |
+| Milestone 2 presentation | [View on Canva](https://canva.link/3khknef1bhwdzhe) |
+| Milestone 3 presentation | [View on Canva](https://canva.link/mng7lsysd3v5xa8) |
+| Milestone 4 presentation | [View on Canva](https://canva.link/othvh7zlgnn9phh) |
+| CN project showcase | [View showcase](https://www.thecn.com/SG1732/section/showcase/69767bb907147407de0d080e) |
 
 ## Release information
 
@@ -213,9 +223,9 @@ ResQ is a third-year engineering project from the Department of Computer Enginee
 - First place, EXITO 2026 Inter-University Robotics and Innovation Challenge
 - Third place, INNOVEXA 2026 Business Pitching Competition
 - Accepted for oral presentation at the iPURSE 2026 International Research Symposium
-- Selected among the Top 22 semifinalists in the NetX IoT Challenge 2026
+- Selected among the Top 10 finalists in the NetX IoT Challenge 2026
 
-These milestones are documented on the [project website](https://cepdnaclk.github.io/e21-3yp-ResQ/site/).
+These milestones are documented on the [project website](https://cepdnaclk.github.io/e21-3yp-ResQ/).
 
 ## License
 

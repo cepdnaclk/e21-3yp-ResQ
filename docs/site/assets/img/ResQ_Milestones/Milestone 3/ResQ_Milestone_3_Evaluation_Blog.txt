@@ -1,0 +1,30 @@
+ResQ Milestone 3 Evaluation Successfully Completed
+
+The ResQ team successfully completed the Milestone 3 Evaluation, marking a major step toward the final implementation and validation of ResQ – Smart CPR Training System.
+
+At this stage, the project has progressed from an early prototype into a nearly complete integrated system. During the evaluation, the team demonstrated how the major hardware and software components work together as a complete CPR training platform.
+
+The presentation covered the integration of the manikin hardware, embedded firmware, Local Hub application, real-time dashboards, calibration workflow, session management, and CPR performance monitoring features.
+
+The manikin hardware and sensing system formed the physical foundation of the platform, while the firmware handled device-side control, sensor processing, communication, calibration, and session-related operations. These components were integrated with the ResQ Local Hub, which acts as the instructor-side control and coordination layer for the system.
+
+The team also demonstrated the real-time dashboards, which provide live visibility into training activity and CPR performance. These interfaces are designed to support both immediate feedback during a training session and structured review of session information.
+
+Another major feature presented during the evaluation was the calibration workflow. This process helps prepare the manikin and sensing system before a training session by checking the required reference conditions and confirming that the system is ready for use.
+
+Session management features were also demonstrated, including the ability to start, monitor, and complete CPR training sessions while maintaining coordination between the manikin firmware, Local Hub, and dashboards.
+
+The CPR performance monitoring functionality represented one of the most important parts of the Milestone 3 demonstration. The system is designed to capture and process training-related measurements and present meaningful feedback that can help trainees and instructors evaluate CPR performance more objectively.
+
+Almost all major system components planned for ResQ were demonstrated during the evaluation. This showed that the project had reached a high level of functional integration and that the core end-to-end workflow was operating as intended.
+
+The primary remaining area is formal validation and performance testing. The next phase will focus on systematically evaluating the accuracy, repeatability, reliability, and practical performance of the system under realistic CPR training conditions.
+
+This validation stage is important because a working system must not only function correctly from a software and hardware perspective, but also produce dependable measurements and feedback that are suitable for meaningful training use.
+
+The Milestone 3 Evaluation therefore represents one of the most significant development checkpoints in the ResQ project. It demonstrated the stability and maturity of the integrated platform while clearly defining the final work required before project completion.
+
+With most of the implementation now in place, the team will continue refining the system, completing formal testing and validation, and preparing ResQ for its final evaluation and demonstration.
+
+Tags:
+ResQ, Milestone 3, Smart CPR Training System, CPR Training, University of Peradeniya, Computer Engineering, Embedded Systems, Firmware, Local Hub, Real-Time Dashboard, Calibration, Session Management, CPR Performance Monitoring, Healthcare Innovation, Engineering Project, Third Year Project, System Integration, Validation

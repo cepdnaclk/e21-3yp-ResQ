@@ -115,7 +115,7 @@ function sensorSnapshot(overrides: Partial<SensorStreamSnapshot> = {}): SensorSt
     hallProgress: 0,
     hallMmValid: false,
     pressureSaturationMask: 0,
-    intervalMs: 50,
+    intervalMs: 100,
     firmwareTimestampMs: 0,
     receivedAt: "2026-07-15T10:00:00Z",
     ...overrides,
@@ -351,13 +351,13 @@ describe("CalibrationWizardPage", () => {
     expect(screen.getByLabelText(/Hall Delta/i)).toBeDisabled();
   });
 
-  it("opens the 50 ms manual stream once and a re-render or calibration start does not duplicate START", async () => {
+  it("opens the 100 ms manual stream once and a re-render or calibration start does not duplicate START", async () => {
     vi.mocked(startCalibration).mockResolvedValue({ deviceId: "MAN-01", requestId: "req-1", command: "start", status: "PUBLISHED" });
     const { rerender } = render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
     await screen.findByText("Calibration / Pre-Check");
 
     await waitFor(() => expect(startSensorStreamMock).toHaveBeenCalledTimes(1));
-    expect(startSensorStreamMock).toHaveBeenCalledWith("MAN-01", 50);
+    expect(startSensorStreamMock).toHaveBeenCalledWith("MAN-01", 100);
     expect(createSensorStreamClientMock).toHaveBeenCalledTimes(1);
     rerender(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
     expect(startSensorStreamMock).toHaveBeenCalledTimes(1);

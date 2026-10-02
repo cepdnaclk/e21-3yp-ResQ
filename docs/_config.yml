@@ -1,9 +1,11 @@
 # This theme is based on https://github.com/jekyll/minima
 # Please refer above link to know the available configurations
 
-title: ""
+title: "ResQ — Smart CPR Training"
 remote_theme: cepdnaclk/eYY-project-theme
-description: ""
+description: "An offline-first, sensor-enabled CPR training and assessment platform."
+url: "https://cepdnaclk.github.io"
+baseurl: "/e21-3yp-ResQ"
 markdown: kramdown
 
 kramdown:

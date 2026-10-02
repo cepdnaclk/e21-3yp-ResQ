@@ -20,10 +20,10 @@ class SensorStreamServiceTest {
 
     @Test
     void acceptsCalibrationCadenceAndRejectsAnythingFaster() {
-        SensorStreamService.validateIntervalMs(50);
-        assertThatThrownBy(() -> SensorStreamService.validateIntervalMs(49))
+        SensorStreamService.validateIntervalMs(100);
+        assertThatThrownBy(() -> SensorStreamService.validateIntervalMs(99))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("between 50 and 1000");
+                .hasMessageContaining("between 100 and 1000");
     }
 
     @Test

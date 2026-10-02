@@ -1,0 +1,28 @@
+ResQ Secures 1st Place at EXITO 2026 Inter-University Robotics & Innovation Challenge
+
+July 2026
+
+The ResQ team proudly secured 1st Place at the EXITO 2026 Inter-University Robotics & Innovation Challenge, held on 7 July 2026 at ICBT Colombo Campus.
+
+Organized by ICBT Campus in collaboration with Cardiff Metropolitan University and the University of Sunderland, EXITO 2026 brought together university teams from across Sri Lanka to showcase innovative engineering solutions to real-world challenges. The Inter-University Robotics & Innovation Challenge was a major addition to the 2026 edition of EXITO and attracted around 20 university teams.
+
+The competition challenged participants to identify a real-world industrial problem and develop a cost-effective robotic or automated solution. Teams were required to pitch their ideas and demonstrate working prototypes before a panel of judges, placing strong emphasis on practical problem-solving, engineering innovation, technical implementation, and real-world impact.
+
+Representing the Department of Computer Engineering, Faculty of Engineering, University of Peradeniya, the team presented ResQ: A Low-Cost Smart CPR Evaluation System.
+
+ResQ is designed to improve CPR training and performance assessment by providing an accessible, practical, and data-driven training solution. The system aims to support objective evaluation of CPR performance and help trainees receive meaningful feedback during practice, addressing limitations associated with relying only on visual observation during conventional training.
+
+At EXITO 2026, ResQ stood out among the participating university projects and was recognized as the winning project of the Inter-University Robotics & Innovation Challenge. The achievement reflects the team's effort to combine embedded systems, sensing, software, real-time data processing, and human-centered design to address an important challenge in CPR education.
+
+Beyond the award itself, EXITO 2026 provided an important opportunity for the team to demonstrate ResQ as a working engineering solution, communicate the project's purpose to judges and fellow innovators, and receive recognition for its potential practical impact. Competing alongside projects from universities across Sri Lanka also provided valuable exposure to different approaches in robotics, automation, and technology-driven problem solving.
+
+This milestone represents an important step in the development journey of ResQ. It strengthens our motivation to continue improving the system, validating its performance, and working toward a reliable and affordable CPR training platform that can support students, instructors, training centers, and wider communities.
+
+We are grateful for the dedication and teamwork that made this achievement possible. Special appreciation goes to ResQ team members Amirsha Vincent George, Kavishanthan Sarvaloganayagam, and Kartheepan Ketheeswaran for their commitment throughout the development and competition journey.
+
+We are also proud to represent the University of Peradeniya, the Faculty of Engineering, the Department of Computer Engineering, PeraCom, and the Association of Computer Engineering Students (ACES) on this inter-university stage.
+
+Winning 1st Place at EXITO 2026 is not only a recognition of the project, but also an encouragement to continue transforming ResQ from an innovative student project into a practical platform capable of contributing to better CPR training.
+
+Tags:
+EXITO 2026, ResQ, University of Peradeniya, Computer Engineering, PeraCom, ACES, Robotics, Innovation, CPR Training, Medical Education, Embedded Systems, Smart Healthcare
