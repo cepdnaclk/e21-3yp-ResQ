@@ -20,25 +20,7 @@ const packagedJarPath = join(resourcesDir, "hub-api", "resq-hub-api.jar");
 const packagedRuntimeDir = join(resourcesDir, "jre");
 const frontendDistDir = join(desktopDir, "dist");
 const packagedWebDashboardDir = join(resourcesDir, "web-dashboard");
-
-const runtimeModules = [
-  "java.base",
-  "java.desktop",
-  "java.instrument",
-  "java.logging",
-  "java.management",
-  "java.naming",
-  "java.net.http",
-  "java.prefs",
-  "java.security.jgss",
-  "java.security.sasl",
-  "java.sql",
-  "java.transaction.xa",
-  "java.xml",
-  "jdk.crypto.ec",
-  "jdk.unsupported",
-  "jdk.zipfs",
-];
+const releaseScriptPath = resolve(desktopDir, "../../scripts/release/prepare-release.ps1");
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -53,29 +35,6 @@ function run(command, args, cwd) {
   if (result.status !== 0) {
     throw new Error(`${command} exited with status ${result.status}`);
   }
-}
-
-function findJlink() {
-  const executableName = process.platform === "win32" ? "jlink.exe" : "jlink";
-  const javaHome = process.env.JAVA_HOME?.trim();
-  if (javaHome) {
-    const candidate = join(javaHome, "bin", executableName);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  const lookup = spawnSync(
-    process.platform === "win32" ? "where.exe" : "which",
-    [executableName],
-    { encoding: "utf8" },
-  );
-  const candidate = lookup.stdout?.split(/\r?\n/u).find(Boolean)?.trim();
-  if (lookup.status === 0 && candidate && existsSync(candidate)) {
-    return candidate;
-  }
-
-  throw new Error("jlink was not found. Install a Java 17 JDK and set JAVA_HOME.");
 }
 
 function buildBackendJar() {
@@ -102,24 +61,12 @@ function buildBackendJar() {
 }
 
 function buildJavaRuntime() {
-  const jlink = findJlink();
-  rmSync(packagedRuntimeDir, { recursive: true, force: true });
-
-  run(
-    jlink,
-    [
-      "--add-modules",
-      runtimeModules.join(","),
-      "--output",
-      packagedRuntimeDir,
-      "--strip-debug",
-      "--no-header-files",
-      "--no-man-pages",
-      "--compress=2",
-    ],
-    desktopDir,
-  );
-
+  const command = process.platform === "win32" ? "powershell.exe" : "pwsh";
+  const args =
+    process.platform === "win32"
+      ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", releaseScriptPath]
+      : ["-NoProfile", "-File", releaseScriptPath];
+  run(command, args, desktopDir);
   console.log(`Packaged Java runtime: ${packagedRuntimeDir}`);
 }
 

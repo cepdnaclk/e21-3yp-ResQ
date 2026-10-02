@@ -103,23 +103,28 @@ When auto-detection cannot find a usable LAN IP, use Setup to save a manual LAN 
 
 ### 2) Desktop App
 
+Development does not require a bundled private runtime in the repo. Install Java 17 locally
+and set `JAVA_HOME`, or make sure Java 17 is available on `PATH`.
+
 ```powershell
 cd apps/localhub-desktop
-npm install
-npm run tauri:dev
+pnpm install
+pnpm tauri dev
 ```
 
 ### Windows Release Build
 
-The build machine needs Node.js, Rust, and a Java 17 JDK with `JAVA_HOME` set. The installed
-application does not require Java because the release build creates and bundles its own runtime.
+The build machine needs Node.js, Rust, and Java 17. The release command automatically stages
+the private Java runtime under `apps/localhub-desktop/src-tauri/resources/jre` before Tauri
+bundles the app. The staged runtime is intentionally ignored by Git, except for the tracked
+placeholder that keeps the resource directory present after a fresh clone.
 
 ```powershell
 cd apps/localhub-desktop
-npm run tauri:build
+pnpm tauri:build
 ```
 
-This command rebuilds the Spring Boot JAR, creates the bundled Java runtime, builds the frontend,
+This command rebuilds the Spring Boot JAR, stages the bundled Java runtime, builds the frontend,
 and produces both NSIS and MSI installers under `src-tauri/target/release/bundle`.
 
 ## Current Scope

@@ -7,6 +7,7 @@
     "dev": "vite --port 1420",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
+    "prepare:jre": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/release/prepare-release.ps1",
     "prepare:release": "node tools/prepare-release.mjs",
     "build:release": "npm run prepare:release",
     "test": "vitest run",

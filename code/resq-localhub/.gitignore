@@ -73,3 +73,7 @@ Thumbs.db
 # Graphify knowledge graph outputs
 graphify-out/
 .agents/
+
+# Generated/bundled runtimes
+code/resq-localhub/apps/localhub-desktop/src-tauri/resources/jre/*
+!code/resq-localhub/apps/localhub-desktop/src-tauri/resources/jre/.gitkeep

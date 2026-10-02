@@ -47,6 +47,12 @@ const CLOUD_SYNC_ENV_KEYS: [&str; 9] = [
     "RESQ_ROSTER_SYNC_TIMEOUT_MS",
 ];
 
+struct JavaExecutable {
+    command_path: PathBuf,
+    version_probe_path: Option<PathBuf>,
+    source: String,
+}
+
 impl ApiServiceState {
     fn backend_dir() -> Result<PathBuf, String> {
         let backend_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(BACKEND_RELATIVE_PATH);
@@ -296,10 +302,10 @@ impl ApiServiceState {
         }
     }
 
-    fn packaged_java_path(resource_dir: &Path) -> PathBuf {
+    fn bundled_java_path(resource_dir: &Path) -> PathBuf {
         #[cfg(target_os = "windows")]
         {
-            resource_dir.join("jre").join("bin").join("java.exe")
+            resource_dir.join("jre").join("bin").join("javaw.exe")
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -308,23 +314,262 @@ impl ApiServiceState {
         }
     }
 
-    fn validate_packaged_resources(
-        resource_dir: &Path,
-    ) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    fn java_version_probe_path(java_home: &Path) -> PathBuf {
+        #[cfg(target_os = "windows")]
+        {
+            java_home.join("bin").join("java.exe")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            java_home.join("bin").join("java")
+        }
+    }
+
+    fn javaw_path(java_home: &Path) -> PathBuf {
+        #[cfg(target_os = "windows")]
+        {
+            java_home.join("bin").join("javaw.exe")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            java_home.join("bin").join("java")
+        }
+    }
+
+    fn java_from_home(java_home: &Path, source: &str) -> Option<JavaExecutable> {
+        let javaw_path = Self::javaw_path(java_home);
+        let java_path = Self::java_version_probe_path(java_home);
+
+        let command_path = if javaw_path.is_file() {
+            javaw_path
+        } else if java_path.is_file() {
+            java_path.clone()
+        } else {
+            return None;
+        };
+
+        Some(JavaExecutable {
+            command_path,
+            version_probe_path: java_path.is_file().then_some(java_path),
+            source: source.to_string(),
+        })
+    }
+
+    fn path_lookup(executable_name: &str) -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        let lookup_command = "where.exe";
+
+        #[cfg(not(target_os = "windows"))]
+        let lookup_command = "which";
+
+        let output = Command::new(lookup_command)
+            .arg(executable_name)
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(PathBuf::from)
+            .find(|path| path.is_file())
+    }
+
+    fn java_from_path() -> Option<JavaExecutable> {
+        #[cfg(target_os = "windows")]
+        {
+            let javaw_path = Self::path_lookup("javaw.exe");
+            let java_path = Self::path_lookup("java.exe").or_else(|| Self::path_lookup("java"));
+            let command_path = javaw_path.or_else(|| java_path.clone())?;
+
+            Some(JavaExecutable {
+                command_path,
+                version_probe_path: java_path,
+                source: "Java from PATH".to_string(),
+            })
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let java_path = Self::path_lookup("java")?;
+
+            Some(JavaExecutable {
+                command_path: java_path.clone(),
+                version_probe_path: Some(java_path),
+                source: "Java from PATH".to_string(),
+            })
+        }
+    }
+
+    fn parse_java_major_version(version_output: &str) -> Option<u32> {
+        let version = version_output.split('"').nth(1).or_else(|| {
+            version_output
+                .split_whitespace()
+                .find(|part| part.chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+        })?;
+
+        let mut parts = version.split('.');
+        let first = parts.next()?.parse::<u32>().ok()?;
+        if first == 1 {
+            parts.next()?.parse::<u32>().ok()
+        } else {
+            Some(first)
+        }
+    }
+
+    fn validate_java_17(candidate: JavaExecutable) -> Result<JavaExecutable, String> {
+        let Some(probe_path) = candidate.version_probe_path.as_ref() else {
+            eprintln!(
+                "Java version check skipped for {} because java.exe was not found next to {}",
+                candidate.source,
+                candidate.command_path.display()
+            );
+            return Ok(candidate);
+        };
+
+        let output = Command::new(probe_path)
+            .arg("-version")
+            .output()
+            .map_err(|error| {
+                format!(
+                    "{} resolved to {}, but its Java version could not be checked: {error}",
+                    candidate.source,
+                    probe_path.display()
+                )
+            })?;
+
+        let version_output = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let major = Self::parse_java_major_version(&version_output).ok_or_else(|| {
+            format!(
+                "{} resolved to {}, but its Java version output could not be parsed.",
+                candidate.source,
+                probe_path.display()
+            )
+        })?;
+
+        if major != 17 {
+            return Err(format!(
+                "{} resolved to {}, but it reports Java {major}. ResQ Local Hub requires Java 17.",
+                candidate.source,
+                probe_path.display()
+            ));
+        }
+
+        Ok(candidate)
+    }
+
+    fn resolve_java_for_packaged_backend(resource_dir: &Path) -> Result<JavaExecutable, String> {
+        let bundled_java = Self::bundled_java_path(resource_dir);
+        let bundled_probe = Self::java_version_probe_path(&resource_dir.join("jre"));
+        let mut checked = Vec::new();
+
+        let bundled_candidate = bundled_java.is_file().then(|| JavaExecutable {
+            command_path: bundled_java.clone(),
+            version_probe_path: bundled_probe.is_file().then_some(bundled_probe),
+            source: "bundled Java runtime".to_string(),
+        });
+
+        let java_home = env::var_os("JAVA_HOME").filter(|value| !value.is_empty());
+        let java_home_candidate = java_home
+            .as_ref()
+            .and_then(|value| Self::java_from_home(&PathBuf::from(value), "JAVA_HOME"));
+        let java_home_invalid = java_home.is_some() && java_home_candidate.is_none();
+
+        let candidates = [
+            bundled_candidate,
+            java_home_candidate,
+            Self::java_from_path(),
+        ];
+
+        for candidate in candidates.into_iter().flatten() {
+            match Self::validate_java_17(candidate) {
+                Ok(valid) => return Ok(valid),
+                Err(error) => checked.push(error),
+            }
+        }
+
+        if !bundled_java.is_file() {
+            checked.push(format!(
+                "bundled Java runtime was not found at {}",
+                bundled_java.display()
+            ));
+        }
+        if let Some(value) = java_home {
+            if java_home_invalid {
+                checked.push(format!(
+                    "JAVA_HOME is set to {}, but bin/javaw.exe or bin/java was not found",
+                    PathBuf::from(value).display()
+                ));
+            }
+        } else {
+            checked.push("JAVA_HOME is not set".to_string());
+        }
+        if Self::java_from_path().is_none() {
+            checked.push("javaw.exe/java was not found on PATH".to_string());
+        }
+
+        Err(format!(
+            "Java 17 is required to start the ResQ Local Hub backend. For development, install Java 17 and set JAVA_HOME or add Java to PATH. For packaged releases, the bundled runtime is missing or invalid; run `pnpm tauri:build` to stage and bundle `src-tauri/resources/jre`. Checked: {}",
+            checked.join("; ")
+        ))
+    }
+
+    fn resolve_java_for_development() -> Result<JavaExecutable, String> {
+        let java_home = env::var_os("JAVA_HOME").filter(|value| !value.is_empty());
+        let java_home_candidate = java_home
+            .as_ref()
+            .and_then(|value| Self::java_from_home(&PathBuf::from(value), "JAVA_HOME"));
+        let java_home_invalid = java_home.is_some() && java_home_candidate.is_none();
+
+        let candidates = [java_home_candidate, Self::java_from_path()];
+        let mut checked = Vec::new();
+
+        for candidate in candidates.into_iter().flatten() {
+            match Self::validate_java_17(candidate) {
+                Ok(valid) => return Ok(valid),
+                Err(error) => checked.push(error),
+            }
+        }
+
+        if let Some(value) = java_home {
+            if java_home_invalid {
+                checked.push(format!(
+                    "JAVA_HOME is set to {}, but bin/javaw.exe or bin/java was not found",
+                    PathBuf::from(value).display()
+                ));
+            }
+        } else {
+            checked.push("JAVA_HOME is not set".to_string());
+        }
+        if Self::java_from_path().is_none() {
+            checked.push("javaw.exe/java was not found on PATH".to_string());
+        }
+
+        Err(format!(
+            "Java 17 is required for development. Install Java 17 and set JAVA_HOME or add Java to PATH before running `pnpm tauri dev`. Checked: {}",
+            checked.join("; ")
+        ))
+    }
+
+    fn validate_packaged_resources(resource_dir: &Path) -> Result<(PathBuf, PathBuf), String> {
         let jar_path = resource_dir.join("hub-api").join("resq-hub-api.jar");
         let config_path = resource_dir
             .join("config")
             .join("application-release.properties");
-        let java_path = Self::packaged_java_path(resource_dir);
 
         let missing = [
             ("backend JAR", jar_path.is_file(), jar_path.clone()),
             ("release config", config_path.is_file(), config_path.clone()),
-            (
-                "bundled Java runtime",
-                java_path.is_file(),
-                java_path.clone(),
-            ),
         ]
         .into_iter()
         .filter_map(|(label, present, path)| {
@@ -339,7 +584,7 @@ impl ApiServiceState {
             ));
         }
 
-        Ok((jar_path, config_path, java_path))
+        Ok((jar_path, config_path))
     }
 
     fn backend_log_file(app: &tauri::AppHandle) -> Result<(fs::File, PathBuf), String> {
@@ -433,10 +678,11 @@ impl ApiServiceState {
             .resource_dir()
             .map_err(|error| format!("Failed to resolve packaged resource directory: {error}"))?;
 
-        let (jar_path, config_path, java_path) = Self::validate_packaged_resources(&resource_dir)?;
+        let (jar_path, config_path) = Self::validate_packaged_resources(&resource_dir)?;
+        let java = Self::resolve_java_for_packaged_backend(&resource_dir)?;
         let clean_jar = Self::clean_windows_path(&jar_path);
         let clean_config = Self::clean_windows_path(&config_path);
-        let clean_java = Self::clean_windows_path(&java_path);
+        let clean_java = Self::clean_windows_path(&java.command_path);
         let (log_file, log_path) = Self::backend_log_file(app)?;
         let log_file_err = log_file
             .try_clone()
@@ -456,6 +702,11 @@ impl ApiServiceState {
             .stderr(Stdio::from(log_file_err));
 
         eprintln!("Backend log path: {}", log_path.display());
+        eprintln!(
+            "Backend Java runtime: {} ({})",
+            clean_java.display(),
+            java.source
+        );
         Ok((
             command,
             clean_java,
@@ -484,9 +735,18 @@ impl ApiServiceState {
         ensure_port_available_or_recover_stale(backend_port, "The backend API", &backend_pid_file)?;
 
         let (mut command, executable_path, command_line) = if is_debug {
+            let java = Self::resolve_java_for_development()?;
             let backend_dir = Self::backend_dir()?;
             eprintln!("Backend dev project directory: {}", backend_dir.display());
             let (mut cmd, exe, args) = Self::build_dev_command(&backend_dir);
+            if java.source == "Java from PATH" {
+                cmd.env_remove("JAVA_HOME");
+            }
+            eprintln!(
+                "Backend development Java runtime: {} ({})",
+                java.command_path.display(),
+                java.source
+            );
             cmd.stdout(Stdio::inherit());
             cmd.stderr(Stdio::inherit());
             (cmd, exe, args)
@@ -702,5 +962,17 @@ mod tests {
         assert!(message.contains("Missing packaged backend resources"));
 
         fs::remove_dir_all(temp_dir).ok();
+    }
+
+    #[test]
+    fn java_major_version_parser_handles_modern_and_legacy_formats() {
+        assert_eq!(
+            ApiServiceState::parse_java_major_version(r#"openjdk version "17.0.12" 2024-07-16"#),
+            Some(17)
+        );
+        assert_eq!(
+            ApiServiceState::parse_java_major_version(r#"java version "1.8.0_402""#),
+            Some(8)
+        );
     }
 }
