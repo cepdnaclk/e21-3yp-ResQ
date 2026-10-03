@@ -28,31 +28,34 @@
 - Desktop REST/SSE stays on loopback despite stale build-time URL overrides.
   Packaged CSP is restricted to local API, MQTT and Tauri IPC endpoints.
 
-## Verification and release blockers
+## Verification and remaining acceptance
 
-Baseline build failed because scripts/release/prepare-release.ps1 was absent.
-Baseline frontend suite had four failures; the deterministic failure was a stale
-50 ms sensor expectation, corrected to the existing 100 ms contract. Baseline Java
-tests accessed the real home database; Maven tests now use target/test-home.
+- Maven clean package: 395 tests passed.
+- Frontend: 225 tests passed; TypeScript/Vite production build passed.
+- Rust: cargo test --release passed all 13 tests. The earlier Windows policy
+  failure did not recur in the later successful Rust release build.
+- Stale staged-JAR rejection tested; current Maven/staged SHA256 verified equal.
+- NSIS installer generated: ResQ Local Hub_1.2.1_x64-setup.exe (70,438,208 bytes).
+- Installed using NSIS (exit 0) at D:\ResQ Local Hub. Installed JAR SHA256:
+  54A960018EBA503A669D77B47986AFD59E424035C9B7918C6C920DF48A9E75AF.
+- Actual installed WebView origin observed: http://tauri.localhost/.
+- Installed UI displayed the configuration wizard using an isolated test database.
+- Installed service orchestration started bundled Java, Mosquitto, API and dashboard.
+- Installed health, bearer authentication, disabled-cloud status (HTTP 200), both
+  SSE routes/content type/heartbeats/CORS, MQTT TCP/WS publish-subscribe and dashboard
+  HTTP checks passed. API checks were performed outside WebView; authenticated
+  dashboard interactions and CSP enforcement are not fully validated by these checks.
+- Closing the app stopped its services and released ports, using the existing
+  forced-termination fallback after the graceful timeout.
+- Relaunching the installed app restarted services; the isolated account could
+  authenticate again, cloud status remained available, and the WebView displayed
+  "Connected to LocalHub". No test credentials were added to the normal database.
 
-The corrected build produced the JAR, bundled Java 17 runtime and Vite assets.
-Rust tests and the Windows production build fail with Windows Application Control
-error 4551 when executing a serde build helper. No policy bypass was attempted.
+Cloud uploads were disabled for installed testing; real-cloud credentials and uploads,
+network loss/recovery, actual firmware CPR workflow and second-device LAN access remain
+unverified. The normal user database and credentials were not modified. Mock-cloud
+retry/recovery and persistence are covered by the backend tests.
 
-Staged runtime checks passed for MQTT TCP/WebSocket publish/subscribe, authenticated
-REST, Tauri-origin CORS response, manikin/session SSE content type and heartbeats,
-unauthorized rejection, and backend restart with persisted authentication/database.
-These checks use isolated ports and data; they do not validate the installer,
-WebView CSP enforcement, actual firmware, or another LAN device.
-
-Cloud tests cover persistence, backoff, transient failure beyond the retry limit,
-recovery and successful mock uploads. The real cloud service was not exercised.
-No network-disable test of the installed app was possible.
-
-Final automated results: 225 frontend tests across 46 files passed; Maven package
-passed with 395 tests; TypeScript/Vite production build passed. Rust execution is
-unverified because of the policy block. Repository-wide rustfmt also finds existing
-formatting differences in commands.rs; only the modified API service was formatted.
-
-Installer filename/path: none generated. Git tag/release: none created.
-The GitHub CLI credential was invalid. See release-packaging.md for remaining gates.
+MSI packaging failed while invoking WiX light.exe; the NSIS installer is available.
+GitHub CLI authentication was invalid, so no tag or release was created. Version 1.2.1
+was already committed in cb90031 when final installed testing began.

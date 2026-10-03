@@ -88,11 +88,11 @@ device; do not disable the firewall or add unrestricted public-network rules.
 
 ## Mandatory installed acceptance and publication
 
-Windows Application Control currently blocks Rust build helpers with error 4551.
-Use an organization-approved build host or have the policy owner permit the normal
-toolchain. No installer exists from this run. Once a build succeeds, install its
-NSIS/MSI from src-tauri/target/release/bundle and launch from the installation path.
-Do not count staged resource smoke tests or tauri dev as installed acceptance.
+The earlier Windows Application Control error 4551 did not recur in the latest
+release build. NSIS 1.2.1 was generated and installed at D:\ResQ Local Hub for
+verification. MSI packaging still failed at WiX light.exe. Use the NSIS artifact in
+src-tauri/target/release/bundle/nsis; see release-notes-1.2.1.md for the exact checks
+performed and remaining acceptance. Do not count staged smoke tests as installed tests.
 
 Verify UI version and service diagnostics; REST; both authenticated SSE streams;
 reconnect after API restart; MQTT TCP/WS; pairing/calibration/start/telemetry/stop/
