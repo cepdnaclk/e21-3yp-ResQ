@@ -78,6 +78,8 @@ export type CalibrationProfileRequest = {
 };
 
 export type CalibrationProfileResponse = {
+  version?: number;
+  profileHash?: string;
   profileId: string;
   name: string;
   hallDelta: number;

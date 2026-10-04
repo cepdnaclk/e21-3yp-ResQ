@@ -45,7 +45,7 @@ const blankForm: FormState = {
   description: "",
 };
 
-const FIELD_MAX = 200;
+
 
 const CALIBRATION_FIELDS: FieldConfig[] = [
   {
@@ -488,8 +488,7 @@ export function CalibrationSettingsPanel({
 
         {CALIBRATION_FIELDS.map((field) => {
           const value = form[field.key];
-          const numericValue = Number(value) || 0;
-          const percent = Math.max(0, Math.min(100, (numericValue / FIELD_MAX) * 100));
+
 
           return (
             <div key={field.key} style={fieldStyle}>
@@ -503,13 +502,12 @@ export function CalibrationSettingsPanel({
                   style={numericInputStyle}
                   inputMode="numeric"
                   type="number"
-                  min="1"
-                  max={FIELD_MAX}
+                  min={field.key === "hallDelta" ? 50 : 1}
+                  max={field.key === "hallDelta" ? 4095 : undefined}
+                  step={1}
                 />
               </div>
-              <div style={gaugeTrackStyle} aria-hidden="true">
-                <div style={{ ...gaugeFillStyle, width: `${percent}%` }} />
-              </div>
+
             </div>
           );
         })}
@@ -612,7 +610,7 @@ function validateForm(form: FormState): { ok: true; hallDelta: number; refPressu
 
 function parsePositive(value: string, message: string): { ok: true; value: number } | { ok: false; message: string } {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     return { ok: false, message };
   }
 
@@ -779,21 +777,6 @@ const fieldIconStyle: CSSProperties = {
 const numericInputStyle: CSSProperties = {
   ...inputStyle,
   minWidth: 0,
-};
-
-const gaugeTrackStyle: CSSProperties = {
-  marginTop: 6,
-  height: 8,
-  borderRadius: 999,
-  background: "rgba(226, 232, 240, 0.95)",
-  overflow: "hidden",
-};
-
-const gaugeFillStyle: CSSProperties = {
-  height: "100%",
-  borderRadius: 999,
-  background: "linear-gradient(90deg, #60a5fa 0%, #2563eb 100%)",
-  transition: "width 180ms ease",
 };
 
 const calibrationStatusStyle: CSSProperties = {

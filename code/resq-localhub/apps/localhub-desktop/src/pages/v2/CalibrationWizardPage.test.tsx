@@ -24,14 +24,11 @@ const { defaultCalibrationProfile } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../../hooks/useCalibrationProfiles", () => ({
-  useCalibrationProfiles: () => ({
-    profiles: [],
-    defaultProfile: defaultCalibrationProfile,
-    loading: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
+import * as profileApi from "../../api/firmwareApi";
+vi.mock("../../api/firmwareApi", () => ({
+  getCalibrationProfiles: vi.fn(), createCalibrationProfile: vi.fn(),
+  updateCalibrationProfile: vi.fn(), setDefaultCalibrationProfile: vi.fn(),
+  deactivateCalibrationProfile: vi.fn(),
 }));
 
 vi.mock("../../api/manikinsApi", () => ({
@@ -128,6 +125,7 @@ describe("CalibrationWizardPage", () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(profileApi.getCalibrationProfiles).mockResolvedValue([defaultCalibrationProfile]);
     sseHandlers = null;
     mockClose.mockClear();
     sensorStreamCallbacks = null;
@@ -239,7 +237,7 @@ describe("CalibrationWizardPage", () => {
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
 
     const button = await screen.findByRole("button", { name: "Start Calibration" });
-    expect(button).toBeEnabled();
+    await waitFor(() => expect(button).toBeEnabled());
     await userEvent.click(button);
 
     await waitFor(() => {
@@ -290,34 +288,102 @@ describe("CalibrationWizardPage", () => {
     });
   });
 
-  it("blocks calibration start and shows inline messages on invalid values", async () => {
+  it("keeps saved targets read-only and blocks calibration during unsaved editing", async () => {
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
-    await screen.findByText("Calibration / Pre-Check");
+    await screen.findByText("Profile ready");
     await openAdvancedConfiguration();
-
-    const hallInput = screen.getByLabelText(/Hall Delta/i);
-    await userEvent.clear(hallInput);
-    await userEvent.type(hallInput, "0");
-
-    const startBtn = screen.getByRole("button", { name: "Start Calibration" });
-    await userEvent.click(startBtn);
-
-    expect(screen.getByText("Hall Delta must be greater than 0")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Hall Delta Raw/i)).toHaveAttribute("readonly");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Profile" }));
+    await userEvent.clear(screen.getByLabelText("Hall Delta"));
+    await userEvent.type(screen.getByLabelText("Hall Delta"), "210");
+    expect(screen.getByRole("button", { name: "Start Calibration" })).toBeDisabled();
     expect(startCalibration).not.toHaveBeenCalled();
   });
 
-  it("blocks targets that diverge from the selected server profile", async () => {
+  it("selects another active profile and starts with its saved values", async () => {
+    const other = { ...defaultCalibrationProfile, profileId: "other", name: "Prototype", defaultProfile: false, hallDelta: 210, bladder2Pressure: 4151822 };
+    vi.mocked(profileApi.getCalibrationProfiles).mockResolvedValue([defaultCalibrationProfile, other]);
     render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
-    await screen.findByText("Calibration / Pre-Check");
-    await openAdvancedConfiguration();
-
-    const bladder1Input = screen.getByLabelText("Bladder 1 Pressure Raw HX710 Counts");
-    await userEvent.clear(bladder1Input);
-    await userEvent.type(bladder1Input, "4149999");
+    await screen.findByText("Profile ready");
+    expect(screen.getByRole("combobox")).toHaveValue("adult-basic");
+    await userEvent.selectOptions(screen.getByRole("combobox"), "other");
+    expect(screen.getByText("Bladder 2 Pressure: 4,151,822")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Start Calibration" }));
+    await waitFor(() => expect(startCalibration).toHaveBeenCalledWith("MAN-01", expect.objectContaining({ profile_id: "other", hall_delta: 210, ref_pressure: 1320000, bladder_1_pressure: 4150000, bladder_2_pressure: 4151822 })));
+  });
 
-    expect(await screen.findByText(/targets must match the selected server profile/i)).toBeInTheDocument();
+  it("saves edits, reloads the server version, and then calibrates", async () => {
+    const saved = { ...defaultCalibrationProfile, hallDelta: 210, bladder2Pressure: 4151822, version: 3 };
+    vi.mocked(profileApi.updateCalibrationProfile).mockImplementation(async () => {
+      vi.mocked(profileApi.getCalibrationProfiles).mockResolvedValue([saved]);
+      return saved;
+    });
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Profile ready");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Profile" }));
+    for (const [label, value] of [["Hall Delta", "210"], ["Bladder 2 Pressure", "4151822"]]) {
+      await userEvent.clear(screen.getByLabelText(label)); await userEvent.type(screen.getByLabelText(label), value);
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Save Profile" }));
+    await screen.findByText(/Version: 3/);
+    expect(profileApi.updateCalibrationProfile).toHaveBeenCalledWith("adult-basic", expect.objectContaining({ hallDelta: 210, bladder2Pressure: 4151822 }));
+    expect(profileApi.getCalibrationProfiles).toHaveBeenCalledTimes(2);
     expect(startCalibration).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Start Calibration" }));
+    await waitFor(() => expect(startCalibration).toHaveBeenCalledWith("MAN-01", expect.objectContaining({ profile_id: "adult-basic", hall_delta: 210, bladder_2_pressure: 4151822 })));
+  });
+
+  it("creates and selects a backend profile and sets it as default", async () => {
+    const saved = { ...defaultCalibrationProfile, profileId: "generated-id", name: "Prototype", defaultProfile: false };
+    vi.mocked(profileApi.createCalibrationProfile).mockImplementation(async () => {
+      vi.mocked(profileApi.getCalibrationProfiles).mockResolvedValue([defaultCalibrationProfile, saved]); return saved;
+    });
+    vi.mocked(profileApi.setDefaultCalibrationProfile).mockImplementation(async () => {
+      vi.mocked(profileApi.getCalibrationProfiles).mockResolvedValue([{ ...defaultCalibrationProfile, defaultProfile: false }, { ...saved, defaultProfile: true }]); return { ...saved, defaultProfile: true };
+    });
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Profile ready");
+    await userEvent.click(screen.getByRole("button", { name: "New Profile" }));
+    for (const [label, value] of [["Profile Name", " Prototype "], ["Hall Delta", "240"], ["Reference Pressure", "1320000"], ["Bladder 1 Pressure", "4150000"], ["Bladder 2 Pressure", "4150000"]]) {
+      await userEvent.type(screen.getByLabelText(label), value);
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Create Profile" }));
+    await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("generated-id"));
+    expect(profileApi.createCalibrationProfile).toHaveBeenCalledWith(expect.objectContaining({ name: "Prototype", hallDelta: 240, refPressure: 1320000, active: true }));
+    expect(startCalibration).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Set Default" }));
+    await screen.findByRole("option", { name: "Prototype (Default)" });
+    expect(screen.getByRole("combobox")).toHaveValue("generated-id");
+    expect(screen.getAllByRole("option").filter(o => o.textContent?.includes("(Default)"))).toHaveLength(1);
+    expect(profileApi.getCalibrationProfiles).toHaveBeenCalledTimes(3);
+  });
+
+  it("offers profile creation when the server has no profiles", async () => {
+    vi.mocked(profileApi.getCalibrationProfiles).mockResolvedValue([]);
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("No calibration profiles available.");
+    expect(screen.getByRole("button", { name: "Start Calibration" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "New Profile" })).toBeEnabled());
+  });
+
+  it("shows backend profile errors and keeps unsaved edits out of calibration", async () => {
+    vi.mocked(profileApi.updateCalibrationProfile).mockRejectedValue(new Error("Profile update failed: storage unavailable"));
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Profile ready");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Profile" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save Profile" }));
+    await screen.findByText("Profile update failed: storage unavailable");
+    expect(screen.getByRole("button", { name: "Start Calibration" })).toBeDisabled();
+    expect(startCalibration).not.toHaveBeenCalled();
+  });
+
+  it("shows backend mismatch rejection without changing submitted values", async () => {
+    vi.mocked(startCalibration).mockRejectedValue(new Error("Calibration targets must exactly match profile adult-basic; update the profile before starting calibration"));
+    render(<CalibrationWizardPage deviceId="MAN-01" onBack={vi.fn()} />);
+    await screen.findByText("Profile ready");
+    await userEvent.click(screen.getByRole("button", { name: "Start Calibration" }));
+    await screen.findByText(/Calibration targets must exactly match profile/);
+    expect(profileApi.updateCalibrationProfile).not.toHaveBeenCalled();
   });
 
   it("calls startCalibration API with snake_case keys when valid", async () => {

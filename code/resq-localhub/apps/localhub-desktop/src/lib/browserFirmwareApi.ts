@@ -1,30 +1,8 @@
 import { getHubApiBaseUrl } from "./hubApiUrl";
 import type { DeviceReadinessState } from "../types/manikin";
 
-export type CalibrationProfileRequest = {
-  name: string;
-  hallDelta: number;
-  refPressure: number;
-  bladder1Pressure: number;
-  bladder2Pressure: number;
-  description?: string | null;
-  active?: boolean | null;
-  defaultProfile?: boolean | null;
-};
-
-export type CalibrationProfileResponse = {
-  profileId: string;
-  name: string;
-  hallDelta: number;
-  refPressure: number;
-  bladder1Pressure: number;
-  bladder2Pressure: number;
-  description: string | null;
-  active: boolean;
-  defaultProfile: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
+import type { CalibrationProfileRequest, CalibrationProfileResponse } from "../types/firmware";
+export type { CalibrationProfileRequest, CalibrationProfileResponse } from "../types/firmware";
 
 export type FirmwareCommandRequestRecord = {
   requestId: string;

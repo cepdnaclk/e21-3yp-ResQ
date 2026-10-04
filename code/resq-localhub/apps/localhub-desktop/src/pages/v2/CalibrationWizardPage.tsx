@@ -20,6 +20,9 @@ import {
 } from "../../utils/calibrationTargetTracking";
 import { useCalibrationProfiles } from "../../hooks/useCalibrationProfiles";
 
+import CalibrationProfileEditor from "../../components/CalibrationProfileEditor";
+import type { CalibrationProfileRequest } from "../../types/firmware";
+
 type CalibrationWizardPageProps = {
   deviceId: string;
   onBack: () => void;
@@ -265,10 +268,21 @@ function mergeEventIntoReadiness(
 
 export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationWizardPageProps) {
   const {
-    defaultProfile,
+    profiles, defaultProfile, createProfile, updateProfile, setDefaultProfile, refetch,
     loading: loadingProfile,
     error: profileError,
   } = useCalibrationProfiles();
+
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const selectedProfile = profiles.find(p => p.active && p.profileId === selectedProfileId) ?? null;
+  const [editor, setEditor] = useState<"new" | "edit" | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!loadingProfile) setSelectedProfileId(id => profiles.some(p => p.active && p.profileId === id)
+      ? id : defaultProfile?.profileId ?? profiles.find(p => p.active)?.profileId ?? null);
+  }, [profiles, defaultProfile, loadingProfile]);
 
   // Timing defaults are local workflow controls. Sensor targets come from the
   // authenticated server profile before submission.
@@ -325,16 +339,16 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const rawSampleFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!defaultProfile) return;
+    if (!selectedProfile) return;
     setForm((previous) => ({
       ...previous,
-      hall_delta: String(defaultProfile.hallDelta),
-      ref_pressure: String(defaultProfile.refPressure),
-      bladder_1_pressure: String(defaultProfile.bladder1Pressure),
-      bladder_2_pressure: String(defaultProfile.bladder2Pressure),
-      profile_id: defaultProfile.profileId,
+      hall_delta: String(selectedProfile.hallDelta),
+      ref_pressure: String(selectedProfile.refPressure),
+      bladder_1_pressure: String(selectedProfile.bladder1Pressure),
+      bladder_2_pressure: String(selectedProfile.bladder2Pressure),
+      profile_id: selectedProfile.profileId,
     }));
-  }, [defaultProfile]);
+  }, [selectedProfile]);
 
   const stopManualStream = useCallback(async () => {
     if (!streamStartedRef.current || stopRequestedRef.current) return;
@@ -640,37 +654,17 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
   const validateForm = (): boolean => {
     const errors: Partial<Record<keyof FormValues, string>> = {};
     
-    const hall = Number(form.hall_delta);
-    if (isNaN(hall) || hall <= 0) {
-      errors.hall_delta = "Hall Delta must be greater than 0";
-    }
-
-    const ref = Number(form.ref_pressure);
-    if (isNaN(ref) || ref <= 0) {
-      errors.ref_pressure = "Reference Pressure must be greater than 0";
-    }
-
-    const b1 = Number(form.bladder_1_pressure);
-    if (isNaN(b1) || b1 <= 0) {
-      errors.bladder_1_pressure = "Bladder 1 Pressure must be greater than 0";
-    }
-
-    const b2 = Number(form.bladder_2_pressure);
-    if (isNaN(b2) || b2 <= 0) {
-      errors.bladder_2_pressure = "Bladder 2 Pressure must be greater than 0";
-    }
-
     if (form.sample_interval_ms) {
       const interval = Number(form.sample_interval_ms);
-      if (isNaN(interval) || interval <= 0) {
-        errors.sample_interval_ms = "Sample interval must be greater than 0";
+      if (!Number.isSafeInteger(interval) || interval <= 0) {
+        errors.sample_interval_ms = "Sample interval must be a positive integer";
       }
     }
 
     if (form.calibration_window_ms) {
       const win = Number(form.calibration_window_ms);
-      if (isNaN(win) || win <= 0) {
-        errors.calibration_window_ms = "Calibration window must be greater than 0";
+      if (!Number.isSafeInteger(win) || win <= 0) {
+        errors.calibration_window_ms = "Calibration window must be a positive integer";
       }
     }
 
@@ -680,21 +674,8 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
   // Start calibration triggering
   const handleStartCalibration = async () => {
-    if (loadingProfile || !defaultProfile || profileError) {
-      setApiError(profileError ?? "The default calibration profile is not available yet.");
-      return;
-    }
-    if (!validateForm()) return;
-    if (
-      Number(form.hall_delta) !== defaultProfile.hallDelta
-      || Number(form.ref_pressure) !== defaultProfile.refPressure
-      || Number(form.bladder_1_pressure) !== defaultProfile.bladder1Pressure
-      || Number(form.bladder_2_pressure) !== defaultProfile.bladder2Pressure
-      || form.profile_id !== defaultProfile.profileId
-    ) {
-      setApiError("Calibration targets must match the selected server profile. Update the profile before starting calibration.");
-      return;
-    }
+    if (calibrationStartDisabled || isRunning) return;
+    if (!selectedProfile || !validateForm()) return;
 
     setIsSubmitting(true);
     setApiError(null);
@@ -724,11 +705,11 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
     try {
       const reqPayload = {
-        hall_delta: Number(form.hall_delta),
-        ref_pressure: Number(form.ref_pressure),
-        bladder_1_pressure: Number(form.bladder_1_pressure),
-        bladder_2_pressure: Number(form.bladder_2_pressure),
-        profile_id: form.profile_id || undefined,
+        hall_delta: selectedProfile.hallDelta,
+        ref_pressure: selectedProfile.refPressure,
+        bladder_1_pressure: selectedProfile.bladder1Pressure,
+        bladder_2_pressure: selectedProfile.bladder2Pressure,
+        profile_id: selectedProfile.profileId,
         sample_interval_ms: form.sample_interval_ms ? Number(form.sample_interval_ms) : undefined,
         calibration_window_ms: form.calibration_window_ms ? Number(form.calibration_window_ms) : undefined,
       };
@@ -803,11 +784,43 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
       readiness?.recalibrationRequired === false);
   const calibrationStartDisabled =
     loadingProfile ||
-    !defaultProfile ||
+    loadingReadiness ||
+    !selectedProfile ||
+    editor !== null ||
+    profileSaving ||
+    isCancelling ||
+    isRunning ||
+    readiness?.firmwareState === "CALIBRATING" ||
+    calState === "CANCELLING" ||
     Boolean(profileError) ||
     isSubmitting ||
     deviceUnavailable ||
     sessionActive;
+
+  const profileLocked = isRunning || isSubmitting || isCancelling || calState === "CANCELLING" || readiness?.firmwareState === "CALIBRATING" || sessionActive || loadingReadiness;
+  async function saveProfile(request: CalibrationProfileRequest) {
+    if (profileLocked || profileSaving) return;
+    setProfileSaving(true); setMutationError(null); setProfileNotice(null);
+    try {
+      const saved = editor === "edit" && selectedProfile
+        ? await updateProfile(selectedProfile.profileId, request) : await createProfile(request);
+      setSelectedProfileId(saved.profileId);
+      setEditor(null);
+      setProfileNotice(`Saved calibration profile ${saved.name}.`);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Failed to save calibration profile.");
+    } finally { setProfileSaving(false); }
+  }
+  async function makeDefault() {
+    if (!selectedProfile || profileLocked || profileSaving) return;
+    setProfileSaving(true); setMutationError(null); setProfileNotice(null);
+    try {
+      await setDefaultProfile(selectedProfile.profileId);
+      setProfileNotice(`Set ${selectedProfile.name} as default.`);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : "Failed to set default profile.");
+    } finally { setProfileSaving(false); }
+  }
 
   useEffect(() => {
     if (isSuccess || isFailure || isInterrupted || isCancelled) {
@@ -1145,6 +1158,36 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
               Calibration Options & Configuration
             </h4>
 
+            <section className="space-y-3 mb-5" aria-label="Calibration Profile">
+              <h3 className="font-bold">Calibration Profile</h3>
+              <p className="text-xs text-slate-500">Saved configuration used for calibration. Historical evidence below records previous execution results.</p>
+              <p role="status">{profileSaving ? "Profile saving…" : loadingProfile ? "Profile loading…" : profileError ? "Profile loading failed" : editor ? "Profile editing" : selectedProfile ? "Profile ready" : "No calibration profiles available."}</p>
+              {profileError && <p role="alert">Profile loading failed: {profileError} <button onClick={() => void refetch().catch(() => {})}>Retry loading profiles</button></p>}
+              <label className="block">Profile
+                <select className="block w-full rounded-xl border p-2" value={selectedProfileId ?? ""} disabled={profileLocked || loadingProfile || profileSaving || editor !== null} onChange={e => { setSelectedProfileId(e.target.value); setProfileNotice(null); }}>
+                  <option value="" disabled>Select a profile</option>
+                  {profiles.filter(p => p.active).map(p => <option key={p.profileId} value={p.profileId}>{p.name}{p.profileId === defaultProfile?.profileId ? " (Default)" : ""}</option>)}
+                </select>
+              </label>
+              {selectedProfile && <div className="text-sm space-y-1">
+                <p>{selectedProfile.name} · Active{selectedProfile.profileId === defaultProfile?.profileId ? " · Default" : ""}</p>
+                <p>Profile ID: {selectedProfile.profileId} · Version: {selectedProfile.version ?? "Unavailable"}</p>
+                <p>Hall Delta: {selectedProfile.hallDelta.toLocaleString()}</p>
+                <p>Reference Pressure: {selectedProfile.refPressure.toLocaleString()}</p>
+                <p>Bladder 1 Pressure: {selectedProfile.bladder1Pressure.toLocaleString()}</p>
+                <p>Bladder 2 Pressure: {selectedProfile.bladder2Pressure.toLocaleString()}</p>
+              </div>}
+              <div className="flex gap-3">
+                <Button disabled={profileLocked || loadingProfile || profileSaving || editor !== null} onClick={() => { setEditor("new"); setMutationError(null); }}>New Profile</Button>
+                <Button disabled={profileLocked || loadingProfile || profileSaving || editor !== null || !selectedProfile} onClick={() => { setEditor("edit"); setMutationError(null); }}>Edit Profile</Button>
+                <Button disabled={profileLocked || loadingProfile || profileSaving || editor !== null || !selectedProfile || selectedProfile.defaultProfile} onClick={() => void makeDefault()}>Set Default</Button>
+              </div>
+              {editor && <CalibrationProfileEditor profile={editor === "edit" ? selectedProfile : null} disabled={profileLocked || profileSaving} saving={profileSaving} onSave={saveProfile} onCancel={() => { setEditor(null); setMutationError(null); }} />}
+              {mutationError && <p role="alert" className="text-rose-700">{mutationError}</p>}
+              {profileNotice && <p role="status" className="text-emerald-700">{profileNotice}</p>}
+              {sessionActive && <p>Profile changes are unavailable while a session is active.</p>}
+            </section>
+
             {isSuccess ? (
               <div className="py-6 text-center space-y-4">
                 <div className="w-12 h-12 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full flex items-center justify-center mx-auto text-xl font-extrabold shadow-sm animate-bounce">
@@ -1197,7 +1240,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                       type="text"
                       disabled={isRunning}
                       value={form.hall_delta}
-                      onChange={(e) => handleInputChange("hall_delta", e.target.value)}
+                      readOnly
                       className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
                         formErrors.hall_delta ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
                       }`}
@@ -1218,7 +1261,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                       type="text"
                       disabled={isRunning}
                       value={form.ref_pressure}
-                      onChange={(e) => handleInputChange("ref_pressure", e.target.value)}
+                      readOnly
                       className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
                         formErrors.ref_pressure ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
                       }`}
@@ -1239,7 +1282,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                       type="text"
                       disabled={isRunning}
                       value={form.bladder_1_pressure}
-                      onChange={(e) => handleInputChange("bladder_1_pressure", e.target.value)}
+                      readOnly
                       className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
                         formErrors.bladder_1_pressure ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
                       }`}
@@ -1260,7 +1303,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
                       type="text"
                       disabled={isRunning}
                       value={form.bladder_2_pressure}
-                      onChange={(e) => handleInputChange("bladder_2_pressure", e.target.value)}
+                      readOnly
                       className={`block w-full px-3 py-2 border rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
                         formErrors.bladder_2_pressure ? "border-rose-300 ring-rose-500/10" : "border-slate-200"
                       }`}
@@ -1276,21 +1319,22 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
                   <div>
                     <label htmlFor="profile_id" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Profile ID (test value)
+                      Profile ID
                     </label>
                     <input
                       id="profile_id"
                       type="text"
                       disabled={isRunning}
                       value={form.profile_id}
-                      onChange={(e) => handleInputChange("profile_id", e.target.value)}
+                      readOnly
                       className="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
                     />
                   </div>
 
+                  <h3 className="col-span-2 font-bold text-sm">Calibration timing</h3>
                   <div>
                     <label htmlFor="sample_interval_ms" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Sample Interval ms (test value)
+                      Sample Interval ms
                     </label>
                     <input
                       id="sample_interval_ms"
@@ -1311,7 +1355,7 @@ export default function CalibrationWizardPage({ deviceId, onBack }: CalibrationW
 
                   <div className="col-span-2">
                     <label htmlFor="calibration_window_ms" className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Calibration Window ms (test value)
+                      Calibration Window ms
                     </label>
                     <input
                       id="calibration_window_ms"

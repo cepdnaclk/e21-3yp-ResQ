@@ -108,6 +108,24 @@ describe("V2 API clients", () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it("uses the shared authenticated profile mutation endpoints", async () => {
+    const request = { name: "Prototype", hallDelta: 210, refPressure: 1320000, bladder1Pressure: 4150000, bladder2Pressure: 4151822, active: true };
+    const fetchMock = mockFetch(...Array.from({ length: 4 }, () => jsonResponse({ profileId: "p/1", ...request })));
+    await firmwareApi.createCalibrationProfile(request);
+    await firmwareApi.updateCalibrationProfile("p/1", request);
+    await firmwareApi.setDefaultCalibrationProfile("p/1");
+    await firmwareApi.deactivateCalibrationProfile("p/1");
+    expect(fetchMock.mock.calls.map(call => String(call[0]))).toEqual([
+      "http://localhost:18080/api/firmware/calibration-profiles",
+      "http://localhost:18080/api/firmware/calibration-profiles/p%2F1",
+      "http://localhost:18080/api/firmware/calibration-profiles/p%2F1/default",
+      "http://localhost:18080/api/firmware/calibration-profiles/p%2F1",
+    ]);
+    expect(fetchMock.mock.calls.map(call => call[1]?.method)).toEqual(["POST", "PUT", "POST", "DELETE"]);
+    for (const call of fetchMock.mock.calls) expect(call[1]).toMatchObject({ credentials: "include" });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual(request);
+  });
+
   it("publishes firmware commands through the expected endpoint", async () => {
     const fetchMock = mockFetch(jsonResponse([{ profileId: "adult" }]), jsonResponse(null), jsonResponse({ requestId: "req-debug" }));
 
