@@ -84,6 +84,26 @@ public class SyncQueueRepository {
         }
     }
 
+    public record QueueStatus(long pendingCount, String lastSuccessAt, String lastAttemptAt, String lastError) {}
+
+    public synchronized QueueStatus status() {
+        try (Connection connection = openConnection(); Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                 SELECT COUNT(CASE WHEN sync_status IN ('PENDING','RETRY_LATER','SYNCING') THEN 1 END) AS pending,
+                        MAX(synced_at) AS success,
+                        MAX(last_attempt_at) AS attempted,
+                        (SELECT last_error FROM sync_queue WHERE last_attempt_at IS NOT NULL
+                         ORDER BY last_attempt_at DESC LIMIT 1) AS error
+                 FROM sync_queue
+                 """)) {
+            result.next();
+            return new QueueStatus(result.getLong("pending"), result.getString("success"),
+                    result.getString("attempted"), result.getString("error"));
+        } catch (SQLException error) {
+            throw new IllegalStateException("Failed to read cloud sync status", error);
+        }
+    }
+
     public synchronized List<SyncQueueItem> findRecent(int limit) {
         try (Connection connection = openConnection(); PreparedStatement statement = connection.prepareStatement("""
                 SELECT id, entity_type, entity_id, payload_json, sync_status, retry_count, last_error, created_at, last_attempt_at, synced_at
@@ -291,7 +311,7 @@ public class SyncQueueRepository {
         if (item.lastAttemptAt() == null) {
             return true;
         }
-        long retryDelayMs = Math.min(15 * 60_000L, 30_000L * Math.max(1, item.retryCount()));
+        long retryDelayMs = Math.min(15 * 60_000L, 30_000L * (1L << Math.min(5, Math.max(0, item.retryCount() - 1))));
         return !item.lastAttemptAt().plusMillis(retryDelayMs).isAfter(now);
     }
 

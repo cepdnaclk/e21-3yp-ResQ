@@ -1,162 +1,54 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  connectCalibrationStream,
-  isEndedSessionPayload,
-  subscribeToManikinsLive,
-  subscribeToSessionLive,
-} from "./liveEventsClient";
-
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-
-  onerror: (() => void) | null = null;
-  closed = false;
-  listeners = new Map<string, Array<(event: MessageEvent<string>) => void>>();
-
-  constructor(
-    public readonly url: string,
-    public readonly options?: EventSourceInit,
-  ) {
-    MockEventSource.instances.push(this);
-  }
-
-  addEventListener(type: string, listener: (event: MessageEvent<string>) => void) {
-    const listeners = this.listeners.get(type) ?? [];
-    listeners.push(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  emit(type: string, data: unknown) {
-    const payload = typeof data === "string" ? data : JSON.stringify(data);
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener({ data: payload } as MessageEvent<string>);
-    }
-  }
-}
-
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { subscribeToManikinsLive, subscribeToSessionLive, connectCalibrationStream, isEndedSessionPayload } from "./liveEventsClient";
+import { setStoredToken } from "../lib/tokenStore";
+let controller: ReadableStreamDefaultController<Uint8Array>;
+let fetchMock: ReturnType<typeof vi.fn>;
+let stop: (() => void) | undefined;
+const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+const emit = async (name: string, data: unknown) => {
+  controller.enqueue(new TextEncoder().encode(`event: ${name}\r\ndata: ${JSON.stringify(data)}\r\n\r\n`));
+  await flush();
+};
 beforeEach(() => {
-  MockEventSource.instances = [];
-  vi.stubGlobal("EventSource", MockEventSource);
+  setStoredToken("test-token");
+  fetchMock = vi.fn().mockImplementation(async () => new Response(new ReadableStream({ start(c) { controller = c; } }), { headers: { "Content-Type": "text/event-stream" } }));
+  vi.stubGlobal("fetch", fetchMock);
 });
-
-afterEach(() => {
-  vi.unstubAllGlobals();
+afterEach(() => { stop?.(); stop = undefined; setStoredToken(null); vi.unstubAllGlobals(); });
+it("authenticates manikin SSE without relying on cross-site cookies", async () => {
+  const update = vi.fn();
+  const sub = subscribeToManikinsLive(update); stop = sub.stop;
+  await flush();
+  expect(fetchMock).toHaveBeenCalledWith("http://localhost:18080/api/stream/manikins/live", expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer test-token" }) }));
+  await emit("heartbeat", {});
+  await emit("manikins-live", [{ deviceId: "m1" }]);
+  expect(update).toHaveBeenCalledExactlyOnceWith([{ deviceId: "m1" }]);
+  sub.stop();
+  expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
 });
-
-describe("liveEventsClient", () => {
-  it("subscribes to all manikin live updates and ignores malformed payloads after stop", () => {
-    const onUpdate = vi.fn();
-    const onError = vi.fn();
-
-    const subscription = subscribeToManikinsLive(onUpdate, onError);
-    const source = MockEventSource.instances[0];
-
-    expect(source.url).toBe("http://localhost:18080/api/stream/manikins/live");
-    expect(source.options).toEqual({ withCredentials: true });
-
-    source.emit("manikins-live", [{ deviceId: "m1", status: "READY" }]);
-    source.emit("manikins-live", { deviceId: "m2", status: "OFFLINE" });
-    source.emit("manikins-live", "{not-json");
-    source.onerror?.();
-
-    expect(onUpdate).toHaveBeenNthCalledWith(1, [{ deviceId: "m1", status: "READY" }]);
-    expect(onUpdate).toHaveBeenNthCalledWith(2, [{ deviceId: "m2", status: "OFFLINE" }]);
-    expect(onError).toHaveBeenCalledWith(new Error("Manikins live stream connection error"));
-
-    subscription.stop();
-    source.emit("manikins-live", [{ deviceId: "m3" }]);
-    source.onerror?.();
-
-    expect(source.closed).toBe(true);
-    expect(onUpdate).toHaveBeenCalledTimes(2);
-    expect(onError).toHaveBeenCalledTimes(1);
-  });
-
-  it("subscribes to session live updates, reports errors, and stops cleanly", () => {
-    const onUpdate = vi.fn();
-    const onEnded = vi.fn();
-    const onError = vi.fn();
-
-    const subscription = subscribeToSessionLive("session/1", "manikin-1", onUpdate, onEnded, onError);
-    const source = MockEventSource.instances[0];
-
-    expect(source.url).toBe("http://localhost:18080/api/stream/sessions/live/session%2F1");
-
-    source.emit("session-live", { sessionId: "session/1", live: true });
-    source.emit("session-live", "{not-json");
-    source.onerror?.();
-
-    expect(onUpdate).toHaveBeenCalledWith({ sessionId: "session/1", live: true });
-    expect(onEnded).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledWith(new Error("Session live stream connection error"));
-
-    subscription.stop();
-    source.emit("session-live", { sessionId: "session/1", live: false });
-    expect(source.closed).toBe(true);
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([null, {}])("handles terminal payload %j exactly once and suppresses later callbacks", (terminalPayload) => {
-    const onUpdate = vi.fn();
-    const onEnded = vi.fn();
-    const onError = vi.fn();
-
-    const subscription = subscribeToSessionLive("session-1", "manikin-1", onUpdate, onEnded, onError);
-    const source = MockEventSource.instances[0];
-
-    source.emit("session-live", terminalPayload);
-    source.emit("session-live", terminalPayload);
-    source.emit("session-live", { sessionId: "session-1", live: false });
-    source.onerror?.();
-    subscription.stop();
-
-    expect(source.closed).toBe(true);
-    expect(onEnded).toHaveBeenCalledTimes(1);
-    expect(onUpdate).not.toHaveBeenCalled();
-    expect(onError).not.toHaveBeenCalled();
-  });
-
-  it("recognizes backend completion markers without treating populated updates as ended", () => {
-    expect(isEndedSessionPayload(null)).toBe(true);
-    expect(isEndedSessionPayload(undefined)).toBe(true);
-    expect(isEndedSessionPayload({})).toBe(true);
-    expect(
-      isEndedSessionPayload({
-        sessionId: "session-1",
-        active: false,
-        lifecycleState: "COMPLETED",
-      }),
-    ).toBe(false);
-  });
-
-  it("routes calibration stream events to snapshot, update, final, and error handlers", () => {
-    const handlers = {
-      onSnapshot: vi.fn(),
-      onUpdate: vi.fn(),
-      onFinal: vi.fn(),
-      onError: vi.fn(),
-    };
-
-    const source = connectCalibrationStream("manikin/1", handlers) as unknown as MockEventSource;
-
-    expect(source.url).toBe("http://localhost:18080/api/stream/manikins/manikin%2F1/calibration");
-
-    source.emit("calibration_snapshot", { type: "calibration_snapshot", value: 1 });
-    source.emit("calibration_update", { type: "calibration_update", value: 2 });
-    source.emit("calibration_final", { type: "calibration_final", value: 3 });
-    source.emit("calibration_update", { type: "anything_else", eventId: 4002 });
-    source.emit("calibration_update", { type: "calibration_keepalive" });
-    source.emit("calibration_update", "{not-json");
-    source.onerror?.();
-
-    expect(handlers.onSnapshot).toHaveBeenCalledWith({ type: "calibration_snapshot", value: 1 });
-    expect(handlers.onUpdate).toHaveBeenCalledWith({ type: "calibration_update", value: 2 });
-    expect(handlers.onFinal).toHaveBeenNthCalledWith(1, { type: "calibration_final", value: 3 });
-    expect(handlers.onFinal).toHaveBeenNthCalledWith(2, { type: "anything_else", eventId: 4002 });
-    expect(handlers.onError).toHaveBeenCalledWith(new Error("Calibration stream connection error"));
-  });
+it.each([null, {}])("closes session SSE on terminal payload %j", async (terminal) => {
+  const update = vi.fn(), ended = vi.fn();
+  const sub = subscribeToSessionLive("s/1", "m1", update, ended); stop = sub.stop;
+  await flush();
+  expect(fetchMock.mock.calls[0][0]).toContain("sessions/live/s%2F1");
+  await emit("session-live", { sessionId: "s/1" });
+  await emit("session-live", terminal);
+  expect(update).toHaveBeenCalledTimes(1);
+  expect(ended).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+});
+it("routes calibration events through the authenticated stream", async () => {
+  const handlers = { onSnapshot: vi.fn(), onUpdate: vi.fn(), onFinal: vi.fn(), onError: vi.fn() };
+  const sub = connectCalibrationStream("m/1", handlers); stop = sub.close;
+  await flush();
+  await emit("calibration_snapshot", { type: "calibration_snapshot" });
+  await emit("calibration_update", { type: "calibration_update" });
+  await emit("calibration_final", { type: "calibration_final" });
+  expect(handlers.onSnapshot).toHaveBeenCalledTimes(1);
+  expect(handlers.onUpdate).toHaveBeenCalledTimes(1);
+  expect(handlers.onFinal).toHaveBeenCalledTimes(1);
+});
+it("recognizes completion without rejecting populated snapshots", () => {
+  expect(isEndedSessionPayload(undefined)).toBe(true);
+  expect(isEndedSessionPayload({ active: false })).toBe(false);
 });

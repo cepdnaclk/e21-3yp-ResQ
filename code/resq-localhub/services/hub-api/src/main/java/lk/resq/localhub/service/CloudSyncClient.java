@@ -48,12 +48,13 @@ public class CloudSyncClient implements CloudSyncGateway {
             );
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new CloudSyncException(
-                        "Cloud API returned HTTP " + response.statusCode() + ": " + abbreviate(response.body())
+                        "Cloud API returned HTTP " + response.statusCode(),
+                        response.statusCode() == 408 || response.statusCode() == 429 || response.statusCode() >= 500
                 );
             }
             return new CloudSyncResult(response.statusCode(), cloudSessionId(response.body()), response.body());
         } catch (IOException error) {
-            throw new CloudSyncException("Cloud API request failed: " + error.getMessage(), error);
+            throw new CloudSyncException("Cloud API request failed", error);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new CloudSyncException("Cloud API request was interrupted", error);
@@ -88,13 +89,23 @@ public class CloudSyncClient implements CloudSyncGateway {
     }
 
     public static class CloudSyncException extends Exception {
+        private final boolean retryable;
+
+        public boolean isRetryable() { return retryable; }
+
+        public CloudSyncException(String message, boolean retryable) {
+            super(message);
+            this.retryable = retryable;
+        }
 
         public CloudSyncException(String message) {
             super(message);
+            this.retryable = false;
         }
 
         public CloudSyncException(String message, Throwable cause) {
             super(message, cause);
+            this.retryable = true;
         }
     }
 }

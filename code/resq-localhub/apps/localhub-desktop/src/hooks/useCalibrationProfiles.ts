@@ -1,33 +1,39 @@
-import { useEffect, useState } from "react";
-import { getCalibrationProfiles, getDefaultCalibrationProfile } from "../api/firmwareApi";
-import type { CalibrationProfileResponse } from "../types/firmware";
+import { useCallback, useEffect, useState } from "react";
+import * as api from "../api/firmwareApi";
+import type { CalibrationProfileRequest, CalibrationProfileResponse } from "../types/firmware";
 
 export function useCalibrationProfiles() {
   const [profiles, setProfiles] = useState<CalibrationProfileResponse[]>([]);
-  const [defaultProfile, setDefaultProfile] = useState<CalibrationProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const loadProfiles = async () => {
+  const loadProfiles = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, def] = await Promise.all([
-        getCalibrationProfiles(),
-        getDefaultCalibrationProfile()
-      ]);
+      const list = await api.getCalibrationProfiles();
       setProfiles(list);
-      setDefaultProfile(def);
       setError(null);
+      return list;
     } catch (err) {
-      setError("Failed to load calibration profiles.");
+      setError(err instanceof Error ? err.message : "Failed to load calibration profiles.");
+      throw err;
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadProfiles();
   }, []);
+  useEffect(() => { void loadProfiles().catch(() => {}); }, [loadProfiles]);
 
-  return { profiles, defaultProfile, loading, error, refetch: loadProfiles };
+  async function mutate(operation: Promise<CalibrationProfileResponse>) {
+    const saved = await operation;
+    await loadProfiles();
+    return saved;
+  }
+  const activeProfiles = profiles.filter(profile => profile.active);
+  const defaultProfile = activeProfiles.find(profile => profile.defaultProfile) ?? null;
+  return {
+    profiles, activeProfiles, defaultProfile, loading, error, refetch: () => loadProfiles().catch(() => undefined),
+    createProfile: (request: CalibrationProfileRequest) => mutate(api.createCalibrationProfile(request)),
+    updateProfile: (id: string, request: CalibrationProfileRequest) => mutate(api.updateCalibrationProfile(id, request)),
+    setDefaultProfile: (id: string) => mutate(api.setDefaultCalibrationProfile(id)),
+    deactivateProfile: (id: string) => mutate(api.deactivateCalibrationProfile(id)),
+  };
 }

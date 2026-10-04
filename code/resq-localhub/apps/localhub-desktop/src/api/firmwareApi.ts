@@ -7,18 +7,12 @@ import { getJson, postJson } from "./localHubClient";
 import type {
   FirmwareCommandPublishResponse,
   FirmwareDeviceDiagnosticsResponse,
-  CalibrationProfileResponse,
 } from "../types/firmware";
 
-/** GET /api/firmware/calibration-profiles */
-export async function getCalibrationProfiles(): Promise<CalibrationProfileResponse[]> {
-  return getJson<CalibrationProfileResponse[]>("/api/firmware/calibration-profiles");
-}
-
-/** GET /api/firmware/calibration-profiles/default */
-export async function getDefaultCalibrationProfile(): Promise<CalibrationProfileResponse | null> {
-  return getJson<CalibrationProfileResponse | null>("/api/firmware/calibration-profiles/default");
-}
+export {
+  getCalibrationProfiles, getDefaultCalibrationProfile, createCalibrationProfile,
+  updateCalibrationProfile, setDefaultCalibrationProfile, deactivateCalibrationProfile,
+} from "../lib/browserFirmwareApi";
 
 function firmwareDevicePath(deviceId: string, suffix: string): string {
   return `/api/devices/${encodeURIComponent(deviceId)}/firmware${suffix}`;

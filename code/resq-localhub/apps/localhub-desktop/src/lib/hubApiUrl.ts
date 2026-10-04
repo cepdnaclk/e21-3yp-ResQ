@@ -24,7 +24,9 @@ export function resolveLocalHubApiBase(
   location?: BrowserLocation,
   configuredUrl?: string,
 ): string {
-  if (configuredUrl?.trim()) {
+  // A build-time development/LAN override must never redirect the installed UI.
+  const desktop = location && (location.protocol === "tauri:" || location.protocol === "file:" || TAURI_HOSTNAMES.has(location.hostname));
+  if (!desktop && configuredUrl?.trim()) {
     return normalizeBaseUrl(configuredUrl);
   }
 
@@ -61,7 +63,7 @@ export async function waitForHubApiReady(timeoutMs = 20_000): Promise<void> {
 
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(healthUrl, { cache: "no-store" });
+      const response = await fetch(healthUrl, { cache: "no-store", signal: AbortSignal.timeout(2000) });
       if (response.ok) {
         return;
       }

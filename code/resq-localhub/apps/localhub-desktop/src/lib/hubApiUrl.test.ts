@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { resolveLocalHubApiBase } from "./hubApiUrl";
 
 describe("resolveLocalHubApiBase", () => {
+  it("ignores stale build-time URLs in the installed desktop", () => {
+    expect(resolveLocalHubApiBase({ protocol: "http:", hostname: "tauri.localhost" }, "http://10.0.0.5:1420"))
+      .toBe("http://127.0.0.1:18080");
+  });
   it("uses the tablet page hostname for LAN REST and SSE clients", () => {
     expect(resolveLocalHubApiBase({ protocol: "http:", hostname: "192.168.8.100" })).toBe(
       "http://192.168.8.100:18080",

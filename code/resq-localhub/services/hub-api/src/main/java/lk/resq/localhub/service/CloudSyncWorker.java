@@ -94,7 +94,9 @@ public class CloudSyncWorker {
         int retryCount = item.retryCount() + 1;
         String message = concise(error);
         try {
-            if (retryCount >= Math.max(1, properties.getMaxRetryCount())) {
+            boolean transientFailure = error instanceof CloudSyncClient.CloudSyncException cloudError
+                    && cloudError.isRetryable();
+            if (!transientFailure && retryCount >= Math.max(1, properties.getMaxRetryCount())) {
                 syncQueueService.markFailed(item.id(), retryCount, message, attemptedAt);
                 logger.warn("Cloud sync permanently failed for {}:{} after {} attempts: {}",
                         item.entityType(), item.entityId(), retryCount, message);

@@ -4,7 +4,7 @@ import type {
   LiveMetricPayload,
   LiveSourceMode,
 } from "@resq/shared";
-import { getHubApiBaseUrl, getLocalServiceHost } from "./hubApiUrl";
+import { getHubApiBaseUrl, getLocalServiceHost, isTauriRuntime } from "./hubApiUrl";
 import { createMqttLiveClient, type MqttLiveClient } from "./mqttLiveClient";
 import { createPollingLiveClient, type PollingLiveClient } from "./pollingLiveClient";
 import { createSseLiveClient, type SseLiveClient } from "./sseLiveClient";
@@ -73,7 +73,7 @@ export function getDefaultMqttWebSocketUrl(): string {
     return "ws://localhost:9001";
   }
 
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const protocol = !isTauriRuntime() && window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${getLocalServiceHost()}:9001`;
 }
 

@@ -1,205 +1,58 @@
-/**
- * liveEventsClient.ts — V2 SSE subscription wrapper.
- *
- * This wraps the existing sseLiveClient.ts without replacing it.
- * The underlying EventSource, SseEmitter, and event names are untouched.
- *
- * Protected SSE endpoints:
- *   GET /api/stream/manikins/live   (event: manikins-live)
- *   GET /api/stream/sessions/live/{sessionId}  (event: session-live)
- *
- * Protected files this module depends on (do NOT modify):
- *   src/lib/sseLiveClient.ts
- *   src/lib/liveClient.ts
- */
-
-import {
-  createSseLiveClient,
-  type SseLiveClient,
-  type SseLiveClientCallbacks,
-} from "../lib/sseLiveClient";
+/** Authenticated SSE subscriptions shared by desktop and LAN dashboards. */
+import { createSseClient, createSseLiveClient, type SseLiveClient, type SseLiveClientCallbacks } from "../lib/sseLiveClient";
 import { getHubApiBaseUrl } from "../lib/hubApiUrl";
-import type { ManikinLiveSummary } from "../types/manikin";
+import type { ManikinLiveSummary, CalibrationStreamEvent } from "../types/manikin";
 import type { SessionLiveView } from "../types/live";
 
 export type ManikinsLiveUpdate = ManikinLiveSummary[];
+export type ManikinsLiveSubscription = { stop(): void };
+export type SessionLiveSubscription = { stop(): void };
 
-export type ManikinsLiveSubscription = {
-  stop: () => void;
-};
-
-export type SessionLiveSubscription = {
-  stop: () => void;
-};
-
-export function isEndedSessionPayload(
-  value: unknown,
-): value is null | undefined | Record<string, never> {
-  if (value === null || value === undefined) {
-    return true;
-  }
-  return (
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.keys(value as Record<string, unknown>).length === 0
-  );
+export function isEndedSessionPayload(value: unknown): value is null | undefined | Record<string, never> {
+  return value == null || (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
 }
 
-// ─────────────────────────────────────────────
-// Manikins live stream
-// ─────────────────────────────────────────────
-
-/**
- * Subscribe to the instructor-wide manikins live stream.
- * Uses SSE event `manikins-live`.
- *
- * @param onUpdate  Called whenever a snapshot update arrives
- * @param onError   Called on SSE error (optional)
- * @returns Subscription with stop() method
- */
-export function subscribeToManikinsLive(
-  onUpdate: (manikins: ManikinsLiveUpdate) => void,
-  onError?: (error: Error) => void,
-): ManikinsLiveSubscription {
-  // We need a deviceId placeholder for the existing sseLiveClient API.
-  // For the instructor all-manikins stream, we use "*" which matches any device update.
-  const backendBaseUrl = getHubApiBaseUrl();
-
-  // sseLiveClient expects a deviceId for filtering. Since we want all devices,
-  // we use a raw EventSource directly for this stream.
-  const url = `${backendBaseUrl}/api/stream/manikins/live`;
-  let stopped = false;
-  const eventSource = new EventSource(url, { withCredentials: true });
-
-  eventSource.addEventListener("manikins-live", (event: MessageEvent<string>) => {
-    if (stopped) return;
-    try {
-      const parsed: unknown = JSON.parse(event.data);
-      const list = Array.isArray(parsed) ? parsed : [parsed];
-      onUpdate(list as ManikinsLiveUpdate);
-    } catch {
-      // ignore malformed payloads
-    }
+function subscribe(path: string, events: string[], onMessage: (value: unknown) => void, onError?: (error: Error) => void) {
+  const stream = createSseClient<unknown>(getHubApiBaseUrl() + path, {
+    onOpen() {}, onMessage, onError: (error) => onError?.(error),
+  }, (event, data) => {
+    if (!event || !events.includes(event)) return [];
+    try { return [JSON.parse(data)]; } catch { return []; }
   });
-
-  eventSource.onerror = () => {
-    if (!stopped) {
-      onError?.(new Error("Manikins live stream connection error"));
-    }
-  };
-
-  return {
-    stop() {
-      stopped = true;
-      eventSource.close();
-    },
-  };
+  stream.start();
+  return stream;
 }
 
-// ─────────────────────────────────────────────
-// Session live stream
-// ─────────────────────────────────────────────
-
-/**
- * Subscribe to a per-session live stream.
- * Uses SSE event `session-live`.
- * When the session ends, the backend sends a null payload — onEnded is called.
- *
- * @param sessionId  The session UUID to subscribe to
- * @param deviceId   The manikin device ID (needed for sseLiveClient filtering)
- * @param onUpdate   Called whenever a live snapshot arrives
- * @param onEnded    Called when the session ends (backend sends null payload)
- * @param onError    Called on SSE error (optional)
- */
-export function subscribeToSessionLive(
-  sessionId: string,
-  deviceId: string,
-  onUpdate: (view: SessionLiveView) => void,
-  onEnded: () => void,
-  onError?: (error: Error) => void,
-): SessionLiveSubscription {
-  const backendBaseUrl = getHubApiBaseUrl();
-  const url = `${backendBaseUrl}/api/stream/sessions/live/${encodeURIComponent(sessionId)}`;
-  let stopped = false;
-  const eventSource = new EventSource(url, { withCredentials: true });
-
-  eventSource.addEventListener("session-live", (event: MessageEvent<string>) => {
-    if (stopped) return;
-    try {
-      const parsed: unknown = JSON.parse(event.data);
-      if (isEndedSessionPayload(parsed)) {
-        stopped = true;
-        eventSource.close();
-        onEnded();
-        return;
-      }
-      onUpdate(parsed as SessionLiveView);
-    } catch {
-      // ignore malformed payloads
-    }
-  });
-
-  eventSource.onerror = () => {
-    if (!stopped) {
-      onError?.(new Error("Session live stream connection error"));
-    }
-  };
-
-  return {
-    stop() {
-      stopped = true;
-      eventSource.close();
-    },
-  };
+export function subscribeToManikinsLive(onUpdate: (manikins: ManikinsLiveUpdate) => void, onError?: (error: Error) => void): ManikinsLiveSubscription {
+  return subscribe("/api/stream/manikins/live", ["manikins-live"], (value) => {
+    onUpdate((Array.isArray(value) ? value : [value]) as ManikinsLiveUpdate);
+  }, onError);
 }
 
-// Re-export the existing low-level client in case V2 pages need it directly.
+export function subscribeToSessionLive(sessionId: string, _deviceId: string, onUpdate: (view: SessionLiveView) => void, onEnded: () => void, onError?: (error: Error) => void): SessionLiveSubscription {
+  const stream = subscribe(`/api/stream/sessions/live/${encodeURIComponent(sessionId)}`, ["session-live"], (value) => {
+    if (isEndedSessionPayload(value)) { stream.stop(); onEnded(); }
+    else onUpdate(value as SessionLiveView);
+  }, onError);
+  return stream;
+}
+
+export function connectCalibrationStream(deviceId: string, handlers: {
+  onSnapshot(event: CalibrationStreamEvent): void;
+  onUpdate(event: CalibrationStreamEvent): void;
+  onFinal(event: CalibrationStreamEvent): void;
+  onError(error: Error): void;
+}): { close(): void } {
+  const stream = subscribe(`/api/stream/manikins/${encodeURIComponent(deviceId)}/calibration`,
+    ["calibration_snapshot", "calibration_update", "calibration_final"], (value) => {
+      const event = value as CalibrationStreamEvent;
+      if (!event || event.type === "calibration_keepalive") return;
+      if (event.type === "calibration_snapshot") handlers.onSnapshot(event);
+      else if (event.type === "calibration_update") handlers.onUpdate(event);
+      else if (event.type === "calibration_final" || event.eventId === 4002) handlers.onFinal(event);
+    }, handlers.onError);
+  return { close: () => stream.stop() };
+}
+
 export { createSseLiveClient };
 export type { SseLiveClient, SseLiveClientCallbacks };
-
-import type { CalibrationStreamEvent } from "../types/manikin";
-
-export function connectCalibrationStream(
-  deviceId: string,
-  handlers: {
-    onSnapshot: (event: CalibrationStreamEvent) => void;
-    onUpdate: (event: CalibrationStreamEvent) => void;
-    onFinal: (event: CalibrationStreamEvent) => void;
-    onError: (error: Error) => void;
-  },
-): EventSource {
-  const backendBaseUrl = getHubApiBaseUrl();
-  const url = `${backendBaseUrl}/api/stream/manikins/${encodeURIComponent(deviceId)}/calibration`;
-  const eventSource = new EventSource(url, { withCredentials: true });
-
-  const handleMessage = (event: MessageEvent<string>) => {
-    try {
-      const parsed = JSON.parse(event.data) as CalibrationStreamEvent;
-      
-      // Safely handle calibration_keepalive events
-      if (parsed.type === "calibration_keepalive") {
-        return;
-      }
-
-      if (parsed.type === "calibration_snapshot") {
-        handlers.onSnapshot(parsed);
-      } else if (parsed.type === "calibration_update") {
-        handlers.onUpdate(parsed);
-      } else if (parsed.type === "calibration_final" || parsed.eventId === 4002) {
-        handlers.onFinal(parsed);
-      }
-    } catch (e) {
-      // ignore JSON parse failures
-    }
-  };
-
-  eventSource.addEventListener("calibration_snapshot", handleMessage);
-  eventSource.addEventListener("calibration_update", handleMessage);
-  eventSource.addEventListener("calibration_final", handleMessage);
-
-  eventSource.onerror = () => {
-    handlers.onError(new Error("Calibration stream connection error"));
-  };
-
-  return eventSource;
-}

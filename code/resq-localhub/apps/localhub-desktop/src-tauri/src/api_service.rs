@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     env, fs,
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Mutex,
@@ -35,10 +36,15 @@ pub struct ApiServiceStatus {
 const BACKEND_RELATIVE_PATH: &str = "../../../services/hub-api";
 const CLOUD_SYNC_CONFIG_DIR: &str = ".resq-localhub";
 const CLOUD_SYNC_CONFIG_FILE: &str = "cloud-sync.env";
-const CLOUD_SYNC_ENV_KEYS: [&str; 9] = [
+const CLOUD_SYNC_ENV_KEYS: [&str; 14] = [
     "RESQ_CLOUD_SYNC_ENABLED",
     "RESQ_CLOUD_SYNC_BASE_URL",
     "RESQ_CLOUD_SYNC_FIXED_DELAY_MS",
+    "RESQ_CLOUD_SYNC_HUB_ID",
+    "RESQ_CLOUD_SYNC_HUB_KEY",
+    "RESQ_CLOUD_SYNC_BATCH_SIZE",
+    "RESQ_CLOUD_SYNC_REQUEST_TIMEOUT_MS",
+    "RESQ_CLOUD_SYNC_MAX_RETRY_COUNT",
     "RESQ_ROSTER_SYNC_ENABLED",
     "RESQ_ROSTER_SYNC_BASE_URL",
     "RESQ_ROSTER_SYNC_HUB_ID",
@@ -150,8 +156,6 @@ impl ApiServiceState {
                 "RESQ_ROSTER_SYNC_BASE_URL",
                 "https://0p72nthzej.execute-api.ap-southeast-1.amazonaws.com",
             ),
-            ("RESQ_ROSTER_SYNC_HUB_ID", "hub-dev-01"),
-            ("RESQ_ROSTER_SYNC_HUB_KEY", "dev-localhub-key-2026"),
             ("RESQ_CLOUD_SYNC_FIXED_DELAY_MS", "60000"),
             ("RESQ_ROSTER_SYNC_FIXED_DELAY_MS", "60000"),
         ];
@@ -683,7 +687,18 @@ impl ApiServiceState {
         let clean_jar = Self::clean_windows_path(&jar_path);
         let clean_config = Self::clean_windows_path(&config_path);
         let clean_java = Self::clean_windows_path(&java.command_path);
-        let (log_file, log_path) = Self::backend_log_file(app)?;
+        let (mut log_file, log_path) = Self::backend_log_file(app)?;
+        writeln!(
+            log_file,
+            "LocalHub {} resources={} jar={} config={} java={} api_port={}",
+            app.package_info().version,
+            resource_dir.display(),
+            clean_jar.display(),
+            clean_config.display(),
+            clean_java.display(),
+            Self::backend_port()
+        )
+        .map_err(|error| format!("Failed to write release diagnostics: {error}"))?;
         let log_file_err = log_file
             .try_clone()
             .map_err(|error| format!("Failed to clone backend log file handle: {error}"))?;
@@ -693,7 +708,7 @@ impl ApiServiceState {
             .arg("-jar")
             .arg(&clean_jar)
             .arg(format!(
-                "--spring.config.location={}",
+                "--spring.config.additional-location={}",
                 clean_config.display()
             ))
             .current_dir(&resource_dir)
@@ -713,7 +728,10 @@ impl ApiServiceState {
             vec![
                 "-jar".to_string(),
                 clean_jar.display().to_string(),
-                format!("--spring.config.location={}", clean_config.display()),
+                format!(
+                    "--spring.config.additional-location={}",
+                    clean_config.display()
+                ),
             ],
         ))
     }
@@ -776,7 +794,7 @@ impl ApiServiceState {
             "Backend command path: {}",
             command.get_program().to_string_lossy()
         );
-        eprintln!("Backend command configuration: {:?}", command);
+        // Command's Debug representation includes environment values, including hub keys.
 
         let mut status = ApiServiceStatus {
             running: true,

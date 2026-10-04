@@ -130,9 +130,11 @@ export function useSessionLiveStream({
             }
             subscription?.stop();
           },
-          () => {
-            // EventSource reconnects automatically. Preserve the last valid
-            // snapshot instead of replacing live metrics with an error state.
+          (error) => {
+            if (/^AUTH_/.test(error.message) && !disposed) {
+              setError("Your live stream is not authorized. Sign in again or check your session access.");
+            }
+            // The fetch stream reconnects after transient failures while retaining metrics.
           },
         );
       } catch {
